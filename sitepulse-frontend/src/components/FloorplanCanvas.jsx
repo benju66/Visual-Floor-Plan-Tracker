@@ -66,12 +66,25 @@ export default function FloorplanCanvas({
     const stage = e.target.getStage();
     const pointer = stage.getPointerPosition();
 
-    // UPGRADED MATH: Convert screen click to logical coordinate based on zoom/pan
     const logicalX = (pointer.x - stage.x()) / stage.scaleX();
     const logicalY = (pointer.y - stage.y()) / stage.scaleY();
 
-    const pctX = logicalX / dimensions.width;
-    const pctY = logicalY / dimensions.height;
+    let pctX = logicalX / dimensions.width;
+    let pctY = logicalY / dimensions.height;
+
+    // Orthogonal snapping: hold Shift for horizontal or vertical segments from the last point
+    if (e.evt.shiftKey && draftPoints.length > 0) {
+      const lastPoint = draftPoints[draftPoints.length - 1];
+      const dx = Math.abs(pctX - lastPoint.pctX);
+      const dy = Math.abs(pctY - lastPoint.pctY);
+
+      if (dx > dy) {
+        pctY = lastPoint.pctY;
+      } else {
+        pctX = lastPoint.pctX;
+      }
+    }
+
     setDraftPoints([...draftPoints, { pctX, pctY }]);
   };
 

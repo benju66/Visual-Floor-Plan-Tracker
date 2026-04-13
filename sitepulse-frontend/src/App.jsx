@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import FloorplanCanvas from './components/FloorplanCanvas';
-import { MILESTONES } from './utils/constants';
+import FieldStatusTable from './components/FieldStatusTable';
 import { supabase } from './supabaseClient';
 
 function App() {
+  const [viewMode, setViewMode] = useState('list');
+
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [showHistoryHover, setShowHistoryHover] = useState(false);
   
@@ -36,21 +38,45 @@ function App() {
     loadData();
   }, []);
 
-  // 2. NEW: Load units whenever the active sheet changes
   useEffect(() => {
     async function loadUnitsAndStatuses() {
       if (!activeSheetId) {
         setUnits([]);
+        setActiveStatuses([]);
         return;
       }
 
-      const { data: loadedUnits, error } = await supabase
+      const { data: loadedUnits, error: unitError } = await supabase
         .from('units')
         .select('*')
         .eq('sheet_id', activeSheetId);
-        
-      if (!error && loadedUnits) {
+
+      if (!unitError && loadedUnits) {
         setUnits(loadedUnits);
+
+        if (loadedUnits.length > 0) {
+          const unitIds = loadedUnits.map(u => u.id);
+
+          const { data: logs, error: logError } = await supabase
+            .from('status_logs')
+            .select('*')
+            .in('unit_id', unitIds)
+            .order('created_at', { ascending: false });
+
+          if (!logError && logs) {
+            const latestStatuses = [];
+            const seenIds = new Set();
+            for (const log of logs) {
+              if (!seenIds.has(log.unit_id)) {
+                latestStatuses.push(log);
+                seenIds.add(log.unit_id);
+              }
+            }
+            setActiveStatuses(latestStatuses);
+          }
+        } else {
+          setActiveStatuses([]);
+        }
       }
     }
     loadUnitsAndStatuses();
@@ -128,6 +154,27 @@ function App() {
     }
   };
 
+  const handleDeleteUnit = async (unitId) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this unit markup?");
+    if (!confirmDelete) return;
+
+    try {
+      const { error } = await supabase.from('units').delete().eq('id', unitId);
+      if (error) throw error;
+
+      setUnits(units.filter(u => u.id !== unitId));
+    } catch (err) {
+      alert("Error deleting unit: " + err.message);
+    }
+  };
+
+  const handleStatusUpdate = (newStatusLog) => {
+    setActiveStatuses(prev => [
+      ...prev.filter(s => s.unit_id !== newStatusLog.unit_id),
+      newStatusLog,
+    ]);
+  };
+
   const activeSheet = sheets.find(s => s.id === activeSheetId);
 
   return (
@@ -155,44 +202,92 @@ function App() {
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <button onClick={() => setShowHistoryHover(!showHistoryHover)} className="px-4 py-2 rounded border bg-white cursor-pointer shadow-sm">
-            {showHistoryHover ? 'Hover History: ON' : 'Hover History: OFF'}
-          </button>
-          <button 
-            onClick={() => setIsDrawingMode(!isDrawingMode)} 
-            disabled={!activeSheet}
-            className={`px-4 py-2 rounded font-bold cursor-pointer shadow-sm ${!activeSheet ? 'opacity-50' : ''}`} 
-            style={{backgroundColor: isDrawingMode ? '#ef4444' : '#2563eb', color: 'white'}}
-          >
-            {isDrawingMode ? 'Cancel Drawing' : '+ Draw Unit'}
-          </button>
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('list');
+                setIsDrawingMode(false);
+              }}
+              className={`px-4 py-2 text-sm font-semibold cursor-pointer ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Field list
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('map')}
+              className={`px-4 py-2 text-sm font-semibold cursor-pointer border-l border-gray-300 ${viewMode === 'map' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Map
+            </button>
+          </div>
+          {viewMode === 'map' && (
+            <>
+              <button type="button" onClick={() => setShowHistoryHover(!showHistoryHover)} className="px-4 py-2 rounded border bg-white cursor-pointer shadow-sm">
+                {showHistoryHover ? 'Hover History: ON' : 'Hover History: OFF'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDrawingMode(!isDrawingMode)}
+                disabled={!activeSheet}
+                className={`px-4 py-2 rounded font-bold cursor-pointer shadow-sm ${!activeSheet ? 'opacity-50' : ''}`}
+                style={{ backgroundColor: isDrawingMode ? '#ef4444' : '#2563eb', color: 'white' }}
+              >
+                {isDrawingMode ? 'Cancel Drawing' : '+ Draw Unit'}
+              </button>
+            </>
+          )}
         </div>
       </header>
 
-      <div style={{display: 'flex', gap: '20px'}}>
-        <div style={{flex: '3'}}>
-          {activeSheet && activeSheet.base_image_url ? (
-            <FloorplanCanvas 
-              imageUrl={activeSheet.base_image_url}
-              units={units}
-              activeStatuses={activeStatuses}
-              isDrawingMode={isDrawingMode}
-              onPolygonComplete={handlePolygonComplete} // <--- Passed the new function here
-              showHistoryHover={showHistoryHover}
-            />
-          ) : (
-            <div className="w-full h-[70vh] border-2 border-dashed border-gray-300 rounded flex items-center justify-center bg-gray-100 text-gray-500">
-              {sheets.length === 0 ? 'Click "+ Add Level" to upload your first floor plan.' : 'Loading floor plan...'}
-            </div>
-          )}
-        </div>
+      {viewMode === 'list' ? (
+        <FieldStatusTable units={units} activeStatuses={activeStatuses} onStatusUpdate={handleStatusUpdate} />
+      ) : (
+        <div style={{ display: 'flex', gap: '20px' }}>
+          <div style={{ flex: '3' }}>
+            {activeSheet && activeSheet.base_image_url ? (
+              <FloorplanCanvas
+                imageUrl={activeSheet.base_image_url}
+                units={units}
+                activeStatuses={activeStatuses}
+                isDrawingMode={isDrawingMode}
+                onPolygonComplete={handlePolygonComplete}
+                showHistoryHover={showHistoryHover}
+              />
+            ) : (
+              <div className="w-full h-[70vh] border-2 border-dashed border-gray-300 rounded flex items-center justify-center bg-gray-100 text-gray-500">
+                {sheets.length === 0 ? 'Click "+ Add Level" to upload your first floor plan.' : 'Loading floor plan...'}
+              </div>
+            )}
+          </div>
 
-        <div style={{flex: '1', backgroundColor: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #ccc', height: '70vh', overflowY: 'auto'}}>
-          <h3 className="font-bold text-lg mb-4 border-b pb-2">Update Status</h3>
-          <p className="text-gray-500 text-sm">Draw units on the map to start tracking.</p>
+          <div style={{ flex: '1', backgroundColor: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #ccc', height: '70vh', display: 'flex', flexDirection: 'column' }}>
+            <h3 className="font-bold text-lg mb-4 border-b pb-2">Mapped Units</h3>
+
+            <div className="overflow-y-auto flex-1">
+              {units.length === 0 ? (
+                <p className="text-gray-500 text-sm italic">No units mapped on this level yet. Click "+ Draw Unit" to begin.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {units.map(unit => (
+                    <li key={unit.id} className="flex justify-between items-center p-3 bg-gray-50 border rounded hover:bg-gray-100 transition-colors">
+                      <span className="font-semibold text-gray-700">Unit: {unit.unit_number}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteUnit(unit.id)}
+                        className="text-red-500 hover:text-red-700 text-sm font-bold px-2 py-1 border border-red-200 rounded hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
