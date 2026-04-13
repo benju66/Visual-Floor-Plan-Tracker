@@ -1,99 +1,130 @@
-import React, { useState } from 'react';
-import { supabase } from '../supabaseClient';
-import { MILESTONES } from '../utils/constants';
+import React, { useMemo } from 'react';
 
-export default function FieldStatusTable({ units, activeStatuses, onStatusUpdate }) {
-  const [updatingId, setUpdatingId] = useState(null);
+function UpdatingRing() {
+  return (
+    <svg className="h-7 w-7 shrink-0 animate-spin text-blue-600" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+      <path
+        className="opacity-90"
+        d="M12 2a10 10 0 0 1 10 10"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
-  const handleStatusChange = async (unit, milestoneName) => {
-    setUpdatingId(unit.id);
-    const selectedMilestone = MILESTONES.find(m => m.name === milestoneName);
+export default function FieldStatusTable({
+  units,
+  activeStatuses,
+  statusFilter,
+  savingUnitId,
+  onChooseStatus,
+}) {
+  const ranked = useMemo(() => {
+    return [...units]
+      .map((unit) => ({
+        unit,
+        log: activeStatuses.find((s) => s.unit_id === unit.id),
+      }))
+      .sort((a, b) => {
+        const ta = a.log?.created_at ? new Date(a.log.created_at).getTime() : 0;
+        const tb = b.log?.created_at ? new Date(b.log.created_at).getTime() : 0;
+        if (tb !== ta) return tb - ta;
+        return a.unit.unit_number.localeCompare(b.unit.unit_number);
+      });
+  }, [units, activeStatuses]);
 
-    try {
-      const { data, error } = await supabase.from('status_logs').insert([{
-        unit_id: unit.id,
-        milestone: selectedMilestone.name,
-        status_color: selectedMilestone.color
-      }]).select();
-
-      if (error) throw error;
-      if (data) onStatusUpdate(data[0]);
-    } catch (err) {
-      console.error("Failed to update status:", err);
-    } finally {
-      setUpdatingId(null);
-    }
-  };
+  const visible = useMemo(() => {
+    if (!statusFilter) return ranked;
+    return ranked.filter((row) => row.log?.milestone === statusFilter);
+  }, [ranked, statusFilter]);
 
   if (!units || units.length === 0) {
     return (
-      <div className="p-8 text-center text-slate-500 bg-white rounded-xl shadow-sm border border-slate-200">
-        No units mapped on this level yet. Switch to Admin View to draw units.
+      <div
+        className="p-8 text-center text-slate-600 rounded-2xl border shadow-lg backdrop-blur-md"
+        style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
+      >
+        No units mapped on this level yet. Switch to Map view to draw units.
       </div>
     );
   }
 
-  const sortedUnits = [...units].sort((a, b) => a.unit_number.localeCompare(b.unit_number));
+  const StatusTrigger = ({ unit, currentMilestone, large }) => (
+    <button
+      type="button"
+      onClick={() => onChooseStatus(unit)}
+      disabled={savingUnitId === unit.id}
+      className={`w-full text-left rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm transition hover:bg-white/70 dark:hover:bg-black/25 disabled:opacity-50 ${large ? 'py-3 text-base' : ''}`}
+    >
+      {currentMilestone || 'Choose status…'}
+    </button>
+  );
 
   return (
-    <div className="w-full">
-      {/* Mobile View: Cards */}
-      <div className="grid grid-cols-1 gap-4 md:hidden">
-        {sortedUnits.map(unit => {
-          const currentStatus = activeStatuses.find(s => s.unit_id === unit.id);
+    <div className="w-full pb-6">
+      <div className="grid grid-cols-1 gap-3 md:hidden">
+        {visible.map(({ unit, log }, index) => {
+          const currentMilestone = log?.milestone ?? '';
+          const featured = index === 0 && log?.created_at;
           return (
-            <div key={unit.id} className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-3">
-              <div className="text-lg font-bold text-slate-800">Unit: {unit.unit_number}</div>
-              <select
-                className="w-full p-3 border border-slate-300 rounded-lg bg-slate-50 font-medium text-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:opacity-50"
-                value={currentStatus ? currentStatus.milestone : ""}
-                onChange={(e) => handleStatusChange(unit, e.target.value)}
-                disabled={updatingId === unit.id}
-              >
-                <option value="" disabled>Select Status...</option>
-                {MILESTONES.map(m => (
-                  <option key={m.id} value={m.name}>{m.name}</option>
-                ))}
-              </select>
+            <div
+              key={unit.id}
+              className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col gap-3 transition-transform ${featured ? 'ring-2 ring-blue-400/40' : ''}`}
+              style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className={`font-bold text-slate-900 dark:text-slate-100 ${featured ? 'text-xl' : 'text-lg'}`}>
+                  Unit {unit.unit_number}
+                </div>
+                {savingUnitId === unit.id && <UpdatingRing />}
+              </div>
+              <StatusTrigger unit={unit} currentMilestone={currentMilestone} large={featured} />
             </div>
           );
         })}
       </div>
 
-      {/* Desktop View: Table */}
-      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="p-4 font-bold text-slate-600 w-1/3">Unit / Area</th>
-              <th className="p-4 font-bold text-slate-600 w-2/3">Current Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedUnits.map(unit => {
-              const currentStatus = activeStatuses.find(s => s.unit_id === unit.id);
-              return (
-                <tr key={unit.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                  <td className="p-4 font-semibold text-slate-800 text-lg">{unit.unit_number}</td>
-                  <td className="p-4">
-                    <select
-                      className="w-full p-3 border border-slate-300 rounded-lg bg-white font-medium text-slate-700 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:opacity-50"
-                      value={currentStatus ? currentStatus.milestone : ""}
-                      onChange={(e) => handleStatusChange(unit, e.target.value)}
-                      disabled={updatingId === unit.id}
-                    >
-                      <option value="" disabled>Select Status...</option>
-                      {MILESTONES.map(m => (
-                        <option key={m.id} value={m.name}>{m.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="hidden md:grid md:grid-cols-4 md:gap-3">
+        {visible.map(({ unit, log }, index) => {
+          const currentMilestone = log?.milestone ?? '';
+          const recent =
+            log?.created_at && Date.now() - new Date(log.created_at).getTime() < 1000 * 60 * 60 * 24 * 30;
+          const hero = index === 0;
+          const wide = hero || (index === 1 && recent);
+
+          let cellClass = 'md:col-span-1 md:min-h-[140px]';
+          if (hero && visible.length > 1) cellClass = 'md:col-span-2 md:row-span-2 md:min-h-[280px]';
+          else if (wide && !hero) cellClass = 'md:col-span-2 md:min-h-[140px]';
+
+          return (
+            <div
+              key={unit.id}
+              className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col justify-between gap-3 transition hover:scale-[1.01] ${cellClass}`}
+              style={{
+                background: 'var(--glass-bg)',
+                borderColor: 'var(--glass-border)',
+                boxShadow: 'var(--glass-shadow)',
+              }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className={`font-bold text-slate-900 dark:text-slate-100 ${hero ? 'text-2xl' : 'text-lg'}`}>
+                  {unit.unit_number}
+                </div>
+                {savingUnitId === unit.id && <UpdatingRing />}
+              </div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Current status</p>
+              <StatusTrigger unit={unit} currentMilestone={currentMilestone} large={hero} />
+            </div>
+          );
+        })}
       </div>
+
+      {statusFilter && visible.length === 0 && (
+        <p className="mt-4 text-center text-sm text-slate-500">No units match this milestone filter.</p>
+      )}
     </div>
   );
 }

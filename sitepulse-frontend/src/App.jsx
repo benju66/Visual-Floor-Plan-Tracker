@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
+import { Moon, Sun, Monitor } from 'lucide-react';
 import FloorplanCanvas from './components/FloorplanCanvas';
 import FieldStatusTable from './components/FieldStatusTable';
+import MilestoneCommandMenu from './components/MilestoneCommandMenu';
 import { supabase } from './supabaseClient';
+import { MILESTONES } from './utils/constants';
+import { resolveMilestoneColorById } from './utils/milestoneTheme';
 
 function App() {
   const [viewMode, setViewMode] = useState('list');
@@ -11,8 +15,18 @@ function App() {
   const [showHistoryHover, setShowHistoryHover] = useState(false);
 
   const [toast, setToast] = useState(null);
-  const [settings, setSettings] = useState({ enableToasts: true });
+  const [settings] = useState({ enableToasts: true });
   const [confirmModal, setConfirmModal] = useState(null);
+
+  const [colorMode, setColorMode] = useState(() => localStorage.getItem('sitepulse-color-mode') || 'system');
+
+  const [filterMilestone, setFilterMilestone] = useState(null);
+  const [milestoneMenu, setMilestoneMenu] = useState(null);
+  const [savingUnitId, setSavingUnitId] = useState(null);
+
+  const [pendingPolygonPoints, setPendingPolygonPoints] = useState(null);
+  const [unitNamingOpen, setUnitNamingOpen] = useState(false);
+  const [newUnitName, setNewUnitName] = useState('');
 
   const [project, setProject] = useState(null);
   const [sheets, setSheets] = useState([]);
@@ -26,7 +40,13 @@ function App() {
   const [pdfPageNumber, setPdfPageNumber] = useState(1);
   const [isUploading, setIsUploading] = useState(false);
 
-  // 1. Initial Load: Get Project and Sheets
+  useEffect(() => {
+    localStorage.setItem('sitepulse-color-mode', colorMode);
+    const root = document.documentElement;
+    if (colorMode === 'system') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', colorMode);
+  }, [colorMode]);
+
   useEffect(() => {
     async function loadData() {
       let { data: projects } = await supabase.from('projects').select('*');
@@ -60,7 +80,7 @@ function App() {
         setUnits(loadedUnits);
 
         if (loadedUnits.length > 0) {
-          const unitIds = loadedUnits.map(u => u.id);
+          const unitIds = loadedUnits.map((u) => u.id);
 
           const { data: logs, error: logError } = await supabase
             .from('status_logs')
@@ -87,13 +107,24 @@ function App() {
     loadUnitsAndStatuses();
   }, [activeSheetId]);
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setMilestoneMenu({ mode: 'filter' });
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   const showToast = (message, type) => {
     if (!settings.enableToasts) return;
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  const activeSheet = sheets.find(s => s.id === activeSheetId);
+  const activeSheet = sheets.find((s) => s.id === activeSheetId);
 
   const exportToPDF = () => {
     if (!activeSheetId || !activeSheet) return;
@@ -112,9 +143,9 @@ function App() {
     pdf.text(`${project?.name ?? 'Project'} - ${activeSheet.sheet_name} Status Report`, 10, 170);
     pdf.setFontSize(10);
 
-    let yPos = 180;
+    const yPos = 180;
     units.forEach((u, i) => {
-      const stat = activeStatuses.find(s => s.unit_id === u.id);
+      const stat = activeStatuses.find((s) => s.unit_id === u.id);
       pdf.text(`Unit ${u.unit_number}: ${stat ? stat.milestone : 'Not Started'}`, 10 + (i % 4) * 60, yPos + Math.floor(i / 4) * 7);
     });
 
@@ -122,37 +153,38 @@ function App() {
     showToast('PDF exported.', 'success');
   };
 
-  // 3. Handle PDF Upload
   const handleAddLevel = async (e) => {
     e.preventDefault();
     if (!selectedFile || !newLevelName) return;
     setIsUploading(true);
 
     try {
-      const { data: newSheet, error } = await supabase.from('sheets').insert([
-        { project_id: project.id, sheet_name: newLevelName }
-      ]).select();
-      
+      const { data: newSheet, error } = await supabase
+        .from('sheets')
+        .insert([{ project_id: project.id, sheet_name: newLevelName }])
+        .select();
+
       if (error) throw error;
       const sheetId = newSheet[0].id;
 
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      // Hits your FastAPI backend running in Terminal 1
-      const response = await fetch(`http://127.0.0.1:8000/upload-floorplan/${sheetId}?page_number=${pdfPageNumber}`, {
-        method: 'POST',
-        body: formData,
-      });
+      const response = await fetch(
+        `http://127.0.0.1:8000/upload-floorplan/${sheetId}?page_number=${pdfPageNumber}`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
 
       if (!response.ok) {
         const errData = await response.json();
         throw new Error(errData.detail || 'Failed to convert PDF');
       }
-      
+
       const { image_url } = await response.json();
-      
-      // THE FIX: Save the new URL into the Supabase 'sheets' table so it survives page reloads
+
       await supabase.from('sheets').update({ base_image_url: image_url }).eq('id', sheetId);
 
       const updatedSheet = { ...newSheet[0], base_image_url: image_url };
@@ -161,8 +193,7 @@ function App() {
       setIsModalOpen(false);
       setNewLevelName('');
       setSelectedFile(null);
-      setPdfPageNumber(1); // Reset
-      
+      setPdfPageNumber(1);
     } catch (err) {
       showToast('Upload failed: ' + err.message, 'error');
     } finally {
@@ -170,28 +201,44 @@ function App() {
     }
   };
 
-  // 4. NEW: Handle Saving the Drawn Polygon
-  const handlePolygonComplete = async (points) => {
+  const handlePolygonComplete = (points) => {
     setIsDrawingMode(false);
-    
-    const unitNumber = prompt("Enter the unit or area number for this shape:");
-    if (!unitNumber) return;
+    setPendingPolygonPoints(points);
+    setNewUnitName('');
+    setUnitNamingOpen(true);
+  };
+
+  const saveNewUnitFromPopover = async () => {
+    const name = newUnitName.trim();
+    if (!name || !pendingPolygonPoints) return;
 
     try {
-      const { data, error } = await supabase.from('units').insert([{
-        sheet_id: activeSheetId,
-        unit_number: unitNumber,
-        polygon_coordinates: points
-      }]).select();
+      const { data, error } = await supabase
+        .from('units')
+        .insert([
+          {
+            sheet_id: activeSheetId,
+            unit_number: name,
+            polygon_coordinates: pendingPolygonPoints,
+          },
+        ])
+        .select();
 
       if (error) throw error;
-      
-      if (data) {
-        setUnits([...units, data[0]]);
-      }
+      if (data) setUnits([...units, data[0]]);
+      setUnitNamingOpen(false);
+      setPendingPolygonPoints(null);
+      setNewUnitName('');
+      showToast('Unit saved.', 'success');
     } catch (err) {
       showToast('Error saving unit: ' + err.message, 'error');
     }
+  };
+
+  const cancelUnitNaming = () => {
+    setUnitNamingOpen(false);
+    setPendingPolygonPoints(null);
+    setNewUnitName('');
   };
 
   const handleDeleteUnit = (unitId) => {
@@ -201,8 +248,8 @@ function App() {
         try {
           const { error } = await supabase.from('units').delete().eq('id', unitId);
           if (error) throw error;
-          setUnits(prev => prev.filter(u => u.id !== unitId));
-          setActiveStatuses(prev => prev.filter(s => s.unit_id !== unitId));
+          setUnits((prev) => prev.filter((u) => u.id !== unitId));
+          setActiveStatuses((prev) => prev.filter((s) => s.unit_id !== unitId));
           showToast('Unit deleted successfully.', 'success');
         } catch (err) {
           showToast('Error deleting unit: ' + err.message, 'error');
@@ -214,53 +261,138 @@ function App() {
   };
 
   const handleStatusUpdate = (newStatusLog) => {
-    setActiveStatuses(prev => [
-      ...prev.filter(s => s.unit_id !== newStatusLog.unit_id),
+    setActiveStatuses((prev) => [
+      ...prev.filter((s) => s.unit_id !== newStatusLog.unit_id),
       newStatusLog,
     ]);
   };
 
+  const commitUnitMilestone = async (unit, milestone) => {
+    setSavingUnitId(unit.id);
+    try {
+      const status_color = resolveMilestoneColorById(milestone.id);
+      const { data, error } = await supabase
+        .from('status_logs')
+        .insert([
+          {
+            unit_id: unit.id,
+            milestone: milestone.name,
+            status_color,
+          },
+        ])
+        .select();
+
+      if (error) throw error;
+      if (data) handleStatusUpdate(data[0]);
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to update status: ' + err.message, 'error');
+    } finally {
+      setSavingUnitId(null);
+    }
+  };
+
+  const handleMilestoneMenuSelect = (m) => {
+    if (milestoneMenu?.mode === 'filter') {
+      setFilterMilestone(m.name);
+    } else if (milestoneMenu?.mode === 'unit') {
+      void commitUnitMilestone(milestoneMenu.unit, m);
+    }
+    setMilestoneMenu(null);
+  };
+
+  const glassPanel = {
+    background: 'var(--glass-bg)',
+    borderColor: 'var(--glass-border)',
+    boxShadow: 'var(--glass-shadow)',
+  };
+
+  const cycleColorMode = () => {
+    setColorMode((prev) => (prev === 'system' ? 'light' : prev === 'light' ? 'dark' : 'system'));
+  };
+
+  const colorModeLabel = colorMode === 'system' ? 'System' : colorMode === 'light' ? 'Light' : 'Dark';
+
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 text-slate-800" style={{ fontFamily: 'sans-serif' }}>
-      <header className="mb-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+    <div
+      className="h-screen flex flex-col p-4 md:p-6 text-slate-800 dark:text-slate-100"
+      style={{ fontFamily: 'sans-serif', background: 'var(--bg)' }}
+    >
+      <header className="mb-4 flex-shrink-0 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 rounded-2xl border px-4 py-3 backdrop-blur-md"
+        style={glassPanel}
+      >
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">SitePulse Visual Tracker</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">SitePulse Visual Tracker</h1>
           <div className="flex flex-wrap gap-3 mt-2">
-            <select className="border border-slate-300 p-2 rounded-lg bg-white font-semibold text-slate-800 shadow-sm" disabled>
+            <select
+              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg font-semibold shadow-sm bg-white/60 dark:bg-black/25"
+              disabled >
               <option>{project ? project.name : 'Loading...'}</option>
             </select>
             <select
-              className="border border-slate-300 p-2 rounded-lg bg-white text-slate-800 shadow-sm"
+              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg shadow-sm bg-white/60 dark:bg-black/25"
               value={activeSheetId}
               onChange={(e) => setActiveSheetId(e.target.value)}
             >
               {sheets.length === 0 && <option disabled value="">No levels added</option>}
-              {sheets.map(sheet => (
-                <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
+              {sheets.map((sheet) => (
+                <option key={sheet.id} value={sheet.id}>
+                  {sheet.sheet_name}
+                </option>
               ))}
             </select>
-            <button type="button" onClick={() => setIsModalOpen(true)} className="border border-slate-300 p-2 rounded-lg bg-white hover:bg-slate-100 cursor-pointer text-sm font-medium shadow-sm">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer text-sm font-medium shadow-sm"
+            >
               + Add Level
             </button>
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2 items-center">
-          <div className="flex rounded-lg border border-slate-300 overflow-hidden shadow-sm">
+          <button
+            type="button"
+            onClick={cycleColorMode}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-sm font-medium shadow-sm"
+            title="Theme: system / light / dark"
+          >
+            {colorMode === 'light' && <Sun size={18} />}
+            {colorMode === 'dark' && <Moon size={18} />}
+            {colorMode === 'system' && <Monitor size={18} />}
+            {colorModeLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMilestoneMenu({ mode: 'filter' })}
+            className="px-3 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm"
+          >
+            Milestones (Ctrl+K)
+          </button>
+          <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
             <button
               type="button"
               onClick={() => {
                 setViewMode('list');
                 setIsDrawingMode(false);
               }}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer ${viewMode === 'list' ? 'bg-slate-800 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+              className={`px-4 py-2 text-sm font-semibold cursor-pointer ${
+                viewMode === 'list'
+                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
+              }`}
             >
               Field list
             </button>
             <button
               type="button"
               onClick={() => setViewMode('map')}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer border-l border-slate-300 ${viewMode === 'map' ? 'bg-slate-800 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+              className={`px-4 py-2 text-sm font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 ${
+                viewMode === 'map'
+                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
+              }`}
             >
               Map
             </button>
@@ -269,7 +401,7 @@ function App() {
             <button
               type="button"
               onClick={exportToPDF}
-              className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-800 font-medium shadow-sm hover:bg-slate-50"
+              className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-sm"
             >
               Export PDF
             </button>
@@ -278,7 +410,7 @@ function App() {
             <button
               type="button"
               onClick={() => setShowHistoryHover(!showHistoryHover)}
-              className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-800 cursor-pointer shadow-sm hover:bg-slate-50 text-sm font-medium"
+              className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 cursor-pointer shadow-sm text-sm font-medium"
             >
               {showHistoryHover ? 'Hover History: ON' : 'Hover History: OFF'}
             </button>
@@ -286,70 +418,233 @@ function App() {
         </div>
       </header>
 
-      {viewMode === 'list' ? (
-        <FieldStatusTable units={units} activeStatuses={activeStatuses} onStatusUpdate={handleStatusUpdate} />
-      ) : (
-        <div className="flex flex-col lg:flex-row gap-5 items-stretch min-h-0">
-          <div className="min-w-0 flex-[3] flex flex-col">
-            {activeSheet && activeSheet.base_image_url ? (
-              <FloorplanCanvas
-                imageUrl={activeSheet.base_image_url}
-                units={units}
-                activeStatuses={activeStatuses}
-                isDrawingMode={isDrawingMode}
-                onDrawingModeChange={setIsDrawingMode}
-                onPolygonComplete={handlePolygonComplete}
-              />
-            ) : (
-              <div className="w-full h-[70vh] border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center bg-slate-100 text-slate-500">
-                {sheets.length === 0 ? 'Click "+ Add Level" to upload your first floor plan.' : 'Loading floor plan...'}
-              </div>
-            )}
+      <div className="flex-1 min-h-0 flex flex-col">
+        {viewMode === 'list' ? (
+          <div className="h-full overflow-auto">
+            <FieldStatusTable
+              units={units}
+              activeStatuses={activeStatuses}
+              statusFilter={filterMilestone}
+              savingUnitId={savingUnitId}
+              onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
+            />
           </div>
-
-          <div className="flex-1 bg-white p-4 rounded-xl border border-slate-200 shadow-sm h-[70vh] flex flex-col">
-            <h3 className="font-bold text-lg mb-4 border-b border-slate-200 pb-2 text-slate-800">Mapped Units</h3>
-
-            <div className="overflow-y-auto flex-1">
-              {units.length === 0 ? (
-                <p className="text-slate-500 text-sm italic">No units mapped on this level yet. Use Draw on the map toolbar to begin.</p>
+        ) : (
+          <div className="h-full flex flex-col lg:flex-row gap-5 items-stretch min-h-0">
+            <div className="flex-[3] lg:flex-[4] flex flex-col min-h-0 min-w-0 h-full">
+              {activeSheet && activeSheet.base_image_url ? (
+                <FloorplanCanvas
+                  imageUrl={activeSheet.base_image_url}
+                  units={units}
+                  activeStatuses={activeStatuses}
+                  isDrawingMode={isDrawingMode}
+                  onDrawingModeChange={setIsDrawingMode}
+                  onPolygonComplete={handlePolygonComplete}
+                  legendFilter={filterMilestone}
+                />
               ) : (
-                <ul className="space-y-2">
-                  {units.map(unit => (
-                    <li key={unit.id} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
-                      <span className="font-semibold text-slate-700">Unit: {unit.unit_number}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteUnit(unit.id)}
-                        className="text-red-600 hover:text-red-800 text-sm font-bold px-2 py-1 border border-red-200 rounded-lg hover:bg-red-50"
-                      >
-                        Delete
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                <div
+                  className="w-full h-full border-2 border-dashed rounded-xl flex items-center justify-center text-slate-500 backdrop-blur-sm"
+                  style={{ ...glassPanel, borderColor: 'var(--glass-border)' }}
+                >
+                  {sheets.length === 0
+                    ? 'Click "+ Add Level" to upload your first floor plan.'
+                    : 'Loading floor plan...'}
+                </div>
               )}
+            </div>
+
+            <div
+              className="w-full lg:w-[320px] p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 backdrop-blur-md"
+              style={glassPanel}
+            >
+              <h3 className="font-bold text-lg mb-3 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0 text-slate-800 dark:text-slate-100">
+                Live legend
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+                Click a milestone to highlight matching units on the map. “All” clears the filter.
+              </p>
+              <div className="flex flex-wrap gap-1.5 mb-4 max-h-[120px] overflow-y-auto pr-1">
+                <button
+                  type="button"
+                  onClick={() => setFilterMilestone(null)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${
+                    !filterMilestone
+                      ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 border-transparent'
+                      : 'bg-white/50 dark:bg-black/20 border-slate-200/80 dark:border-white/10'
+                  }`}
+                >
+                  All
+                </button>
+                {MILESTONES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setFilterMilestone((prev) => (prev === m.name ? null : m.name))}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-medium border max-w-[140px] truncate transition ${
+                      filterMilestone === m.name
+                        ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900'
+                        : ''
+                    }`}
+                    style={{
+                      background: `var(--milestone-${m.id})`,
+                      borderColor: 'var(--glass-border)',
+                    }}
+                    title={m.name}
+                  >
+                    {m.name.length > 22 ? `${m.name.slice(0, 20)}…` : m.name}
+                  </button>
+                ))}
+              </div>
+
+              <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2">
+                Mapped units
+              </h4>
+
+              <div className="overflow-y-auto flex-1 pr-2">
+                {units.length === 0 ? (
+                  <p className="text-slate-500 text-sm italic">
+                    No units mapped on this level yet. Use Draw on the map dock to begin.
+                  </p>
+                ) : (
+                  <div className="border border-slate-200/60 dark:border-white/10 rounded-lg overflow-hidden shadow-sm flex flex-col">
+                    <div className="bg-slate-800/95 dark:bg-white/10 text-white dark:text-slate-100 p-3 font-semibold text-sm flex items-center gap-2 backdrop-blur-sm">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+                      </svg>
+                      {activeSheet?.sheet_name || 'Level'}
+                    </div>
+
+                    <ul className="flex flex-col bg-white/40 dark:bg-black/15">
+                      {units.map((unit, index) => (
+                        <li
+                          key={unit.id}
+                          className="relative pl-10 pr-3 py-3 border-b border-slate-100/80 dark:border-white/5 last:border-0 hover:bg-white/50 dark:hover:bg-white/5 flex justify-between items-center group transition-colors"
+                        >
+                          <div
+                            className={`absolute left-4 top-0 w-px bg-slate-300/80 dark:bg-white/20 ${
+                              index === units.length - 1 ? 'h-1/2' : 'h-full'
+                            }`}
+                          />
+                          <div className="absolute left-4 top-1/2 w-4 h-px bg-slate-300/80 dark:bg-white/20" />
+
+                          <span className="font-medium text-sm text-slate-700 dark:text-slate-200">
+                            Unit: {unit.unit_number}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUnit(unit.id)}
+                            className="text-red-600 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:text-red-800 text-xs font-bold px-2 py-1 border border-red-200/80 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40"
+                          >
+                            Delete
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <MilestoneCommandMenu
+        open={milestoneMenu !== null}
+        onOpenChange={(open) => !open && setMilestoneMenu(null)}
+        title={
+          milestoneMenu?.mode === 'unit'
+            ? `Status — Unit ${milestoneMenu.unit.unit_number}`
+            : 'Filter & search milestones'
+        }
+        description={
+          milestoneMenu?.mode === 'filter'
+            ? 'Pick one to filter the map and field list. Use Ctrl+K anytime.'
+            : 'Search and press Enter to save this unit’s status.'
+        }
+        onSelect={handleMilestoneMenuSelect}
+      />
+
+      {unitNamingOpen && (
+        <div
+          className="fixed inset-0 z-[55] flex items-center justify-center p-4 bg-slate-900/35 backdrop-blur-md"
+          role="presentation"
+          onClick={cancelUnitNaming}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border p-6 shadow-2xl"
+            style={glassPanel}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-bold mb-1 text-slate-900 dark:text-white">Name this unit</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+              Polygon is ready — enter the unit or area label shown on plans.
+            </p>
+            <input
+              type="text"
+              autoFocus
+              className="w-full border border-slate-300/80 dark:border-white/15 rounded-xl px-3 py-2.5 mb-4 bg-white/70 dark:bg-black/25 outline-none focus:ring-2 focus:ring-blue-500/50"
+              placeholder="e.g. 1204"
+              value={newUnitName}
+              onChange={(e) => setNewUnitName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void saveNewUnitFromPopover();
+                if (e.key === 'Escape') cancelUnitNaming();
+              }}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelUnitNaming}
+                className="px-4 py-2 rounded-xl border border-slate-300/80 dark:border-white/15 font-medium text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveNewUnitFromPopover()}
+                className="px-4 py-2 rounded-xl bg-slate-800 dark:bg-white text-white dark:text-slate-900 font-bold text-sm"
+              >
+                Save unit
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-md border border-slate-200">
-            <h2 className="text-xl font-bold mb-4 text-slate-900">Add New Level</h2>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="p-6 rounded-2xl shadow-2xl w-full max-w-md border" style={glassPanel}>
+            <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white">Add New Level</h2>
             <form onSubmit={handleAddLevel}>
               <div className="mb-4">
-                <label className="block text-sm font-bold mb-2 text-slate-700">Level/Sheet Name</label>
-                <input type="text" className="w-full border border-slate-300 p-2 rounded-lg" placeholder="e.g., Level 3" value={newLevelName} onChange={(e) => setNewLevelName(e.target.value)} required />
+                <label className="block text-sm font-bold mb-2 text-slate-700 dark:text-slate-300">Level/Sheet Name</label>
+                <input
+                  type="text"
+                  className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg bg-white/60 dark:bg-black/25"
+                  placeholder="e.g., Level 3"
+                  value={newLevelName}
+                  onChange={(e) => setNewLevelName(e.target.value)}
+                  required
+                />
               </div>
 
               <div className="mb-4">
-                <label className="block text-sm font-bold mb-2 text-slate-700">PDF Page Number</label>
+                <label className="block text-sm font-bold mb-2 text-slate-700 dark:text-slate-300">PDF Page Number</label>
                 <input
                   type="number"
                   min="1"
-                  className="w-full border border-slate-300 p-2 rounded-lg"
+                  className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg bg-white/60 dark:bg-black/25"
                   value={pdfPageNumber}
                   onChange={(e) => setPdfPageNumber(e.target.value)}
                   required
@@ -358,12 +653,28 @@ function App() {
               </div>
 
               <div className="mb-6">
-                <label className="block text-sm font-bold mb-2 text-slate-700">Floor Plan PDF</label>
-                <input type="file" accept=".pdf" className="w-full border border-slate-300 p-2 rounded-lg text-sm" onChange={(e) => setSelectedFile(e.target.files[0])} required />
+                <label className="block text-sm font-bold mb-2 text-slate-700 dark:text-slate-300">Floor Plan PDF</label>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-sm bg-white/60 dark:bg-black/25"
+                  onChange={(e) => setSelectedFile(e.target.files[0])}
+                  required
+                />
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 bg-slate-50 text-slate-800 font-medium">Cancel</button>
-                <button type="submit" disabled={isUploading} className="px-4 py-2 rounded-lg bg-slate-800 text-white font-bold hover:bg-slate-900 disabled:opacity-60">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploading}
+                  className="px-4 py-2 rounded-lg bg-slate-800 dark:bg-white text-white dark:text-slate-900 font-bold disabled:opacity-60"
+                >
                   {isUploading ? 'Processing...' : 'Upload & Save'}
                 </button>
               </div>
@@ -373,14 +684,14 @@ function App() {
       )}
 
       {confirmModal && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6">
-            <p className="text-slate-800 mb-6">{confirmModal.message}</p>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-[60] p-4">
+          <div className="rounded-2xl shadow-2xl border max-w-md w-full p-6" style={glassPanel}>
+            <p className="text-slate-800 dark:text-slate-100 mb-6">{confirmModal.message}</p>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setConfirmModal(null)}
-                className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 font-medium hover:bg-slate-50"
+                className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 font-medium"
               >
                 Cancel
               </button>

@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
     "autoprefixer": "^10.4.27",
+    "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "jspdf": "^4.2.1",
     "konva": "^10.2.5",
