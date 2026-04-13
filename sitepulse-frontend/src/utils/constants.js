@@ -1,0 +1,22 @@
+export const MILESTONES = [
+    { id: 1, name: "Framing Completed", color: "rgba(139, 69, 19, 0.5)" },           
+    { id: 2, name: "MEP Rough-ins Completed", color: "rgba(220, 20, 60, 0.5)" },     
+    { id: 3, name: "Insulation Completed", color: "rgba(255, 182, 193, 0.5)" },      
+    { id: 4, name: "Drywall Hanging Completed", color: "rgba(210, 180, 140, 0.5)" }, 
+    { id: 5, name: "Drywall Taping / Mudding /Sanding Completed", color: "rgba(245, 245, 220, 0.5)" }, 
+    { id: 6, name: "Painting Completed", color: "rgba(173, 216, 230, 0.5)" },        
+    { id: 7, name: "Gypcrete Completed", color: "rgba(169, 169, 169, 0.5)" },        
+    { id: 8, name: "Cabinet Install Completed", color: "rgba(160, 82, 45, 0.5)" },   
+    { id: 9, name: "Tops Completed", color: "rgba(255, 228, 181, 0.5)" },            
+    { id: 10, name: "Doors / Hardware / Specialties Completed", color: "rgba(218, 165, 32, 0.5)" }, 
+    { id: 11, name: "Hard Surface Flooring Completed", color: "rgba(139, 115, 85, 0.5)" }, 
+    { id: 12, name: "Final MEP-Devices, MEP Fixtures Completed", color: "rgba(0, 191, 255, 0.5)" }, 
+    { id: 13, name: "Carpeting Completed", color: "rgba(112, 128, 144, 0.5)" },      
+    { id: 14, name: "Appliance Installs Completed", color: "rgba(192, 192, 192, 0.5)" }, 
+    { id: 15, name: "Internal Punch List", color: "rgba(255, 215, 0, 0.5)" },        
+    { id: 16, name: "Pre-punch cleaning", color: "rgba(255, 250, 205, 0.5)" },       
+    { id: 17, name: "Owner / Architect Punch List", color: "rgba(255, 140, 0, 0.5)" }, 
+    { id: 18, name: "Punch List Completed", color: "rgba(154, 205, 50, 0.5)" },      
+    { id: 19, name: "Final Cleaning Completed", color: "rgba(50, 205, 50, 0.5)" },   
+    { id: 20, name: "Completed", color: "rgba(0, 128, 0, 0.5)" }                     
+  ];
