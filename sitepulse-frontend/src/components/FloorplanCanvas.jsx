@@ -5,13 +5,15 @@ import useImage from 'use-image';
 export default function FloorplanCanvas({ 
   imageUrl, units, activeStatuses, isDrawingMode, onPolygonComplete, showHistoryHover 
 }) {
-  const [image, status] = useImage(imageUrl);
+  // THE FIX: Added 'anonymous' to prevent the HTML5 Canvas from blocking the Supabase image
+  const [image, status] = useImage(imageUrl, 'anonymous');
+  
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [draftPoints, setDraftPoints] = useState([]);
   const [hoveredUnit, setHoveredUnit] = useState(null);
 
-  // 2. FORCE the resize checker to run even if the image delays
+  // FORCE the resize checker to run even if the image delays
   useEffect(() => {
     const checkSize = () => {
       if (containerRef.current) {

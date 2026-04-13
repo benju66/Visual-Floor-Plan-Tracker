@@ -16,7 +16,7 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newLevelName, setNewLevelName] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
-  const [pdfPageNumber, setPdfPageNumber] = useState(1); // <-- NEW STATE
+  const [pdfPageNumber, setPdfPageNumber] = useState(1);
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
@@ -63,6 +63,10 @@ function App() {
       }
       
       const { image_url } = await response.json();
+      
+      // THE FIX: Actually save the new URL into the Supabase 'sheets' table so it survives page reloads!
+      await supabase.from('sheets').update({ base_image_url: image_url }).eq('id', sheetId);
+
       const updatedSheet = { ...newSheet[0], base_image_url: image_url };
       setSheets([...sheets, updatedSheet]);
       setActiveSheetId(sheetId);
@@ -154,7 +158,6 @@ function App() {
                 <input type="text" className="w-full border p-2 rounded" placeholder="e.g., Level 3" value={newLevelName} onChange={(e) => setNewLevelName(e.target.value)} required />
               </div>
               
-              {/* NEW INPUT: Page Number */}
               <div className="mb-4">
                 <label className="block text-sm font-bold mb-2">PDF Page Number</label>
                 <input 
