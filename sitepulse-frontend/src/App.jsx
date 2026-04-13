@@ -19,6 +19,7 @@ function App() {
   const [pdfPageNumber, setPdfPageNumber] = useState(1);
   const [isUploading, setIsUploading] = useState(false);
 
+  // 1. Initial Load: Get Project and Sheets
   useEffect(() => {
     async function loadData() {
       let { data: projects } = await supabase.from('projects').select('*');
@@ -35,6 +36,27 @@ function App() {
     loadData();
   }, []);
 
+  // 2. NEW: Load units whenever the active sheet changes
+  useEffect(() => {
+    async function loadUnitsAndStatuses() {
+      if (!activeSheetId) {
+        setUnits([]);
+        return;
+      }
+
+      const { data: loadedUnits, error } = await supabase
+        .from('units')
+        .select('*')
+        .eq('sheet_id', activeSheetId);
+        
+      if (!error && loadedUnits) {
+        setUnits(loadedUnits);
+      }
+    }
+    loadUnitsAndStatuses();
+  }, [activeSheetId]);
+
+  // 3. Handle PDF Upload
   const handleAddLevel = async (e) => {
     e.preventDefault();
     if (!selectedFile || !newLevelName) return;
@@ -51,7 +73,7 @@ function App() {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      // Pass the requested page number to Python
+      // Hits your FastAPI backend running in Terminal 1
       const response = await fetch(`http://127.0.0.1:8000/upload-floorplan/${sheetId}?page_number=${pdfPageNumber}`, {
         method: 'POST',
         body: formData,
@@ -64,8 +86,7 @@ function App() {
       
       const { image_url } = await response.json();
       
-      // THE FIX: Actually save the new URL into the Supabase 'sheets' table so it survives page reloads!
-      await supabase.from('sheets').update({ base_image_url: image_url }).eq('id', sheetId);
+      // Removed the redundant supabase update here—Python already did it!
 
       const updatedSheet = { ...newSheet[0], base_image_url: image_url };
       setSheets([...sheets, updatedSheet]);
@@ -73,12 +94,36 @@ function App() {
       setIsModalOpen(false);
       setNewLevelName('');
       setSelectedFile(null);
-      setPdfPageNumber(1); // Reset
+      setPdfPageNumber(1); 
       
     } catch (err) {
       alert("Upload failed: " + err.message);
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // 4. NEW: Handle Saving the Drawn Polygon
+  const handlePolygonComplete = async (points) => {
+    setIsDrawingMode(false);
+    
+    const unitNumber = prompt("Enter the unit or area number for this shape:");
+    if (!unitNumber) return;
+
+    try {
+      const { data, error } = await supabase.from('units').insert([{
+        sheet_id: activeSheetId,
+        unit_number: unitNumber,
+        polygon_coordinates: points
+      }]).select();
+
+      if (error) throw error;
+      
+      if (data) {
+        setUnits([...units, data[0]]);
+      }
+    } catch (err) {
+      alert("Error saving unit: " + err.message);
     }
   };
 
@@ -132,7 +177,7 @@ function App() {
               units={units}
               activeStatuses={activeStatuses}
               isDrawingMode={isDrawingMode}
-              onPolygonComplete={(points) => { setIsDrawingMode(false); }}
+              onPolygonComplete={handlePolygonComplete} // <--- Passed the new function here
               showHistoryHover={showHistoryHover}
             />
           ) : (
