@@ -5,8 +5,7 @@ import useImage from 'use-image';
 export default function FloorplanCanvas({ 
   imageUrl, units, activeStatuses, isDrawingMode, onPolygonComplete, showHistoryHover 
 }) {
-  // 1. ADDED 'anonymous' to bypass Canvas security rules
-  const [image, status] = useImage(imageUrl, 'anonymous');
+  const [image, status] = useImage(imageUrl);
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [draftPoints, setDraftPoints] = useState([]);

@@ -30,45 +30,46 @@ def health_check():
     return {"status": "success", "message": "Backend is online!"}
 
 @app.post("/upload-floorplan/{sheet_id}")
-async def upload_and_convert_floorplan(sheet_id: str, file: UploadFile = File(...)):
+async def upload_and_convert_floorplan(
+    sheet_id: str,
+    page_number: int = 1,
+    file: UploadFile = File(...),
+):
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-        
+
     try:
-        # 1. Read the PDF into memory
         pdf_bytes = await file.read()
-        
-        # 2. Open PDF and extract the first page using PyMuPDF
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        page = doc.load_page(0)
-        
-        # 3. Zoom in to get a high-resolution image (2x scale)
+
+        if page_number < 1 or page_number > len(doc):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Page {page_number} does not exist. This PDF has {len(doc)} pages.",
+            )
+
+        page = doc.load_page(page_number - 1)
+
         zoom = 2.0
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=False)
-        
-        # 4. Convert to PNG bytes
         img_bytes = pix.tobytes("png")
-        
-        # 5. Upload to Supabase Storage
+
         file_path = f"converted/{sheet_id}.png"
-        
-        # Remove existing file if overwriting
         supabase.storage.from_("floorplans").remove([file_path])
-        
-        # Upload the new PNG
         supabase.storage.from_("floorplans").upload(
             path=file_path,
             file=img_bytes,
-            file_options={"content-type": "image/png"}
+            file_options={"content-type": "image/png"},
         )
-        
-        # 6. Get the public URL and update the database
+
         public_url = supabase.storage.from_("floorplans").get_public_url(file_path)
         supabase.table("sheets").update({"base_image_url": public_url}).eq("id", sheet_id).execute()
-        
+
         return {"status": "success", "image_url": public_url}
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error processing upload: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

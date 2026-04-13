@@ -7,23 +7,20 @@ function App() {
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [showHistoryHover, setShowHistoryHover] = useState(false);
   
-  // Database State
   const [project, setProject] = useState(null);
   const [sheets, setSheets] = useState([]);
   const [activeSheetId, setActiveSheetId] = useState('');
   const [units, setUnits] = useState([]);
   const [activeStatuses, setActiveStatuses] = useState([]);
 
-  // Upload Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newLevelName, setNewLevelName] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
+  const [pdfPageNumber, setPdfPageNumber] = useState(1); // <-- NEW STATE
   const [isUploading, setIsUploading] = useState(false);
 
-  // Initialize Data on Load
   useEffect(() => {
     async function loadData() {
-      // 1. Get or Create Default Project
       let { data: projects } = await supabase.from('projects').select('*');
       if (!projects || projects.length === 0) {
         const { data } = await supabase.from('projects').insert([{ name: 'Orchard Path III' }]).select();
@@ -31,25 +28,19 @@ function App() {
       }
       setProject(projects[0]);
 
-      // 2. Fetch Sheets for this Project
       const { data: loadedSheets } = await supabase.from('sheets').select('*').eq('project_id', projects[0].id);
       setSheets(loadedSheets || []);
-      
-      if (loadedSheets && loadedSheets.length > 0) {
-        setActiveSheetId(loadedSheets[0].id);
-      }
+      if (loadedSheets && loadedSheets.length > 0) setActiveSheetId(loadedSheets[0].id);
     }
     loadData();
   }, []);
 
-  // Handle Form Submission for New Level
   const handleAddLevel = async (e) => {
     e.preventDefault();
     if (!selectedFile || !newLevelName) return;
     setIsUploading(true);
 
     try {
-      // 1. Create the Sheet record in Supabase
       const { data: newSheet, error } = await supabase.from('sheets').insert([
         { project_id: project.id, sheet_name: newLevelName }
       ]).select();
@@ -57,26 +48,28 @@ function App() {
       if (error) throw error;
       const sheetId = newSheet[0].id;
 
-      // 2. Send PDF to Python Backend for conversion
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      const response = await fetch(`http://127.0.0.1:8000/upload-floorplan/${sheetId}`, {
+      // Pass the requested page number to Python
+      const response = await fetch(`http://127.0.0.1:8000/upload-floorplan/${sheetId}?page_number=${pdfPageNumber}`, {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Failed to convert PDF');
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Failed to convert PDF');
+      }
       
       const { image_url } = await response.json();
-
-      // 3. Update UI
       const updatedSheet = { ...newSheet[0], base_image_url: image_url };
       setSheets([...sheets, updatedSheet]);
       setActiveSheetId(sheetId);
       setIsModalOpen(false);
       setNewLevelName('');
       setSelectedFile(null);
+      setPdfPageNumber(1); // Reset
       
     } catch (err) {
       alert("Upload failed: " + err.message);
@@ -96,7 +89,6 @@ function App() {
             <select className="border p-2 rounded bg-white font-semibold" disabled>
               <option>{project ? project.name : 'Loading...'}</option>
             </select>
-            
             <select 
               className="border p-2 rounded bg-white"
               value={activeSheetId}
@@ -107,11 +99,7 @@ function App() {
                 <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
               ))}
             </select>
-
-            <button 
-              onClick={() => setIsModalOpen(true)}
-              className="border border-gray-400 p-2 rounded bg-gray-200 hover:bg-gray-300 cursor-pointer text-sm"
-            >
+            <button onClick={() => setIsModalOpen(true)} className="border border-gray-400 p-2 rounded bg-gray-200 hover:bg-gray-300 cursor-pointer text-sm">
               + Add Level
             </button>
           </div>
@@ -133,7 +121,6 @@ function App() {
       </header>
 
       <div style={{display: 'flex', gap: '20px'}}>
-        {/* Canvas Area */}
         <div style={{flex: '3'}}>
           {activeSheet && activeSheet.base_image_url ? (
             <FloorplanCanvas 
@@ -141,7 +128,7 @@ function App() {
               units={units}
               activeStatuses={activeStatuses}
               isDrawingMode={isDrawingMode}
-              onPolygonComplete={(points) => { /* Temp disable until linked to DB */ setIsDrawingMode(false); }}
+              onPolygonComplete={(points) => { setIsDrawingMode(false); }}
               showHistoryHover={showHistoryHover}
             />
           ) : (
@@ -151,14 +138,12 @@ function App() {
           )}
         </div>
 
-        {/* Superintendent Input Panel */}
         <div style={{flex: '1', backgroundColor: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #ccc', height: '70vh', overflowY: 'auto'}}>
           <h3 className="font-bold text-lg mb-4 border-b pb-2">Update Status</h3>
           <p className="text-gray-500 text-sm">Draw units on the map to start tracking.</p>
         </div>
       </div>
 
-      {/* UPLOAD MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg shadow-xl w-96">
@@ -166,24 +151,26 @@ function App() {
             <form onSubmit={handleAddLevel}>
               <div className="mb-4">
                 <label className="block text-sm font-bold mb-2">Level/Sheet Name</label>
-                <input 
-                  type="text" 
-                  className="w-full border p-2 rounded" 
-                  placeholder="e.g., Level 3"
-                  value={newLevelName}
-                  onChange={(e) => setNewLevelName(e.target.value)}
-                  required
-                />
+                <input type="text" className="w-full border p-2 rounded" placeholder="e.g., Level 3" value={newLevelName} onChange={(e) => setNewLevelName(e.target.value)} required />
               </div>
+              
+              {/* NEW INPUT: Page Number */}
+              <div className="mb-4">
+                <label className="block text-sm font-bold mb-2">PDF Page Number</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  className="w-full border p-2 rounded" 
+                  value={pdfPageNumber} 
+                  onChange={(e) => setPdfPageNumber(e.target.value)} 
+                  required 
+                />
+                <p className="text-xs text-gray-500 mt-1">Which page contains this specific floor plan?</p>
+              </div>
+
               <div className="mb-6">
                 <label className="block text-sm font-bold mb-2">Floor Plan PDF</label>
-                <input 
-                  type="file" 
-                  accept=".pdf" 
-                  className="w-full border p-2 rounded text-sm" 
-                  onChange={(e) => setSelectedFile(e.target.files[0])}
-                  required
-                />
+                <input type="file" accept=".pdf" className="w-full border p-2 rounded text-sm" onChange={(e) => setSelectedFile(e.target.files[0])} required />
               </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded border bg-gray-100">Cancel</button>
