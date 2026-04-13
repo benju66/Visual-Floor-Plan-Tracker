@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Circle } from 'react-konva';
 import useImage from 'use-image';
+import { Hand, MousePointer2, RotateCcw, Check } from 'lucide-react';
 
-export default function FloorplanCanvas({ 
-  imageUrl, units, activeStatuses, isDrawingMode, onPolygonComplete 
+export default function FloorplanCanvas({
+  imageUrl, units, activeStatuses, isDrawingMode, onPolygonComplete, onDrawingModeChange,
 }) {
   const [image] = useImage(imageUrl, 'anonymous');
   
@@ -35,6 +36,33 @@ export default function FloorplanCanvas({
       timeouts.forEach(clearTimeout);
     };
   }, [imageUrl]);
+
+  useEffect(() => {
+    if (!isDrawingMode) setDraftPoints([]);
+  }, [isDrawingMode]);
+
+  // Fit image inside the stage like CSS object-fit: contain (no stretching)
+  const layout = useMemo(() => {
+    const stageW = dimensions.width;
+    const stageH = dimensions.height;
+    if (!stageW || !stageH) {
+      return { offsetX: 0, offsetY: 0, drawW: 0, drawH: 0, stageW: 0, stageH: 0 };
+    }
+    if (!image) {
+      return { offsetX: 0, offsetY: 0, drawW: stageW, drawH: stageH, stageW, stageH };
+    }
+    const nw = image.naturalWidth || image.width;
+    const nh = image.naturalHeight || image.height;
+    if (!nw || !nh) {
+      return { offsetX: 0, offsetY: 0, drawW: stageW, drawH: stageH, stageW, stageH };
+    }
+    const scale = Math.min(stageW / nw, stageH / nh);
+    const drawW = nw * scale;
+    const drawH = nh * scale;
+    const offsetX = (stageW - drawW) / 2;
+    const offsetY = (stageH - drawH) / 2;
+    return { offsetX, offsetY, drawW, drawH, stageW, stageH };
+  }, [image, dimensions.width, dimensions.height]);
 
   // Zoom functionality using the mouse wheel
   const handleWheel = (e) => {
@@ -69,8 +97,11 @@ export default function FloorplanCanvas({
     const logicalX = (pointer.x - stage.x()) / stage.scaleX();
     const logicalY = (pointer.y - stage.y()) / stage.scaleY();
 
-    let pctX = logicalX / dimensions.width;
-    let pctY = logicalY / dimensions.height;
+    const { offsetX, offsetY, drawW, drawH } = layout;
+    if (drawW <= 0 || drawH <= 0) return;
+
+    let pctX = (logicalX - offsetX) / drawW;
+    let pctY = (logicalY - offsetY) / drawH;
 
     // Orthogonal snapping: hold Shift for horizontal or vertical segments from the last point
     if (e.evt.shiftKey && draftPoints.length > 0) {
@@ -96,7 +127,11 @@ export default function FloorplanCanvas({
   };
 
   const toPixels = (pointsArray) => {
-    return pointsArray.flatMap(p => [p.pctX * dimensions.width, p.pctY * dimensions.height]);
+    const { offsetX, offsetY, drawW, drawH } = layout;
+    return pointsArray.flatMap(p => [
+      offsetX + p.pctX * drawW,
+      offsetY + p.pctY * drawH,
+    ]);
   };
 
   // Resets the view back to default
@@ -106,38 +141,57 @@ export default function FloorplanCanvas({
   };
 
   return (
-    <div 
-      ref={containerRef} 
-      style={{ 
-        width: '100%', 
-        height: '70vh', 
-        minHeight: '500px', 
-        position: 'relative', 
-        border: '2px solid #d1d5db', 
-        backgroundColor: '#f3f4f6', 
-        cursor: isDrawingMode ? 'crosshair' : 'grab',
-        borderRadius: '0.5rem',
-        overflow: 'hidden'
-      }}
+    <div
+      id="sitepulse-floorplan-container"
+      ref={containerRef}
+      className="relative w-full h-[70vh] min-h-[500px] border border-slate-200 rounded-xl shadow-sm bg-slate-100 overflow-hidden"
+      style={{ cursor: isDrawingMode ? 'crosshair' : 'grab' }}
     >
-      <button 
-        onClick={resetView}
-        style={{
-          position: 'absolute', top: '10px', left: '10px', zIndex: 10,
-          backgroundColor: 'white', border: '1px solid #ccc', borderRadius: '4px',
-          padding: '4px 8px', fontSize: '12px', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-        }}
-      >
-        Reset View
-      </button>
+      <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg border border-slate-200 flex items-center gap-4 z-10">
+        <button
+          type="button"
+          onClick={() => resetView()}
+          className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors"
+          title="Reset View"
+        >
+          <RotateCcw size={20} />
+        </button>
+        <div className="w-px h-6 bg-slate-200" />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onDrawingModeChange?.(false)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-colors ${!isDrawingMode ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            <Hand size={18} /> Pan
+          </button>
+          <button
+            type="button"
+            onClick={() => onDrawingModeChange?.(true)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-colors ${isDrawingMode ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            <MousePointer2 size={18} /> Draw
+          </button>
+        </div>
+      </div>
+
+      {isDrawingMode && draftPoints.length > 2 && (
+        <button
+          type="button"
+          onClick={finishDrawing}
+          className="absolute top-6 right-6 bg-emerald-500 text-white px-6 py-2 rounded-full shadow-lg hover:bg-emerald-600 transition-colors flex items-center gap-2 font-bold z-10"
+        >
+          <Check size={18} /> Finish Shape
+        </button>
+      )}
 
       {dimensions.width > 0 && dimensions.height > 0 && (
-        <Stage 
-          width={dimensions.width} 
-          height={dimensions.height} 
+        <Stage
+          width={dimensions.width}
+          height={dimensions.height}
           onClick={handleStageClick}
           onWheel={handleWheel}
-          draggable={!isDrawingMode} // Can only pan when NOT drawing
+          draggable={!isDrawingMode}
           x={stagePosition.x}
           y={stagePosition.y}
           scaleX={stageScale}
@@ -147,11 +201,13 @@ export default function FloorplanCanvas({
           }}
         >
           <Layer>
-            {image && (
-              <KonvaImage 
-                image={image} 
-                width={dimensions.width} 
-                height={dimensions.height} 
+            {image && layout.drawW > 0 && layout.drawH > 0 && (
+              <KonvaImage
+                image={image}
+                x={layout.offsetX}
+                y={layout.offsetY}
+                width={layout.drawW}
+                height={layout.drawH}
               />
             )}
 
@@ -176,23 +232,16 @@ export default function FloorplanCanvas({
               <Line points={toPixels(draftPoints)} stroke="blue" strokeWidth={2 / stageScale} closed={false} />
             )}
             {isDrawingMode && draftPoints.map((pt, i) => (
-              <Circle key={i} x={pt.pctX * dimensions.width} y={pt.pctY * dimensions.height} radius={4 / stageScale} fill="blue" />
+              <Circle
+                key={i}
+                x={layout.offsetX + pt.pctX * layout.drawW}
+                y={layout.offsetY + pt.pctY * layout.drawH}
+                radius={4 / stageScale}
+                fill="blue"
+              />
             ))}
           </Layer>
         </Stage>
-      )}
-
-      {isDrawingMode && draftPoints.length > 2 && (
-        <button 
-          onClick={finishDrawing} 
-          style={{
-            position: 'absolute', top: '16px', right: '16px', backgroundColor: '#2563eb', color: 'white',
-            padding: '8px 16px', borderRadius: '0.25rem', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-            cursor: 'pointer', border: 'none', fontWeight: 'bold', zIndex: 10
-          }}
-        >
-          Finish Shape
-        </button>
       )}
     </div>
   );
