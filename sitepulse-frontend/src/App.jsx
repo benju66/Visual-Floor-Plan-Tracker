@@ -86,7 +86,8 @@ function App() {
       
       const { image_url } = await response.json();
       
-      // Removed the redundant supabase update here—Python already did it!
+      // THE FIX: Save the new URL into the Supabase 'sheets' table so it survives page reloads
+      await supabase.from('sheets').update({ base_image_url: image_url }).eq('id', sheetId);
 
       const updatedSheet = { ...newSheet[0], base_image_url: image_url };
       setSheets([...sheets, updatedSheet]);
@@ -94,7 +95,7 @@ function App() {
       setIsModalOpen(false);
       setNewLevelName('');
       setSelectedFile(null);
-      setPdfPageNumber(1); 
+      setPdfPageNumber(1); // Reset
       
     } catch (err) {
       alert("Upload failed: " + err.message);

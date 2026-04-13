@@ -50,7 +50,8 @@ async def upload_and_convert_floorplan(
 
         page = doc.load_page(page_number - 1)
 
-        zoom = 2.0
+        # Upgrade the zoom from 2.0 to 4.0 for high-fidelity rendering
+        zoom = 4.0
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=False)
         img_bytes = pix.tobytes("png")
