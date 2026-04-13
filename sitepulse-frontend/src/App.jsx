@@ -1,36 +1,91 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import FloorplanCanvas from './components/FloorplanCanvas';
 import { MILESTONES } from './utils/constants';
+import { supabase } from './supabaseClient';
 
 function App() {
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [showHistoryHover, setShowHistoryHover] = useState(false);
+  
+  // Database State
+  const [project, setProject] = useState(null);
+  const [sheets, setSheets] = useState([]);
+  const [activeSheetId, setActiveSheetId] = useState('');
   const [units, setUnits] = useState([]);
   const [activeStatuses, setActiveStatuses] = useState([]);
 
-  const handlePolygonComplete = (draftPoints) => {
-    const unitNumber = prompt("Enter Unit/Space Number for this shape:");
-    if (unitNumber) {
-      const newUnit = {
-        id: Math.random().toString(),
-        unit_number: unitNumber,
-        polygon_coordinates: draftPoints
-      };
-      setUnits([...units, newUnit]);
-      setIsDrawingMode(false);
+  // Upload Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newLevelName, setNewLevelName] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Initialize Data on Load
+  useEffect(() => {
+    async function loadData() {
+      // 1. Get or Create Default Project
+      let { data: projects } = await supabase.from('projects').select('*');
+      if (!projects || projects.length === 0) {
+        const { data } = await supabase.from('projects').insert([{ name: 'Orchard Path III' }]).select();
+        projects = data;
+      }
+      setProject(projects[0]);
+
+      // 2. Fetch Sheets for this Project
+      const { data: loadedSheets } = await supabase.from('sheets').select('*').eq('project_id', projects[0].id);
+      setSheets(loadedSheets || []);
+      
+      if (loadedSheets && loadedSheets.length > 0) {
+        setActiveSheetId(loadedSheets[0].id);
+      }
+    }
+    loadData();
+  }, []);
+
+  // Handle Form Submission for New Level
+  const handleAddLevel = async (e) => {
+    e.preventDefault();
+    if (!selectedFile || !newLevelName) return;
+    setIsUploading(true);
+
+    try {
+      // 1. Create the Sheet record in Supabase
+      const { data: newSheet, error } = await supabase.from('sheets').insert([
+        { project_id: project.id, sheet_name: newLevelName }
+      ]).select();
+      
+      if (error) throw error;
+      const sheetId = newSheet[0].id;
+
+      // 2. Send PDF to Python Backend for conversion
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const response = await fetch(`http://127.0.0.1:8000/upload-floorplan/${sheetId}`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Failed to convert PDF');
+      
+      const { image_url } = await response.json();
+
+      // 3. Update UI
+      const updatedSheet = { ...newSheet[0], base_image_url: image_url };
+      setSheets([...sheets, updatedSheet]);
+      setActiveSheetId(sheetId);
+      setIsModalOpen(false);
+      setNewLevelName('');
+      setSelectedFile(null);
+      
+    } catch (err) {
+      alert("Upload failed: " + err.message);
+    } finally {
+      setIsUploading(false);
     }
   };
 
-  const updateStatus = (unitId, milestoneObj) => {
-    const newStatus = {
-      unit_id: unitId,
-      milestone: milestoneObj.name,
-      status_color: milestoneObj.color,
-      logged_date: new Date().toISOString().split('T')[0]
-    };
-    const filtered = activeStatuses.filter(s => s.unit_id !== unitId);
-    setActiveStatuses([...filtered, newStatus]);
-  };
+  const activeSheet = sheets.find(s => s.id === activeSheetId);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8" style={{fontFamily: 'sans-serif', color: '#333'}}>
@@ -38,16 +93,40 @@ function App() {
         <div>
           <h1 className="text-2xl font-bold">SitePulse Visual Tracker</h1>
           <div className="flex gap-4 mt-2">
-            <select className="border p-2 rounded bg-white"><option>Orchard Path III</option></select>
-            <select className="border p-2 rounded bg-white"><option>Level 3</option></select>
+            <select className="border p-2 rounded bg-white font-semibold" disabled>
+              <option>{project ? project.name : 'Loading...'}</option>
+            </select>
+            
+            <select 
+              className="border p-2 rounded bg-white"
+              value={activeSheetId}
+              onChange={(e) => setActiveSheetId(e.target.value)}
+            >
+              {sheets.length === 0 && <option disabled value="">No levels added</option>}
+              {sheets.map(sheet => (
+                <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
+              ))}
+            </select>
+
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="border border-gray-400 p-2 rounded bg-gray-200 hover:bg-gray-300 cursor-pointer text-sm"
+            >
+              + Add Level
+            </button>
           </div>
         </div>
 
         <div className="flex gap-2">
-          <button onClick={() => setShowHistoryHover(!showHistoryHover)} className="px-4 py-2 rounded border bg-white cursor-pointer">
+          <button onClick={() => setShowHistoryHover(!showHistoryHover)} className="px-4 py-2 rounded border bg-white cursor-pointer shadow-sm">
             {showHistoryHover ? 'Hover History: ON' : 'Hover History: OFF'}
           </button>
-          <button onClick={() => setIsDrawingMode(!isDrawingMode)} className={`px-4 py-2 rounded font-bold cursor-pointer ${isDrawingMode ? 'bg-red-500 text-white' : 'bg-blue-600 text-white'}`} style={{backgroundColor: isDrawingMode ? '#ef4444' : '#2563eb', color: 'white'}}>
+          <button 
+            onClick={() => setIsDrawingMode(!isDrawingMode)} 
+            disabled={!activeSheet}
+            className={`px-4 py-2 rounded font-bold cursor-pointer shadow-sm ${!activeSheet ? 'opacity-50' : ''}`} 
+            style={{backgroundColor: isDrawingMode ? '#ef4444' : '#2563eb', color: 'white'}}
+          >
             {isDrawingMode ? 'Cancel Drawing' : '+ Draw Unit'}
           </button>
         </div>
@@ -56,47 +135,66 @@ function App() {
       <div style={{display: 'flex', gap: '20px'}}>
         {/* Canvas Area */}
         <div style={{flex: '3'}}>
-          <FloorplanCanvas 
-            imageUrl="https://via.placeholder.com/1200x800.png?text=Upload+Level+3+Floorplan+Here"
-            units={units}
-            activeStatuses={activeStatuses}
-            isDrawingMode={isDrawingMode}
-            onPolygonComplete={handlePolygonComplete}
-            showHistoryHover={showHistoryHover}
-          />
+          {activeSheet && activeSheet.base_image_url ? (
+            <FloorplanCanvas 
+              imageUrl={activeSheet.base_image_url}
+              units={units}
+              activeStatuses={activeStatuses}
+              isDrawingMode={isDrawingMode}
+              onPolygonComplete={(points) => { /* Temp disable until linked to DB */ setIsDrawingMode(false); }}
+              showHistoryHover={showHistoryHover}
+            />
+          ) : (
+            <div className="w-full h-[70vh] border-2 border-dashed border-gray-300 rounded flex items-center justify-center bg-gray-100 text-gray-500">
+              {sheets.length === 0 ? 'Click "+ Add Level" to upload your first floor plan.' : 'Loading floor plan...'}
+            </div>
+          )}
         </div>
 
         {/* Superintendent Input Panel */}
         <div style={{flex: '1', backgroundColor: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #ccc', height: '70vh', overflowY: 'auto'}}>
           <h3 className="font-bold text-lg mb-4 border-b pb-2">Update Status</h3>
-          
-          {units.length === 0 ? (
-            <p className="text-gray-500 text-sm">Draw units on the map to start tracking.</p>
-          ) : (
-            units.map(unit => (
-              <div key={unit.id} style={{marginBottom: '16px', padding: '12px', border: '1px solid #e5e7eb', borderRadius: '4px', backgroundColor: '#f9fafb'}}>
-                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
-                  <h4 className="font-bold">Unit {unit.unit_number}</h4>
-                  <input type="date" defaultValue={new Date().toISOString().split('T')[0]} style={{fontSize: '12px'}} />
-                </div>
-                <select 
-                  style={{width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc'}}
-                  onChange={(e) => {
-                    const selected = MILESTONES.find(m => m.name === e.target.value);
-                    if (selected) updateStatus(unit.id, selected);
-                  }}
-                  defaultValue=""
-                >
-                  <option value="" disabled>Select Phase...</option>
-                  {MILESTONES.map(m => (
-                    <option key={m.id} value={m.name}>{m.id}. {m.name}</option>
-                  ))}
-                </select>
-              </div>
-            ))
-          )}
+          <p className="text-gray-500 text-sm">Draw units on the map to start tracking.</p>
         </div>
       </div>
+
+      {/* UPLOAD MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl w-96">
+            <h2 className="text-xl font-bold mb-4">Add New Level</h2>
+            <form onSubmit={handleAddLevel}>
+              <div className="mb-4">
+                <label className="block text-sm font-bold mb-2">Level/Sheet Name</label>
+                <input 
+                  type="text" 
+                  className="w-full border p-2 rounded" 
+                  placeholder="e.g., Level 3"
+                  value={newLevelName}
+                  onChange={(e) => setNewLevelName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm font-bold mb-2">Floor Plan PDF</label>
+                <input 
+                  type="file" 
+                  accept=".pdf" 
+                  className="w-full border p-2 rounded text-sm" 
+                  onChange={(e) => setSelectedFile(e.target.files[0])}
+                  required
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded border bg-gray-100">Cancel</button>
+                <button type="submit" disabled={isUploading} className="px-4 py-2 rounded bg-blue-600 text-white font-bold">
+                  {isUploading ? 'Processing...' : 'Upload & Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
