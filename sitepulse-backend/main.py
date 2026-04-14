@@ -57,7 +57,7 @@ def hex_to_rgb(color_str: str):
         return tuple(int(rgba_match.group(i))/255.0 for i in (1, 2, 3))
     
     color_str = color_str.lstrip('#')
-    if len(color_str) == 6:
+    if len(color_str) >= 6:
         return tuple(int(color_str[i:i+2], 16)/255.0 for i in (0, 2, 4))
     return (0, 0, 0)
 
@@ -161,18 +161,11 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
             
             color_rgb = hex_to_rgb(poly.color)
             
-            # 1. Bullet-proof Graphical Draw (This guarantees the shape visually appears in ALL PDF Viewers)
-            shape = page.new_shape()
-            shape.draw_polyline(fitz_points)
-            shape.finish(color=color_rgb, fill=color_rgb, width=1.5, closePath=True, fill_opacity=0.4)
-            # Use the commit method's explicit overlay and opacity parameters
-            shape.commit(overlay=True)
-            
-            # 2. Interactive Data Layer (This guarantees Bluebeam picks it up as a Markup with Data)
+            # Create standard Interactive Data Layer Markup (Allows moving, coloring, and Bluebeam modification seamlessly)
             annot = page.add_polygon_annot(fitz_points)
             annot.set_colors(stroke=color_rgb, fill=color_rgb)
-            # Make the annotation completely borderless/transparent so it doesn't double-darken the drawn shape above
-            annot.set_opacity(0.01)
+            annot.set_opacity(0.4)
+            annot.set_border(width=1.5)
             
             info = annot.info
             info["title"] = "SitePulse Tracking"
