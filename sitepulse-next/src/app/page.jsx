@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, FolderEdit } from 'lucide-react';
+import { Settings, FolderEdit, Trash2, Pencil } from 'lucide-react';
 import FloorplanCanvas from '@/components/FloorplanCanvas';
 import FieldStatusTable from '@/components/FieldStatusTable';
 import MilestoneCommandMenu from '@/components/MilestoneCommandMenu';
@@ -635,6 +635,7 @@ function App() {
                   selectedUnitId={selectedUnitId}
                   onSelectUnit={setSelectedUnitId}
                   onRenameUnit={handleRenameUnitInitiate}
+                  onDeleteUnit={handleDeleteUnit}
                   pendingPolygonPoints={pendingPolygonPoints}
                   onPendingPolygonMove={setPendingPolygonPoints}
                 />
@@ -779,13 +780,30 @@ function App() {
                           <span className={`text-sm ${selectedUnitId === unit.id ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-200'}`}>
                             Location: {unit.unit_number}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteUnit(unit.id)}
-                            className="text-red-600 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:text-red-800 text-xs font-bold px-2 py-1 border border-red-200/80 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40"
-                          >
-                            Delete
-                          </button>
+                          <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRenameUnitInitiate(unit.id);
+                              }}
+                              className="text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 p-1.5 border border-slate-200/80 dark:border-slate-700/50 rounded-lg hover:bg-sky-50 dark:hover:bg-sky-900/30 transition-colors bg-white/50 dark:bg-black/20"
+                              title="Rename Location"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteUnit(unit.id);
+                              }}
+                              className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1.5 border border-red-200/80 dark:border-red-900/50 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors bg-white/50 dark:bg-black/20"
+                              title="Delete Location"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </li>
                       ))}
                     </ul>

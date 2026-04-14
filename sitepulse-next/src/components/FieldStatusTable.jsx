@@ -23,6 +23,7 @@ export default function FieldStatusTable({
   savingUnitId,
   onChooseStatus,
   defaultView = 'table',
+  onSelectUnit,
 }) {
   const [viewStyle, setViewStyle] = useState(defaultView);
 
@@ -109,7 +110,8 @@ export default function FieldStatusTable({
               return (
                 <div
                   key={unit.id}
-                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col gap-3 transition-transform ${featured ? 'ring-2 ring-blue-400/40' : ''}`}
+                  onClick={() => onSelectUnit?.(unit.id)}
+                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col gap-3 transition-transform cursor-pointer hover:border-blue-500/50 ${featured ? 'ring-2 ring-blue-400/40' : ''}`}
                   style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -138,7 +140,8 @@ export default function FieldStatusTable({
               return (
                 <div
                   key={unit.id}
-                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col justify-between gap-3 transition hover:scale-[1.01] ${cellClass}`}
+                  onClick={() => onSelectUnit?.(unit.id)}
+                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col justify-between gap-3 transition hover:scale-[1.01] cursor-pointer hover:border-blue-500/50 ${cellClass}`}
                   style={{
                     background: 'var(--glass-bg)',
                     borderColor: 'var(--glass-border)',
@@ -170,7 +173,7 @@ export default function FieldStatusTable({
             </thead>
             <tbody>
               {visible.map(({ unit, log }) => (
-                <tr key={unit.id} className="border-b border-slate-200/50 dark:border-white/5 last:border-none hover:bg-white/60 dark:hover:bg-white/5 transition-colors">
+                <tr key={unit.id} onClick={() => onSelectUnit?.(unit.id)} className="border-b border-slate-200/50 dark:border-white/5 last:border-none hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer">
                   <td className="px-5 py-3 font-bold text-slate-900 dark:text-slate-100 align-middle">
                     <div className="flex items-center gap-2">
                        {unit.unit_number}

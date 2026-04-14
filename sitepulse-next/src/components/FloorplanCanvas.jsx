@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Circle } from 'react-konva';
 import useImage from 'use-image';
-import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil } from 'lucide-react';
+import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil, Trash2 } from 'lucide-react';
 
 const sqr = (x) => x * x;
 const dist2 = (v, w) => sqr(v.pctX - w.pctX) + sqr(v.pctY - w.pctY);
@@ -28,8 +28,10 @@ const FloorplanCanvas = forwardRef(({
   selectedUnitId,
   onSelectUnit,
   onRenameUnit,
+  onDeleteUnit,
   pendingPolygonPoints,
   onPendingPolygonMove,
+  showTooltip,
 }, ref) => {
   const [image] = useImage(imageUrl, 'anonymous');
 
@@ -41,12 +43,49 @@ const FloorplanCanvas = forwardRef(({
   const [hoveredUnit, setHoveredUnit] = useState(null);
   const [isHoveringAnchor, setIsHoveringAnchor] = useState(false);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
+  const [activeDragNode, setActiveDragNode] = useState(null);
+  const [activeDragPolygon, setActiveDragPolygon] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
+  const [pointerPos, setPointerPos] = useState(null);
+
+  const [isShiftDown, setIsShiftDown] = useState(false);
+  const [boxOrigin, setBoxOrigin] = useState(null);
+  const lastBoxEndRef = useRef(0);
 
   const [stageScale, setStageScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Shift') setIsShiftDown(true);
+      if (toolMode === 'draw') {
+        if (e.key === 'Escape') {
+          setDraftPoints(prev => {
+            if (prev.length > 0) {
+              e.stopImmediatePropagation();
+              return [];
+            }
+            return prev;
+          });
+        }
+        if (e.key === 'Enter') {
+          setDraftPoints(prev => {
+            if (prev.length > 2) {
+              e.stopImmediatePropagation();
+              onPolygonComplete(prev);
+              return [];
+            }
+            return prev;
+          });
+        }
+      }
+    };
+    const handleKeyUp = (e) => {
+      if (e.key === 'Shift') setIsShiftDown(false);
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
+
     const checkSize = () => {
       if (containerRef.current) {
         setDimensions({
@@ -61,10 +100,12 @@ const FloorplanCanvas = forwardRef(({
 
     window.addEventListener('resize', checkSize);
     return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('resize', checkSize);
       timeouts.forEach(clearTimeout);
     };
-  }, [imageUrl]);
+  }, [imageUrl, toolMode, onPolygonComplete]);
 
   useEffect(() => {
     if (toolMode !== 'draw') setDraftPoints([]);
@@ -188,6 +229,7 @@ const FloorplanCanvas = forwardRef(({
     let pctY = (logicalY - offsetY) / drawH;
 
     if (toolMode === 'draw') {
+      if (Date.now() - lastBoxEndRef.current < 200) return;
       if (e.evt.shiftKey && draftPoints.length > 0) {
         const lastPoint = draftPoints[draftPoints.length - 1];
         const dx = Math.abs(pctX - lastPoint.pctX);
@@ -252,6 +294,21 @@ const FloorplanCanvas = forwardRef(({
   };
 
   const handleFlip = (direction) => {
+    if (pendingPolygonPoints && pendingPolygonPoints.length > 0) {
+      const newPoints = pendingPolygonPoints.map(p => ({ ...p }));
+      if (direction === 'horizontal') {
+        const xs = newPoints.map(p => p.pctX);
+        const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+        newPoints.forEach(p => p.pctX = centerX - (p.pctX - centerX));
+      } else {
+        const ys = newPoints.map(p => p.pctY);
+        const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+        newPoints.forEach(p => p.pctY = centerY - (p.pctY - centerY));
+      }
+      onPendingPolygonMove?.(newPoints);
+      return;
+    }
+
     if (!selectedUnitId) return;
     const unit = units.find(u => u.id === selectedUnitId);
     if (!unit || unit.polygon_coordinates.length === 0) return;
@@ -335,14 +392,16 @@ const FloorplanCanvas = forwardRef(({
   let computedCursor = 'grab';
   if (isDraggingCanvas) {
     computedCursor = 'grabbing';
+  } else if (activeDragPolygon || activeDragNode) {
+    computedCursor = 'grabbing';
   } else if (toolMode === 'draw' || toolMode === 'add_node') {
     computedCursor = 'crosshair';
   } else if (toolMode === 'select') {
-    if (isHoveringAnchor) computedCursor = 'move';
-    else if (hoveredUnit) computedCursor = hoveredUnit === selectedUnitId ? 'move' : 'pointer';
+    if (isHoveringAnchor) computedCursor = 'pointer';
+    else if (hoveredUnit) computedCursor = hoveredUnit === selectedUnitId ? 'grab' : 'pointer';
     else computedCursor = 'default';
   } else if (toolMode === 'delete_node') {
-    computedCursor = isHoveringAnchor ? 'pointer' : 'default';
+    computedCursor = isHoveringAnchor ? 'not-allowed' : 'default';
   }
 
   const ActionButton = ({ icon: Icon, label, currentMode, activeMode, onClick, colorClass = "blue" }) => {
@@ -444,6 +503,15 @@ const FloorplanCanvas = forwardRef(({
               onClick={() => handleFlip('vertical')} 
               colorClass="purple" 
             />
+            <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
+            <ActionButton 
+              icon={Trash2} 
+              label="Delete" 
+              currentMode={null} 
+              activeMode={null} 
+              onClick={() => onDeleteUnit?.(selectedUnitId)} 
+              colorClass="red" 
+            />
           </>
         )}
       </div>
@@ -469,9 +537,48 @@ const FloorplanCanvas = forwardRef(({
           onPointerDown={(e) => {
             if (toolMode === 'pan' || (e.evt && e.evt.button === 1)) {
               setIsDraggingCanvas(true);
+            } else if (toolMode === 'draw' && (!e.evt || e.evt.button === 0) && draftPoints.length === 0) {
+              const stage = e.target.getStage();
+              const pointer = stage.getPointerPosition();
+              const logicalX = (pointer.x - stage.x()) / stageScale;
+              const logicalY = (pointer.y - stage.y()) / stageScale;
+              const pctX = (logicalX - layout.offsetX) / layout.drawW;
+              const pctY = (logicalY - layout.offsetY) / layout.drawH;
+              setBoxOrigin({ pctX, pctY });
             }
           }}
-          onPointerUp={() => setIsDraggingCanvas(false)}
+          onPointerUp={(e) => {
+            setIsDraggingCanvas(false);
+            if (toolMode === 'draw' && boxOrigin) {
+              const stage = e.target.getStage();
+              const pointer = stage.getPointerPosition();
+              const logicalX = (pointer.x - stage.x()) / stageScale;
+              const logicalY = (pointer.y - stage.y()) / stageScale;
+              const pctX = (logicalX - layout.offsetX) / layout.drawW;
+              const pctY = (logicalY - layout.offsetY) / layout.drawH;
+              const dx = Math.abs(pctX - boxOrigin.pctX);
+              const dy = Math.abs(pctY - boxOrigin.pctY);
+              
+              const startX = boxOrigin.pctX;
+              const startY = boxOrigin.pctY;
+              setBoxOrigin(null);
+              
+              if ((dx > 0.02 && dy > 0.02) && draftPoints.length === 0) {
+                lastBoxEndRef.current = Date.now();
+                onPolygonComplete([
+                  { pctX: startX, pctY: startY },
+                  { pctX: pctX, pctY: startY },
+                  { pctX: pctX, pctY: pctY },
+                  { pctX: startX, pctY: pctY }
+                ]);
+                setDraftPoints([]);
+              }
+            }
+          }}
+          onMouseMove={(e) => {
+            const stage = e.target.getStage();
+            if (stage) setPointerPos(stage.getPointerPosition());
+          }}
           x={stagePosition.x}
           y={stagePosition.y}
           scaleX={stageScale}
@@ -517,7 +624,13 @@ const FloorplanCanvas = forwardRef(({
                 return (
                   <React.Fragment key={unit.id}>
                     <Line
-                      points={toPixels(unit.polygon_coordinates)}
+                      points={toPixels(
+                        activeDragNode?.unitId === unit.id
+                          ? unit.polygon_coordinates.map((p, i) =>
+                              i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
+                            )
+                          : unit.polygon_coordinates
+                      )}
                       fill={fillColor}
                       stroke={isSelected ? '#8b5cf6' : isHover ? '#0ea5e9' : dim ? '#94a3b8' : '#666'}
                       strokeWidth={isSelected ? 3.5 : isHover ? 3.5 : dim ? 0.6 : 1}
@@ -527,7 +640,15 @@ const FloorplanCanvas = forwardRef(({
                       shadowColor={isSelected ? 'rgba(139, 92, 246, 0.85)' : isHover ? 'rgba(14, 165, 233, 0.85)' : 'transparent'}
                       shadowOpacity={highlight ? 0.9 : 0}
                       draggable={isSelected && toolMode === 'select'}
-                      onDragEnd={(e) => handlePolygonDragEnd(e, unit)}
+                      onDragMove={(e) => {
+                        const dx = e.target.x() / layout.drawW;
+                        const dy = e.target.y() / layout.drawH;
+                        setActiveDragPolygon({ unitId: unit.id, dx, dy });
+                      }}
+                      onDragEnd={(e) => {
+                        setActiveDragPolygon(null);
+                        handlePolygonDragEnd(e, unit);
+                      }}
                       onMouseEnter={() => setHoveredUnit(unit.id)}
                       onMouseLeave={() => setHoveredUnit(null)}
                       onClick={(e) => handlePolygonClick(e, unit)}
@@ -556,14 +677,23 @@ const FloorplanCanvas = forwardRef(({
                     {isSelected && unit.polygon_coordinates.map((pt, i) => (
                        <Circle
                          key={`anchor-${i}`}
-                         x={layout.offsetX + pt.pctX * layout.drawW}
-                         y={layout.offsetY + pt.pctY * layout.drawH}
+                         x={layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0)) * layout.drawW}
+                         y={layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0)) * layout.drawH}
                          radius={(toolMode === 'delete_node' ? 6 : 5) / stageScale}
                          fill={toolMode === 'delete_node' ? '#ef4444' : '#fff'}
                          stroke={toolMode === 'delete_node' ? '#fff' : '#8b5cf6'}
                          strokeWidth={2 / stageScale}
                          draggable={toolMode === 'select'}
-                         onDragEnd={(e) => handleAnchorDragEnd(e, unit.id, i)}
+                         onDragMove={(e) => {
+                           const node = e.target;
+                           let pctX = (node.x() - layout.offsetX) / layout.drawW;
+                           let pctY = (node.y() - layout.offsetY) / layout.drawH;
+                           setActiveDragNode({ unitId: unit.id, index: i, pctX, pctY });
+                         }}
+                         onDragEnd={(e) => {
+                           setActiveDragNode(null);
+                           handleAnchorDragEnd(e, unit.id, i);
+                         }}
                          onClick={(e) => handleAnchorClick(e, unit.id, i)}
                          onTap={(e) => handleAnchorClick(e, unit.id, i)}
                          onMouseEnter={() => setIsHoveringAnchor(true)}
@@ -574,12 +704,67 @@ const FloorplanCanvas = forwardRef(({
                 );
               })}
 
+            {toolMode === 'draw' && draftPoints.length > 0 && pointerPos && !boxOrigin && (
+              (() => {
+                 let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
+                 let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
+                 let pctX = (logicalX - layout.offsetX) / layout.drawW;
+                 let pctY = (logicalY - layout.offsetY) / layout.drawH;
+                 
+                 if (isShiftDown) {
+                    const last = draftPoints[draftPoints.length - 1];
+                    const dx = Math.abs(pctX - last.pctX);
+                    const dy = Math.abs(pctY - last.pctY);
+                    if (dx > dy) pctY = last.pctY;
+                    else pctX = last.pctX;
+                 }
+                 
+                 return (
+                   <Line
+                     points={toPixels([...draftPoints, {pctX, pctY}])}
+                     stroke="rgba(59, 130, 246, 0.4)"
+                     strokeWidth={2 / stageScale}
+                     dash={[6 / stageScale, 6 / stageScale]}
+                     closed={false}
+                     listening={false}
+                   />
+                 );
+              })()
+            )}
+
+            {toolMode === 'draw' && boxOrigin && pointerPos && (
+              (() => {
+                 let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
+                 let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
+                 let pctX = (logicalX - layout.offsetX) / layout.drawW;
+                 let pctY = (logicalY - layout.offsetY) / layout.drawH;
+                 
+                 return (
+                   <Line
+                     points={toPixels([
+                       { pctX: boxOrigin.pctX, pctY: boxOrigin.pctY },
+                       { pctX: pctX, pctY: boxOrigin.pctY },
+                       { pctX: pctX, pctY: pctY },
+                       { pctX: boxOrigin.pctX, pctY: pctY }
+                     ])}
+                     stroke="rgba(59, 130, 246, 0.8)"
+                     fill="rgba(59, 130, 246, 0.15)"
+                     strokeWidth={2 / stageScale}
+                     dash={[6 / stageScale, 6 / stageScale]}
+                     closed={true}
+                     listening={false}
+                   />
+                 );
+              })()
+            )}
+
             {toolMode === 'draw' && draftPoints.length > 0 && (
               <Line
                 points={toPixels(draftPoints)}
                 stroke="blue"
                 strokeWidth={2 / stageScale}
                 closed={false}
+                listening={false}
               />
             )}
             {toolMode === 'draw' &&
@@ -590,37 +775,93 @@ const FloorplanCanvas = forwardRef(({
                   y={layout.offsetY + pt.pctY * layout.drawH}
                   radius={4 / stageScale}
                   fill="blue"
+                  listening={false}
                 />
               ))}
 
             {pendingPolygonPoints && pendingPolygonPoints.length > 2 && (
-              <Line
-                points={toPixels(pendingPolygonPoints)}
-                fill="rgba(139, 92, 246, 0.2)"
-                stroke="#8b5cf6"
-                strokeWidth={3 / stageScale}
-                dash={[10 / stageScale, 8 / stageScale]}
-                closed={true}
-                draggable={true}
-                onDragEnd={(e) => {
-                  const dx = e.target.x() / layout.drawW;
-                  const dy = e.target.y() / layout.drawH;
-                  e.target.x(0);
-                  e.target.y(0);
-                  onPendingPolygonMove?.(
-                    pendingPolygonPoints.map(p => ({ pctX: p.pctX + dx, pctY: p.pctY + dy }))
-                  );
-                }}
-                onMouseEnter={(e) => {
-                  e.target.getStage().container().style.cursor = 'move';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.getStage().container().style.cursor = '';
-                }}
-              />
+              <React.Fragment>
+                <Line
+                  points={toPixels(
+                    activeDragNode?.unitId === 'PENDING'
+                      ? pendingPolygonPoints.map((p, i) =>
+                          i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
+                        )
+                      : pendingPolygonPoints
+                  )}
+                  fill="rgba(139, 92, 246, 0.2)"
+                  stroke="#8b5cf6"
+                  strokeWidth={3 / stageScale}
+                  dash={[10 / stageScale, 8 / stageScale]}
+                  closed={true}
+                  draggable={true}
+                  onDragMove={(e) => {
+                    const dx = e.target.x() / layout.drawW;
+                    const dy = e.target.y() / layout.drawH;
+                    setActiveDragPolygon({ unitId: 'PENDING', dx, dy });
+                  }}
+                  onDragEnd={(e) => {
+                    setActiveDragPolygon(null);
+                    const dx = e.target.x() / layout.drawW;
+                    const dy = e.target.y() / layout.drawH;
+                    e.target.x(0);
+                    e.target.y(0);
+                    onPendingPolygonMove?.(
+                      pendingPolygonPoints.map(p => ({ pctX: p.pctX + dx, pctY: p.pctY + dy }))
+                    );
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.getStage().container().style.cursor = 'grab';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.getStage().container().style.cursor = '';
+                  }}
+                />
+                {pendingPolygonPoints.map((pt, i) => (
+                  <Circle
+                    key={`pending-anchor-${i}`}
+                    x={layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === 'PENDING' ? activeDragPolygon.dx : 0)) * layout.drawW}
+                    y={layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === 'PENDING' ? activeDragPolygon.dy : 0)) * layout.drawH}
+                    radius={5 / stageScale}
+                    fill="#fff"
+                    stroke="#8b5cf6"
+                    strokeWidth={2 / stageScale}
+                    draggable={true}
+                    onDragMove={(e) => {
+                      const node = e.target;
+                      let pctX = (node.x() - layout.offsetX) / layout.drawW;
+                      let pctY = (node.y() - layout.offsetY) / layout.drawH;
+                      setActiveDragNode({ unitId: 'PENDING', index: i, pctX, pctY });
+                    }}
+                    onDragEnd={(e) => {
+                      setActiveDragNode(null);
+                      const node = e.target;
+                      let pctX = (node.x() - layout.offsetX) / layout.drawW;
+                      let pctY = (node.y() - layout.offsetY) / layout.drawH;
+                      const newPoints = [...pendingPolygonPoints];
+                      newPoints[i] = { pctX, pctY };
+                      onPendingPolygonMove?.(newPoints);
+                    }}
+                    onMouseEnter={() => setIsHoveringAnchor(true)}
+                    onMouseLeave={() => setIsHoveringAnchor(false)}
+                  />
+                ))}
+              </React.Fragment>
             )}
           </Layer>
         </Stage>
+      )}
+
+      {showTooltip && hoveredUnit && pointerPos && !contextMenu && toolMode !== 'draw' && toolMode !== 'add_node' && (
+        <div
+          className="absolute z-40 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-1.5 rounded-lg text-sm font-bold shadow-xl pointer-events-none transition-opacity animate-in fade-in duration-150"
+          style={{
+            left: pointerPos.x + 15,
+            top: pointerPos.y + 15,
+          }}
+        >
+          {units.find(u => u.id === hoveredUnit)?.unit_number || ''}
+        </div>
       )}
 
       {contextMenu && (
@@ -645,6 +886,10 @@ const FloorplanCanvas = forwardRef(({
           </button>
           <button type="button" onClick={() => { handleFlip('vertical'); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
             <FlipVertical size={16} className="text-rose-500" /> Flip Vertical
+          </button>
+          <div className="h-px bg-slate-200/50 dark:bg-slate-700/50 mx-1 my-1" />
+          <button type="button" onClick={() => { onDeleteUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-sm font-bold text-red-600 transition-colors text-left">
+            <Trash2 size={16} className="text-red-500" /> Delete Location
           </button>
         </div>
       )}
