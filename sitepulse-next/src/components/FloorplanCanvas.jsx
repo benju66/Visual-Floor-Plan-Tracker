@@ -39,6 +39,7 @@ const FloorplanCanvas = forwardRef(({
   const [hoveredUnit, setHoveredUnit] = useState(null);
   const [isHoveringAnchor, setIsHoveringAnchor] = useState(false);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
 
   const [stageScale, setStageScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
@@ -147,6 +148,7 @@ const FloorplanCanvas = forwardRef(({
   };
 
   const handleZoom = (direction) => {
+    setContextMenu(null);
     if (!stageRef.current) return;
     const stage = stageRef.current;
     const oldScale = stageScale;
@@ -171,6 +173,7 @@ const FloorplanCanvas = forwardRef(({
   };
 
   const handleStageClick = (e) => {
+    setContextMenu(null);
     const stage = e.target.getStage();
     const pointer = stage.getPointerPosition();
     const logicalX = (pointer.x - stage.x()) / stageScale;
@@ -197,6 +200,10 @@ const FloorplanCanvas = forwardRef(({
       }
     }
   };
+
+  useEffect(() => {
+    setContextMenu(null);
+  }, [toolMode]);
 
   const finishDrawing = () => {
     if (draftPoints.length > 2) {
@@ -533,6 +540,15 @@ const FloorplanCanvas = forwardRef(({
                         onSelectUnit?.(unit.id);
                         onToolModeChange?.('select');
                       }}
+                      onContextMenu={(e) => {
+                        e.cancelBubble = true;
+                        e.evt.preventDefault();
+                        onSelectUnit?.(unit.id);
+                        onToolModeChange?.('select');
+                        const stage = e.target.getStage();
+                        const pointer = stage.getPointerPosition();
+                        setContextMenu({ x: pointer.x, y: pointer.y, unitId: unit.id });
+                      }}
                     />
                     
                     {isSelected && unit.polygon_coordinates.map((pt, i) => (
@@ -577,8 +593,36 @@ const FloorplanCanvas = forwardRef(({
           </Layer>
         </Stage>
       )}
+
+      {contextMenu && (
+        <div 
+          className="absolute z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2 flex flex-col gap-1 min-w-[200px]"
+          style={{ 
+            left: Math.min(contextMenu.x, dimensions.width - 200),
+            top: Math.min(contextMenu.y, dimensions.height - 200)
+          }}
+        >
+          <div className="px-2 py-1 mb-1 border-b border-slate-200/50 dark:border-slate-700/50">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Options</span>
+          </div>
+          <button type="button" onClick={() => { onRenameUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+            <Pencil size={16} className="text-sky-500" /> Rename Location
+          </button>
+          <button type="button" onClick={() => { onDuplicateUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+            <Copy size={16} className="text-purple-500" /> Duplicate
+          </button>
+          <button type="button" onClick={() => { handleFlip('horizontal'); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+            <FlipHorizontal size={16} className="text-emerald-500" /> Flip Horizontal
+          </button>
+          <button type="button" onClick={() => { handleFlip('vertical'); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+            <FlipVertical size={16} className="text-rose-500" /> Flip Vertical
+          </button>
+        </div>
+      )}
     </div>
   );
 });
+
+FloorplanCanvas.displayName = 'FloorplanCanvas';
 
 export default FloorplanCanvas;
