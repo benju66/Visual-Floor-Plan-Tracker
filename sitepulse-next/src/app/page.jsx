@@ -11,6 +11,9 @@ import { MILESTONES } from '@/utils/constants';
 import { resolveMilestoneColorById } from '@/utils/milestoneTheme';
 
 function App() {
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => setIsMounted(true), []);
+
   const [settings, setSettings] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('sitepulse-settings');
@@ -501,6 +504,8 @@ function App() {
 
   const colorModeLabel = colorMode === 'system' ? 'System' : colorMode === 'light' ? 'Light' : 'Dark';
 
+  if (!isMounted) return null;
+
   return (
     <div
       className="h-screen flex flex-col p-4 md:p-6 text-slate-800 dark:text-slate-100"
@@ -630,6 +635,8 @@ function App() {
                   selectedUnitId={selectedUnitId}
                   onSelectUnit={setSelectedUnitId}
                   onRenameUnit={handleRenameUnitInitiate}
+                  pendingPolygonPoints={pendingPolygonPoints}
+                  onPendingPolygonMove={setPendingPolygonPoints}
                 />
               ) : (
                 <div

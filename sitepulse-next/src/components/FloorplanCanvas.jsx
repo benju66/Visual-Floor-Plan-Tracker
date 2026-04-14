@@ -28,6 +28,8 @@ const FloorplanCanvas = forwardRef(({
   selectedUnitId,
   onSelectUnit,
   onRenameUnit,
+  pendingPolygonPoints,
+  onPendingPolygonMove,
 }, ref) => {
   const [image] = useImage(imageUrl, 'anonymous');
 
@@ -590,6 +592,33 @@ const FloorplanCanvas = forwardRef(({
                   fill="blue"
                 />
               ))}
+
+            {pendingPolygonPoints && pendingPolygonPoints.length > 2 && (
+              <Line
+                points={toPixels(pendingPolygonPoints)}
+                fill="rgba(139, 92, 246, 0.2)"
+                stroke="#8b5cf6"
+                strokeWidth={3 / stageScale}
+                dash={[10 / stageScale, 8 / stageScale]}
+                closed={true}
+                draggable={true}
+                onDragEnd={(e) => {
+                  const dx = e.target.x() / layout.drawW;
+                  const dy = e.target.y() / layout.drawH;
+                  e.target.x(0);
+                  e.target.y(0);
+                  onPendingPolygonMove?.(
+                    pendingPolygonPoints.map(p => ({ pctX: p.pctX + dx, pctY: p.pctY + dy }))
+                  );
+                }}
+                onMouseEnter={(e) => {
+                  e.target.getStage().container().style.cursor = 'move';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.getStage().container().style.cursor = '';
+                }}
+              />
+            )}
           </Layer>
         </Stage>
       )}
