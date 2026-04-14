@@ -1,25 +1,32 @@
-import React, { useState, useEffect } from 'react';
-import jsPDF from 'jspdf';
-import { Moon, Sun, Monitor } from 'lucide-react';
-import FloorplanCanvas from './components/FloorplanCanvas';
-import FieldStatusTable from './components/FieldStatusTable';
-import MilestoneCommandMenu from './components/MilestoneCommandMenu';
-import { supabase } from './supabaseClient';
-import { MILESTONES } from './utils/constants';
-import { resolveMilestoneColorById } from './utils/milestoneTheme';
+"use client";
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings, FolderEdit } from 'lucide-react';
+import FloorplanCanvas from '@/components/FloorplanCanvas';
+import FieldStatusTable from '@/components/FieldStatusTable';
+import MilestoneCommandMenu from '@/components/MilestoneCommandMenu';
+import SettingsMenu from '@/components/SettingsMenu';
+import ProjectManagementMenu from '@/components/ProjectManagementMenu';
+import { supabase } from '@/supabaseClient';
+import { MILESTONES } from '@/utils/constants';
+import { resolveMilestoneColorById } from '@/utils/milestoneTheme';
 
 function App() {
   const [viewMode, setViewMode] = useState('list');
 
   const [isDrawingMode, setIsDrawingMode] = useState(false);
-  const [showHistoryHover, setShowHistoryHover] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
 
   const [toast, setToast] = useState(null);
-  const [settings] = useState({ enableToasts: true });
+  const [settings, setSettings] = useState({ enableToasts: true, showHistoryHover: false });
   const [confirmModal, setConfirmModal] = useState(null);
 
-  const [colorMode, setColorMode] = useState(() => localStorage.getItem('sitepulse-color-mode') || 'system');
+  const [colorMode, setColorMode] = useState('system');
 
+  useEffect(() => {
+    const saved = localStorage.getItem('sitepulse-color-mode');
+    if (saved) setColorMode(saved);
+  }, []);
   const [filterMilestone, setFilterMilestone] = useState(null);
   const [milestoneMenu, setMilestoneMenu] = useState(null);
   const [savingUnitId, setSavingUnitId] = useState(null);
@@ -126,31 +133,69 @@ function App() {
 
   const activeSheet = sheets.find((s) => s.id === activeSheetId);
 
-  const exportToPDF = () => {
+  const floorplanRef = useRef(null);
+
+  const exportToPDF = async () => {
     if (!activeSheetId || !activeSheet) return;
-    const canvas = document.querySelector('#sitepulse-floorplan-container canvas');
-    if (!canvas) {
-      showToast('Open Map view with a loaded floor plan to export.', 'error');
-      return;
-    }
-
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('landscape');
-
-    pdf.addImage(imgData, 'PNG', 10, 10, 277, 150);
-
-    pdf.setFontSize(16);
-    pdf.text(`${project?.name ?? 'Project'} - ${activeSheet.sheet_name} Status Report`, 10, 170);
-    pdf.setFontSize(10);
-
-    const yPos = 180;
-    units.forEach((u, i) => {
+    
+    showToast('Generating Vector PDF... This may take a few seconds.', 'success');
+    
+    const polygonsPayload = units.filter(u => u.polygon_coordinates && u.polygon_coordinates.length > 2).map(u => {
       const stat = activeStatuses.find((s) => s.unit_id === u.id);
-      pdf.text(`Unit ${u.unit_number}: ${stat ? stat.milestone : 'Not Started'}`, 10 + (i % 4) * 60, yPos + Math.floor(i / 4) * 7);
+      const color = stat ? stat.status_color : 'rgba(128,128,128,0.3)';
+      return {
+        unit_id: u.id,
+        unit_number: u.unit_number,
+        status: stat ? stat.milestone : 'Not Started',
+        color: color,
+        points: u.polygon_coordinates
+      };
     });
 
-    pdf.save(`${project?.name ?? 'SitePulse'}_${activeSheet.sheet_name}_Status.pdf`);
-    showToast('PDF exported.', 'success');
+    const payload = {
+      include_data: settings.includeExportData !== false,
+      polygons: polygonsPayload,
+      project_name: project?.name || 'Project',
+      sheet_name: activeSheet.sheet_name
+    };
+
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/export-pdf/${activeSheetId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Export failed on server');
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = downloadUrl;
+      
+      let filename = `${project?.name || 'SitePulse'}_${activeSheet.sheet_name}_Status.pdf`.replace(/\s+/g, '_');
+      const disposition = response.headers.get('content-disposition');
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+          const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+          if (matches != null && matches[1]) { 
+              filename = matches[1].replace(/['"]/g, '');
+          }
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(a);
+      
+      showToast('Vector PDF Exported!', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   };
 
   const handleAddLevel = async (e) => {
@@ -195,9 +240,75 @@ function App() {
       setSelectedFile(null);
       setPdfPageNumber(1);
     } catch (err) {
-      showToast('Upload failed: ' + err.message, 'error');
+      showToast(err.message, 'error');
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleAttachOriginal = async (file) => {
+    if (!activeSheetId || !file) return;
+    try {
+      showToast('Uploading original PDF...', 'success');
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch(`http://127.0.0.1:8000/attach-original/${activeSheetId}`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Failed to attach');
+      }
+      
+      showToast('Successfully attached original PDF!', 'success');
+    } catch (e) {
+      showToast('Failed to attach: ' + e.message, 'error');
+    }
+  };
+
+  const handleRenameSheet = async (sheetId, newName) => {
+    try {
+      const { error } = await supabase.from('sheets').update({ sheet_name: newName }).eq('id', sheetId);
+      if (error) throw error;
+      setSheets(sheets.map(s => s.id === sheetId ? { ...s, sheet_name: newName } : s));
+      showToast('Level renamed successfully!', 'success');
+    } catch (e) {
+      showToast('Failed to rename: ' + e.message, 'error');
+    }
+  };
+
+  const handleDeleteSheet = async (sheetId) => {
+    try {
+      showToast('Wiping level and all data...', 'success');
+      
+      await supabase.storage.from('floorplans').remove([
+        `converted/${sheetId}.png`,
+        `originals/${sheetId}.pdf`
+      ]);
+
+      const { data: sheetUnits } = await supabase.from('units').select('id').eq('sheet_id', sheetId);
+      if (sheetUnits && sheetUnits.length > 0) {
+        const unitIds = sheetUnits.map(u => u.id);
+        await supabase.from('status_logs').delete().in('unit_id', unitIds);
+        await supabase.from('units').delete().in('id', unitIds);
+      }
+
+      const { error } = await supabase.from('sheets').delete().eq('id', sheetId);
+      if (error) throw error;
+
+      const newSheets = sheets.filter(s => s.id !== sheetId);
+      setSheets(newSheets);
+      
+      if (activeSheetId === sheetId) {
+        setActiveSheetId(newSheets.length > 0 ? newSheets[0].id : '');
+      }
+
+      showToast('Level deleted successfully!', 'success');
+    } catch (e) {
+      showToast('Failed to delete: ' + e.message, 'error');
     }
   };
 
@@ -301,11 +412,6 @@ function App() {
     setMilestoneMenu(null);
   };
 
-  const glassPanel = {
-    background: 'var(--glass-bg)',
-    borderColor: 'var(--glass-border)',
-    boxShadow: 'var(--glass-shadow)',
-  };
 
   const cycleColorMode = () => {
     setColorMode((prev) => (prev === 'system' ? 'light' : prev === 'light' ? 'dark' : 'system'));
@@ -318,9 +424,7 @@ function App() {
       className="h-screen flex flex-col p-4 md:p-6 text-slate-800 dark:text-slate-100"
       style={{ fontFamily: 'sans-serif', background: 'var(--bg)' }}
     >
-      <header className="mb-4 flex-shrink-0 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 rounded-2xl border px-4 py-3 backdrop-blur-md"
-        style={glassPanel}
-      >
+      <header className="mb-4 flex-shrink-0 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 rounded-2xl border px-4 py-3 glass-panel">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">SitePulse Visual Tracker</h1>
           <div className="flex flex-wrap gap-3 mt-2">
@@ -348,21 +452,18 @@ function App() {
             >
               + Add Level
             </button>
+            <button
+              type="button"
+              onClick={() => setIsProjectMenuOpen(true)}
+              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer shadow-sm"
+              title="Manage Levels"
+            >
+              <FolderEdit size={20} />
+            </button>
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2 items-center">
-          <button
-            type="button"
-            onClick={cycleColorMode}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-sm font-medium shadow-sm"
-            title="Theme: system / light / dark"
-          >
-            {colorMode === 'light' && <Sun size={18} />}
-            {colorMode === 'dark' && <Moon size={18} />}
-            {colorMode === 'system' && <Monitor size={18} />}
-            {colorModeLabel}
-          </button>
           <button
             type="button"
             onClick={() => setMilestoneMenu({ mode: 'filter' })}
@@ -406,15 +507,14 @@ function App() {
               Export PDF
             </button>
           )}
-          {viewMode === 'map' && (
-            <button
-              type="button"
-              onClick={() => setShowHistoryHover(!showHistoryHover)}
-              className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 cursor-pointer shadow-sm text-sm font-medium"
-            >
-              {showHistoryHover ? 'Hover History: ON' : 'Hover History: OFF'}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+            title="Settings"
+          >
+            <Settings size={20} />
+          </button>
         </div>
       </header>
 
@@ -434,6 +534,7 @@ function App() {
             <div className="flex-[3] lg:flex-[4] flex flex-col min-h-0 min-w-0 h-full">
               {activeSheet && activeSheet.base_image_url ? (
                 <FloorplanCanvas
+                  ref={floorplanRef}
                   imageUrl={activeSheet.base_image_url}
                   units={units}
                   activeStatuses={activeStatuses}
@@ -444,19 +545,54 @@ function App() {
                 />
               ) : (
                 <div
-                  className="w-full h-full border-2 border-dashed rounded-xl flex items-center justify-center text-slate-500 backdrop-blur-sm"
-                  style={{ ...glassPanel, borderColor: 'var(--glass-border)' }}
+                  className="w-full h-full border-2 border-dashed rounded-xl flex items-center justify-center text-slate-500 glass-panel"
                 >
                   {sheets.length === 0
                     ? 'Click "+ Add Level" to upload your first floor plan.'
                     : 'Loading floor plan...'}
                 </div>
               )}
+
+              {unitNamingOpen && (
+                <div
+                  className="absolute top-6 right-6 z-[60] w-64 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md"
+                  style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
+                >
+                  <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">Name this unit</h2>
+                  <input
+                    type="text"
+                    autoFocus
+                    className="w-full text-sm border border-slate-300/80 dark:border-white/15 rounded-xl px-2.5 py-1.5 mb-3 bg-white/70 dark:bg-black/25 outline-none focus:ring-2 focus:ring-blue-500/50"
+                    placeholder="e.g. 1204"
+                    value={newUnitName}
+                    onChange={(e) => setNewUnitName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void saveNewUnitFromPopover();
+                      if (e.key === 'Escape') cancelUnitNaming();
+                    }}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={cancelUnitNaming}
+                      className="px-3 py-1.5 rounded-xl border border-slate-300/80 dark:border-white/15 font-medium text-xs hover:bg-white/50 dark:hover:bg-white/10 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveNewUnitFromPopover()}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-white text-xs shadow-sm transition-colors"
+                    >
+                      Save unit
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div
-              className="w-full lg:w-[320px] p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 backdrop-blur-md"
-              style={glassPanel}
+              className="w-full lg:w-[320px] p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel"
             >
               <h3 className="font-bold text-lg mb-3 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0 text-slate-800 dark:text-slate-100">
                 Live legend
@@ -575,56 +711,9 @@ function App() {
         onSelect={handleMilestoneMenuSelect}
       />
 
-      {unitNamingOpen && (
-        <div
-          className="fixed inset-0 z-[55] flex items-center justify-center p-4 bg-slate-900/35 backdrop-blur-md"
-          role="presentation"
-          onClick={cancelUnitNaming}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl border p-6 shadow-2xl"
-            style={glassPanel}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-bold mb-1 text-slate-900 dark:text-white">Name this unit</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-              Polygon is ready — enter the unit or area label shown on plans.
-            </p>
-            <input
-              type="text"
-              autoFocus
-              className="w-full border border-slate-300/80 dark:border-white/15 rounded-xl px-3 py-2.5 mb-4 bg-white/70 dark:bg-black/25 outline-none focus:ring-2 focus:ring-blue-500/50"
-              placeholder="e.g. 1204"
-              value={newUnitName}
-              onChange={(e) => setNewUnitName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void saveNewUnitFromPopover();
-                if (e.key === 'Escape') cancelUnitNaming();
-              }}
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={cancelUnitNaming}
-                className="px-4 py-2 rounded-xl border border-slate-300/80 dark:border-white/15 font-medium text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveNewUnitFromPopover()}
-                className="px-4 py-2 rounded-xl bg-slate-800 dark:bg-white text-white dark:text-slate-900 font-bold text-sm"
-              >
-                Save unit
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="p-6 rounded-2xl shadow-2xl w-full max-w-md border" style={glassPanel}>
+          <div className="p-6 rounded-2xl shadow-2xl w-full max-w-md border glass-panel">
             <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white">Add New Level</h2>
             <form onSubmit={handleAddLevel}>
               <div className="mb-4">
@@ -685,7 +774,7 @@ function App() {
 
       {confirmModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-[60] p-4">
-          <div className="rounded-2xl shadow-2xl border max-w-md w-full p-6" style={glassPanel}>
+          <div className="rounded-2xl shadow-2xl border max-w-md w-full p-6 glass-panel">
             <p className="text-slate-800 dark:text-slate-100 mb-6">{confirmModal.message}</p>
             <div className="flex justify-end gap-2">
               <button
@@ -717,8 +806,28 @@ function App() {
           {toast.message}
         </div>
       )}
+
+      <SettingsMenu
+        open={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onUpdateSettings={setSettings}
+        colorMode={colorMode}
+        setColorMode={setColorMode}
+        onAttachOriginal={handleAttachOriginal}
+      />
+
+      <ProjectManagementMenu
+        open={isProjectMenuOpen}
+        onClose={() => setIsProjectMenuOpen(false)}
+        sheets={sheets}
+        onRenameSheet={handleRenameSheet}
+        onDeleteSheet={handleDeleteSheet}
+      />
     </div>
   );
 }
 
 export default App;
+
+

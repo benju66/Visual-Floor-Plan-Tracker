@@ -1,3 +1,4 @@
+"use client";
 import React, { useMemo } from 'react';
 
 function UpdatingRing() {
@@ -128,3 +129,4 @@ export default function FieldStatusTable({
     </div>
   );
 }
+

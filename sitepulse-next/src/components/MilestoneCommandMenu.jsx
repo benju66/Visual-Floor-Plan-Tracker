@@ -1,3 +1,4 @@
+"use client";
 import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
 import { MILESTONES } from '../utils/constants';
@@ -80,3 +81,4 @@ export default function MilestoneCommandMenu({
     </div>
   );
 }
+

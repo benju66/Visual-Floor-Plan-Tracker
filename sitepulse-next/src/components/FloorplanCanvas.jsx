@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+"use client";
+import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Circle } from 'react-konva';
 import useImage from 'use-image';
 import { Hand, MousePointer2, RotateCcw, Check } from 'lucide-react';
 
-export default function FloorplanCanvas({
+const FloorplanCanvas = forwardRef(({
   imageUrl,
   units,
   activeStatuses,
@@ -11,8 +12,10 @@ export default function FloorplanCanvas({
   onPolygonComplete,
   onDrawingModeChange,
   legendFilter,
-}) {
+}, ref) => {
   const [image] = useImage(imageUrl, 'anonymous');
+
+  const stageRef = useRef(null);
 
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -67,6 +70,38 @@ export default function FloorplanCanvas({
     const offsetY = (stageH - drawH) / 2;
     return { offsetX, offsetY, drawW, drawH, stageW, stageH };
   }, [image, dimensions.width, dimensions.height]);
+
+  useImperativeHandle(ref, () => ({
+    exportFullImage: () => {
+      if (!stageRef.current || !image) return null;
+      
+      const stage = stageRef.current;
+      
+      const oldScale = stage.scaleX();
+      const oldPosition = stage.position();
+      const oldWidth = stage.width();
+      const oldHeight = stage.height();
+
+      const nw = image.naturalWidth || image.width;
+      const nh = image.naturalHeight || image.height;
+
+      const exportScale = nw / layout.drawW;
+
+      stage.width(nw);
+      stage.height(nh);
+      stage.scale({ x: exportScale, y: exportScale });
+      stage.position({ x: -layout.offsetX * exportScale, y: -layout.offsetY * exportScale });
+      
+      const dataUrl = stage.toDataURL({ pixelRatio: 1 });
+
+      stage.width(oldWidth);
+      stage.height(oldHeight);
+      stage.scale({ x: oldScale, y: oldScale });
+      stage.position(oldPosition);
+
+      return { dataUrl, width: nw, height: nh };
+    }
+  }));
 
   const handleWheel = (e) => {
     e.evt.preventDefault();
@@ -203,6 +238,7 @@ export default function FloorplanCanvas({
 
       {dimensions.width > 0 && dimensions.height > 0 && (
         <Stage
+          ref={stageRef}
           width={dimensions.width}
           height={dimensions.height}
           onClick={handleStageClick}
@@ -276,4 +312,7 @@ export default function FloorplanCanvas({
       )}
     </div>
   );
-}
+});
+
+export default FloorplanCanvas;
+

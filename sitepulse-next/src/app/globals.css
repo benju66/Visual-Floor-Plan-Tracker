@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text-h);
+  --font-sans: var(--font-outfit);
+  --font-mono: var(--font-roboto-mono);
+}
+
+:root {
+  /* SitePulse milestone fills */
+  --milestone-1: rgba(139, 69, 19, 0.5);
+  --milestone-2: rgba(220, 20, 60, 0.5);
+  --milestone-3: rgba(255, 182, 193, 0.5);
+  --milestone-4: rgba(210, 180, 140, 0.5);
+  --milestone-5: rgba(245, 245, 220, 0.5);
+  --milestone-6: rgba(173, 216, 230, 0.5);
+  --milestone-7: rgba(169, 169, 169, 0.5);
+  --milestone-8: rgba(160, 82, 45, 0.5);
+  --milestone-9: rgba(255, 228, 181, 0.5);
+  --milestone-10: rgba(218, 165, 32, 0.5);
+  --milestone-11: rgba(139, 115, 85, 0.5);
+  --milestone-12: rgba(0, 191, 255, 0.5);
+  --milestone-13: rgba(112, 128, 144, 0.5);
+  --milestone-14: rgba(192, 192, 192, 0.5);
+  --milestone-15: rgba(255, 215, 0, 0.5);
+  --milestone-16: rgba(255, 250, 205, 0.5);
+  --milestone-17: rgba(255, 140, 0, 0.5);
+  --milestone-18: rgba(154, 205, 50, 0.5);
+  --milestone-19: rgba(50, 205, 50, 0.5);
+  --milestone-20: rgba(0, 128, 0, 0.5);
+
+  --glass-bg: rgba(255, 255, 255, 0.96); /* much richer for contrast */
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+
+  --text: #475569; /* Slate 600 */
+  --text-h: #020617; /* Slate 950 */
+  --bg: #f1f5f9; /* Slate 100 */
+  --border: #cbd5e1; /* Slate 300 */
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --milestone-1: rgba(180, 120, 80, 0.45);
+  --milestone-2: rgba(240, 80, 100, 0.45);
+  --milestone-3: rgba(255, 200, 210, 0.4);
+  --milestone-4: rgba(220, 190, 160, 0.45);
+  --milestone-5: rgba(235, 230, 200, 0.4);
+  --milestone-6: rgba(160, 210, 235, 0.45);
+  --milestone-7: rgba(190, 190, 190, 0.4);
+  --milestone-8: rgba(200, 130, 90, 0.45);
+  --milestone-9: rgba(255, 220, 190, 0.45);
+  --milestone-10: rgba(230, 190, 80, 0.45);
+  --milestone-11: rgba(170, 150, 120, 0.45);
+  --milestone-12: rgba(80, 200, 255, 0.45);
+  --milestone-13: rgba(140, 160, 180, 0.45);
+  --milestone-14: rgba(210, 210, 210, 0.4);
+  --milestone-15: rgba(255, 225, 80, 0.45);
+  --milestone-16: rgba(255, 248, 210, 0.4);
+  --milestone-17: rgba(255, 170, 70, 0.45);
+  --milestone-18: rgba(180, 220, 100, 0.45);
+  --milestone-19: rgba(100, 220, 120, 0.45);
+  --milestone-20: rgba(60, 180, 90, 0.5);
+
+  --glass-bg: rgba(15, 23, 42, 0.7); /* deeper dark blue */
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 16px 48px rgba(0, 0, 0, 0.8);
+
+  --text: #94a3b8;
+  --text-h: #f8fafc;
+  --bg: #020617; /* Slate 950 */
+  --border: #1e293b;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--bg);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.08) 0px, transparent 50%);
+  background-attachment: fixed;
+  color: var(--text-h);
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
