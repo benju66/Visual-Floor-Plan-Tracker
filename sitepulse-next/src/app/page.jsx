@@ -11,14 +11,35 @@ import { MILESTONES } from '@/utils/constants';
 import { resolveMilestoneColorById } from '@/utils/milestoneTheme';
 
 function App() {
-  const [viewMode, setViewMode] = useState('list');
+  const [settings, setSettings] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sitepulse-settings');
+      if (saved) return JSON.parse(saved);
+    }
+    return { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' };
+  });
 
-  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sitepulse-settings', JSON.stringify(settings));
+    }
+  }, [settings]);
+
+  const [viewMode, setViewMode] = useState(settings.defaultViewMode || 'list');
+
+  const [toolMode, setToolMode] = useState('pan');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
 
   const [toast, setToast] = useState(null);
-  const [settings, setSettings] = useState({ enableToasts: true, showHistoryHover: false });
+  const [selectedUnitId, setSelectedUnitId] = useState(null);
+  const listRefs = useRef({});
+
+  useEffect(() => {
+    if (selectedUnitId && listRefs.current[selectedUnitId]) {
+      listRefs.current[selectedUnitId].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [selectedUnitId]);
   const [confirmModal, setConfirmModal] = useState(null);
 
   const [colorMode, setColorMode] = useState('system');
@@ -313,9 +334,36 @@ function App() {
   };
 
   const handlePolygonComplete = (points) => {
-    setIsDrawingMode(false);
+    setToolMode('pan');
     setPendingPolygonPoints(points);
     setNewUnitName('');
+    setUnitNamingOpen(true);
+  };
+
+  const handleUpdateUnitPolygon = async (unitId, newPoints) => {
+    const previousUnits = [...units];
+    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, polygon_coordinates: newPoints } : u));
+    
+    try {
+      const { error } = await supabase.from('units').update({ polygon_coordinates: newPoints }).eq('id', unitId);
+      if (error) throw error;
+    } catch (err) {
+      setUnits(previousUnits);
+      showToast('Error updating location geometry: ' + err.message, 'error');
+    }
+  };
+
+  const handleDuplicateUnit = async (unitId) => {
+    const sourceUnit = units.find(u => u.id === unitId);
+    if (!sourceUnit) return;
+    
+    const newPoints = sourceUnit.polygon_coordinates.map(p => ({
+      pctX: p.pctX + 0.02,
+      pctY: p.pctY + 0.02
+    }));
+    
+    setPendingPolygonPoints(newPoints);
+    setNewUnitName(`${sourceUnit.unit_number} (Copy)`);
     setUnitNamingOpen(true);
   };
 
@@ -476,7 +524,7 @@ function App() {
               type="button"
               onClick={() => {
                 setViewMode('list');
-                setIsDrawingMode(false);
+                setToolMode('pan');
               }}
               className={`px-4 py-2 text-sm font-semibold cursor-pointer ${
                 viewMode === 'list'
@@ -539,10 +587,14 @@ function App() {
                   imageUrl={activeSheet.base_image_url}
                   units={units}
                   activeStatuses={activeStatuses}
-                  isDrawingMode={isDrawingMode}
-                  onDrawingModeChange={setIsDrawingMode}
+                  toolMode={toolMode}
+                  onToolModeChange={setToolMode}
+                  onUpdateUnitPolygon={handleUpdateUnitPolygon}
+                  onDuplicateUnit={handleDuplicateUnit}
                   onPolygonComplete={handlePolygonComplete}
                   legendFilter={filterMilestone}
+                  selectedUnitId={selectedUnitId}
+                  onSelectUnit={setSelectedUnitId}
                 />
               ) : (
                 <div
@@ -666,7 +718,14 @@ function App() {
                       {units.map((unit, index) => (
                         <li
                           key={unit.id}
-                          className="relative pl-10 pr-3 py-3 border-b border-slate-100/80 dark:border-white/5 last:border-0 hover:bg-white/50 dark:hover:bg-white/5 flex justify-between items-center group transition-colors"
+                          ref={(el) => (listRefs.current[unit.id] = el)}
+                          onClick={() => {
+                            setToolMode('select');
+                            setSelectedUnitId(unit.id);
+                          }}
+                          className={`cursor-pointer relative pl-10 pr-3 py-3 border-b border-slate-100/80 dark:border-white/5 last:border-0 hover:bg-white/50 dark:hover:bg-white/5 flex justify-between items-center group transition-colors ${
+                            selectedUnitId === unit.id ? 'bg-purple-100/50 dark:bg-purple-900/30' : ''
+                          }`}
                         >
                           <div
                             className={`absolute left-4 top-0 w-px bg-slate-300/80 dark:bg-white/20 ${
@@ -675,7 +734,7 @@ function App() {
                           />
                           <div className="absolute left-4 top-1/2 w-4 h-px bg-slate-300/80 dark:bg-white/20" />
 
-                          <span className="font-medium text-sm text-slate-700 dark:text-slate-200">
+                          <span className={`text-sm ${selectedUnitId === unit.id ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-200'}`}>
                             Location: {unit.unit_number}
                           </span>
                           <button

@@ -85,6 +85,21 @@ export default function SettingsMenu({
 
           <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-white/10 pt-4">
             <div>
+              <span className="font-semibold block text-sm">Default Main View</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">Launch directly into list or map</span>
+            </div>
+            <select
+              value={settings.defaultViewMode || 'list'}
+              onChange={(e) => onUpdateSettings({ ...settings, defaultViewMode: e.target.value })}
+              className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-white/10 rounded-lg p-1.5 text-sm font-medium shadow-sm"
+            >
+              <option value="list">Field List</option>
+              <option value="map">Interactive Map</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-white/10 pt-4">
+            <div>
               <span className="font-semibold block text-sm">Default Field View</span>
               <span className="text-xs text-slate-500 dark:text-slate-400">Set the default layout style for Field list</span>
             </div>
