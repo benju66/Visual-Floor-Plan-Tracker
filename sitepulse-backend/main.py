@@ -169,7 +169,7 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
             
             info = annot.info
             info["title"] = "SitePulse Tracking"
-            info["content"] = f"Unit {poly.unit_number}: {poly.status}"
+            info["content"] = f"Location {poly.unit_number}: {poly.status}"
             info["subject"] = "Visual Status"
             annot.set_info(info)
             

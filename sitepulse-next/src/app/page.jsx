@@ -340,9 +340,9 @@ function App() {
       setUnitNamingOpen(false);
       setPendingPolygonPoints(null);
       setNewUnitName('');
-      showToast('Unit saved.', 'success');
+      showToast('Location saved.', 'success');
     } catch (err) {
-      showToast('Error saving unit: ' + err.message, 'error');
+      showToast('Error saving location: ' + err.message, 'error');
     }
   };
 
@@ -354,16 +354,16 @@ function App() {
 
   const handleDeleteUnit = (unitId) => {
     setConfirmModal({
-      message: 'Are you sure you want to delete this unit markup?',
+      message: 'Are you sure you want to delete this location markup?',
       onConfirm: async () => {
         try {
           const { error } = await supabase.from('units').delete().eq('id', unitId);
           if (error) throw error;
           setUnits((prev) => prev.filter((u) => u.id !== unitId));
           setActiveStatuses((prev) => prev.filter((s) => s.unit_id !== unitId));
-          showToast('Unit deleted successfully.', 'success');
+          showToast('Location deleted successfully.', 'success');
         } catch (err) {
-          showToast('Error deleting unit: ' + err.message, 'error');
+          showToast('Error deleting location: ' + err.message, 'error');
         } finally {
           setConfirmModal(null);
         }
@@ -527,6 +527,7 @@ function App() {
               statusFilter={filterMilestone}
               savingUnitId={savingUnitId}
               onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
+              defaultView={settings.defaultFieldView || 'table'}
             />
           </div>
         ) : (
@@ -558,7 +559,7 @@ function App() {
                   className="absolute top-6 right-6 z-[60] w-64 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md"
                   style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
                 >
-                  <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">Name this unit</h2>
+                  <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">Name this location</h2>
                   <input
                     type="text"
                     autoFocus
@@ -584,7 +585,7 @@ function App() {
                       onClick={() => void saveNewUnitFromPopover()}
                       className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-white text-xs shadow-sm transition-colors"
                     >
-                      Save unit
+                      Save location
                     </button>
                   </div>
                 </div>
@@ -598,7 +599,7 @@ function App() {
                 Live legend
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
-                Click a milestone to highlight matching units on the map. “All” clears the filter.
+                Click a milestone to highlight matching locations on the map. “All” clears the filter.
               </p>
               <div className="flex flex-wrap gap-1.5 mb-4 max-h-[120px] overflow-y-auto pr-1">
                 <button
@@ -634,13 +635,13 @@ function App() {
               </div>
 
               <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2">
-                Mapped units
+                Mapped locations
               </h4>
 
               <div className="overflow-y-auto flex-1 pr-2">
                 {units.length === 0 ? (
                   <p className="text-slate-500 text-sm italic">
-                    No units mapped on this level yet. Use Draw on the map dock to begin.
+                    No locations mapped on this level yet. Use Draw on the map dock to begin.
                   </p>
                 ) : (
                   <div className="border border-slate-200/60 dark:border-white/10 rounded-lg overflow-hidden shadow-sm flex flex-col">
@@ -675,7 +676,7 @@ function App() {
                           <div className="absolute left-4 top-1/2 w-4 h-px bg-slate-300/80 dark:bg-white/20" />
 
                           <span className="font-medium text-sm text-slate-700 dark:text-slate-200">
-                            Unit: {unit.unit_number}
+                            Location: {unit.unit_number}
                           </span>
                           <button
                             type="button"
@@ -700,13 +701,13 @@ function App() {
         onOpenChange={(open) => !open && setMilestoneMenu(null)}
         title={
           milestoneMenu?.mode === 'unit'
-            ? `Status — Unit ${milestoneMenu.unit.unit_number}`
+            ? `Status — Location ${milestoneMenu.unit.unit_number}`
             : 'Filter & search milestones'
         }
         description={
           milestoneMenu?.mode === 'filter'
             ? 'Pick one to filter the map and field list. Use Ctrl+K anytime.'
-            : 'Search and press Enter to save this unit’s status.'
+            : 'Search and press Enter to save this location’s status.'
         }
         onSelect={handleMilestoneMenuSelect}
       />

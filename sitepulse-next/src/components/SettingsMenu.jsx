@@ -85,6 +85,21 @@ export default function SettingsMenu({
 
           <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-white/10 pt-4">
             <div>
+              <span className="font-semibold block text-sm">Default Field View</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">Set the default layout style for Field list</span>
+            </div>
+            <select
+              value={settings.defaultFieldView || 'table'}
+              onChange={(e) => onUpdateSettings({ ...settings, defaultFieldView: e.target.value })}
+              className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-white/10 rounded-lg p-1.5 text-sm font-medium shadow-sm"
+            >
+              <option value="table">Table</option>
+              <option value="card">Cards</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-white/10 pt-4">
+            <div>
               <span className="font-semibold block text-sm">Include Export Data</span>
               <span className="text-xs text-slate-500 dark:text-slate-400">Add titles and unit statuses to PDF</span>
             </div>
