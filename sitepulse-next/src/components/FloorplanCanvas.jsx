@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Circle } from 'react-konva';
 import useImage from 'use-image';
-import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut } from 'lucide-react';
+import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil } from 'lucide-react';
 
 const sqr = (x) => x * x;
 const dist2 = (v, w) => sqr(v.pctX - w.pctX) + sqr(v.pctY - w.pctY);
@@ -27,6 +27,7 @@ const FloorplanCanvas = forwardRef(({
   legendFilter,
   selectedUnitId,
   onSelectUnit,
+  onRenameUnit,
 }, ref) => {
   const [image] = useImage(imageUrl, 'anonymous');
 
@@ -36,6 +37,8 @@ const FloorplanCanvas = forwardRef(({
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [draftPoints, setDraftPoints] = useState([]);
   const [hoveredUnit, setHoveredUnit] = useState(null);
+  const [isHoveringAnchor, setIsHoveringAnchor] = useState(false);
+  const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
 
   const [stageScale, setStageScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
@@ -239,6 +242,27 @@ const FloorplanCanvas = forwardRef(({
     }
   };
 
+  const handleFlip = (direction) => {
+    if (!selectedUnitId) return;
+    const unit = units.find(u => u.id === selectedUnitId);
+    if (!unit || unit.polygon_coordinates.length === 0) return;
+    
+    const pts = unit.polygon_coordinates;
+    const newPoints = pts.map(p => ({ ...p }));
+    
+    if (direction === 'horizontal') {
+      const xs = pts.map(p => p.pctX);
+      const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+      newPoints.forEach(p => p.pctX = centerX - (p.pctX - centerX));
+    } else {
+      const ys = pts.map(p => p.pctY);
+      const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+      newPoints.forEach(p => p.pctY = centerY - (p.pctY - centerY));
+    }
+    
+    onUpdateUnitPolygon?.(unit.id, newPoints);
+  };
+
   const handlePolygonDragEnd = (e, unit) => {
     if (toolMode !== 'select') return;
     const dx = e.target.x() / layout.drawW;
@@ -299,6 +323,19 @@ const FloorplanCanvas = forwardRef(({
   const dockClass =
     'pointer-events-auto flex flex-col gap-1 p-2 rounded-2xl border shadow-xl backdrop-blur-md z-20';
 
+  let computedCursor = 'grab';
+  if (isDraggingCanvas) {
+    computedCursor = 'grabbing';
+  } else if (toolMode === 'draw' || toolMode === 'add_node') {
+    computedCursor = 'crosshair';
+  } else if (toolMode === 'select') {
+    if (isHoveringAnchor) computedCursor = 'move';
+    else if (hoveredUnit) computedCursor = hoveredUnit === selectedUnitId ? 'move' : 'pointer';
+    else computedCursor = 'default';
+  } else if (toolMode === 'delete_node') {
+    computedCursor = isHoveringAnchor ? 'pointer' : 'default';
+  }
+
   const ActionButton = ({ icon: Icon, label, currentMode, activeMode, onClick, colorClass = "blue" }) => {
     const isActive = currentMode === activeMode;
     return (
@@ -323,7 +360,7 @@ const FloorplanCanvas = forwardRef(({
       ref={containerRef}
       className="relative w-full h-full flex-1 border rounded-xl overflow-hidden"
       style={{
-        cursor: toolMode === 'draw' || toolMode === 'add_node' ? 'crosshair' : toolMode === 'select' ? 'default' : 'grab',
+        cursor: computedCursor,
         background: 'var(--glass-bg)',
         borderColor: 'var(--glass-border)',
         boxShadow: 'var(--glass-shadow)',
@@ -367,11 +404,35 @@ const FloorplanCanvas = forwardRef(({
           <>
             <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
             <ActionButton 
+              icon={Pencil} 
+              label="Rename" 
+              currentMode={null} 
+              activeMode={null} 
+              onClick={() => onRenameUnit?.(selectedUnitId)} 
+              colorClass="purple" 
+            />
+            <ActionButton 
               icon={Copy} 
               label="Duplicate" 
               currentMode={null} 
               activeMode={null} 
               onClick={() => onDuplicateUnit?.(selectedUnitId)} 
+              colorClass="purple" 
+            />
+            <ActionButton 
+              icon={FlipHorizontal} 
+              label="Flip H" 
+              currentMode={null} 
+              activeMode={null} 
+              onClick={() => handleFlip('horizontal')} 
+              colorClass="purple" 
+            />
+            <ActionButton 
+              icon={FlipVertical} 
+              label="Flip V" 
+              currentMode={null} 
+              activeMode={null} 
+              onClick={() => handleFlip('vertical')} 
               colorClass="purple" 
             />
           </>
@@ -396,6 +457,12 @@ const FloorplanCanvas = forwardRef(({
           onClick={handleStageClick}
           onWheel={handleWheel}
           draggable={true}
+          onPointerDown={(e) => {
+            if (toolMode === 'pan' || (e.evt && e.evt.button === 1)) {
+              setIsDraggingCanvas(true);
+            }
+          }}
+          onPointerUp={() => setIsDraggingCanvas(false)}
           x={stagePosition.x}
           y={stagePosition.y}
           scaleX={stageScale}
@@ -410,6 +477,7 @@ const FloorplanCanvas = forwardRef(({
           }}
           onDragEnd={(e) => {
             if (e.target === stageRef.current) {
+               setIsDraggingCanvas(false);
                setStagePosition({ x: e.target.x(), y: e.target.y() });
             }
           }}
@@ -455,6 +523,16 @@ const FloorplanCanvas = forwardRef(({
                       onMouseLeave={() => setHoveredUnit(null)}
                       onClick={(e) => handlePolygonClick(e, unit)}
                       onTap={(e) => handlePolygonClick(e, unit)}
+                      onDblClick={(e) => {
+                        e.cancelBubble = true;
+                        onSelectUnit?.(unit.id);
+                        onToolModeChange?.('select');
+                      }}
+                      onDblTap={(e) => {
+                        e.cancelBubble = true;
+                        onSelectUnit?.(unit.id);
+                        onToolModeChange?.('select');
+                      }}
                     />
                     
                     {isSelected && unit.polygon_coordinates.map((pt, i) => (
@@ -470,13 +548,8 @@ const FloorplanCanvas = forwardRef(({
                          onDragEnd={(e) => handleAnchorDragEnd(e, unit.id, i)}
                          onClick={(e) => handleAnchorClick(e, unit.id, i)}
                          onTap={(e) => handleAnchorClick(e, unit.id, i)}
-                         onMouseEnter={(e) => {
-                           if (toolMode === 'select') e.target.getStage().container().style.cursor = 'move';
-                           if (toolMode === 'delete_node') e.target.getStage().container().style.cursor = 'pointer';
-                         }}
-                         onMouseLeave={(e) => {
-                           e.target.getStage().container().style.cursor = toolMode === 'select' ? 'default' : 'crosshair';
-                         }}
+                         onMouseEnter={() => setIsHoveringAnchor(true)}
+                         onMouseLeave={() => setIsHoveringAnchor(false)}
                        />
                     ))}
                   </React.Fragment>

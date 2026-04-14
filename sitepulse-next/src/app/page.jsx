@@ -33,7 +33,21 @@ function App() {
 
   const [toast, setToast] = useState(null);
   const [selectedUnitId, setSelectedUnitId] = useState(null);
+  const [editingUnitId, setEditingUnitId] = useState(null);
   const listRefs = useRef({});
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (selectedUnitId) {
+          setSelectedUnitId(null);
+          setToolMode('pan');
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [selectedUnitId]);
 
   useEffect(() => {
     if (selectedUnitId && listRefs.current[selectedUnitId]) {
@@ -367,28 +381,47 @@ function App() {
     setUnitNamingOpen(true);
   };
 
+  const handleRenameUnitInitiate = (unitId) => {
+     const unit = units.find(u => u.id === unitId);
+     if (!unit) return;
+     setEditingUnitId(unitId);
+     setNewUnitName(unit.unit_number);
+     setUnitNamingOpen(true);
+  };
+
   const saveNewUnitFromPopover = async () => {
     const name = newUnitName.trim();
-    if (!name || !pendingPolygonPoints) return;
+    if (!name) return;
+    if (!editingUnitId && !pendingPolygonPoints) return;
 
     try {
-      const { data, error } = await supabase
-        .from('units')
-        .insert([
-          {
-            sheet_id: activeSheetId,
-            unit_number: name,
-            polygon_coordinates: pendingPolygonPoints,
-          },
-        ])
-        .select();
+      if (editingUnitId) {
+         const { error } = await supabase.from('units').update({ unit_number: name }).eq('id', editingUnitId);
+         if (error) throw error;
+         setUnits(prev => prev.map(u => u.id === editingUnitId ? { ...u, unit_number: name } : u));
+         setUnitNamingOpen(false);
+         setEditingUnitId(null);
+         setNewUnitName('');
+         showToast('Location renamed.', 'success');
+      } else {
+         const { data, error } = await supabase
+           .from('units')
+           .insert([
+             {
+               sheet_id: activeSheetId,
+               unit_number: name,
+               polygon_coordinates: pendingPolygonPoints,
+             },
+           ])
+           .select();
 
-      if (error) throw error;
-      if (data) setUnits([...units, data[0]]);
-      setUnitNamingOpen(false);
-      setPendingPolygonPoints(null);
-      setNewUnitName('');
-      showToast('Location saved.', 'success');
+         if (error) throw error;
+         if (data) setUnits([...units, data[0]]);
+         setUnitNamingOpen(false);
+         setPendingPolygonPoints(null);
+         setNewUnitName('');
+         showToast('Location saved.', 'success');
+      }
     } catch (err) {
       showToast('Error saving location: ' + err.message, 'error');
     }
@@ -397,6 +430,7 @@ function App() {
   const cancelUnitNaming = () => {
     setUnitNamingOpen(false);
     setPendingPolygonPoints(null);
+    setEditingUnitId(null);
     setNewUnitName('');
   };
 
@@ -595,6 +629,7 @@ function App() {
                   legendFilter={filterMilestone}
                   selectedUnitId={selectedUnitId}
                   onSelectUnit={setSelectedUnitId}
+                  onRenameUnit={handleRenameUnitInitiate}
                 />
               ) : (
                 <div
@@ -611,7 +646,7 @@ function App() {
                   className="absolute top-6 right-6 z-[60] w-64 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md"
                   style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
                 >
-                  <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">Name this location</h2>
+                  <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">{editingUnitId ? 'Rename location' : 'Name this location'}</h2>
                   <input
                     type="text"
                     autoFocus
