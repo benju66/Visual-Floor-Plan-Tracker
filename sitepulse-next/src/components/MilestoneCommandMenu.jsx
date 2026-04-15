@@ -1,8 +1,6 @@
 "use client";
 import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
-import { MILESTONES } from '../utils/constants';
-import { milestoneCssVar } from '../utils/milestoneTheme';
 
 /** Command palette for milestones; Cmd/Ctrl+K toggles from parent. */
 export default function MilestoneCommandMenu({
@@ -11,6 +9,7 @@ export default function MilestoneCommandMenu({
   onSelect,
   title = 'Set status',
   description,
+  milestones = [],
 }) {
   useEffect(() => {
     if (!open) return;
@@ -33,7 +32,7 @@ export default function MilestoneCommandMenu({
       role="presentation"
     >
       <div
-        className="w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden"
+        className="w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden glass-panel"
         style={{
           background: 'var(--glass-bg)',
           borderColor: 'var(--glass-border)',
@@ -53,7 +52,7 @@ export default function MilestoneCommandMenu({
           <Command.List className="max-h-[min(50vh,360px)] overflow-y-auto p-2">
             <Command.Empty className="py-8 text-center text-sm text-slate-500">No matches.</Command.Empty>
             <Command.Group heading="Milestones" className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1">
-              {MILESTONES.map((m) => (
+              {milestones.map((m) => (
                 <Command.Item
                   key={m.id}
                   value={`${m.name} ${m.id}`}
@@ -65,7 +64,7 @@ export default function MilestoneCommandMenu({
                 >
                   <span
                     className="h-3 w-3 shrink-0 rounded-full ring-2 ring-white/50 shadow"
-                    style={{ background: milestoneCssVar(m.id) }}
+                    style={{ background: m.color }}
                   />
                   <span className="truncate">{m.name}</span>
                 </Command.Item>

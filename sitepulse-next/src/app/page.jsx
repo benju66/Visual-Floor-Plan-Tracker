@@ -7,8 +7,6 @@ import MilestoneCommandMenu from '@/components/MilestoneCommandMenu';
 import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import { supabase } from '@/supabaseClient';
-import { MILESTONES } from '@/utils/constants';
-import { resolveMilestoneColorById } from '@/utils/milestoneTheme';
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
@@ -170,6 +168,8 @@ function App() {
   const [activeSheetId, setActiveSheetId] = useState('');
   const [units, setUnits] = useState([]);
   const [activeStatuses, setActiveStatuses] = useState([]);
+  const [milestones, setMilestones] = useState([]);
+  const [trackingMode, setTrackingMode] = useState('Production');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newLevelName, setNewLevelName] = useState('');
@@ -196,6 +196,31 @@ function App() {
       const { data: loadedSheets } = await supabase.from('sheets').select('*').eq('project_id', projects[0].id);
       setSheets(loadedSheets || []);
       if (loadedSheets && loadedSheets.length > 0) setActiveSheetId(loadedSheets[0].id);
+
+      // Fetch Milestones
+      let { data: loadedMilestones } = await supabase
+        .from('project_milestones')
+        .select('*')
+        .eq('project_id', projects[0].id)
+        .order('id', { ascending: true });
+
+      // CRITICAL SEEDING: If empty, seed from legacy constants AND Inspection defaults
+      if (!loadedMilestones || loadedMilestones.length === 0) {
+        const defaultMilestones = [
+          // Production Track
+          { project_id: projects[0].id, name: 'Framing', color: '#f59e0b', track: 'Production' },
+          { project_id: projects[0].id, name: 'Drywall', color: '#3b82f6', track: 'Production' },
+          { project_id: projects[0].id, name: 'Cabinets', color: '#f97316', track: 'Production' },
+          { project_id: projects[0].id, name: 'Paint', color: '#8b5cf6', track: 'Production' },
+          // Inspections Track
+          { project_id: projects[0].id, name: 'AHJ Rough-in', color: '#eab308', track: 'Inspections' },
+          { project_id: projects[0].id, name: 'AHJ Final', color: '#10b981', track: 'Inspections' },
+        ];
+        
+        const { data: seeded } = await supabase.from('project_milestones').insert(defaultMilestones).select();
+        loadedMilestones = seeded;
+      }
+      setMilestones(loadedMilestones || []);
     }
     loadData();
   }, []);
@@ -254,6 +279,74 @@ function App() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, []);
+
+  const handleAddMilestone = async (name, color, track) => {
+    if (!name || !project) return;
+    try {
+      const { data, error } = await supabase.from('project_milestones').insert([{
+        project_id: project.id,
+        name,
+        color,
+        track
+      }]).select();
+      
+      if (error) throw error;
+      setMilestones([...milestones, data[0]]);
+    } catch (err) {
+      showToast('Failed to add milestone: ' + err.message, 'error');
+    }
+  };
+
+  const handleUpdateMilestone = async (id, oldName, newName, newColor) => {
+    try {
+      const { error: updateErr } = await supabase
+        .from('project_milestones')
+        .update({ name: newName, color: newColor })
+        .eq('id', id);
+        
+      if (updateErr) throw updateErr;
+
+      // The Ripple Effect
+      if ((oldName !== newName || newColor) && project) {
+        const { data: projectSheets } = await supabase.from('sheets').select('id').eq('project_id', project.id);
+        const sheetIds = projectSheets ? projectSheets.map(s => s.id) : [];
+
+        if (sheetIds.length > 0) {
+          // Process updates in chunks to prevent 413 Payload Too Large
+          const CHUNK_SIZE = 800;
+          const { data: projectUnits } = await supabase.from('units').select('id').in('sheet_id', sheetIds);
+          const unitIds = projectUnits ? projectUnits.map(u => u.id) : [];
+          
+          if (unitIds.length > 0) {
+            for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
+              const chunk = unitIds.slice(i, i + CHUNK_SIZE);
+              await supabase
+                .from('status_logs')
+                .update({ milestone: newName, status_color: newColor })
+                .eq('milestone', oldName)
+                .in('unit_id', chunk);
+            }
+          }
+        }
+      }
+
+      setMilestones(milestones.map(m => m.id === id ? { ...m, name: newName, color: newColor } : m));
+      // Hot-update the active canvas statuses to reflect ripple immediately
+      setActiveStatuses(prev => prev.map(s => s.milestone === oldName ? { ...s, milestone: newName, status_color: newColor } : s));
+    } catch (err) {
+      showToast('Failed to update milestone: ' + err.message, 'error');
+    }
+  };
+
+  const handleDeleteMilestone = async (id) => {
+    try {
+      const { error } = await supabase.from('project_milestones').delete().eq('id', id);
+      if (error) throw error;
+      setMilestones(milestones.filter(m => m.id !== id));
+    } catch (err) {
+      showToast('Failed to delete milestone: ' + err.message, 'error');
+    }
+  };
 
   const showToast = (message, type) => {
     if (!settings.enableToasts) return;
@@ -659,7 +752,7 @@ function App() {
     const oldStatus = activeStatuses.find(s => s.unit_id === unit.id) || null;
     
     try {
-      const status_color = resolveMilestoneColorById(milestone.id || milestone.milestone_id) || milestone.status_color;
+      const status_color = milestone.color || milestone.status_color;
       const { data, error } = await supabase
         .from('status_logs')
         .insert([
@@ -767,6 +860,30 @@ function App() {
           >
             Milestones (Ctrl+K)
           </button>
+          <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm mr-2">
+            <button
+              type="button"
+              onClick={() => setTrackingMode('Production')}
+              className={`px-3 py-2 text-xs font-semibold cursor-pointer ${
+                trackingMode === 'Production'
+                  ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              Production
+            </button>
+            <button
+              type="button"
+              onClick={() => setTrackingMode('Inspections')}
+              className={`px-3 py-2 text-xs font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 ${
+                trackingMode === 'Inspections'
+                  ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              Inspections
+            </button>
+          </div>
           <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
             <button
               type="button"
@@ -824,6 +941,7 @@ function App() {
               savingUnitId={savingUnitId}
               onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
               defaultView={settings.defaultFieldView || 'table'}
+              milestones={milestones.filter(m => m.track === trackingMode)}
             />
           </div>
         ) : (
@@ -927,7 +1045,7 @@ function App() {
                 >
                   All
                 </button>
-                {MILESTONES.map((m) => (
+                {milestones.filter(m => m.track === trackingMode).map((m) => (
                   <button
                     key={m.id}
                     type="button"
@@ -938,7 +1056,7 @@ function App() {
                         : ''
                     }`}
                     style={{
-                      background: `var(--milestone-${m.id})`,
+                      background: m.color,
                       borderColor: 'var(--glass-border)',
                     }}
                     title={m.name}
@@ -1037,6 +1155,7 @@ function App() {
       <MilestoneCommandMenu
         open={milestoneMenu !== null}
         onOpenChange={(open) => !open && setMilestoneMenu(null)}
+        milestones={milestones.filter(m => m.track === trackingMode)}
         title={
           milestoneMenu?.mode === 'unit'
             ? `Status — Location ${milestoneMenu.unit.unit_number}`
@@ -1154,6 +1273,10 @@ function App() {
         colorMode={colorMode}
         setColorMode={setColorMode}
         onAttachOriginal={handleAttachOriginal}
+        milestones={milestones}
+        onAddMilestone={handleAddMilestone}
+        onUpdateMilestone={handleUpdateMilestone}
+        onDeleteMilestone={handleDeleteMilestone}
       />
 
       <ProjectManagementMenu
