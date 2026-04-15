@@ -62,6 +62,13 @@ const FloorplanCanvas = forwardRef(({
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Shift') setIsShiftDown(true);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          setDraftPoints(prev => prev.slice(0, -1));
+        }
+      }
       if (toolMode === 'draw') {
         if (e.key === 'Escape') {
           if (draftPointsRef.current.length > 0) {

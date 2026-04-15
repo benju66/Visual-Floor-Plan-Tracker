@@ -29,6 +29,8 @@ function App() {
   }, [settings]);
 
   const [viewMode, setViewMode] = useState(settings.defaultViewMode || 'list');
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
 
   const [toolMode, setToolMode] = useState('pan');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -51,6 +53,96 @@ function App() {
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [selectedUnitId]);
+
+  const triggerUndo = async () => {
+    if (undoStack.length === 0) return;
+    const action = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    setRedoStack(prev => [...prev, action]);
+
+    switch (action.actionType) {
+      case 'UPDATE_GEOMETRY':
+        await handleUpdateUnitPolygon(action.unitId, action.oldData, true); 
+        break;
+      case 'DELETE_UNIT':
+        const { error: undoDelErr } = await supabase.from('units').insert([action.unitData]);
+        if (!undoDelErr) {
+          setUnits(prev => [...prev, action.unitData]);
+          if (action.statusData) {
+            await supabase.from('status_logs').insert([action.statusData]);
+            setActiveStatuses(prev => [...prev.filter(s => s.unit_id !== action.unitData.id), action.statusData]);
+          }
+        }
+        break;
+      case 'UPDATE_STATUS':
+        if (action.oldLog) {
+            await commitUnitMilestone({ id: action.unitId }, action.oldLog, true);
+        }
+        break;
+      case 'CREATE_UNIT':
+        const { error: undoCreErr } = await supabase.from('units').delete().eq('id', action.unitData.id);
+        if (!undoCreErr) {
+          setUnits(prev => prev.filter(u => u.id !== action.unitData.id));
+        }
+        break;
+    }
+  };
+
+  const triggerRedo = async () => {
+    if (redoStack.length === 0) return;
+    const action = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    setUndoStack(prev => {
+        const next = [...prev, action];
+        return next.length > 50 ? next.slice(next.length - 50) : next;
+    });
+
+    switch (action.actionType) {
+      case 'UPDATE_GEOMETRY':
+        await handleUpdateUnitPolygon(action.unitId, action.newData, true);
+        break;
+      case 'DELETE_UNIT':
+        const { error: redoDelErr } = await supabase.from('units').delete().eq('id', action.unitData.id);
+        if (!redoDelErr) {
+          setUnits(prev => prev.filter(u => u.id !== action.unitData.id));
+          setActiveStatuses(prev => prev.filter(s => s.unit_id !== action.unitData.id));
+        }
+        break;
+      case 'UPDATE_STATUS':
+        await commitUnitMilestone({ id: action.unitId }, action.newLog, true);
+        break;
+      case 'CREATE_UNIT':
+        const { error: redoCreErr } = await supabase.from('units').insert([action.unitData]);
+        if (!redoCreErr) {
+          setUnits(prev => [...prev, action.unitData]);
+        }
+        break;
+    }
+  };
+
+  const undoStateRef = useRef({ toolMode, triggerUndo, triggerRedo });
+  useEffect(() => {
+    undoStateRef.current = { toolMode, triggerUndo, triggerRedo };
+  });
+
+  useEffect(() => {
+    const handleGlobalUndoRedo = (e) => {
+      const { toolMode, triggerUndo, triggerRedo } = undoStateRef.current;
+      if (toolMode === 'draw') return; 
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          triggerRedo();
+        } else {
+          triggerUndo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalUndoRedo);
+    return () => window.removeEventListener('keydown', handleGlobalUndoRedo);
+  }, []);
 
   useEffect(() => {
     if (selectedUnitId && listRefs.current[selectedUnitId]) {
@@ -357,7 +449,26 @@ function App() {
     setUnitNamingOpen(true);
   };
 
-  const handleUpdateUnitPolygon = async (unitId, newPoints) => {
+  const handleUpdateUnitPolygon = async (unitId, newPoints, isUndoRedo = false) => {
+    let actionAdded = false;
+
+    if (!isUndoRedo) {
+      const oldUnit = units.find(u => u.id === unitId);
+      if (oldUnit) {
+        setUndoStack(prev => {
+          const nextStack = [...prev, {
+            actionType: 'UPDATE_GEOMETRY',
+            unitId: unitId,
+            oldData: oldUnit.polygon_coordinates,
+            newData: newPoints
+          }];
+          return nextStack.length > 50 ? nextStack.slice(nextStack.length - 50) : nextStack;
+        });
+        setRedoStack([]);
+        actionAdded = true;
+      }
+    }
+
     const previousUnits = [...units];
     setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, polygon_coordinates: newPoints } : u));
     
@@ -366,6 +477,9 @@ function App() {
       if (error) throw error;
     } catch (err) {
       setUnits(previousUnits);
+      if (actionAdded) {
+        setUndoStack(prev => prev.slice(0, -1)); 
+      }
       showToast('Error updating location geometry: ' + err.message, 'error');
     }
   };
@@ -426,6 +540,11 @@ function App() {
       if (error) throw error;
       if (data) {
         setUnits(prev => prev.map(u => u.id === tempId ? data[0] : u));
+        setUndoStack(prev => {
+          const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data[0] }];
+          return next.length > 50 ? next.slice(next.length - 50) : next;
+        });
+        setRedoStack([]);
       }
     } catch (err) {
       setUnits(prev => prev.filter(u => u.id !== tempId));
@@ -468,7 +587,14 @@ function App() {
            .select();
 
          if (error) throw error;
-         if (data) setUnits([...units, data[0]]);
+         if (data) {
+           setUnits([...units, data[0]]);
+           setUndoStack(prev => {
+             const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data[0] }];
+             return next.length > 50 ? next.slice(next.length - 50) : next;
+           });
+           setRedoStack([]);
+         }
          setUnitNamingOpen(false);
          setPendingPolygonPoints(null);
          setNewUnitName('');
@@ -490,9 +616,23 @@ function App() {
     setConfirmModal({
       message: 'Are you sure you want to delete this location markup?',
       onConfirm: async () => {
+        const unitToDelete = units.find(u => u.id === unitId);
+        const statusToDelete = activeStatuses.find(s => s.unit_id === unitId);
+        
         try {
           const { error } = await supabase.from('units').delete().eq('id', unitId);
           if (error) throw error;
+          
+          setUndoStack(prev => {
+            const next = [...prev, {
+              actionType: 'DELETE_UNIT',
+              unitData: unitToDelete,
+              statusData: statusToDelete
+            }];
+            return next.length > 50 ? next.slice(next.length - 50) : next;
+          });
+          setRedoStack([]);
+
           setUnits((prev) => prev.filter((u) => u.id !== unitId));
           setActiveStatuses((prev) => prev.filter((s) => s.unit_id !== unitId));
           showToast('Location deleted successfully.', 'success');
@@ -512,23 +652,43 @@ function App() {
     ]);
   };
 
-  const commitUnitMilestone = async (unit, milestone) => {
+  const commitUnitMilestone = async (unit, milestone, isUndoRedo = false) => {
     setSavingUnitId(unit.id);
+    
+    // Capture old status for undo
+    const oldStatus = activeStatuses.find(s => s.unit_id === unit.id) || null;
+    
     try {
-      const status_color = resolveMilestoneColorById(milestone.id);
+      const status_color = resolveMilestoneColorById(milestone.id || milestone.milestone_id) || milestone.status_color;
       const { data, error } = await supabase
         .from('status_logs')
         .insert([
           {
             unit_id: unit.id,
-            milestone: milestone.name,
+            milestone: milestone.name || milestone.milestone,
             status_color,
           },
         ])
         .select();
 
       if (error) throw error;
-      if (data) handleStatusUpdate(data[0]);
+      
+      if (data) {
+        handleStatusUpdate(data[0]);
+        
+        if (!isUndoRedo) {
+          setUndoStack(prev => {
+            const next = [...prev, {
+              actionType: 'UPDATE_STATUS',
+              unitId: unit.id,
+              oldLog: oldStatus,
+              newLog: data[0]
+            }];
+            return next.length > 50 ? next.slice(next.length - 50) : next;
+          });
+          setRedoStack([]);
+        }
+      }
     } catch (err) {
       console.error(err);
       showToast('Failed to update status: ' + err.message, 'error');
