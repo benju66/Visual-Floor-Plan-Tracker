@@ -252,11 +252,16 @@ function App() {
 
           if (!logError && logs) {
             const latestStatuses = [];
-            const seenIds = new Set();
+            const seen = new Set();
             for (const log of logs) {
-              if (!seenIds.has(log.unit_id)) {
-                latestStatuses.push(log);
-                seenIds.add(log.unit_id);
+              // Find which track this milestone belongs to, default to Production
+              const milestoneDef = milestones.find((m) => m.name === log.milestone);
+              const track = milestoneDef ? milestoneDef.track : 'Production';
+              const key = `${log.unit_id}-${track}`;
+              
+              if (!seen.has(key)) {
+                latestStatuses.push({ ...log, track });
+                seen.add(key);
               }
             }
             setActiveStatuses(latestStatuses);
@@ -267,7 +272,7 @@ function App() {
       }
     }
     loadUnitsAndStatuses();
-  }, [activeSheetId]);
+  }, [activeSheetId, milestones]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -363,8 +368,10 @@ function App() {
     
     showToast('Generating Vector PDF... This may take a few seconds.', 'success');
     
+    const currentTrackStatuses = activeStatuses.filter((s) => s.track === trackingMode);
+    
     const polygonsPayload = units.filter(u => u.polygon_coordinates && u.polygon_coordinates.length > 2).map(u => {
-      const stat = activeStatuses.find((s) => s.unit_id === u.id);
+      const stat = currentTrackStatuses.find((s) => s.unit_id === u.id);
       const color = stat ? stat.status_color : 'rgba(128,128,128,0.3)';
       return {
         unit_id: u.id,
@@ -740,7 +747,7 @@ function App() {
 
   const handleStatusUpdate = (newStatusLog) => {
     setActiveStatuses((prev) => [
-      ...prev.filter((s) => s.unit_id !== newStatusLog.unit_id),
+      ...prev.filter((s) => !(s.unit_id === newStatusLog.unit_id && s.track === newStatusLog.track)),
       newStatusLog,
     ]);
   };
@@ -748,8 +755,8 @@ function App() {
   const commitUnitMilestone = async (unit, milestone, isUndoRedo = false) => {
     setSavingUnitId(unit.id);
     
-    // Capture old status for undo
-    const oldStatus = activeStatuses.find(s => s.unit_id === unit.id) || null;
+    // Capture old status for undo (specific to the same track)
+    const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track) || null;
     
     try {
       const status_color = milestone.color || milestone.status_color;
@@ -767,7 +774,8 @@ function App() {
       if (error) throw error;
       
       if (data) {
-        handleStatusUpdate(data[0]);
+        const newLog = { ...data[0], track: milestone.track };
+        handleStatusUpdate(newLog);
         
         if (!isUndoRedo) {
           setUndoStack(prev => {
@@ -775,7 +783,7 @@ function App() {
               actionType: 'UPDATE_STATUS',
               unitId: unit.id,
               oldLog: oldStatus,
-              newLog: data[0]
+              newLog: newLog // Use the constructed log with track attached
             }];
             return next.length > 50 ? next.slice(next.length - 50) : next;
           });
@@ -807,6 +815,8 @@ function App() {
   const colorModeLabel = colorMode === 'system' ? 'System' : colorMode === 'light' ? 'Light' : 'Dark';
 
   if (!isMounted) return null;
+
+  const currentTrackStatuses = activeStatuses.filter((s) => s.track === trackingMode);
 
   return (
     <div
@@ -936,7 +946,7 @@ function App() {
           <div className="h-full overflow-auto">
             <FieldStatusTable
               units={units}
-              activeStatuses={activeStatuses}
+              activeStatuses={currentTrackStatuses}
               statusFilter={filterMilestone}
               savingUnitId={savingUnitId}
               onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
@@ -952,7 +962,7 @@ function App() {
                   ref={floorplanRef}
                   imageUrl={activeSheet.base_image_url}
                   units={units}
-                  activeStatuses={activeStatuses}
+                  activeStatuses={currentTrackStatuses}
                   toolMode={toolMode}
                   onToolModeChange={setToolMode}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
