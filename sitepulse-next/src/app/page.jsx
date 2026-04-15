@@ -854,7 +854,9 @@ function App() {
                   onInstantStamp={handleInstantStamp}
                   pendingPolygonPoints={pendingPolygonPoints}
                   onPendingPolygonMove={setPendingPolygonPoints}
+                  onPendingPolygonComplete={handlePolygonComplete}
                   showTooltip={settings.showTooltips}
+                  settings={settings}
                 />
               ) : (
                 <div

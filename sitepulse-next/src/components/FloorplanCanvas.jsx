@@ -32,7 +32,10 @@ const FloorplanCanvas = forwardRef(({
   onInstantStamp,
   pendingPolygonPoints,
   onPendingPolygonMove,
+  onAddNodeToSegment,
+  onPendingPolygonComplete,
   showTooltip,
+  settings,
 }, ref) => {
   const [image] = useImage(imageUrl, 'anonymous');
 
@@ -670,7 +673,7 @@ const FloorplanCanvas = forwardRef(({
                       )}
                       fill={fillColor}
                       stroke={isSelected ? '#8b5cf6' : isHover ? '#0ea5e9' : dim ? '#94a3b8' : '#666'}
-                      strokeWidth={isSelected ? 3.5 : isHover ? 3.5 : dim ? 0.6 : 1}
+                      strokeWidth={(isSelected || isHover ? 3.5 : dim ? 0.6 : 1) * (settings?.markupThickness || 1)}
                       closed={true}
                       opacity={dim ? 0.2 : highlight ? 1 : 0.95}
                       shadowBlur={highlight ? 18 : 0}
@@ -884,7 +887,7 @@ const FloorplanCanvas = forwardRef(({
                   )}
                   fill="rgba(139, 92, 246, 0.2)"
                   stroke="#8b5cf6"
-                  strokeWidth={3 / stageScale}
+                  strokeWidth={(3 * (settings?.markupThickness || 1)) / stageScale}
                   dash={[10 / stageScale, 8 / stageScale]}
                   closed={true}
                   draggable={true}
