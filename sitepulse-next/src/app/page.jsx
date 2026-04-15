@@ -384,6 +384,55 @@ function App() {
     setUnitNamingOpen(true);
   };
 
+  const handleInstantStamp = async (sourceUnitId, newPoints) => {
+    const sourceUnit = units.find(u => u.id === sourceUnitId);
+    if (!sourceUnit) return;
+    
+    const baseNameMatch = sourceUnit.unit_number.match(/^(.*?)(?:\s*\(Stamp\s*(\d+)\))?$/);
+    const baseName = baseNameMatch ? baseNameMatch[1].trim() : sourceUnit.unit_number;
+    
+    let nextIndex = 1;
+    units.forEach(u => {
+      if (u.unit_number.startsWith(`${baseName} (Stamp`)) {
+        const match = u.unit_number.match(/\(Stamp\s*(\d+)\)$/);
+        if (match) {
+          const idx = parseInt(match[1]);
+          if (idx >= nextIndex) nextIndex = idx + 1;
+        }
+      }
+    });
+    
+    const stampedName = `${baseName} (Stamp ${nextIndex})`;
+    const tempId = `temp-${Date.now()}`;
+    
+    try {
+      const newUnit = {
+         id: tempId,
+         sheet_id: activeSheetId,
+         unit_number: stampedName,
+         polygon_coordinates: newPoints
+      };
+      setUnits(prev => [...prev, newUnit]);
+
+      const { data, error } = await supabase
+        .from('units')
+        .insert([{
+          sheet_id: activeSheetId,
+          unit_number: stampedName,
+          polygon_coordinates: newPoints,
+        }])
+        .select();
+
+      if (error) throw error;
+      if (data) {
+        setUnits(prev => prev.map(u => u.id === tempId ? data[0] : u));
+      }
+    } catch (err) {
+      setUnits(prev => prev.filter(u => u.id !== tempId));
+      showToast('Error stamping location: ' + err.message, 'error');
+    }
+  };
+
   const handleRenameUnitInitiate = (unitId) => {
      const unit = units.find(u => u.id === unitId);
      if (!unit) return;
@@ -633,11 +682,19 @@ function App() {
                   onPolygonComplete={handlePolygonComplete}
                   legendFilter={filterMilestone}
                   selectedUnitId={selectedUnitId}
-                  onSelectUnit={setSelectedUnitId}
+                  onSelectUnit={(id) => {
+                    setSelectedUnitId(id);
+                    if (id && listRefs.current[id]) {
+                       console.log('Detected map selection -> scrolling list to unit', id);
+                       listRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
                   onRenameUnit={handleRenameUnitInitiate}
                   onDeleteUnit={handleDeleteUnit}
+                  onInstantStamp={handleInstantStamp}
                   pendingPolygonPoints={pendingPolygonPoints}
                   onPendingPolygonMove={setPendingPolygonPoints}
+                  showTooltip={settings.showTooltips}
                 />
               ) : (
                 <div

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Circle } from 'react-konva';
 import useImage from 'use-image';
-import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil, Trash2 } from 'lucide-react';
+import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp } from 'lucide-react';
 
 const sqr = (x) => x * x;
 const dist2 = (v, w) => sqr(v.pctX - w.pctX) + sqr(v.pctY - w.pctY);
@@ -29,6 +29,7 @@ const FloorplanCanvas = forwardRef(({
   onSelectUnit,
   onRenameUnit,
   onDeleteUnit,
+  onInstantStamp,
   pendingPolygonPoints,
   onPendingPolygonMove,
   showTooltip,
@@ -40,6 +41,9 @@ const FloorplanCanvas = forwardRef(({
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [draftPoints, setDraftPoints] = useState([]);
+  const draftPointsRef = useRef(draftPoints);
+  useEffect(() => { draftPointsRef.current = draftPoints; }, [draftPoints]);
+  
   const [hoveredUnit, setHoveredUnit] = useState(null);
   const [isHoveringAnchor, setIsHoveringAnchor] = useState(false);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
@@ -60,23 +64,17 @@ const FloorplanCanvas = forwardRef(({
       if (e.key === 'Shift') setIsShiftDown(true);
       if (toolMode === 'draw') {
         if (e.key === 'Escape') {
-          setDraftPoints(prev => {
-            if (prev.length > 0) {
-              e.stopImmediatePropagation();
-              return [];
-            }
-            return prev;
-          });
+          if (draftPointsRef.current.length > 0) {
+            e.stopImmediatePropagation();
+            setDraftPoints([]);
+          }
         }
         if (e.key === 'Enter') {
-          setDraftPoints(prev => {
-            if (prev.length > 2) {
-              e.stopImmediatePropagation();
-              onPolygonComplete(prev);
-              return [];
-            }
-            return prev;
-          });
+          if (draftPointsRef.current.length > 2) {
+            e.stopImmediatePropagation();
+            onPolygonComplete(draftPointsRef.current);
+            setDraftPoints([]);
+          }
         }
       }
     };
@@ -109,7 +107,7 @@ const FloorplanCanvas = forwardRef(({
 
   useEffect(() => {
     if (toolMode !== 'draw') setDraftPoints([]);
-    if (!['select', 'add_node', 'delete_node'].includes(toolMode)) {
+    if (!['select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
       onSelectUnit(null);
     }
   }, [toolMode]);
@@ -228,7 +226,24 @@ const FloorplanCanvas = forwardRef(({
     let pctX = (logicalX - offsetX) / drawW;
     let pctY = (logicalY - offsetY) / drawH;
 
-    if (toolMode === 'draw') {
+    if (toolMode === 'stamp' && selectedUnitId) {
+      const sourceUnit = units.find(u => u.id === selectedUnitId);
+      if (sourceUnit && sourceUnit.polygon_coordinates && sourceUnit.polygon_coordinates.length > 0) {
+        let sumX = 0, sumY = 0;
+        sourceUnit.polygon_coordinates.forEach(pt => { sumX += pt.pctX; sumY += pt.pctY; });
+        const cx = sumX / sourceUnit.polygon_coordinates.length;
+        const cy = sumY / sourceUnit.polygon_coordinates.length;
+        const dx = pctX - cx;
+        const dy = pctY - cy;
+        
+        const translatedPoints = sourceUnit.polygon_coordinates.map(pt => ({
+          pctX: pt.pctX + dx,
+          pctY: pt.pctY + dy
+        }));
+        
+        onInstantStamp?.(selectedUnitId, translatedPoints);
+      }
+    } else if (toolMode === 'draw') {
       if (Date.now() - lastBoxEndRef.current < 200) return;
       if (e.evt.shiftKey && draftPoints.length > 0) {
         const lastPoint = draftPoints[draftPoints.length - 1];
@@ -389,19 +404,26 @@ const FloorplanCanvas = forwardRef(({
   const dockClass =
     'pointer-events-auto flex flex-col gap-1 p-2 rounded-2xl border shadow-xl backdrop-blur-md z-20';
 
+  const addNodeCursor = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M2,2 L10,24 L14,15 L24,10 Z' fill='black' stroke='white' stroke-width='1.5'/><circle cx='20' cy='20' r='6' fill='%2310b981' stroke='white' stroke-width='1'/><path d='M20,16.5 v7 M16.5,20 h7' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>") 2 2, crosshair`;
+  const deleteNodeCursor = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M2,2 L10,24 L14,15 L24,10 Z' fill='black' stroke='white' stroke-width='1.5'/><circle cx='20' cy='20' r='6' fill='%23ef4444' stroke='white' stroke-width='1'/><path d='M16.5,20 h7' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>") 2 2, pointer`;
+
   let computedCursor = 'grab';
   if (isDraggingCanvas) {
     computedCursor = 'grabbing';
   } else if (activeDragPolygon || activeDragNode) {
     computedCursor = 'grabbing';
-  } else if (toolMode === 'draw' || toolMode === 'add_node') {
+  } else if (toolMode === 'draw') {
     computedCursor = 'crosshair';
+  } else if (toolMode === 'stamp') {
+    computedCursor = 'copy';
+  } else if (toolMode === 'add_node') {
+    computedCursor = addNodeCursor;
   } else if (toolMode === 'select') {
     if (isHoveringAnchor) computedCursor = 'pointer';
     else if (hoveredUnit) computedCursor = hoveredUnit === selectedUnitId ? 'grab' : 'pointer';
     else computedCursor = 'default';
   } else if (toolMode === 'delete_node') {
-    computedCursor = isHoveringAnchor ? 'not-allowed' : 'default';
+    computedCursor = isHoveringAnchor ? deleteNodeCursor : 'default';
   }
 
   const ActionButton = ({ icon: Icon, label, currentMode, activeMode, onClick, colorClass = "blue" }) => {
@@ -471,6 +493,14 @@ const FloorplanCanvas = forwardRef(({
         {selectedUnitId && (
           <>
             <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
+            <ActionButton
+              icon={Stamp}
+              label="Stamp Trace"
+              currentMode={toolMode}
+              activeMode="stamp"
+              onClick={() => onToolModeChange?.('stamp')}
+              colorClass="fuchsia"
+            />
             <ActionButton 
               icon={Pencil} 
               label="Rename" 
@@ -670,7 +700,9 @@ const FloorplanCanvas = forwardRef(({
                         onToolModeChange?.('select');
                         const stage = e.target.getStage();
                         const pointer = stage.getPointerPosition();
-                        setContextMenu({ x: pointer.x, y: pointer.y, unitId: unit.id });
+                        setTimeout(() => {
+                           setContextMenu({ x: pointer.x, y: pointer.y, unitId: unit.id });
+                        }, 10);
                       }}
                     />
                     
@@ -684,6 +716,16 @@ const FloorplanCanvas = forwardRef(({
                          stroke={toolMode === 'delete_node' ? '#fff' : '#8b5cf6'}
                          strokeWidth={2 / stageScale}
                          draggable={toolMode === 'select'}
+                         dragBoundFunc={(pos) => {
+                           if (!isShiftDown) return pos;
+                           const origX = layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0)) * layout.drawW;
+                           const origY = layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0)) * layout.drawH;
+                           if (Math.abs(pos.x - origX) > Math.abs(pos.y - origY)) {
+                             return { x: pos.x, y: origY };
+                           } else {
+                             return { x: origX, y: pos.y };
+                           }
+                         }}
                          onDragMove={(e) => {
                            const node = e.target;
                            let pctX = (node.x() - layout.offsetX) / layout.drawW;
@@ -729,6 +771,50 @@ const FloorplanCanvas = forwardRef(({
                      listening={false}
                    />
                  );
+              })()
+            )}
+
+            {toolMode === 'stamp' && selectedUnitId && pointerPos && (
+              (() => {
+                const sourceUnit = units.find(u => u.id === selectedUnitId);
+                if (!sourceUnit || !sourceUnit.polygon_coordinates || sourceUnit.polygon_coordinates.length === 0) return null;
+                
+                let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
+                let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
+                let pctX = (logicalX - layout.offsetX) / layout.drawW;
+                let pctY = (logicalY - layout.offsetY) / layout.drawH;
+
+                let sumX = 0, sumY = 0;
+                sourceUnit.polygon_coordinates.forEach(pt => { sumX += pt.pctX; sumY += pt.pctY; });
+                const cx = sumX / sourceUnit.polygon_coordinates.length;
+                const cy = sumY / sourceUnit.polygon_coordinates.length;
+                const dx = pctX - cx;
+                const dy = pctY - cy;
+
+                const translatedPoints = sourceUnit.polygon_coordinates.map(pt => ({
+                  pctX: pt.pctX + dx,
+                  pctY: pt.pctY + dy
+                }));
+
+                const activeStatus = activeStatuses.find((s) => s.unit_id === selectedUnitId);
+                let fillColor = 'rgba(139, 92, 246, 0.3)';
+                let strokeColor = '#8b5cf6';
+                if (activeStatus) {
+                  strokeColor = activeStatus.status_color;
+                  fillColor = activeStatus.status_color.replace('rgb', 'rgba').replace(')', ', 0.3)');
+                }
+
+                return (
+                  <Line
+                    points={toPixels(translatedPoints)}
+                    stroke={strokeColor}
+                    strokeWidth={2 / stageScale}
+                    dash={[6 / stageScale, 6 / stageScale]}
+                    fill={fillColor}
+                    closed={true}
+                    listening={false}
+                  />
+                );
               })()
             )}
 
@@ -827,6 +913,16 @@ const FloorplanCanvas = forwardRef(({
                     stroke="#8b5cf6"
                     strokeWidth={2 / stageScale}
                     draggable={true}
+                    dragBoundFunc={(pos) => {
+                      if (!isShiftDown) return pos;
+                      const origX = layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === 'PENDING' ? activeDragPolygon.dx : 0)) * layout.drawW;
+                      const origY = layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === 'PENDING' ? activeDragPolygon.dy : 0)) * layout.drawH;
+                      if (Math.abs(pos.x - origX) > Math.abs(pos.y - origY)) {
+                        return { x: pos.x, y: origY };
+                      } else {
+                        return { x: origX, y: pos.y };
+                      }
+                    }}
                     onDragMove={(e) => {
                       const node = e.target;
                       let pctX = (node.x() - layout.offsetX) / layout.drawW;
@@ -869,7 +965,7 @@ const FloorplanCanvas = forwardRef(({
           className="absolute z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2 flex flex-col gap-1 min-w-[200px]"
           style={{ 
             left: Math.min(contextMenu.x, dimensions.width - 200),
-            top: Math.min(contextMenu.y, dimensions.height - 200)
+            top: Math.min(contextMenu.y, dimensions.height - 260)
           }}
         >
           <div className="px-2 py-1 mb-1 border-b border-slate-200/50 dark:border-slate-700/50">
