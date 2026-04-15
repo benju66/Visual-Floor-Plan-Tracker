@@ -165,6 +165,7 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
             annot = page.add_polygon_annot(fitz_points)
             annot.set_colors(stroke=color_rgb, fill=color_rgb)
             annot.set_opacity(0.4)
+            annot.set_blendmode(fitz.PDF_BM_Multiply)
             annot.set_border(width=1.5)
             
             info = annot.info
