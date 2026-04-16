@@ -26,6 +26,10 @@ export default function MapHorizontalToolbar({
   const isUndoEmpty = !undoStack || undoStack.length === 0;
   const isRedoEmpty = !redoStack || redoStack.length === 0;
 
+  const coreTools = ['select', 'pan', 'draw', 'add_node', 'delete_node'];
+  const userPinned = mapSettings?.pinnedTools || [];
+  const toolsToRender = Array.from(new Set([...coreTools, ...userPinned]));
+
   return (
     <div
       className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 p-1.5 rounded-full shadow-lg z-20 transition-all duration-200"
@@ -36,7 +40,7 @@ export default function MapHorizontalToolbar({
         backdropFilter: 'blur(12px)'
       }}
     >
-      {mapSettings.pinnedTools.map((toolId, idx) => {
+      {toolsToRender.map((toolId, idx) => {
         const Icon = toolIcons[toolId];
         if (!Icon) return null;
 

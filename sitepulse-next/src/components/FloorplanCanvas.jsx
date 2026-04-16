@@ -3,7 +3,8 @@ import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeH
 import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path } from 'react-konva';
 import useImage from 'use-image';
 import { Check } from 'lucide-react';
-import CanvasToolbar from '@/components/CanvasToolbar';
+import ViewportControls from '@/components/canvas/ViewportControls';
+import ContextActionDock from '@/components/canvas/ContextActionDock';
 import CanvasContextMenu from '@/components/CanvasContextMenu';
 import MappedUnit from '@/components/canvas/MappedUnit';
 import DraftPolygon from '@/components/canvas/DraftPolygon';
@@ -460,12 +461,15 @@ const FloorplanCanvas = forwardRef(({
         boxShadow: 'var(--glass-shadow)',
       }}
     >
-      <CanvasToolbar
+      <ViewportControls 
+        resetView={resetView} 
+        handleZoom={handleZoom} 
+      />
+
+      <ContextActionDock
+        selectedUnitId={selectedUnitId}
         toolMode={toolMode}
         onToolModeChange={onToolModeChange}
-        resetView={resetView}
-        handleZoom={handleZoom}
-        selectedUnitId={selectedUnitId}
         onRenameUnit={onRenameUnit}
         onDuplicateUnit={onDuplicateUnit}
         handleFlip={handleFlip}
