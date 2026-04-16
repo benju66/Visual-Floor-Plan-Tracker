@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/supabaseClient';
+import { useQueryClient } from '@tanstack/react-query';
 
 export function useUndoRedo({
   toolMode,
-  setUnits,
-  setActiveStatuses,
-  onUpdateGeometry,
-  onUpdateStatus
+  sheetId,
+  unitIdsLength
 }) {
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
+  const queryClient = useQueryClient();
 
   const triggerUndo = async () => {
     if (undoStack.length === 0) return;
@@ -19,28 +19,49 @@ export function useUndoRedo({
 
     switch (action.actionType) {
       case 'UPDATE_GEOMETRY':
-        await onUpdateGeometry(action.unitId, action.oldData, true); 
+        queryClient.setQueryData(['units', sheetId], old => old?.map(u => u.id === action.unitId ? { ...u, polygon_coordinates: action.oldData } : u));
+        await supabase.from('units').update({ polygon_coordinates: action.oldData }).eq('id', action.unitId);
+        queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
         break;
       case 'DELETE_UNIT':
-        const { error: undoDelErr } = await supabase.from('units').insert([action.unitData]);
-        if (!undoDelErr) {
-          setUnits(prev => [...prev, action.unitData]);
-          if (action.statusData) {
-            await supabase.from('status_logs').insert([action.statusData]);
-            setActiveStatuses(prev => [...prev.filter(s => s.unit_id !== action.unitData.id), action.statusData]);
-          }
+        queryClient.setQueryData(['units', sheetId], old => [...(old || []), action.unitData]);
+        if (action.statusData) {
+          queryClient.setQueryData(['statuses', sheetId, unitIdsLength], old => {
+            const filtered = (old || []).filter(s => s.unit_id !== action.unitData.id);
+            return [...filtered, action.statusData];
+          });
         }
+        await supabase.from('units').insert([action.unitData]);
+        if (action.statusData) {
+          await supabase.from('status_logs').insert([action.statusData]);
+        }
+        queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
+        queryClient.invalidateQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
         break;
       case 'UPDATE_STATUS':
-        if (action.oldLog) {
-            await onUpdateStatus({ id: action.unitId }, action.oldLog, true);
+        {
+          const track = action.oldLog?.track || action.newLog?.track || 'Production';
+          queryClient.setQueryData(['statuses', sheetId, unitIdsLength], old => {
+              const filtered = (old || []).filter(s => !(s.unit_id === action.unitId && s.track === track));
+              return action.oldLog ? [...filtered, action.oldLog] : filtered;
+          });
+          if (action.oldLog) {
+              await supabase.from('status_logs').insert([{ 
+                  unit_id: action.unitId, 
+                  milestone: action.oldLog.milestone, 
+                  status_color: action.oldLog.status_color, 
+                  temporal_state: action.oldLog.temporal_state 
+              }]);
+          } else if (action.newLog) {
+              await supabase.from('status_logs').delete().eq('unit_id', action.unitId).eq('milestone', action.newLog.milestone);
+          }
+          queryClient.invalidateQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
         }
         break;
       case 'CREATE_UNIT':
-        const { error: undoCreErr } = await supabase.from('units').delete().eq('id', action.unitData.id);
-        if (!undoCreErr) {
-          setUnits(prev => prev.filter(u => u.id !== action.unitData.id));
-        }
+        queryClient.setQueryData(['units', sheetId], old => old?.filter(u => u.id !== action.unitData.id));
+        await supabase.from('units').delete().eq('id', action.unitData.id);
+        queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
         break;
     }
   };
@@ -56,23 +77,41 @@ export function useUndoRedo({
 
     switch (action.actionType) {
       case 'UPDATE_GEOMETRY':
-        await onUpdateGeometry(action.unitId, action.newData, true);
+        queryClient.setQueryData(['units', sheetId], old => old?.map(u => u.id === action.unitId ? { ...u, polygon_coordinates: action.newData } : u));
+        await supabase.from('units').update({ polygon_coordinates: action.newData }).eq('id', action.unitId);
+        queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
         break;
       case 'DELETE_UNIT':
-        const { error: redoDelErr } = await supabase.from('units').delete().eq('id', action.unitData.id);
-        if (!redoDelErr) {
-          setUnits(prev => prev.filter(u => u.id !== action.unitData.id));
-          setActiveStatuses(prev => prev.filter(s => s.unit_id !== action.unitData.id));
-        }
+        queryClient.setQueryData(['units', sheetId], old => old?.filter(u => u.id !== action.unitData.id));
+        queryClient.setQueryData(['statuses', sheetId, unitIdsLength], old => old?.filter(s => s.unit_id !== action.unitData.id));
+        await supabase.from('units').delete().eq('id', action.unitData.id);
+        queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
+        queryClient.invalidateQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
         break;
       case 'UPDATE_STATUS':
-        await onUpdateStatus({ id: action.unitId }, action.newLog, true);
+        if (action.newLog) {
+           queryClient.setQueryData(['statuses', sheetId, unitIdsLength], old => {
+              const filtered = (old || []).filter(s => !(s.unit_id === action.unitId && s.track === action.newLog.track));
+              return [...filtered, action.newLog];
+           });
+           await supabase.from('status_logs').insert([{ 
+               unit_id: action.unitId, 
+               milestone: action.newLog.milestone, 
+               status_color: action.newLog.status_color, 
+               temporal_state: action.newLog.temporal_state 
+           }]);
+        } else if (action.oldLog) {
+            queryClient.setQueryData(['statuses', sheetId, unitIdsLength], old => 
+              (old || []).filter(s => !(s.unit_id === action.unitId && s.track === action.oldLog.track))
+            );
+            await supabase.from('status_logs').delete().eq('unit_id', action.unitId).eq('milestone', action.oldLog.milestone);
+        }
+        queryClient.invalidateQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
         break;
       case 'CREATE_UNIT':
-        const { error: redoCreErr } = await supabase.from('units').insert([action.unitData]);
-        if (!redoCreErr) {
-          setUnits(prev => [...prev, action.unitData]);
-        }
+        queryClient.setQueryData(['units', sheetId], old => [...(old || []), action.unitData]);
+        await supabase.from('units').insert([action.unitData]);
+        queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
         break;
     }
   };

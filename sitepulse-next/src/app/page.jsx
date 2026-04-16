@@ -7,7 +7,9 @@ import MilestoneCommandMenu from '@/components/MilestoneCommandMenu';
 import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import { supabase } from '@/supabaseClient';
-import { useProjectData } from '@/hooks/useProjectData';
+import { useAppStore, useHydratedStore } from '@/store/useAppStore';
+import { useProject, useSheets, useMilestones, useUnits, useStatuses, useCreateUnit, useUpdateUnitGeometry, useUpdateUnitFields, useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateMilestone } from '@/hooks/useProjectQueries';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import TopHeader from '@/components/TopHeader';
 import MapSidebar from '@/components/MapSidebar';
@@ -23,30 +25,59 @@ function App() {
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => setIsMounted(true), []);
 
-  const [settings, setSettings] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sitepulse-settings');
-      if (saved) return JSON.parse(saved);
-    }
-    return { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' };
-  });
+  const toolMode = useAppStore(s => s.toolMode);
+  const setToolMode = useAppStore(s => s.setToolMode);
+  const viewMode = useAppStore(s => s.viewMode);
+  const setViewMode = useAppStore(s => s.setViewMode);
+  const trackingMode = useAppStore(s => s.trackingMode);
+  const setTrackingMode = useAppStore(s => s.setTrackingMode);
+  const selectedUnitId = useAppStore(s => s.selectedUnitId);
+  const setSelectedUnitId = useAppStore(s => s.setSelectedUnitId);
+  const editingUnitId = useAppStore(s => s.editingUnitId);
+  const setEditingUnitId = useAppStore(s => s.setEditingUnitId);
+  const activeSheetId = useAppStore(s => s.activeSheetId);
+  const setActiveSheetId = useAppStore(s => s.setActiveSheetId);
+  const temporalFilters = useAppStore(s => s.temporalFilters);
+  const setTemporalFilters = useAppStore(s => s.setTemporalFilters);
+  const filterMilestone = useAppStore(s => s.filterMilestone);
+  const setFilterMilestone = useAppStore(s => s.setFilterMilestone);
+  
+  const settings = useHydratedStore(s => s.settings, { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' });
+  const setSettings = useAppStore(s => s.setSettings);
+  const mapSettings = useHydratedStore(s => s.mapSettings, { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] });
+  const setMapSettings = useAppStore(s => s.setMapSettings);
+  const legendPosition = useHydratedStore(s => s.legendPosition, { pctX: 0.05, pctY: 0.05, scaleX: 1, scaleY: 1, rotation: 0, isVisible: false });
+  const setLegendPosition = useAppStore(s => s.setLegendPosition);
+  const colorMode = useHydratedStore(s => s.colorMode, 'system');
+  const setColorMode = useAppStore(s => s.setColorMode);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('sitepulse-settings', JSON.stringify(settings));
-    }
-  }, [settings]);
+  const queryClient = useQueryClient();
+  const { data: project } = useProject();
+  const { data: sheets = [] } = useSheets(project?.id);
+  const { data: milestones = [] } = useMilestones(project?.id);
+  const { data: units = [] } = useUnits(activeSheetId);
+  const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), milestones);
 
-  const [viewMode, setViewMode] = useState(settings.defaultViewMode || 'list');
+  const createUnitMutation = useCreateUnit(activeSheetId);
+  const updateUnitGeometryMutation = useUpdateUnitGeometry(activeSheetId);
+  const updateUnitFieldsMutation = useUpdateUnitFields(activeSheetId);
+  const deleteUnitMutation = useDeleteUnit(activeSheetId);
+  const updateStatusMutation = useUpdateStatus(activeSheetId, units.length);
+  const clearStatusMutation = useClearStatus(activeSheetId, units.length);
+  const updateMilestoneMutation = useUpdateMilestone(project?.id, activeSheetId, units.length);
 
-  const [toolMode, setToolMode] = useState('pan');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
-
   const [toast, setToast] = useState(null);
-  const [selectedUnitId, setSelectedUnitId] = useState(null);
-  const [editingUnitId, setEditingUnitId] = useState(null);
   const listRefs = useRef({});
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [milestoneMenu, setMilestoneMenu] = useState(null);
+  const [savingUnitId, setSavingUnitId] = useState(null);
+  const [quickStatusUnitId, setQuickStatusUnitId] = useState(null);
+  const [quickMilestoneUnitId, setQuickMilestoneUnitId] = useState(null);
+  const [pendingPolygonPoints, setPendingPolygonPoints] = useState(null);
+  const [unitNamingOpen, setUnitNamingOpen] = useState(false);
+  const [newUnitName, setNewUnitName] = useState('');
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
@@ -61,42 +92,11 @@ function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [selectedUnitId]);
 
-
   useEffect(() => {
     if (selectedUnitId && listRefs.current[selectedUnitId]) {
       listRefs.current[selectedUnitId].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [selectedUnitId]);
-  const [confirmModal, setConfirmModal] = useState(null);
-
-  const [colorMode, setColorMode] = useState('system');
-
-  useEffect(() => {
-    const saved = localStorage.getItem('sitepulse-color-mode');
-    if (saved) setColorMode(saved);
-  }, []);
-  const [filterMilestone, setFilterMilestone] = useState(null);
-  const [milestoneMenu, setMilestoneMenu] = useState(null);
-  const [savingUnitId, setSavingUnitId] = useState(null);
-  const [quickStatusUnitId, setQuickStatusUnitId] = useState(null);
-  const [quickMilestoneUnitId, setQuickMilestoneUnitId] = useState(null);
-
-  const [pendingPolygonPoints, setPendingPolygonPoints] = useState(null);
-  const [unitNamingOpen, setUnitNamingOpen] = useState(false);
-  const [newUnitName, setNewUnitName] = useState('');
-
-  const {
-    project, setProject,
-    sheets, setSheets,
-    activeSheetId, setActiveSheetId,
-    units, setUnits,
-    activeStatuses, setActiveStatuses,
-    milestones, setMilestones,
-    trackingMode, setTrackingMode,
-    temporalFilters, setTemporalFilters,
-    mapSettings, setMapSettings,
-    legendPosition, setLegendPosition
-  } = useProjectData();
 
   const {
     undoStack, setUndoStack,
@@ -104,10 +104,8 @@ function App() {
     triggerUndo, triggerRedo
   } = useUndoRedo({
     toolMode,
-    setUnits,
-    setActiveStatuses,
-    onUpdateGeometry: (unitId, points, isUndoRedo) => handleUpdateUnitPolygon(unitId, points, isUndoRedo),
-    onUpdateStatus: (unit, log, isUndoRedo) => commitUnitMilestone(unit, log, 'none', isUndoRedo)
+    sheetId: activeSheetId,
+    unitIdsLength: units.length,
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -117,7 +115,6 @@ function App() {
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('sitepulse-color-mode', colorMode);
     const root = document.documentElement;
     if (colorMode === 'system') root.removeAttribute('data-theme');
     else root.setAttribute('data-theme', colorMode);
@@ -139,15 +136,9 @@ function App() {
   const handleAddMilestone = async (name, color, track) => {
     if (!name || !project) return;
     try {
-      const { data, error } = await supabase.from('project_milestones').insert([{
-        project_id: project.id,
-        name,
-        color,
-        track
-      }]).select();
-      
+      const { data, error } = await supabase.from('project_milestones').insert([{ project_id: project.id, name, color, track }]).select();
       if (error) throw error;
-      setMilestones([...milestones, data[0]]);
+      queryClient.invalidateQueries({ queryKey: ['milestones'] });
     } catch (err) {
       showToast('Failed to add milestone: ' + err.message, 'error');
     }
@@ -155,40 +146,7 @@ function App() {
 
   const handleUpdateMilestone = async (id, oldName, newName, newColor) => {
     try {
-      const { error: updateErr } = await supabase
-        .from('project_milestones')
-        .update({ name: newName, color: newColor })
-        .eq('id', id);
-        
-      if (updateErr) throw updateErr;
-
-      // The Ripple Effect
-      if ((oldName !== newName || newColor) && project) {
-        const { data: projectSheets } = await supabase.from('sheets').select('id').eq('project_id', project.id);
-        const sheetIds = projectSheets ? projectSheets.map(s => s.id) : [];
-
-        if (sheetIds.length > 0) {
-          // Process updates in chunks to prevent 413 Payload Too Large
-          const CHUNK_SIZE = 800;
-          const { data: projectUnits } = await supabase.from('units').select('id').in('sheet_id', sheetIds);
-          const unitIds = projectUnits ? projectUnits.map(u => u.id) : [];
-          
-          if (unitIds.length > 0) {
-            for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
-              const chunk = unitIds.slice(i, i + CHUNK_SIZE);
-              await supabase
-                .from('status_logs')
-                .update({ milestone: newName, status_color: newColor })
-                .eq('milestone', oldName)
-                .in('unit_id', chunk);
-            }
-          }
-        }
-      }
-
-      setMilestones(milestones.map(m => m.id === id ? { ...m, name: newName, color: newColor } : m));
-      // Hot-update the active canvas statuses to reflect ripple immediately
-      setActiveStatuses(prev => prev.map(s => s.milestone === oldName ? { ...s, milestone: newName, status_color: newColor } : s));
+      await updateMilestoneMutation.mutateAsync({ id, oldName, newName, newColor });
     } catch (err) {
       showToast('Failed to update milestone: ' + err.message, 'error');
     }
@@ -198,7 +156,7 @@ function App() {
     try {
       const { error } = await supabase.from('project_milestones').delete().eq('id', id);
       if (error) throw error;
-      setMilestones(milestones.filter(m => m.id !== id));
+      queryClient.invalidateQueries({ queryKey: ['milestones'] });
     } catch (err) {
       showToast('Failed to delete milestone: ' + err.message, 'error');
     }
@@ -314,7 +272,7 @@ function App() {
       await supabase.from('sheets').update({ base_image_url: image_url }).eq('id', sheetId);
 
       const updatedSheet = { ...newSheet[0], base_image_url: image_url };
-      setSheets([...sheets, updatedSheet]);
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
       setActiveSheetId(sheetId);
       setIsModalOpen(false);
       setNewLevelName('');
@@ -342,7 +300,7 @@ function App() {
     try {
       const { error } = await supabase.from('sheets').update({ sheet_name: newName }).eq('id', sheetId);
       if (error) throw error;
-      setSheets(sheets.map(s => s.id === sheetId ? { ...s, sheet_name: newName } : s));
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
       showToast('Level renamed successfully!', 'success');
     } catch (e) {
       showToast('Failed to rename: ' + e.message, 'error');
@@ -369,7 +327,7 @@ function App() {
       if (error) throw error;
 
       const newSheets = sheets.filter(s => s.id !== sheetId);
-      setSheets(newSheets);
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
       
       if (activeSheetId === sheetId) {
         setActiveSheetId(newSheets.length > 0 ? newSheets[0].id : '');
@@ -389,38 +347,20 @@ function App() {
   };
 
   const handleUpdateUnitPolygon = async (unitId, newPoints, isUndoRedo = false) => {
-    let actionAdded = false;
-
     if (!isUndoRedo) {
       const oldUnit = units.find(u => u.id === unitId);
       if (oldUnit) {
         setUndoStack(prev => {
-          const nextStack = [...prev, {
-            actionType: 'UPDATE_GEOMETRY',
-            unitId: unitId,
-            oldData: oldUnit.polygon_coordinates,
-            newData: newPoints
-          }];
+          const nextStack = [...prev, { actionType: 'UPDATE_GEOMETRY', unitId: unitId, oldData: oldUnit.polygon_coordinates, newData: newPoints }];
           return nextStack.length > 50 ? nextStack.slice(nextStack.length - 50) : nextStack;
         });
         setRedoStack([]);
-        actionAdded = true;
       }
     }
-
-    const previousUnits = [...units];
-    setUnits((prev) => prev.map((u) => u.id === unitId ? { ...u, polygon_coordinates: newPoints } : u));
-    
-    try {
-      const { error } = await supabase.from('units').update({ polygon_coordinates: newPoints }).eq('id', unitId);
-      if (error) throw error;
-    } catch (err) {
-      setUnits(previousUnits);
-      if (actionAdded) {
-        setUndoStack(prev => prev.slice(0, -1)); 
-      }
+    await updateUnitGeometryMutation.mutateAsync({ unitId, polygon_coordinates: newPoints }).catch(err => {
+      if (!isUndoRedo) setUndoStack(prev => prev.slice(0, -1)); 
       showToast('Error updating location geometry: ' + err.message, 'error');
-    }
+    });
   };
 
   const handleDuplicateUnit = async (unitId) => {
@@ -456,37 +396,14 @@ function App() {
     });
     
     const stampedName = `${baseName} (Stamp ${nextIndex})`;
-    const tempId = `temp-${Date.now()}`;
-    
     try {
-      const newUnit = {
-         id: tempId,
-         sheet_id: activeSheetId,
-         unit_number: stampedName,
-         polygon_coordinates: newPoints
-      };
-      setUnits(prev => [...prev, newUnit]);
-
-      const { data, error } = await supabase
-        .from('units')
-        .insert([{
-          sheet_id: activeSheetId,
-          unit_number: stampedName,
-          polygon_coordinates: newPoints,
-        }])
-        .select();
-
-      if (error) throw error;
-      if (data) {
-        setUnits(prev => prev.map(u => u.id === tempId ? data[0] : u));
-        setUndoStack(prev => {
-          const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data[0] }];
-          return next.length > 50 ? next.slice(next.length - 50) : next;
-        });
-        setRedoStack([]);
-      }
+      const data = await createUnitMutation.mutateAsync({ sheet_id: activeSheetId, unit_number: stampedName, polygon_coordinates: newPoints });
+      setUndoStack(prev => {
+        const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data }];
+        return next.length > 50 ? next.slice(next.length - 50) : next;
+      });
+      setRedoStack([]);
     } catch (err) {
-      setUnits(prev => prev.filter(u => u.id !== tempId));
       showToast('Error stamping location: ' + err.message, 'error');
     }
   };
@@ -506,34 +423,18 @@ function App() {
 
     try {
       if (editingUnitId) {
-         const { error } = await supabase.from('units').update({ unit_number: name }).eq('id', editingUnitId);
-         if (error) throw error;
-         setUnits(prev => prev.map(u => u.id === editingUnitId ? { ...u, unit_number: name } : u));
+         await updateUnitFieldsMutation.mutateAsync({ unitId: editingUnitId, updates: { unit_number: name } });
          setUnitNamingOpen(false);
          setEditingUnitId(null);
          setNewUnitName('');
          showToast('Location renamed.', 'success');
       } else {
-         const { data, error } = await supabase
-           .from('units')
-           .insert([
-             {
-               sheet_id: activeSheetId,
-               unit_number: name,
-               polygon_coordinates: pendingPolygonPoints,
-             },
-           ])
-           .select();
-
-         if (error) throw error;
-         if (data) {
-           setUnits([...units, data[0]]);
-           setUndoStack(prev => {
-             const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data[0] }];
+         const data = await createUnitMutation.mutateAsync({ sheet_id: activeSheetId, unit_number: name, polygon_coordinates: pendingPolygonPoints });
+         setUndoStack(prev => {
+             const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data }];
              return next.length > 50 ? next.slice(next.length - 50) : next;
-           });
-           setRedoStack([]);
-         }
+         });
+         setRedoStack([]);
          setUnitNamingOpen(false);
          setPendingPolygonPoints(null);
          setNewUnitName('');
@@ -559,21 +460,12 @@ function App() {
         const statusToDelete = activeStatuses.find(s => s.unit_id === unitId);
         
         try {
-          const { error } = await supabase.from('units').delete().eq('id', unitId);
-          if (error) throw error;
-          
+          await deleteUnitMutation.mutateAsync(unitId);
           setUndoStack(prev => {
-            const next = [...prev, {
-              actionType: 'DELETE_UNIT',
-              unitData: unitToDelete,
-              statusData: statusToDelete
-            }];
+            const next = [...prev, { actionType: 'DELETE_UNIT', unitData: unitToDelete, statusData: statusToDelete }];
             return next.length > 50 ? next.slice(next.length - 50) : next;
           });
           setRedoStack([]);
-
-          setUnits((prev) => prev.filter((u) => u.id !== unitId));
-          setActiveStatuses((prev) => prev.filter((s) => s.unit_id !== unitId));
           showToast('Location deleted successfully.', 'success');
         } catch (err) {
           showToast('Error deleting location: ' + err.message, 'error');
@@ -585,30 +477,11 @@ function App() {
   };
 
   const handleUpdateUnitIconOffset = async (unitId, offsetX, offsetY) => {
-    // Optionally: undo/redo support could be added here in the future
-    const previousUnits = [...units];
-    // Optimistic UI update
-    setUnits((prev) => prev.map((u) => 
-      u.id === unitId ? { ...u, icon_offset_x: offsetX, icon_offset_y: offsetY } : u
-    ));
-
     try {
-      const { error } = await supabase
-        .from('units')
-        .update({ icon_offset_x: offsetX, icon_offset_y: offsetY })
-        .eq('id', unitId);
-      if (error) throw error;
+      await updateUnitFieldsMutation.mutateAsync({ unitId, updates: { icon_offset_x: offsetX, icon_offset_y: offsetY } });
     } catch (err) {
-      setUnits(previousUnits);
       showToast('Failed to save icon offset: ' + err.message, 'error');
     }
-  };
-
-  const handleStatusUpdate = (newStatusLog) => {
-    setActiveStatuses((prev) => [
-      ...prev.filter((s) => !(s.unit_id === newStatusLog.unit_id && s.track === newStatusLog.track)),
-      newStatusLog,
-    ]);
   };
 
   const handleQuickUpdate = (unitId, type, value) => {
@@ -642,22 +515,11 @@ function App() {
 
   const commitUnitMilestone = async (unit, milestone, currentTemporalState = 'none', isUndoRedo = false) => {
     setSavingUnitId(unit.id);
-    
-    // Check if we are clearing the assignment
     if (milestone.isClearAction) {
       try {
         const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
-        if (!oldLog) return; // Nothing to clear
-        
-        const { error } = await supabase
-          .from('status_logs')
-          .delete()
-          .eq('unit_id', unit.id)
-          .eq('milestone', oldLog.milestone);
-          
-        if (error) throw error;
-        setActiveStatuses(prev => prev.filter(s => !(s.unit_id === unit.id && s.track === trackingMode)));
-        
+        if (!oldLog) return;
+        await clearStatusMutation.mutateAsync({ unitId: unit.id, track: trackingMode, milestone: oldLog.milestone });
         if (!isUndoRedo) {
           setUndoStack(prev => {
             const next = [...prev, { actionType: 'UPDATE_STATUS', unitId: unit.id, oldLog, newLog: null }];
@@ -673,44 +535,25 @@ function App() {
       return;
     }
 
-    // Capture old status for undo (specific to the same track)
     const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track) || null;
-    
     try {
       const status_color = milestone.color || milestone.status_color;
-      const { data, error } = await supabase
-        .from('status_logs')
-        .insert([
-          {
-            unit_id: unit.id,
-            milestone: milestone.name || milestone.milestone,
-            status_color,
-            temporal_state: currentTemporalState,
-          },
-        ])
-        .select();
-
-      if (error) throw error;
-      
-      if (data) {
-        const newLog = { ...data[0], track: milestone.track };
-        handleStatusUpdate(newLog);
-        
-        if (!isUndoRedo) {
-          setUndoStack(prev => {
-            const next = [...prev, {
-              actionType: 'UPDATE_STATUS',
-              unitId: unit.id,
-              oldLog: oldStatus,
-              newLog: newLog, 
-            }];
-            return next.length > 50 ? next.slice(next.length - 50) : next;
-          });
-          setRedoStack([]);
-        }
+      const newLogData = {
+        unit_id: unit.id,
+        milestone: milestone.name || milestone.milestone,
+        status_color,
+        temporal_state: currentTemporalState,
+        track: milestone.track
+      };
+      const newLog = await updateStatusMutation.mutateAsync(newLogData);
+      if (!isUndoRedo) {
+        setUndoStack(prev => {
+          const next = [...prev, { actionType: 'UPDATE_STATUS', unitId: unit.id, oldLog: oldStatus, newLog }];
+          return next.length > 50 ? next.slice(next.length - 50) : next;
+        });
+        setRedoStack([]);
       }
     } catch (err) {
-      console.error(err);
       showToast('Failed to update status: ' + err.message, 'error');
     } finally {
       setSavingUnitId(null);

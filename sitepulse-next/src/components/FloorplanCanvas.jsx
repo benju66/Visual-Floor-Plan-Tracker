@@ -13,6 +13,8 @@ import PendingPolygon from '@/components/canvas/PendingPolygon';
 import MapLegend from '@/components/canvas/MapLegend';
 import { distToSegment, getCentroid } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
+import { useAppStore, useHydratedStore } from '@/store/useAppStore';
+import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
 
 const FloorplanCanvas = forwardRef(({
   imageUrl,
@@ -34,7 +36,7 @@ const FloorplanCanvas = forwardRef(({
   onPendingPolygonMove,
   onAddNodeToSegment,
   onPendingPolygonComplete,
-  showTooltip,
+  
   settings,
   temporalFilters,
   onOpenMilestoneModal,
@@ -715,7 +717,7 @@ const FloorplanCanvas = forwardRef(({
         </Stage>
       )}
 
-      {showTooltip && hoveredUnit && pointerPos && !contextMenu && toolMode !== 'draw' && toolMode !== 'add_node' && (
+      {settings?.showHistoryHover && hoveredUnit && pointerPos && !contextMenu && toolMode !== 'draw' && toolMode !== 'add_node' && (
         <div
           className="absolute z-40 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-1.5 rounded-lg text-sm font-bold shadow-xl pointer-events-none transition-opacity animate-in fade-in duration-150"
           style={{

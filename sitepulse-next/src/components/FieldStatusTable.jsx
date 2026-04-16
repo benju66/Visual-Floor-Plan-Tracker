@@ -1,5 +1,7 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
+import { useAppStore } from '@/store/useAppStore';
+import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
 
 function UpdatingRing() {
   return (
@@ -17,15 +19,22 @@ function UpdatingRing() {
 }
 
 export default function FieldStatusTable({
-  units,
-  activeStatuses,
-  statusFilter,
   savingUnitId,
   onChooseStatus,
   defaultView = 'table',
-  onSelectUnit,
   onUpdateTemporalState,
 }) {
+  const activeSheetId = useAppStore(s => s.activeSheetId);
+  const statusFilter = useAppStore(s => s.filterMilestone);
+  const onSelectUnit = useAppStore(s => s.setSelectedUnitId);
+  const trackingMode = useAppStore(s => s.trackingMode);
+  
+  const { data: project } = useProject();
+  const { data: allMilestones = [] } = useMilestones(project?.id);
+  const { data: units = [] } = useUnits(activeSheetId);
+  const { data: statuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), allMilestones);
+  const activeStatuses = statuses.filter(s => s.track === trackingMode);
+
   const [viewStyle, setViewStyle] = useState(defaultView);
 
   useEffect(() => {
