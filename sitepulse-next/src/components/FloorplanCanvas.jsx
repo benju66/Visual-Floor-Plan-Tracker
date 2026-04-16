@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { Stage, Layer, Image as KonvaImage, Line, Group, Circle } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path } from 'react-konva';
 import useImage from 'use-image';
 import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp } from 'lucide-react';
 
@@ -23,6 +23,12 @@ const getCentroid = (points) => {
     pctX: sumX / points.length, 
     pctY: sumY / points.length 
   };
+};
+
+const ICON_PATHS = {
+  planned: "M8 2v4M16 2v4M3 8h18M4 4h16c1.1 0 2 .9 2 2v14c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z", // Calendar
+  ongoing: "M5 3l14 9-14 9V3z", // Play
+  completed: "M9 11l3 3L22 4 M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" // CheckSquare
 };
 
 const FloorplanCanvas = forwardRef(({
@@ -859,7 +865,7 @@ const FloorplanCanvas = forwardRef(({
                           onClick={(e) => { e.cancelBubble = true; handlePolygonClick(e, unit); }}
                           onTap={(e) => { e.cancelBubble = true; handlePolygonClick(e, unit); }}
                         >
-                          {/* The visual icon */}
+                          {/* The visual icon background */}
                           <Circle
                             radius={effectiveRadius}
                             fill="#ffffff"
@@ -869,6 +875,19 @@ const FloorplanCanvas = forwardRef(({
                             shadowBlur={Math.max(2, effectiveRadius * 0.3)}
                             shadowOpacity={0.3}
                             shadowOffset={{ x: 1, y: 1 }}
+                          />
+                          {/* The SVG Path */}
+                          <Path
+                            x={-12 * (effectiveRadius / 15)} 
+                            y={-12 * (effectiveRadius / 15)}
+                            data={ICON_PATHS[activeStatus.temporal_state] || ICON_PATHS.completed}
+                            fill="transparent"
+                            stroke={activeStatus.status_color}
+                            strokeWidth={2.5}
+                            strokeLineCap="round"
+                            strokeLineJoin="round"
+                            scale={{ x: effectiveRadius / 15, y: effectiveRadius / 15 }}
+                            listening={false} // Prevents path from interfering with Group drag
                           />
                         </Group>
                       );
