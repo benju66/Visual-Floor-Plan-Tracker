@@ -6,6 +6,9 @@ import { Check } from 'lucide-react';
 import CanvasToolbar from '@/components/CanvasToolbar';
 import CanvasContextMenu from '@/components/CanvasContextMenu';
 import MappedUnit from '@/components/canvas/MappedUnit';
+import DraftPolygon from '@/components/canvas/DraftPolygon';
+import StampPreview from '@/components/canvas/StampPreview';
+import PendingPolygon from '@/components/canvas/PendingPolygon';
 import { distToSegment, getCentroid } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 
@@ -597,205 +600,44 @@ const FloorplanCanvas = forwardRef(({
                 />
               ))}
 
-            {toolMode === 'draw' && draftPoints.length > 0 && pointerPos && !boxOrigin && (
-              (() => {
-                 let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
-                 let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
-                 let pctX = (logicalX - layout.offsetX) / layout.drawW;
-                 let pctY = (logicalY - layout.offsetY) / layout.drawH;
-                 
-                 if (isShiftDown) {
-                    const last = draftPoints[draftPoints.length - 1];
-                    const dx = Math.abs(pctX - last.pctX);
-                    const dy = Math.abs(pctY - last.pctY);
-                    if (dx > dy) pctY = last.pctY;
-                    else pctX = last.pctX;
-                 }
-                 
-                 return (
-                   <Line
-                     points={toPixels([...draftPoints, {pctX, pctY}])}
-                     stroke="rgba(59, 130, 246, 0.4)"
-                     strokeWidth={2 / stageScale}
-                     dash={[6 / stageScale, 6 / stageScale]}
-                     closed={false}
-                     listening={false}
-                   />
-                 );
-              })()
-            )}
+            <DraftPolygon
+              toolMode={toolMode}
+              draftPoints={draftPoints}
+              pointerPos={pointerPos}
+              boxOrigin={boxOrigin}
+              stagePosition={stagePosition}
+              stageScale={stageScale}
+              layout={layout}
+              isShiftDown={isShiftDown}
+              toPixels={toPixels}
+            />
 
-            {toolMode === 'stamp' && selectedUnitId && pointerPos && (
-              (() => {
-                const sourceUnit = units.find(u => u.id === selectedUnitId);
-                if (!sourceUnit || !sourceUnit.polygon_coordinates || sourceUnit.polygon_coordinates.length === 0) return null;
-                
-                let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
-                let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
-                let pctX = (logicalX - layout.offsetX) / layout.drawW;
-                let pctY = (logicalY - layout.offsetY) / layout.drawH;
+            <StampPreview
+              toolMode={toolMode}
+              selectedUnitId={selectedUnitId}
+              pointerPos={pointerPos}
+              stagePosition={stagePosition}
+              stageScale={stageScale}
+              layout={layout}
+              units={units}
+              activeStatuses={activeStatuses}
+              toPixels={toPixels}
+            />
 
-                let sumX = 0, sumY = 0;
-                sourceUnit.polygon_coordinates.forEach(pt => { sumX += pt.pctX; sumY += pt.pctY; });
-                const cx = sumX / sourceUnit.polygon_coordinates.length;
-                const cy = sumY / sourceUnit.polygon_coordinates.length;
-                const dx = pctX - cx;
-                const dy = pctY - cy;
-
-                const translatedPoints = sourceUnit.polygon_coordinates.map(pt => ({
-                  pctX: pt.pctX + dx,
-                  pctY: pt.pctY + dy
-                }));
-
-                const activeStatus = activeStatuses.find((s) => s.unit_id === selectedUnitId);
-                let fillColor = 'rgba(139, 92, 246, 0.3)';
-                let strokeColor = '#8b5cf6';
-                if (activeStatus) {
-                  strokeColor = activeStatus.status_color;
-                  fillColor = activeStatus.status_color.replace('rgb', 'rgba').replace(')', ', 0.3)');
-                }
-
-                return (
-                  <Line
-                    points={toPixels(translatedPoints)}
-                    stroke={strokeColor}
-                    strokeWidth={2 / stageScale}
-                    dash={[6 / stageScale, 6 / stageScale]}
-                    fill={fillColor}
-                    closed={true}
-                    listening={false}
-                  />
-                );
-              })()
-            )}
-
-            {toolMode === 'draw' && boxOrigin && pointerPos && (
-              (() => {
-                 let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
-                 let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
-                 let pctX = (logicalX - layout.offsetX) / layout.drawW;
-                 let pctY = (logicalY - layout.offsetY) / layout.drawH;
-                 
-                 return (
-                   <Line
-                     points={toPixels([
-                       { pctX: boxOrigin.pctX, pctY: boxOrigin.pctY },
-                       { pctX: pctX, pctY: boxOrigin.pctY },
-                       { pctX: pctX, pctY: pctY },
-                       { pctX: boxOrigin.pctX, pctY: pctY }
-                     ])}
-                     stroke="rgba(59, 130, 246, 0.8)"
-                     fill="rgba(59, 130, 246, 0.15)"
-                     strokeWidth={2 / stageScale}
-                     dash={[6 / stageScale, 6 / stageScale]}
-                     closed={true}
-                     listening={false}
-                   />
-                 );
-              })()
-            )}
-
-            {toolMode === 'draw' && draftPoints.length > 0 && (
-              <Line
-                points={toPixels(draftPoints)}
-                stroke="blue"
-                strokeWidth={2 / stageScale}
-                closed={false}
-                listening={false}
-              />
-            )}
-            {toolMode === 'draw' &&
-              draftPoints.map((pt, i) => (
-                <Circle
-                  key={`draft-${i}`}
-                  x={layout.offsetX + pt.pctX * layout.drawW}
-                  y={layout.offsetY + pt.pctY * layout.drawH}
-                  radius={4 / stageScale}
-                  fill="blue"
-                  listening={false}
-                />
-              ))}
-
-            {pendingPolygonPoints && pendingPolygonPoints.length > 2 && (
-              <React.Fragment>
-                <Line
-                  points={toPixels(
-                    activeDragNode?.unitId === 'PENDING'
-                      ? pendingPolygonPoints.map((p, i) =>
-                          i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
-                        )
-                      : pendingPolygonPoints
-                  )}
-                  fill="rgba(139, 92, 246, 0.2)"
-                  stroke="#8b5cf6"
-                  strokeWidth={(3 * (settings?.markupThickness || 1)) / stageScale}
-                  globalCompositeOperation="multiply"
-                  dash={[10 / stageScale, 8 / stageScale]}
-                  closed={true}
-                  draggable={true}
-                  onDragMove={(e) => {
-                    const dx = e.target.x() / layout.drawW;
-                    const dy = e.target.y() / layout.drawH;
-                    setActiveDragPolygon({ unitId: 'PENDING', dx, dy });
-                  }}
-                  onDragEnd={(e) => {
-                    setActiveDragPolygon(null);
-                    const dx = e.target.x() / layout.drawW;
-                    const dy = e.target.y() / layout.drawH;
-                    e.target.x(0);
-                    e.target.y(0);
-                    onPendingPolygonMove?.(
-                      pendingPolygonPoints.map(p => ({ pctX: p.pctX + dx, pctY: p.pctY + dy }))
-                    );
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.getStage().container().style.cursor = 'grab';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.getStage().container().style.cursor = '';
-                  }}
-                />
-                {pendingPolygonPoints.map((pt, i) => (
-                  <Circle
-                    key={`pending-anchor-${i}`}
-                    x={layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === 'PENDING' ? activeDragPolygon.dx : 0)) * layout.drawW}
-                    y={layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === 'PENDING' ? activeDragPolygon.dy : 0)) * layout.drawH}
-                    radius={5 / stageScale}
-                    fill="#fff"
-                    stroke="#8b5cf6"
-                    strokeWidth={2 / stageScale}
-                    draggable={true}
-                    dragBoundFunc={(pos) => {
-                      if (!isShiftDown) return pos;
-                      const origX = layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === 'PENDING' ? activeDragPolygon.dx : 0)) * layout.drawW;
-                      const origY = layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === 'PENDING' ? activeDragPolygon.dy : 0)) * layout.drawH;
-                      if (Math.abs(pos.x - origX) > Math.abs(pos.y - origY)) {
-                        return { x: pos.x, y: origY };
-                      } else {
-                        return { x: origX, y: pos.y };
-                      }
-                    }}
-                    onDragMove={(e) => {
-                      const node = e.target;
-                      let pctX = (node.x() - layout.offsetX) / layout.drawW;
-                      let pctY = (node.y() - layout.offsetY) / layout.drawH;
-                      setActiveDragNode({ unitId: 'PENDING', index: i, pctX, pctY });
-                    }}
-                    onDragEnd={(e) => {
-                      setActiveDragNode(null);
-                      const node = e.target;
-                      let pctX = (node.x() - layout.offsetX) / layout.drawW;
-                      let pctY = (node.y() - layout.offsetY) / layout.drawH;
-                      const newPoints = [...pendingPolygonPoints];
-                      newPoints[i] = { pctX, pctY };
-                      onPendingPolygonMove?.(newPoints);
-                    }}
-                    onMouseEnter={() => setIsHoveringAnchor(true)}
-                    onMouseLeave={() => setIsHoveringAnchor(false)}
-                  />
-                ))}
-              </React.Fragment>
-            )}
+            <PendingPolygon
+              pendingPolygonPoints={pendingPolygonPoints}
+              activeDragNode={activeDragNode}
+              activeDragPolygon={activeDragPolygon}
+              settings={settings}
+              stageScale={stageScale}
+              layout={layout}
+              isShiftDown={isShiftDown}
+              toPixels={toPixels}
+              setActiveDragPolygon={setActiveDragPolygon}
+              onPendingPolygonMove={onPendingPolygonMove}
+              setActiveDragNode={setActiveDragNode}
+              setIsHoveringAnchor={setIsHoveringAnchor}
+            />
           </Layer>
         </Stage>
       )}
