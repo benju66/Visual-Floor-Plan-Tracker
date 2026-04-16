@@ -11,6 +11,10 @@ import { useProjectData } from '@/hooks/useProjectData';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import TopHeader from '@/components/TopHeader';
 import MapSidebar from '@/components/MapSidebar';
+import UnitNamingPopover from '@/components/UnitNamingPopover';
+import AddLevelModal from '@/components/AddLevelModal';
+import ConfirmModal from '@/components/ConfirmModal';
+import { exportToPDFService, uploadFloorplanService, attachOriginalService } from '@/services/api';
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
@@ -240,33 +244,15 @@ function App() {
     };
 
     try {
-      const response = await fetch(`http://127.0.0.1:8000/export-pdf/${activeSheetId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Export failed on server');
-      }
-
-      const blob = await response.blob();
+      const { blob, filename: serverFilename } = await exportToPDFService(activeSheetId, payload);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.style.display = 'none';
       a.href = downloadUrl;
       
-      let filename = `${project?.name || 'SitePulse'}_${activeSheet.sheet_name}_Status.pdf`.replace(/\s+/g, '_');
-      const disposition = response.headers.get('content-disposition');
-      if (disposition && disposition.indexOf('filename=') !== -1) {
-          const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
-          if (matches != null && matches[1]) { 
-              filename = matches[1].replace(/['"]/g, '');
-          }
-      }
+      const fallbackFilename = `${project?.name || 'SitePulse'}_${activeSheet.sheet_name}_Status.pdf`.replace(/\s+/g, '_');
+      a.download = serverFilename !== 'Export.pdf' ? serverFilename : fallbackFilename;
       
-      a.download = filename;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
@@ -292,23 +278,7 @@ function App() {
       if (error) throw error;
       const sheetId = newSheet[0].id;
 
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      const response = await fetch(
-        `http://127.0.0.1:8000/upload-floorplan/${sheetId}?page_number=${pdfPageNumber}`,
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Failed to convert PDF');
-      }
-
-      const { image_url } = await response.json();
+      const { image_url } = await uploadFloorplanService(sheetId, selectedFile, pdfPageNumber);
 
       await supabase.from('sheets').update({ base_image_url: image_url }).eq('id', sheetId);
 
@@ -330,19 +300,7 @@ function App() {
     if (!activeSheetId || !file) return;
     try {
       showToast('Uploading original PDF...', 'success');
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const res = await fetch(`http://127.0.0.1:8000/attach-original/${activeSheetId}`, {
-        method: 'POST',
-        body: formData
-      });
-      
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.detail || 'Failed to attach');
-      }
-      
+      await attachOriginalService(activeSheetId, file);
       showToast('Successfully attached original PDF!', 'success');
     } catch (e) {
       showToast('Failed to attach: ' + e.message, 'error');
@@ -803,40 +761,13 @@ function App() {
               )}
 
               {unitNamingOpen && (
-                <div
-                  className="absolute top-6 right-6 z-[60] w-64 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md"
-                  style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
-                >
-                  <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">{editingUnitId ? 'Rename location' : 'Name this location'}</h2>
-                  <input
-                    type="text"
-                    autoFocus
-                    className="w-full text-sm border border-slate-300/80 dark:border-white/15 rounded-xl px-2.5 py-1.5 mb-3 bg-white/70 dark:bg-black/25 outline-none focus:ring-2 focus:ring-blue-500/50"
-                    placeholder="e.g. 1204"
-                    value={newUnitName}
-                    onChange={(e) => setNewUnitName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void saveNewUnitFromPopover();
-                      if (e.key === 'Escape') cancelUnitNaming();
-                    }}
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={cancelUnitNaming}
-                      className="px-3 py-1.5 rounded-xl border border-slate-300/80 dark:border-white/15 font-medium text-xs hover:bg-white/50 dark:hover:bg-white/10 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void saveNewUnitFromPopover()}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-white text-xs shadow-sm transition-colors"
-                    >
-                      Save location
-                    </button>
-                  </div>
-                </div>
+                <UnitNamingPopover
+                  editingUnitId={editingUnitId}
+                  newUnitName={newUnitName}
+                  setNewUnitName={setNewUnitName}
+                  saveNewUnitFromPopover={saveNewUnitFromPopover}
+                  cancelUnitNaming={cancelUnitNaming}
+                />
               )}
             </div>
 
@@ -878,89 +809,22 @@ function App() {
       />
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="p-6 rounded-2xl shadow-2xl w-full max-w-md border glass-panel">
-            <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white">Add New Level</h2>
-            <form onSubmit={handleAddLevel}>
-              <div className="mb-4">
-                <label className="block text-sm font-bold mb-2 text-slate-700 dark:text-slate-300">Level/Sheet Name</label>
-                <input
-                  type="text"
-                  className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg bg-white/60 dark:bg-black/25"
-                  placeholder="e.g., Level 3"
-                  value={newLevelName}
-                  onChange={(e) => setNewLevelName(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-bold mb-2 text-slate-700 dark:text-slate-300">PDF Page Number</label>
-                <input
-                  type="number"
-                  min="1"
-                  className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg bg-white/60 dark:bg-black/25"
-                  value={pdfPageNumber}
-                  onChange={(e) => setPdfPageNumber(e.target.value)}
-                  required
-                />
-                <p className="text-xs text-slate-500 mt-1">Which page contains this specific floor plan?</p>
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm font-bold mb-2 text-slate-700 dark:text-slate-300">Floor Plan PDF</label>
-                <input
-                  type="file"
-                  accept=".pdf"
-                  className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-sm bg-white/60 dark:bg-black/25"
-                  onChange={(e) => setSelectedFile(e.target.files[0])}
-                  required
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUploading}
-                  className="px-4 py-2 rounded-lg bg-slate-800 dark:bg-white text-white dark:text-slate-900 font-bold disabled:opacity-60"
-                >
-                  {isUploading ? 'Processing...' : 'Upload & Save'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <AddLevelModal
+          handleAddLevel={handleAddLevel}
+          newLevelName={newLevelName}
+          setNewLevelName={setNewLevelName}
+          pdfPageNumber={pdfPageNumber}
+          setPdfPageNumber={setPdfPageNumber}
+          setSelectedFile={setSelectedFile}
+          setIsModalOpen={setIsModalOpen}
+          isUploading={isUploading}
+        />
       )}
 
-      {confirmModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-[60] p-4">
-          <div className="rounded-2xl shadow-2xl border max-w-md w-full p-6 glass-panel">
-            <p className="text-slate-800 dark:text-slate-100 mb-6">{confirmModal.message}</p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmModal(null)}
-                className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => confirmModal.onConfirm()}
-                className="px-4 py-2 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmModal
+        confirmModal={confirmModal}
+        setConfirmModal={setConfirmModal}
+      />
 
       {toast && (
         <div
