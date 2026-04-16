@@ -17,6 +17,7 @@ export function useProjectData() {
     }
     return { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] };
   });
+  const [legendPosition, setLegendPosition] = useState({ pctX: 0.05, pctY: 0.05, scaleX: 1, scaleY: 1, rotation: 0, isVisible: false });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -123,6 +124,7 @@ export function useProjectData() {
     milestones, setMilestones,
     trackingMode, setTrackingMode,
     temporalFilters, setTemporalFilters,
-    mapSettings, setMapSettings
+    mapSettings, setMapSettings,
+    legendPosition, setLegendPosition
   };
 }

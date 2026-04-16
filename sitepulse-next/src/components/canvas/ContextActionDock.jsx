@@ -24,11 +24,46 @@ export default function ContextActionDock({
   handleRotatePolygon,
   onDeleteUnit,
   onOpenMilestoneModal,
-  onOpenStatusModal
+  onOpenStatusModal,
+  isLegendSelected,
+  onRotateLegend,
+  onHideLegend
 }) {
-  if (!selectedUnitId) return null;
+  if (!selectedUnitId && !isLegendSelected) return null;
 
   const dockClass = 'pointer-events-auto flex flex-col gap-1 p-2 rounded-2xl border shadow-xl backdrop-blur-md z-20';
+
+  if (isLegendSelected) {
+    return (
+      <div
+        className={`${dockClass} absolute left-3 top-1/2 -translate-y-1/2`}
+        style={{
+          background: 'var(--glass-bg, rgba(255, 255, 255, 0.7))',
+          borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
+        }}
+      >
+        <ActionButton
+          icon={RotateCcw}
+          label="Rotate Left"
+          onClick={() => onRotateLegend?.('left')}
+          colorClass="emerald"
+        />
+        <ActionButton
+          icon={RotateCw}
+          label="Rotate Right"
+          onClick={() => onRotateLegend?.('right')}
+          colorClass="emerald"
+        />
+        <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
+        <ActionButton 
+          icon={Trash2} 
+          label="Delete" 
+          onClick={onHideLegend} 
+          colorClass="red" 
+        />
+      </div>
+    );
+  }
 
   return (
     <div

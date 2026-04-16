@@ -60,6 +60,7 @@ const FloorplanCanvas = forwardRef(({
   const [activeDragPolygon, setActiveDragPolygon] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [pointerPos, setPointerPos] = useState(null);
+  const [isLegendSelected, setIsLegendSelected] = useState(false);
 
   const [isShiftDown, setIsShiftDown] = useState(false);
   const [boxOrigin, setBoxOrigin] = useState(null);
@@ -71,6 +72,9 @@ const FloorplanCanvas = forwardRef(({
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Shift') setIsShiftDown(true);
+      if (e.key === 'Escape') {
+        setIsLegendSelected(false);
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
         if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
           e.preventDefault();
@@ -288,6 +292,11 @@ const FloorplanCanvas = forwardRef(({
     } else if (['select', 'add_node', 'delete_node'].includes(toolMode)) {
       if (e.target === stage || e.target.nodeType === 'Image' || e.target.attrs?.id === 'bg-rect') {
         onSelectUnit(null);
+        setIsLegendSelected(false);
+      }
+    } else {
+      if (e.target === stage || e.target.nodeType === 'Image' || e.target.attrs?.id === 'bg-rect') {
+        setIsLegendSelected(false);
       }
     }
   };
@@ -501,6 +510,7 @@ const FloorplanCanvas = forwardRef(({
 
       <ContextActionDock
         selectedUnitId={selectedUnitId}
+        isLegendSelected={isLegendSelected}
         toolMode={toolMode}
         onToolModeChange={onToolModeChange}
         onRenameUnit={onRenameUnit}
@@ -510,6 +520,11 @@ const FloorplanCanvas = forwardRef(({
         onDeleteUnit={onDeleteUnit}
         onOpenMilestoneModal={onOpenMilestoneModal}
         onOpenStatusModal={onOpenStatusModal}
+        onHideLegend={() => onLegendDragEnd?.({ isVisible: false })}
+        onRotateLegend={(dir) => {
+          const rotDelta = dir === 'left' ? -90 : 90;
+          onLegendDragEnd?.({ rotation: (legendPosition?.rotation || 0) + rotDelta });
+        }}
       />
 
       {toolMode === 'draw' && draftPoints.length > 2 && (
@@ -681,18 +696,20 @@ const FloorplanCanvas = forwardRef(({
 
             <MapLegend
               isVisible={legendPosition?.isVisible}
-              x={legendPosition?.x || 50}
-              y={legendPosition?.y || 50}
+              pctX={legendPosition?.pctX}
+              pctY={legendPosition?.pctY}
+              scaleX={legendPosition?.scaleX}
+              scaleY={legendPosition?.scaleY}
+              rotation={legendPosition?.rotation}
+              layout={layout}
               units={units}
               milestones={milestones}
               activeStatuses={activeStatuses}
-              onDragEnd={(e) => {
-                onLegendDragEnd?.({
-                  x: e.target.x(),
-                  y: e.target.y()
-                });
+              isSelected={isLegendSelected}
+              onSelect={() => setIsLegendSelected(true)}
+              onUpdate={(payload) => {
+                onLegendDragEnd?.(payload);
               }}
-              stageScale={stageScale}
             />
           </Layer>
         </Stage>

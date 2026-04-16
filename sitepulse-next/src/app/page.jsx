@@ -80,7 +80,6 @@ function App() {
   const [savingUnitId, setSavingUnitId] = useState(null);
   const [quickStatusUnitId, setQuickStatusUnitId] = useState(null);
   const [quickMilestoneUnitId, setQuickMilestoneUnitId] = useState(null);
-  const [legendPosition, setLegendPosition] = useState({ x: 50, y: 50, isVisible: false });
 
   const [pendingPolygonPoints, setPendingPolygonPoints] = useState(null);
   const [unitNamingOpen, setUnitNamingOpen] = useState(false);
@@ -95,7 +94,8 @@ function App() {
     milestones, setMilestones,
     trackingMode, setTrackingMode,
     temporalFilters, setTemporalFilters,
-    mapSettings, setMapSettings
+    mapSettings, setMapSettings,
+    legendPosition, setLegendPosition
   } = useProjectData();
 
   const {
@@ -249,6 +249,27 @@ function App() {
       project_name: project?.name || 'Project',
       sheet_name: activeSheet.sheet_name
     };
+
+    if (legendPosition?.isVisible) {
+      const activeStates = ['planned', 'ongoing', 'completed'];
+      const activePolygons = polygonsPayload.filter(p => activeStates.includes(p.temporal_state) && p.status !== 'Not Started');
+      const uniqueNames = [...new Set(activePolygons.map(p => p.status))];
+      
+      const active_milestones = uniqueNames.map(name => {
+        const poly = activePolygons.find(p => p.status === name);
+        return {
+          name: name,
+          color: poly?.color || '#cccccc'
+        };
+      });
+
+      payload.legend_data = {
+        pctX: legendPosition.pctX,
+        pctY: legendPosition.pctY,
+        scaleX: legendPosition.scaleX,
+        active_milestones: active_milestones
+      };
+    }
 
     try {
       const { blob, filename: serverFilename } = await exportToPDFService(activeSheetId, payload);
@@ -805,7 +826,7 @@ function App() {
                   onOpenStatusModal={(id) => setQuickStatusUnitId(id)}
                   onOpenMilestoneModal={(id) => setQuickMilestoneUnitId(id)}
                   legendPosition={legendPosition}
-                  onLegendDragEnd={(pos) => setLegendPosition(prev => ({ ...prev, x: pos.x, y: pos.y }))}
+                  onLegendDragEnd={(pos) => setLegendPosition(prev => ({ ...prev, ...pos }))}
                   milestones={milestones.filter(m => m.track === trackingMode)}
                 />
                 </>

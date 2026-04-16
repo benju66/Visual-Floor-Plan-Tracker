@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Dict
 import os
 import io
 import fitz  # PyMuPDF for fast PDF to Image conversion
@@ -50,6 +50,7 @@ class ExportRequest(BaseModel):
     polygons: List[PolygonData]
     project_name: str
     sheet_name: str
+    legend_data: Optional[Dict] = None
 
 def hex_to_rgb(color_str: str):
     import re
@@ -203,6 +204,48 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
             annot.set_info(info)
             
             annot.update()
+
+        if req.legend_data:
+            legend = req.legend_data
+            pctX = legend.get('pctX', 0.05)
+            pctY = legend.get('pctY', 0.05)
+            scaleX = legend.get('scaleX', 1)
+            active_milestones = legend.get('active_milestones', [])
+
+            base_x = page.rect.width * pctX
+            base_y = page.rect.height * pctY
+
+            font_size = 12 * scaleX
+            box_size = 15 * scaleX
+            padding = 10 * scaleX
+            line_height = 20 * scaleX
+
+            # Calculate a rough width and height for the legend background
+            max_text_len = max([len(m['name']) for m in active_milestones]) if active_milestones else 10
+            legend_w = padding * 2 + box_size + padding + (max_text_len * font_size * 0.6)
+            legend_h = padding * 2 + line_height + (len(active_milestones) * line_height)
+
+            bg_rect = fitz.Rect(base_x, base_y, base_x + legend_w, base_y + legend_h)
+            
+            # draw a background rect
+            page.draw_rect(bg_rect, color=(0,0,0), fill=(1,1,1))
+
+            # Title
+            page.insert_text(fitz.Point(base_x + padding, base_y + padding + font_size), "Sheet Legend", fontsize=font_size * 1.2, fontname="hebo", color=(0,0,0))
+
+            # Loop through active milestones
+            y_offset = base_y + padding + line_height * 1.5
+            for m in active_milestones:
+                r_rgb = hex_to_rgb(m['color'])
+                swatch_rect = fitz.Rect(base_x + padding, y_offset, base_x + padding + box_size, y_offset + box_size)
+                page.draw_rect(swatch_rect, color=(0,0,0), fill=r_rgb)
+                
+                # Insert text
+                text_pt = fitz.Point(base_x + padding + box_size + padding * 0.5, y_offset + box_size * 0.8)
+                page.insert_text(text_pt, m['name'], fontsize=font_size, fontname="helv", color=(0.1,0.1,0.1))
+                
+                y_offset += line_height
+
         if req.include_data:
             # We determine landscape or portrait to append a correctly oriented trailing page
             p_w, p_h = (height, width) if width > height else (width, height)
