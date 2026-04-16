@@ -219,16 +219,19 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
                     page.rect.y0 + (page.rect.height * py_pct)
                 ) * page.derotation_matrix
 
-            font_size = 14 * scaleX
-            title_size = 16 * scaleX
-            item_height = 24 * scaleX
-            padding = 16 * scaleX
-            legend_w = 200 * scaleX
+            # Scale proportionally to what a user sees on a standard ~1200px map canvas
+            overall_scale = scaleX * (page.rect.width / 1200.0)
+
+            font_size = 14 * overall_scale
+            title_size = 16 * overall_scale
+            item_height = 24 * overall_scale
+            padding = 16 * overall_scale
+            legend_w = 200 * overall_scale
 
             active_temporal_states = legend.get('active_temporal_states', [])
 
-            milestones_height = (30 * scaleX) + (len(active_milestones) * item_height) if active_milestones else 0
-            statuses_height = (30 * scaleX) + (len(active_temporal_states) * item_height) if active_temporal_states else 0
+            milestones_height = (30 * overall_scale) + (len(active_milestones) * item_height) if active_milestones else 0
+            statuses_height = (30 * overall_scale) + (len(active_temporal_states) * item_height) if active_temporal_states else 0
             
             middle_pad = padding if (active_milestones and active_temporal_states) else 0
             total_items_height = milestones_height + statuses_height + middle_pad
@@ -248,7 +251,7 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
             # BG Quad
             bg_quad = map_quad(pctX, pctY, w_pct, h_pct)
             # Remove shadows, add gray border as requested by user
-            page.draw_quad(bg_quad, color=(0.8,0.8,0.8), fill=(1,1,1), width=1.5)
+            page.draw_quad(bg_quad, color=(0.8,0.8,0.8), fill=(1,1,1), width=1.5 * overall_scale)
 
             def map_offset_pt(x_off, y_off):
                 return get_mapped_pt(pctX + (x_off / page.rect.width), pctY + (y_off / page.rect.height))
@@ -261,15 +264,15 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
                 title_1_pt = map_offset_pt(padding, padding + title_size * 0.8)
                 page.insert_text(title_1_pt, "Milestones", fontsize=title_size, fontname="hebo", color=hex_to_rgb("#334155"), rotate=page.rotation)
 
-                y_offset = padding + (30 * scaleX)
+                y_offset = padding + (30 * overall_scale)
                 for m in active_milestones:
                     r_rgb = hex_to_rgb(m['color'])
                     # Swatch is 14x14 
-                    swatch_quad = map_offset_quad(padding, y_offset, 14 * scaleX, 14 * scaleX)
-                    page.draw_quad(swatch_quad, color=hex_to_rgb("#cbd5e1"), fill=r_rgb, width=1*scaleX)
+                    swatch_quad = map_offset_quad(padding, y_offset, 14 * overall_scale, 14 * overall_scale)
+                    page.draw_quad(swatch_quad, color=hex_to_rgb("#cbd5e1"), fill=r_rgb, width=1*overall_scale)
                     
                     # Text
-                    text_pt = map_offset_pt(padding + 22 * scaleX, y_offset + 11 * scaleX)
+                    text_pt = map_offset_pt(padding + 22 * overall_scale, y_offset + 11 * overall_scale)
                     page.insert_text(text_pt, m['name'], fontsize=font_size, fontname="helv", color=hex_to_rgb("#475569"), rotate=page.rotation)
                     
                     y_offset += item_height
@@ -279,7 +282,7 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
                 title_2_pt = map_offset_pt(padding, start_y + title_size * 0.8)
                 page.insert_text(title_2_pt, "Map Statuses", fontsize=title_size, fontname="hebo", color=hex_to_rgb("#334155"), rotate=page.rotation)
 
-                y_offset = start_y + (30 * scaleX)
+                y_offset = start_y + (30 * overall_scale)
                 TEMPORAL_COLORS = {
                     'planned': '#94a3b8',
                     'ongoing': '#f59e0b',
@@ -288,11 +291,44 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
                 for state in active_temporal_states:
                     icon_color = TEMPORAL_COLORS.get(state, '#cbd5e1')
                     
-                    center_pt = map_offset_pt(padding + (16.6 * scaleX), y_offset + (10 * scaleX))
-                    page.draw_circle(center_pt, 9.6 * scaleX, color=hex_to_rgb(icon_color), fill=hex_to_rgb("#ffffff"), width=2.5*scaleX)
+                    center_vx = padding + 14 * overall_scale
+                    center_vy = y_offset + 10 * overall_scale
+                    center_pt = map_offset_pt(center_vx, center_vy)
+                    
+                    # Radius for the circle (match 9.6 from before but visually it was 12 * 0.8 = 9.6)
+                    r_val = 9.6 * overall_scale
+                    
+                    page.draw_circle(center_pt, r_val, color=hex_to_rgb(icon_color), fill=hex_to_rgb("#ffffff"), width=2.5*overall_scale)
+                    
+                    # Draw custom icons perfectly matching vector offsets
+                    if state == 'completed':
+                        c1 = map_offset_pt(center_vx - 4 * overall_scale, center_vy + 1 * overall_scale)
+                        c2 = map_offset_pt(center_vx - 1 * overall_scale, center_vy + 4 * overall_scale)
+                        c3 = map_offset_pt(center_vx + 5 * overall_scale, center_vy - 4 * overall_scale)
+                        page.draw_polyline([c1, c2, c3], color=hex_to_rgb(icon_color), width=2*overall_scale)
+                    elif state == 'planned':
+                        rc_w = 8 * overall_scale
+                        rc_h = 8 * overall_scale
+                        r_q = map_offset_quad(center_vx - 4*overall_scale, center_vy - 4*overall_scale, rc_w, rc_h)
+                        page.draw_quad(r_q, color=hex_to_rgb(icon_color), width=1.5*overall_scale)
+                        l1 = map_offset_pt(center_vx - 4*overall_scale, center_vy - 1*overall_scale)
+                        l2 = map_offset_pt(center_vx + 4*overall_scale, center_vy - 1*overall_scale)
+                        page.draw_line(l1, l2, color=hex_to_rgb(icon_color), width=1.5*overall_scale)
+                        p1 = map_offset_pt(center_vx - 2*overall_scale, center_vy - 6*overall_scale)
+                        p2 = map_offset_pt(center_vx - 2*overall_scale, center_vy - 4*overall_scale)
+                        p3 = map_offset_pt(center_vx + 2*overall_scale, center_vy - 6*overall_scale)
+                        p4 = map_offset_pt(center_vx + 2*overall_scale, center_vy - 4*overall_scale)
+                        page.draw_line(p1, p2, color=hex_to_rgb(icon_color), width=1.5*overall_scale)
+                        page.draw_line(p3, p4, color=hex_to_rgb(icon_color), width=1.5*overall_scale)
+                    elif state == 'ongoing':
+                        h1 = map_offset_pt(center_vx - 4*overall_scale, center_vy - 4*overall_scale)
+                        h2 = map_offset_pt(center_vx + 4*overall_scale, center_vy - 4*overall_scale)
+                        h3 = map_offset_pt(center_vx - 4*overall_scale, center_vy + 4*overall_scale)
+                        h4 = map_offset_pt(center_vx + 4*overall_scale, center_vy + 4*overall_scale)
+                        page.draw_polyline([h1, h2, h3, h4, h1], color=hex_to_rgb(icon_color), width=1.5*overall_scale)
                     
                     state_text = state.capitalize()
-                    text_pt = map_offset_pt(padding + 32 * scaleX, y_offset + 14 * scaleX)
+                    text_pt = map_offset_pt(padding + 32 * overall_scale, y_offset + 14 * overall_scale)
                     page.insert_text(text_pt, state_text, fontsize=font_size, fontname="helv", color=hex_to_rgb("#475569"), rotate=page.rotation)
                     
                     y_offset += item_height

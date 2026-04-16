@@ -17,13 +17,25 @@ export function useProjectData() {
     }
     return { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] };
   });
-  const [legendPosition, setLegendPosition] = useState({ pctX: 0.05, pctY: 0.05, scaleX: 1, scaleY: 1, rotation: 0, isVisible: false });
+  const [legendPosition, setLegendPosition] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sitepulse-legend-position');
+      if (saved) return JSON.parse(saved);
+    }
+    return { pctX: 0.05, pctY: 0.05, scaleX: 1, scaleY: 1, rotation: 0, isVisible: false };
+  });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('sitepulse-map-settings', JSON.stringify(mapSettings));
     }
   }, [mapSettings]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sitepulse-legend-position', JSON.stringify(legendPosition));
+    }
+  }, [legendPosition]);
 
   useEffect(() => {
     async function loadData() {
