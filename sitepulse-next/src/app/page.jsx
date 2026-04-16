@@ -15,6 +15,8 @@ import UnitNamingPopover from '@/components/UnitNamingPopover';
 import MapHorizontalToolbar from '@/components/MapHorizontalToolbar';
 import AddLevelModal from '@/components/AddLevelModal';
 import ConfirmModal from '@/components/ConfirmModal';
+import QuickStatusModal from '@/components/QuickStatusModal';
+import QuickMilestoneModal from '@/components/QuickMilestoneModal';
 import { exportToPDFService, uploadFloorplanService, attachOriginalService } from '@/services/api';
 
 function App() {
@@ -76,6 +78,8 @@ function App() {
   const [filterMilestone, setFilterMilestone] = useState(null);
   const [milestoneMenu, setMilestoneMenu] = useState(null);
   const [savingUnitId, setSavingUnitId] = useState(null);
+  const [quickStatusUnitId, setQuickStatusUnitId] = useState(null);
+  const [quickMilestoneUnitId, setQuickMilestoneUnitId] = useState(null);
 
   const [pendingPolygonPoints, setPendingPolygonPoints] = useState(null);
   const [unitNamingOpen, setUnitNamingOpen] = useState(false);
@@ -582,6 +586,35 @@ function App() {
     ]);
   };
 
+  const handleQuickUpdate = (unitId, type, value) => {
+    const unit = units.find(u => u.id === unitId);
+    if (!unit) return;
+
+    const existingStatus = activeStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
+
+    if (type === 'status') {
+      if (value === 'none') {
+        const milestone = { isClearAction: true, track: trackingMode };
+        commitUnitMilestone(unit, milestone);
+        return;
+      }
+      
+      let milestoneObj;
+      if (existingStatus) {
+         milestoneObj = { name: existingStatus.milestone, color: existingStatus.status_color, track: trackingMode };
+      } else {
+         milestoneObj = milestones.find(m => m.track === trackingMode) || { name: 'Not Started', color: '#64748b', track: trackingMode };
+      }
+      commitUnitMilestone(unit, milestoneObj, value);
+    } else if (type === 'milestone') {
+      const selectedMilestone = milestones.find(m => m.name === value && m.track === trackingMode);
+      if (!selectedMilestone) return;
+
+      const temporalState = existingStatus ? existingStatus.temporal_state : 'completed';
+      commitUnitMilestone(unit, selectedMilestone, temporalState);
+    }
+  };
+
   const commitUnitMilestone = async (unit, milestone, currentTemporalState = 'none', isUndoRedo = false) => {
     setSavingUnitId(unit.id);
     
@@ -766,6 +799,8 @@ function App() {
                   showTooltip={settings.showTooltips}
                   settings={settings}
                   temporalFilters={temporalFilters}
+                  onOpenStatusModal={(id) => setQuickStatusUnitId(id)}
+                  onOpenMilestoneModal={(id) => setQuickMilestoneUnitId(id)}
                 />
                 </>
               ) : (
@@ -842,6 +877,31 @@ function App() {
       <ConfirmModal
         confirmModal={confirmModal}
         setConfirmModal={setConfirmModal}
+      />
+
+      <QuickStatusModal
+        isOpen={!!quickStatusUnitId}
+        onClose={() => setQuickStatusUnitId(null)}
+        unitId={quickStatusUnitId}
+        currentStatus={
+          quickStatusUnitId 
+            ? (activeStatuses.find(s => s.unit_id === quickStatusUnitId && s.track === trackingMode)?.temporal_state || 'none')
+            : 'none'
+        }
+        onCommit={handleQuickUpdate}
+      />
+
+      <QuickMilestoneModal
+        isOpen={!!quickMilestoneUnitId}
+        onClose={() => setQuickMilestoneUnitId(null)}
+        unitId={quickMilestoneUnitId}
+        currentMilestoneId={
+          quickMilestoneUnitId
+            ? (activeStatuses.find(s => s.unit_id === quickMilestoneUnitId && s.track === trackingMode)?.milestone || null)
+            : null
+        }
+        milestones={milestones.filter(m => m.track === trackingMode)}
+        onCommit={handleQuickUpdate}
       />
 
       {toast && (
