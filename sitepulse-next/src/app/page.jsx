@@ -9,6 +9,8 @@ import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import { supabase } from '@/supabaseClient';
 import { useProjectData } from '@/hooks/useProjectData';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
+import TopHeader from '@/components/TopHeader';
+import MapSidebar from '@/components/MapSidebar';
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
@@ -722,123 +724,23 @@ function App() {
       className="h-screen flex flex-col p-4 md:p-6 text-slate-800 dark:text-slate-100"
       style={{ fontFamily: 'sans-serif', background: 'var(--bg)' }}
     >
-      <header className="mb-4 flex-shrink-0 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 rounded-2xl border px-4 py-3 glass-panel">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">SitePulse Visual Tracker</h1>
-          <div className="flex flex-wrap gap-3 mt-2">
-            <select
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg font-semibold shadow-sm bg-white/60 dark:bg-black/25"
-              disabled >
-              <option>{project ? project.name : 'Loading...'}</option>
-            </select>
-            <select
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg shadow-sm bg-white/60 dark:bg-black/25"
-              value={activeSheetId}
-              onChange={(e) => setActiveSheetId(e.target.value)}
-            >
-              {sheets.length === 0 && <option disabled value="">No levels added</option>}
-              {sheets.map((sheet) => (
-                <option key={sheet.id} value={sheet.id}>
-                  {sheet.sheet_name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(true)}
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer text-sm font-medium shadow-sm"
-            >
-              + Add Level
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsProjectMenuOpen(true)}
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer shadow-sm"
-              title="Manage Levels"
-            >
-              <FolderEdit size={20} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2 items-center">
-          <button
-            type="button"
-            onClick={() => setMilestoneMenu({ mode: 'filter' })}
-            className="px-3 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm"
-          >
-            Milestones (Ctrl+K)
-          </button>
-          <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm mr-2">
-            <button
-              type="button"
-              onClick={() => setTrackingMode('Production')}
-              className={`px-3 py-2 text-xs font-semibold cursor-pointer ${
-                trackingMode === 'Production'
-                  ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              Production
-            </button>
-            <button
-              type="button"
-              onClick={() => setTrackingMode('Inspections')}
-              className={`px-3 py-2 text-xs font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 ${
-                trackingMode === 'Inspections'
-                  ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              Inspections
-            </button>
-          </div>
-          <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('list');
-                setToolMode('pan');
-              }}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer ${
-                viewMode === 'list'
-                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              Field list
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('map')}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 ${
-                viewMode === 'map'
-                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              Map
-            </button>
-          </div>
-          {viewMode === 'map' && activeSheet?.base_image_url && (
-            <button
-              type="button"
-              onClick={exportToPDF}
-              className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-sm"
-            >
-              Export PDF
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
-            title="Settings"
-          >
-            <Settings size={20} />
-          </button>
-        </div>
-      </header>
+      <TopHeader
+        project={project}
+        sheets={sheets}
+        activeSheetId={activeSheetId}
+        setActiveSheetId={setActiveSheetId}
+        setIsModalOpen={setIsModalOpen}
+        setIsProjectMenuOpen={setIsProjectMenuOpen}
+        setMilestoneMenu={setMilestoneMenu}
+        trackingMode={trackingMode}
+        setTrackingMode={setTrackingMode}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        setToolMode={setToolMode}
+        activeSheet={activeSheet}
+        exportToPDF={exportToPDF}
+        setIsSettingsOpen={setIsSettingsOpen}
+      />
 
       <div className="flex-1 min-h-0 flex flex-col">
         {viewMode === 'list' ? (
@@ -938,159 +840,22 @@ function App() {
               )}
             </div>
 
-            <div
-              className="w-full lg:w-[320px] p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel"
-            >
-              <h3 className="font-bold text-lg mb-3 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0 text-slate-800 dark:text-slate-100">
-                Live legend
-              </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
-                Click a milestone to highlight matching locations on the map. “All” clears the filter.
-              </p>
-              <div className="flex flex-wrap gap-1.5 mb-4 max-h-[120px] overflow-y-auto pr-1">
-                <button
-                  type="button"
-                  onClick={() => setFilterMilestone(null)}
-                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${
-                    !filterMilestone
-                      ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 border-transparent'
-                      : 'bg-white/50 dark:bg-black/20 border-slate-200/80 dark:border-white/10'
-                  }`}
-                >
-                  All
-                </button>
-                {milestones.filter(m => m.track === trackingMode).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setFilterMilestone((prev) => (prev === m.name ? null : m.name))}
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-medium border max-w-[140px] truncate transition ${
-                      filterMilestone === m.name
-                        ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900'
-                        : ''
-                    }`}
-                    style={{
-                      background: m.color,
-                      borderColor: 'var(--glass-border)',
-                    }}
-                    title={m.name}
-                  >
-                    {m.name.length > 22 ? `${m.name.slice(0, 20)}…` : m.name}
-                  </button>
-                ))}
-              </div>
-
-              <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2">
-                Progress Status Toggles
-              </h4>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {[
-                  { value: 'none', label: 'No Status' },
-                  { value: 'planned', label: 'Planned' },
-                  { value: 'ongoing', label: 'Ongoing' },
-                  { value: 'completed', label: 'Completed' }
-                ].map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => {
-                      setTemporalFilters((prev) => 
-                        prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
-                      );
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                      temporalFilters.includes(value)
-                        ? 'bg-blue-600/90 text-white border-blue-600'
-                        : 'bg-white/50 dark:bg-black/20 text-slate-500 border-slate-300 dark:border-slate-700'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2">
-                Mapped locations
-              </h4>
-
-              <div className="overflow-y-auto flex-1 pr-2">
-                {units.length === 0 ? (
-                  <p className="text-slate-500 text-sm italic">
-                    No locations mapped on this level yet. Use Draw on the map dock to begin.
-                  </p>
-                ) : (
-                  <div className="border border-slate-200/60 dark:border-white/10 rounded-lg overflow-hidden shadow-sm flex flex-col">
-                    <div className="bg-slate-800/95 dark:bg-white/10 text-white dark:text-slate-100 p-3 font-semibold text-sm flex items-center gap-2 backdrop-blur-sm">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-                      </svg>
-                      {activeSheet?.sheet_name || 'Level'}
-                    </div>
-
-                    <ul className="flex flex-col bg-white/40 dark:bg-black/15">
-                      {units.map((unit, index) => (
-                        <li
-                          key={unit.id}
-                          ref={(el) => (listRefs.current[unit.id] = el)}
-                          onClick={() => {
-                            setToolMode('select');
-                            setSelectedUnitId(unit.id);
-                          }}
-                          className={`cursor-pointer relative pl-10 pr-3 py-3 border-b border-slate-100/80 dark:border-white/5 last:border-0 hover:bg-white/50 dark:hover:bg-white/5 flex justify-between items-center group transition-colors ${
-                            selectedUnitId === unit.id ? 'bg-purple-100/50 dark:bg-purple-900/30' : ''
-                          }`}
-                        >
-                          <div
-                            className={`absolute left-4 top-0 w-px bg-slate-300/80 dark:bg-white/20 ${
-                              index === units.length - 1 ? 'h-1/2' : 'h-full'
-                            }`}
-                          />
-                          <div className="absolute left-4 top-1/2 w-4 h-px bg-slate-300/80 dark:bg-white/20" />
-
-                          <span className={`text-sm ${selectedUnitId === unit.id ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-200'}`}>
-                            Location: {unit.unit_number}
-                          </span>
-                          <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRenameUnitInitiate(unit.id);
-                              }}
-                              className="text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 p-1.5 border border-slate-200/80 dark:border-slate-700/50 rounded-lg hover:bg-sky-50 dark:hover:bg-sky-900/30 transition-colors bg-white/50 dark:bg-black/20"
-                              title="Rename Location"
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteUnit(unit.id);
-                              }}
-                              className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1.5 border border-red-200/80 dark:border-red-900/50 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors bg-white/50 dark:bg-black/20"
-                              title="Delete Location"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
+            <MapSidebar
+              milestones={milestones}
+              trackingMode={trackingMode}
+              filterMilestone={filterMilestone}
+              setFilterMilestone={setFilterMilestone}
+              temporalFilters={temporalFilters}
+              setTemporalFilters={setTemporalFilters}
+              units={units}
+              activeSheet={activeSheet}
+              setToolMode={setToolMode}
+              selectedUnitId={selectedUnitId}
+              setSelectedUnitId={setSelectedUnitId}
+              setListRef={(id, el) => listRefs.current[id] = el}
+              onRenameUnitInitiate={handleRenameUnitInitiate}
+              onDeleteUnit={handleDeleteUnit}
+            />
           </div>
         )}
       </div>
