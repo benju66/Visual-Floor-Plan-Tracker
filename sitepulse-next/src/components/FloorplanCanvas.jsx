@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { Stage, Layer, Image as KonvaImage, Line, Circle } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Line, Group, Circle } from 'react-konva';
 import useImage from 'use-image';
 import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp } from 'lucide-react';
 
@@ -15,6 +15,16 @@ const distToSegmentSquared = (p, v, w) => {
 };
 const distToSegment = (p, v, w) => Math.sqrt(distToSegmentSquared(p, v, w));
 
+const getCentroid = (points) => {
+  if (!points || points.length === 0) return { pctX: 0, pctY: 0 };
+  let sumX = 0, sumY = 0;
+  points.forEach(p => { sumX += p.pctX; sumY += p.pctY; });
+  return { 
+    pctX: sumX / points.length, 
+    pctY: sumY / points.length 
+  };
+};
+
 const FloorplanCanvas = forwardRef(({
   imageUrl,
   units,
@@ -22,6 +32,7 @@ const FloorplanCanvas = forwardRef(({
   toolMode,
   onToolModeChange,
   onUpdateUnitPolygon,
+  onUpdateUnitIconOffset,
   onDuplicateUnit,
   onPolygonComplete,
   legendFilter,
@@ -774,6 +785,94 @@ const FloorplanCanvas = forwardRef(({
                         }, 10);
                       }}
                     />
+                    
+                    {/* The Status Icon */}
+                    {(activeStatus && !isFilteredOut) && (() => {
+                      let previewPolygon = unit.polygon_coordinates;
+                      if (activeDragNode?.unitId === unit.id) {
+                          previewPolygon = unit.polygon_coordinates.map((p, i) =>
+                              i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
+                          );
+                      }
+                      const centroid = getCentroid(previewPolygon);
+                      const draggedOffsetX = activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0;
+                      const draggedOffsetY = activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0;
+                      
+                      const offsetX = unit.icon_offset_x || 0;
+                      const offsetY = unit.icon_offset_y || 0;
+                      
+                      const iconAbsX = layout.offsetX + (centroid.pctX + draggedOffsetX + offsetX) * layout.drawW;
+                      const iconAbsY = layout.offsetY + (centroid.pctY + draggedOffsetY + offsetY) * layout.drawH;
+
+                      const isDimmed = dim || isFilteredOut;
+
+                      // Dynamically calculate the perfect size tailored to EACH room:
+                      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                      unit.polygon_coordinates.forEach(p => {
+                          if (p.pctX < minX) minX = p.pctX;
+                          if (p.pctX > maxX) maxX = p.pctX;
+                          if (p.pctY < minY) minY = p.pctY;
+                          if (p.pctY > maxY) maxY = p.pctY;
+                      });
+                      const roomW = (maxX - minX) * layout.drawW;
+                      const roomH = (maxY - minY) * layout.drawH;
+                      const minDimension = Math.min(roomW, roomH);
+
+                      // 1. Give it a native size tailored to this exact room (so its diameter is at most 40% of the room's shortest side)
+                      const roomFittedRadius = minDimension * 0.20; 
+                      // 2. But we don't want it to look massive on the screen when fully zoomed in, so we set a maximum screen pixel limit
+                      const maxScreenRadius = 8; 
+                      // 3. We take the smallest option. This guarantees it NEVER overlaps the room borders, but also never looks huge on screen.
+                      const effectiveRadius = Math.min(roomFittedRadius, maxScreenRadius / stageScale);
+
+                      return (
+                        <Group
+                          x={iconAbsX}
+                          y={iconAbsY}
+                          draggable={toolMode === 'select' && isShiftDown}
+                          opacity={dim ? 0.3 : 1}
+                          onDragStart={(e) => {
+                            e.cancelBubble = true;
+                          }}
+                          onDragEnd={(e) => {
+                            e.cancelBubble = true;
+                            const newAbsX = e.target.x();
+                            const newAbsY = e.target.y();
+                            
+                            const newPctX = (newAbsX - layout.offsetX) / layout.drawW;
+                            const newPctY = (newAbsY - layout.offsetY) / layout.drawH;
+                            
+                            const baseCentroid = getCentroid(unit.polygon_coordinates);
+                            const newOffsetX = newPctX - baseCentroid.pctX;
+                            const newOffsetY = newPctY - baseCentroid.pctY;
+                            
+                            onUpdateUnitIconOffset?.(unit.id, newOffsetX, newOffsetY);
+                          }}
+                          onMouseEnter={(e) => {
+                            if (toolMode === 'select' && isShiftDown) {
+                              e.target.getStage().container().style.cursor = 'grab';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.getStage().container().style.cursor = computedCursor;
+                          }}
+                          onClick={(e) => { e.cancelBubble = true; handlePolygonClick(e, unit); }}
+                          onTap={(e) => { e.cancelBubble = true; handlePolygonClick(e, unit); }}
+                        >
+                          {/* The visual icon */}
+                          <Circle
+                            radius={effectiveRadius}
+                            fill="#ffffff"
+                            stroke={activeStatus.status_color}
+                            strokeWidth={Math.max(1.5, effectiveRadius * 0.25)}
+                            shadowColor="black"
+                            shadowBlur={Math.max(2, effectiveRadius * 0.3)}
+                            shadowOpacity={0.3}
+                            shadowOffset={{ x: 1, y: 1 }}
+                          />
+                        </Group>
+                      );
+                    })()}
                     
                     {isSelected && unit.polygon_coordinates.map((pt, i) => (
                        <Circle

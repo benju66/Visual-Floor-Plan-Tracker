@@ -756,6 +756,26 @@ function App() {
     });
   };
 
+  const handleUpdateUnitIconOffset = async (unitId, offsetX, offsetY) => {
+    // Optionally: undo/redo support could be added here in the future
+    const previousUnits = [...units];
+    // Optimistic UI update
+    setUnits((prev) => prev.map((u) => 
+      u.id === unitId ? { ...u, icon_offset_x: offsetX, icon_offset_y: offsetY } : u
+    ));
+
+    try {
+      const { error } = await supabase
+        .from('units')
+        .update({ icon_offset_x: offsetX, icon_offset_y: offsetY })
+        .eq('id', unitId);
+      if (error) throw error;
+    } catch (err) {
+      setUnits(previousUnits);
+      showToast('Failed to save icon offset: ' + err.message, 'error');
+    }
+  };
+
   const handleStatusUpdate = (newStatusLog) => {
     setActiveStatuses((prev) => [
       ...prev.filter((s) => !(s.unit_id === newStatusLog.unit_id && s.track === newStatusLog.track)),
@@ -1011,6 +1031,7 @@ function App() {
                   toolMode={toolMode}
                   onToolModeChange={setToolMode}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
+                  onUpdateUnitIconOffset={handleUpdateUnitIconOffset}
                   onDuplicateUnit={handleDuplicateUnit}
                   onPolygonComplete={handlePolygonComplete}
                   legendFilter={filterMilestone}
