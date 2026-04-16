@@ -36,6 +36,8 @@ const FloorplanCanvas = forwardRef(({
   showTooltip,
   settings,
   temporalFilters,
+  onOpenMilestoneModal,
+  onOpenStatusModal,
 }, ref) => {
   const [image] = useImage(imageUrl, 'anonymous');
 
@@ -367,6 +369,33 @@ const FloorplanCanvas = forwardRef(({
       newPoints.forEach(p => p.pctY = centerY - (p.pctY - centerY));
     }
     
+    
+    onUpdateUnitPolygon?.(unit.id, newPoints);
+  };
+
+  const handleRotatePolygon = (direction, overrideId = null) => {
+    const targetId = overrideId || selectedUnitId;
+    if (!targetId) return;
+    const unit = units.find(u => u.id === targetId);
+    if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length === 0) return;
+
+    const pts = unit.polygon_coordinates;
+    const centroid = getCentroid(pts);
+    const cx = centroid.pctX || 0;
+    const cy = centroid.pctY || 0;
+
+    const newPoints = pts.map(p => {
+      let newX, newY;
+      if (direction === 'left') {
+        newX = cx + (p.pctY - cy);
+        newY = cy - (p.pctX - cx);
+      } else {
+        newX = cx - (p.pctY - cy);
+        newY = cy + (p.pctX - cx);
+      }
+      return { pctX: newX, pctY: newY };
+    });
+
     onUpdateUnitPolygon?.(unit.id, newPoints);
   };
 
@@ -473,7 +502,10 @@ const FloorplanCanvas = forwardRef(({
         onRenameUnit={onRenameUnit}
         onDuplicateUnit={onDuplicateUnit}
         handleFlip={handleFlip}
+        handleRotatePolygon={handleRotatePolygon}
         onDeleteUnit={onDeleteUnit}
+        onOpenMilestoneModal={onOpenMilestoneModal}
+        onOpenStatusModal={onOpenStatusModal}
       />
 
       {toolMode === 'draw' && draftPoints.length > 2 && (
@@ -665,7 +697,10 @@ const FloorplanCanvas = forwardRef(({
         onRenameUnit={onRenameUnit}
         onDuplicateUnit={onDuplicateUnit}
         handleFlip={handleFlip}
+        handleRotatePolygon={handleRotatePolygon}
         onDeleteUnit={onDeleteUnit}
+        onOpenMilestoneModal={onOpenMilestoneModal}
+        onOpenStatusModal={onOpenStatusModal}
       />
     </div>
   );

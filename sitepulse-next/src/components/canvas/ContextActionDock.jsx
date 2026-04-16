@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp } from 'lucide-react';
+import { Copy, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp, RotateCcw, RotateCw, Flag, Activity } from 'lucide-react';
 
 const ActionButton = ({ icon: Icon, label, onClick, colorClass = "blue" }) => {
   return (
@@ -21,7 +21,10 @@ export default function ContextActionDock({
   onRenameUnit,
   onDuplicateUnit,
   handleFlip,
-  onDeleteUnit
+  handleRotatePolygon,
+  onDeleteUnit,
+  onOpenMilestoneModal,
+  onOpenStatusModal
 }) {
   if (!selectedUnitId) return null;
 
@@ -64,6 +67,30 @@ export default function ContextActionDock({
         label="Flip V" 
         onClick={() => handleFlip?.('vertical')} 
         colorClass="purple" 
+      />
+      <ActionButton
+        icon={RotateCcw}
+        label="Rotate Left"
+        onClick={() => handleRotatePolygon?.('left')}
+        colorClass="emerald"
+      />
+      <ActionButton
+        icon={RotateCw}
+        label="Rotate Right"
+        onClick={() => handleRotatePolygon?.('right')}
+        colorClass="emerald"
+      />
+      <ActionButton
+        icon={Flag}
+        label="Set Milestone"
+        onClick={() => onOpenMilestoneModal?.(selectedUnitId)}
+        colorClass="amber"
+      />
+      <ActionButton
+        icon={Activity}
+        label="Set Status"
+        onClick={() => onOpenStatusModal?.(selectedUnitId)}
+        colorClass="amber"
       />
       <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
       <ActionButton 
