@@ -2,7 +2,10 @@
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path } from 'react-konva';
 import useImage from 'use-image';
-import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp } from 'lucide-react';
+import { Check } from 'lucide-react';
+import CanvasToolbar from '@/components/CanvasToolbar';
+import CanvasContextMenu from '@/components/CanvasContextMenu';
+import MappedUnit from '@/components/canvas/MappedUnit';
 import { distToSegment, getCentroid } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 
@@ -420,9 +423,6 @@ const FloorplanCanvas = forwardRef(({
     setStagePosition({ x: 0, y: 0 });
   };
 
-  const dockClass =
-    'pointer-events-auto flex flex-col gap-1 p-2 rounded-2xl border shadow-xl backdrop-blur-md z-20';
-
   const addNodeCursor = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M2,2 L10,24 L14,15 L24,10 Z' fill='black' stroke='white' stroke-width='1.5'/><circle cx='20' cy='20' r='6' fill='%2310b981' stroke='white' stroke-width='1'/><path d='M20,16.5 v7 M16.5,20 h7' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>") 2 2, crosshair`;
   const deleteNodeCursor = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M2,2 L10,24 L14,15 L24,10 Z' fill='black' stroke='white' stroke-width='1.5'/><circle cx='20' cy='20' r='6' fill='%23ef4444' stroke='white' stroke-width='1'/><path d='M16.5,20 h7' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>") 2 2, pointer`;
 
@@ -445,24 +445,6 @@ const FloorplanCanvas = forwardRef(({
     computedCursor = isHoveringAnchor ? deleteNodeCursor : 'default';
   }
 
-  const ActionButton = ({ icon: Icon, label, currentMode, activeMode, onClick, colorClass = "blue" }) => {
-    const isActive = currentMode === activeMode;
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        title={label}
-        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
-          isActive
-            ? `bg-${colorClass}-500/20 text-${colorClass}-800 dark:text-${colorClass}-300 shadow-sm scale-[1.02]`
-            : 'text-slate-600 hover:bg-white/40 dark:text-slate-300 dark:hover:bg-white/10'
-        }`}
-      >
-        <Icon size={18} /> <span className="hidden lg:inline">{label}</span>
-      </button>
-    );
-  };
-
   return (
     <div
       id="sitepulse-floorplan-container"
@@ -475,95 +457,17 @@ const FloorplanCanvas = forwardRef(({
         boxShadow: 'var(--glass-shadow)',
       }}
     >
-      <div
-        className={`${dockClass} absolute left-3 top-1/2 -translate-y-1/2`}
-        style={{
-          background: 'var(--glass-bg)',
-          borderColor: 'var(--glass-border)',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => resetView()}
-          className="p-2.5 text-slate-600 hover:text-slate-900 hover:bg-white/50 rounded-xl transition-colors flex items-center justify-center dark:text-slate-300 dark:hover:text-white dark:hover:bg-white/10"
-          title="Reset view"
-        >
-          <RotateCcw size={20} />
-        </button>
-        <div className="flex bg-white/30 dark:bg-black/20 rounded-xl overflow-hidden border border-slate-200/50 dark:border-white/10 mb-1 mt-0.5">
-           <button type="button" onClick={() => handleZoom(-1)} className="flex-1 p-2 flex items-center justify-center text-slate-600 hover:bg-white/60 dark:text-slate-300 dark:hover:bg-white/10 transition-colors" title="Zoom Out">
-             <ZoomOut size={16} />
-           </button>
-           <div className="w-px bg-slate-200/80 dark:bg-white/10" />
-           <button type="button" onClick={() => handleZoom(1)} className="flex-1 p-2 flex items-center justify-center text-slate-600 hover:bg-white/60 dark:text-slate-300 dark:hover:bg-white/10 transition-colors" title="Zoom In">
-             <ZoomIn size={16} />
-           </button>
-        </div>
-        <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
-        
-        <ActionButton icon={Pointer} label="Select" currentMode={toolMode} activeMode="select" onClick={() => onToolModeChange?.('select')} />
-        <ActionButton icon={Hand} label="Pan" currentMode={toolMode} activeMode="pan" onClick={() => onToolModeChange?.('pan')} />
-        <ActionButton icon={MousePointer2} label="Draw" currentMode={toolMode} activeMode="draw" onClick={() => onToolModeChange?.('draw')} />
-        
-        <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
-        <ActionButton icon={PlusCircle} label="Add Node" currentMode={toolMode} activeMode="add_node" onClick={() => onToolModeChange?.('add_node')} colorClass="emerald" />
-        <ActionButton icon={MinusCircle} label="Delete Node" currentMode={toolMode} activeMode="delete_node" onClick={() => onToolModeChange?.('delete_node')} colorClass="red" />
-
-        {selectedUnitId && (
-          <>
-            <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
-            <ActionButton
-              icon={Stamp}
-              label="Stamp Trace"
-              currentMode={toolMode}
-              activeMode="stamp"
-              onClick={() => onToolModeChange?.('stamp')}
-              colorClass="fuchsia"
-            />
-            <ActionButton 
-              icon={Pencil} 
-              label="Rename" 
-              currentMode={null} 
-              activeMode={null} 
-              onClick={() => onRenameUnit?.(selectedUnitId)} 
-              colorClass="purple" 
-            />
-            <ActionButton 
-              icon={Copy} 
-              label="Duplicate" 
-              currentMode={null} 
-              activeMode={null} 
-              onClick={() => onDuplicateUnit?.(selectedUnitId)} 
-              colorClass="purple" 
-            />
-            <ActionButton 
-              icon={FlipHorizontal} 
-              label="Flip H" 
-              currentMode={null} 
-              activeMode={null} 
-              onClick={() => handleFlip('horizontal')} 
-              colorClass="purple" 
-            />
-            <ActionButton 
-              icon={FlipVertical} 
-              label="Flip V" 
-              currentMode={null} 
-              activeMode={null} 
-              onClick={() => handleFlip('vertical')} 
-              colorClass="purple" 
-            />
-            <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
-            <ActionButton 
-              icon={Trash2} 
-              label="Delete" 
-              currentMode={null} 
-              activeMode={null} 
-              onClick={() => onDeleteUnit?.(selectedUnitId)} 
-              colorClass="red" 
-            />
-          </>
-        )}
-      </div>
+      <CanvasToolbar
+        toolMode={toolMode}
+        onToolModeChange={onToolModeChange}
+        resetView={resetView}
+        handleZoom={handleZoom}
+        selectedUnitId={selectedUnitId}
+        onRenameUnit={onRenameUnit}
+        onDuplicateUnit={onDuplicateUnit}
+        handleFlip={handleFlip}
+        onDeleteUnit={onDeleteUnit}
+      />
 
       {toolMode === 'draw' && draftPoints.length > 2 && (
         <button
@@ -659,249 +563,39 @@ const FloorplanCanvas = forwardRef(({
             )}
 
             {units &&
-              units.map((unit) => {
-                const activeStatus = activeStatuses.find((s) => s.unit_id === unit.id);
-                const tState = activeStatus?.temporal_state || 'completed';
-                const fillColor = activeStatus ? activeStatus.status_color : 'rgba(0,0,0,0)';
-                const matchesLegend =
-                  !legendFilter || (activeStatus && activeStatus.milestone === legendFilter);
-                const isSelected = selectedUnitId === unit.id;
-                const dim = legendFilter && !matchesLegend;
-                const isHover = hoveredUnit === unit.id;
-                
-                const highlight = isSelected || isHover;
-                const isFilteredOut = activeStatus && temporalFilters && !temporalFilters.includes(tState);
-
-                let strokeDash = [];
-                let currentFill = fillColor;
-                // Use the milestone color for the border. Fallback to grey if no status.
-                let currentStroke = activeStatus ? activeStatus.status_color : (dim ? '#94a3b8' : '#475569');
-
-                if (activeStatus && !highlight && !dim) {
-                  if (tState === 'none') {
-                    currentFill = mixAlpha(activeStatus.status_color, 0.05); // Super faint hint
-                  } else if (tState === 'planned') {
-                    currentFill = mixAlpha(activeStatus.status_color, 0.3); // Faint
-                    strokeDash = [10, 6]
-                  } else if (tState === 'ongoing') {
-                    currentFill = mixAlpha(activeStatus.status_color, 0.65); // Med
-                  }
-                }
-                
-                if (dim && activeStatus) {
-                  currentFill = mixAlpha(activeStatus.status_color, 0.1);
-                  currentStroke = mixAlpha(activeStatus.status_color, 0.3);
-                }
-
-                const currentPoints = toPixels(
-                  activeDragNode?.unitId === unit.id
-                    ? unit.polygon_coordinates.map((p, i) =>
-                        i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
-                      )
-                    : unit.polygon_coordinates
-                );
-
-                return (
-                  <React.Fragment key={unit.id}>
-                    {/* The Separated Layer Pattern for Markup Borders */}
-                    <Group
-                      visible={!isFilteredOut}
-                      draggable={isSelected && toolMode === 'select'}
-                      onDragMove={(e) => {
-                        const dx = e.target.x() / layout.drawW;
-                        const dy = e.target.y() / layout.drawH;
-                        setActiveDragPolygon({ unitId: unit.id, dx, dy });
-                      }}
-                      onDragEnd={(e) => {
-                        setActiveDragPolygon(null);
-                        handlePolygonDragEnd(e, unit);
-                      }}
-                      onMouseEnter={() => setHoveredUnit(unit.id)}
-                      onMouseLeave={() => setHoveredUnit(null)}
-                      onClick={(e) => handlePolygonClick(e, unit)}
-                      onTap={(e) => handlePolygonClick(e, unit)}
-                      onDblClick={(e) => {
-                        e.cancelBubble = true;
-                        onSelectUnit?.(unit.id);
-                        onToolModeChange?.('select');
-                      }}
-                      onDblTap={(e) => {
-                        e.cancelBubble = true;
-                        onSelectUnit?.(unit.id);
-                        onToolModeChange?.('select');
-                      }}
-                      onContextMenu={(e) => {
-                        e.cancelBubble = true;
-                        e.evt.preventDefault();
-                        onSelectUnit?.(unit.id);
-                        onToolModeChange?.('select');
-                        const stage = e.target.getStage();
-                        const pointer = stage.getPointerPosition();
-                        setTimeout(() => {
-                           setContextMenu({ x: pointer.x, y: pointer.y, unitId: unit.id });
-                        }, 10);
-                      }}
-                    >
-                      {/* LAYER 1: Fill Only (Multiplied to reveal architectural text) */}
-                      <Line
-                        points={currentPoints}
-                        fill={currentFill}
-                        closed={true}
-                        globalCompositeOperation="multiply"
-                        listening={false}
-                      />
-
-                      {/* LAYER 2: Stroke Only (Standard rendering, sharp, vibrant) */}
-                      <Line
-                        points={currentPoints}
-                        stroke={highlight ? (isSelected ? '#8b5cf6' : '#0ea5e9') : currentStroke}
-                        strokeWidth={(dim ? 1.0 : (highlight ? 4.0 : 2.5)) * (settings?.markupThickness || 1)}
-                        dash={strokeDash}
-                        closed={true}
-                        shadowColor={highlight ? (isSelected ? 'rgba(139, 92, 246, 0.85)' : 'rgba(14, 165, 233, 0.85)') : 'transparent'}
-                        shadowBlur={highlight ? 18 : 0}
-                        shadowOpacity={highlight ? 0.9 : 0}
-                        listening={!isFilteredOut}
-                      />
-                    </Group>
-                    
-                    {/* The Status Icon */}
-                    {(activeStatus && tState !== 'none' && !isFilteredOut) && (() => {
-                      // 1. Statically defined colors for the temporal states
-                      const TEMPORAL_COLORS = {
-                        planned: '#94a3b8',   // Slate Gray
-                        ongoing: '#f59e0b',   // Amber
-                        completed: '#10b981', // Emerald
-                      };
-                      const iconColor = TEMPORAL_COLORS[tState] || '#cbd5e1';
-
-                      let previewPolygon = unit.polygon_coordinates;
-                      if (activeDragNode?.unitId === unit.id) {
-                          previewPolygon = unit.polygon_coordinates.map((p, i) =>
-                              i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
-                          );
-                      }
-                      const centroid = getCentroid(previewPolygon);
-                      const draggedOffsetX = activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0;
-                      const draggedOffsetY = activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0;
-                      
-                      const offsetX = unit.icon_offset_x || 0;
-                      const offsetY = unit.icon_offset_y || 0;
-                      
-                      const iconAbsX = layout.offsetX + (centroid.pctX + draggedOffsetX + offsetX) * layout.drawW;
-                      const iconAbsY = layout.offsetY + (centroid.pctY + draggedOffsetY + offsetY) * layout.drawH;
-
-                      const isDimmed = dim || isFilteredOut;
-
-                      return (
-                        <Group
-                          x={iconAbsX}
-                          y={iconAbsY}
-                          scale={{ x: 1 / stageScale, y: 1 / stageScale }}
-                          draggable={toolMode === 'select' && isShiftDown}
-                          opacity={dim ? 0.3 : 1}
-                          onDragStart={(e) => {
-                            e.cancelBubble = true;
-                          }}
-                          onDragEnd={(e) => {
-                            e.cancelBubble = true;
-                            
-                            // Capture the visual dropped position
-                            const newAbsX = e.target.x();
-                            const newAbsY = e.target.y();
-                            
-                            // Konva Uncontrolled Fix: Instantly snap the internal node back to origin 
-                            // so React state takes full declarative control of the new layout on re-render.
-                            e.target.x(layout.offsetX + centroid.pctX * layout.drawW);
-                            e.target.y(layout.offsetY + centroid.pctY * layout.drawH);
-                            
-                            // Calculate percentages
-                            const newPctX = (newAbsX - layout.offsetX) / layout.drawW;
-                            const newPctY = (newAbsY - layout.offsetY) / layout.drawH;
-                            
-                            const baseCentroid = getCentroid(unit.polygon_coordinates);
-                            const newOffsetX = newPctX - baseCentroid.pctX;
-                            const newOffsetY = newPctY - baseCentroid.pctY;
-                            
-                            onUpdateUnitIconOffset?.(unit.id, newOffsetX, newOffsetY);
-                          }}
-                          onMouseEnter={(e) => {
-                            if (toolMode === 'select' && isShiftDown) {
-                              e.target.getStage().container().style.cursor = 'grab';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            e.target.getStage().container().style.cursor = computedCursor;
-                          }}
-                          onClick={(e) => { e.cancelBubble = true; handlePolygonClick(e, unit); }}
-                          onTap={(e) => { e.cancelBubble = true; handlePolygonClick(e, unit); }}
-                        >
-                          {/* The visual icon background */}
-                          <Circle
-                            radius={12}
-                            fill="#ffffff"
-                            stroke={iconColor}
-                            strokeWidth={2.5}
-                            shadowColor="rgba(0,0,0,0.4)"
-                            shadowBlur={4}
-                            shadowOffset={{ x: 0, y: 2 }}
-                          />
-                          {/* The SVG Path */}
-                          <Path
-                            x={-8}
-                            y={-8}
-                            data={ICON_PATHS[tState] || ICON_PATHS.completed}
-                            fill="transparent"
-                            stroke={iconColor}
-                            strokeWidth={2}
-                            strokeLineCap="round"
-                            strokeLineJoin="round"
-                            scale={{ x: 0.65, y: 0.65 }}
-                            listening={false}
-                          />
-                        </Group>
-                      );
-                    })()}
-                    
-                    {isSelected && unit.polygon_coordinates.map((pt, i) => (
-                       <Circle
-                         key={`anchor-${i}`}
-                         x={layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0)) * layout.drawW}
-                         y={layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0)) * layout.drawH}
-                         radius={(toolMode === 'delete_node' ? 6 : 5) / stageScale}
-                         fill={toolMode === 'delete_node' ? '#ef4444' : '#fff'}
-                         stroke={toolMode === 'delete_node' ? '#fff' : '#8b5cf6'}
-                         strokeWidth={2 / stageScale}
-                         draggable={toolMode === 'select'}
-                         dragBoundFunc={(pos) => {
-                           if (!isShiftDown) return pos;
-                           const origX = layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0)) * layout.drawW;
-                           const origY = layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0)) * layout.drawH;
-                           if (Math.abs(pos.x - origX) > Math.abs(pos.y - origY)) {
-                             return { x: pos.x, y: origY };
-                           } else {
-                             return { x: origX, y: pos.y };
-                           }
-                         }}
-                         onDragMove={(e) => {
-                           const node = e.target;
-                           let pctX = (node.x() - layout.offsetX) / layout.drawW;
-                           let pctY = (node.y() - layout.offsetY) / layout.drawH;
-                           setActiveDragNode({ unitId: unit.id, index: i, pctX, pctY });
-                         }}
-                         onDragEnd={(e) => {
-                           setActiveDragNode(null);
-                           handleAnchorDragEnd(e, unit.id, i);
-                         }}
-                         onClick={(e) => handleAnchorClick(e, unit.id, i)}
-                         onTap={(e) => handleAnchorClick(e, unit.id, i)}
-                         onMouseEnter={() => setIsHoveringAnchor(true)}
-                         onMouseLeave={() => setIsHoveringAnchor(false)}
-                       />
-                    ))}
-                  </React.Fragment>
-                );
-              })}
+              units.map((unit) => (
+                <MappedUnit
+                  key={unit.id}
+                  unit={unit}
+                  activeStatuses={activeStatuses}
+                  legendFilter={legendFilter}
+                  selectedUnitId={selectedUnitId}
+                  hoveredUnit={hoveredUnit}
+                  temporalFilters={temporalFilters}
+                  toolMode={toolMode}
+                  layout={layout}
+                  stageScale={stageScale}
+                  settings={settings}
+                  activeDragNode={activeDragNode}
+                  activeDragPolygon={activeDragPolygon}
+                  isShiftDown={isShiftDown}
+                  computedCursor={computedCursor}
+                  mixAlpha={mixAlpha}
+                  toPixels={toPixels}
+                  setHoveredUnit={setHoveredUnit}
+                  setActiveDragPolygon={setActiveDragPolygon}
+                  handlePolygonDragEnd={handlePolygonDragEnd}
+                  handlePolygonClick={handlePolygonClick}
+                  onSelectUnit={onSelectUnit}
+                  onToolModeChange={onToolModeChange}
+                  setContextMenu={setContextMenu}
+                  onUpdateUnitIconOffset={onUpdateUnitIconOffset}
+                  setIsHoveringAnchor={setIsHoveringAnchor}
+                  setActiveDragNode={setActiveDragNode}
+                  handleAnchorDragEnd={handleAnchorDragEnd}
+                  handleAnchorClick={handleAnchorClick}
+                />
+              ))}
 
             {toolMode === 'draw' && draftPoints.length > 0 && pointerPos && !boxOrigin && (
               (() => {
@@ -1118,35 +812,15 @@ const FloorplanCanvas = forwardRef(({
         </div>
       )}
 
-      {contextMenu && (
-        <div 
-          className="absolute z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2 flex flex-col gap-1 min-w-[200px]"
-          style={{ 
-            left: Math.min(contextMenu.x, dimensions.width - 200),
-            top: Math.min(contextMenu.y, dimensions.height - 260)
-          }}
-        >
-          <div className="px-2 py-1 mb-1 border-b border-slate-200/50 dark:border-slate-700/50">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Options</span>
-          </div>
-          <button type="button" onClick={() => { onRenameUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-            <Pencil size={16} className="text-sky-500" /> Rename Location
-          </button>
-          <button type="button" onClick={() => { onDuplicateUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-            <Copy size={16} className="text-purple-500" /> Duplicate
-          </button>
-          <button type="button" onClick={() => { handleFlip('horizontal'); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-            <FlipHorizontal size={16} className="text-emerald-500" /> Flip Horizontal
-          </button>
-          <button type="button" onClick={() => { handleFlip('vertical'); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-            <FlipVertical size={16} className="text-rose-500" /> Flip Vertical
-          </button>
-          <div className="h-px bg-slate-200/50 dark:bg-slate-700/50 mx-1 my-1" />
-          <button type="button" onClick={() => { onDeleteUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-sm font-bold text-red-600 transition-colors text-left">
-            <Trash2 size={16} className="text-red-500" /> Delete Location
-          </button>
-        </div>
-      )}
+      <CanvasContextMenu
+        contextMenu={contextMenu}
+        setContextMenu={setContextMenu}
+        dimensions={dimensions}
+        onRenameUnit={onRenameUnit}
+        onDuplicateUnit={onDuplicateUnit}
+        handleFlip={handleFlip}
+        onDeleteUnit={onDeleteUnit}
+      />
     </div>
   );
 });
