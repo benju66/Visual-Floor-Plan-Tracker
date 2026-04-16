@@ -36,6 +36,7 @@ const FloorplanCanvas = forwardRef(({
   onPendingPolygonComplete,
   showTooltip,
   settings,
+  temporalFilters,
 }, ref) => {
   const [image] = useImage(imageUrl, 'anonymous');
 
@@ -221,6 +222,22 @@ const FloorplanCanvas = forwardRef(({
       x: centerPoint.x - mousePointTo.x * newScale,
       y: centerPoint.y - mousePointTo.y * newScale,
     });
+  };
+
+  const mixAlpha = (colorStr, alpha) => {
+    if (!colorStr) return colorStr;
+    const cacheKey = colorStr + alpha;
+    if (colorStr.startsWith('rgba')) {
+      return colorStr.replace(/[\d.]+\)$/g, `${alpha})`);
+    } else if (colorStr.startsWith('#')) {
+      let c = colorStr.substring(1).split('');
+      if(c.length === 3){
+          c= [c[0], c[0], c[1], c[1], c[2], c[2]];
+      }
+      c= '0x'+c.join('');
+      return 'rgba('+[(c>>16)&255, (c>>8)&255, c&255].join(',')+','+alpha+')';
+    }
+    return colorStr;
   };
 
   const handleStageClick = (e) => {
@@ -652,6 +669,7 @@ const FloorplanCanvas = forwardRef(({
             {units &&
               units.map((unit) => {
                 const activeStatus = activeStatuses.find((s) => s.unit_id === unit.id);
+                const tState = activeStatus?.temporal_state || 'completed';
                 const fillColor = activeStatus ? activeStatus.status_color : 'rgba(0,0,0,0)';
                 const matchesLegend =
                   !legendFilter || (activeStatus && activeStatus.milestone === legendFilter);
@@ -660,26 +678,66 @@ const FloorplanCanvas = forwardRef(({
                 const isHover = hoveredUnit === unit.id;
                 
                 const highlight = isSelected || isHover;
+                const isFilteredOut = activeStatus && temporalFilters && !temporalFilters.includes(tState);
+
+                let strokeDash = [];
+                let currentFill = fillColor;
+                // Use the milestone color for the border. Fallback to grey if no status.
+                let currentStroke = activeStatus ? activeStatus.status_color : (dim ? '#94a3b8' : '#475569');
+
+                if (activeStatus && !highlight && !dim) {
+                  if (tState === 'none') {
+                    currentFill = mixAlpha(activeStatus.status_color, 0.05); // Super faint hint
+                  } else if (tState === 'planned') {
+                    currentFill = mixAlpha(activeStatus.status_color, 0.3); // Faint
+                    strokeDash = [10, 6]
+                  } else if (tState === 'ongoing') {
+                    currentFill = mixAlpha(activeStatus.status_color, 0.65); // Med
+                  }
+                }
+                
+                if (dim && activeStatus) {
+                  currentFill = mixAlpha(activeStatus.status_color, 0.1);
+                  currentStroke = mixAlpha(activeStatus.status_color, 0.3);
+                }
+
+                const currentPoints = toPixels(
+                  activeDragNode?.unitId === unit.id
+                    ? unit.polygon_coordinates.map((p, i) =>
+                        i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
+                      )
+                    : unit.polygon_coordinates
+                );
 
                 return (
                   <React.Fragment key={unit.id}>
+                    {/* The highlight/glow outer selection border (only visible if selected/hovered) */}
+                    {(highlight && !isFilteredOut) && (
+                      <Line
+                        points={currentPoints}
+                        stroke={isSelected ? '#8b5cf6' : '#0ea5e9'}
+                        strokeWidth={7.5 * (settings?.markupThickness || 1)}
+                        closed={true}
+                        opacity={1}
+                        shadowBlur={18}
+                        shadowColor={isSelected ? 'rgba(139, 92, 246, 0.85)' : 'rgba(14, 165, 233, 0.85)'}
+                        shadowOpacity={0.9}
+                        listening={false}
+                      />
+                    )}
+
+                    {/* The actual markup shape (solid internal colored border) */}
                     <Line
-                      points={toPixels(
-                        activeDragNode?.unitId === unit.id
-                          ? unit.polygon_coordinates.map((p, i) =>
-                              i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
-                            )
-                          : unit.polygon_coordinates
-                      )}
-                      fill={fillColor}
-                      stroke={isSelected ? '#8b5cf6' : isHover ? '#0ea5e9' : dim ? '#94a3b8' : '#666'}
-                      strokeWidth={(isSelected || isHover ? 3.5 : dim ? 0.6 : 1) * (settings?.markupThickness || 1)}
+                      points={currentPoints}
+                      fill={currentFill}
+                      stroke={currentStroke}
+                      strokeWidth={(dim ? 1.0 : 3.0) * (settings?.markupThickness || 1)}
+                      dash={strokeDash}
                       closed={true}
-                      opacity={dim ? 0.2 : highlight ? 1 : 0.95}
+                      opacity={1}
+                      visible={!isFilteredOut}
+                      listening={!isFilteredOut}
                       globalCompositeOperation="multiply"
-                      shadowBlur={highlight ? 18 : 0}
-                      shadowColor={isSelected ? 'rgba(139, 92, 246, 0.85)' : isHover ? 'rgba(14, 165, 233, 0.85)' : 'transparent'}
-                      shadowOpacity={highlight ? 0.9 : 0}
                       draggable={isSelected && toolMode === 'select'}
                       onDragMove={(e) => {
                         const dx = e.target.x() / layout.drawW;

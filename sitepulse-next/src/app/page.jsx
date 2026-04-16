@@ -170,6 +170,7 @@ function App() {
   const [activeStatuses, setActiveStatuses] = useState([]);
   const [milestones, setMilestones] = useState([]);
   const [trackingMode, setTrackingMode] = useState('Production');
+  const [temporalFilters, setTemporalFilters] = useState(['none', 'planned', 'ongoing', 'completed']);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newLevelName, setNewLevelName] = useState('');
@@ -370,17 +371,27 @@ function App() {
     
     const currentTrackStatuses = activeStatuses.filter((s) => s.track === trackingMode);
     
-    const polygonsPayload = units.filter(u => u.polygon_coordinates && u.polygon_coordinates.length > 2).map(u => {
-      const stat = currentTrackStatuses.find((s) => s.unit_id === u.id);
-      const color = stat ? stat.status_color : 'rgba(128,128,128,0.3)';
-      return {
-        unit_id: u.id,
-        unit_number: u.unit_number,
-        status: stat ? stat.milestone : 'Not Started',
-        color: color,
-        points: u.polygon_coordinates
-      };
-    });
+    const polygonsPayload = units
+      .filter(u => u.polygon_coordinates && u.polygon_coordinates.length > 2)
+      .map(u => {
+        const stat = currentTrackStatuses.find((s) => s.unit_id === u.id);
+        const tState = stat?.temporal_state || 'completed';
+        
+        if (stat && !temporalFilters.includes(tState)) {
+          return null;
+        }
+
+        const color = stat ? stat.status_color : 'rgba(128,128,128,0.3)';
+        return {
+          unit_id: u.id,
+          unit_number: u.unit_number,
+          status: stat ? stat.milestone : 'Not Started',
+          color: color,
+          temporal_state: stat ? tState : 'completed',
+          points: u.polygon_coordinates
+        };
+      })
+      .filter(Boolean);
 
     const payload = {
       include_data: settings.includeExportData !== false,
@@ -752,9 +763,39 @@ function App() {
     ]);
   };
 
-  const commitUnitMilestone = async (unit, milestone, isUndoRedo = false) => {
+  const commitUnitMilestone = async (unit, milestone, currentTemporalState = 'none', isUndoRedo = false) => {
     setSavingUnitId(unit.id);
     
+    // Check if we are clearing the assignment
+    if (milestone.isClearAction) {
+      try {
+        const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
+        if (!oldLog) return; // Nothing to clear
+        
+        const { error } = await supabase
+          .from('status_logs')
+          .delete()
+          .eq('unit_id', unit.id)
+          .eq('milestone', oldLog.milestone);
+          
+        if (error) throw error;
+        setActiveStatuses(prev => prev.filter(s => !(s.unit_id === unit.id && s.track === trackingMode)));
+        
+        if (!isUndoRedo) {
+          setUndoStack(prev => {
+            const next = [...prev, { actionType: 'UPDATE_STATUS', unitId: unit.id, oldLog, newLog: null }];
+            return next.length > 50 ? next.slice(next.length - 50) : next;
+          });
+          setRedoStack([]);
+        }
+      } catch (err) {
+        showToast('Failed to clear status: ' + err.message, 'error');
+      } finally {
+        setSavingUnitId(null);
+      }
+      return;
+    }
+
     // Capture old status for undo (specific to the same track)
     const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track) || null;
     
@@ -767,6 +808,7 @@ function App() {
             unit_id: unit.id,
             milestone: milestone.name || milestone.milestone,
             status_color,
+            temporal_state: currentTemporalState,
           },
         ])
         .select();
@@ -783,7 +825,7 @@ function App() {
               actionType: 'UPDATE_STATUS',
               unitId: unit.id,
               oldLog: oldStatus,
-              newLog: newLog // Use the constructed log with track attached
+              newLog: newLog, 
             }];
             return next.length > 50 ? next.slice(next.length - 50) : next;
           });
@@ -950,6 +992,9 @@ function App() {
               statusFilter={filterMilestone}
               savingUnitId={savingUnitId}
               onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
+              onUpdateTemporalState={(unit, log, state) => {
+                 void commitUnitMilestone(unit, { name: log.milestone, color: log.status_color, track: log.track }, state);
+              }}
               defaultView={settings.defaultFieldView || 'table'}
               milestones={milestones.filter(m => m.track === trackingMode)}
             />
@@ -985,6 +1030,7 @@ function App() {
                   onPendingPolygonComplete={handlePolygonComplete}
                   showTooltip={settings.showTooltips}
                   settings={settings}
+                  temporalFilters={temporalFilters}
                 />
               ) : (
                 <div
@@ -1072,6 +1118,35 @@ function App() {
                     title={m.name}
                   >
                     {m.name.length > 22 ? `${m.name.slice(0, 20)}…` : m.name}
+                  </button>
+                ))}
+              </div>
+
+              <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2">
+                Progress Status Toggles
+              </h4>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {[
+                  { value: 'none', label: 'No Status' },
+                  { value: 'planned', label: 'Planned' },
+                  { value: 'ongoing', label: 'Ongoing' },
+                  { value: 'completed', label: 'Completed' }
+                ].map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setTemporalFilters((prev) => 
+                        prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
+                      );
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                      temporalFilters.includes(value)
+                        ? 'bg-blue-600/90 text-white border-blue-600'
+                        : 'bg-white/50 dark:bg-black/20 text-slate-500 border-slate-300 dark:border-slate-700'
+                    }`}
+                  >
+                    {label}
                   </button>
                 ))}
               </div>

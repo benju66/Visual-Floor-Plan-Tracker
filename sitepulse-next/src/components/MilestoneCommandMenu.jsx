@@ -52,6 +52,20 @@ export default function MilestoneCommandMenu({
           <Command.List className="max-h-[min(50vh,360px)] overflow-y-auto p-2">
             <Command.Empty className="py-8 text-center text-sm text-slate-500">No matches.</Command.Empty>
             <Command.Group heading="Milestones" className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1">
+              <Command.Item
+                value="clear unassign remove delete status"
+                onSelect={() => {
+                  onSelect({ isClearAction: true, name: 'Unassigned', color: 'transparent' });
+                  onOpenChange(false);
+                }}
+                className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-red-500 data-[selected=true]:bg-red-500/10 data-[selected=true]:text-red-600 mb-1"
+              >
+                <span className="h-3 w-3 shrink-0 rounded-full border-2 border-red-500 flex items-center justify-center">
+                   <div className="h-0.5 w-1.5 bg-red-500 rounded-full"></div>
+                </span>
+                <span className="truncate">Clear Status</span>
+              </Command.Item>
+              
               {milestones.map((m) => (
                 <Command.Item
                   key={m.id}

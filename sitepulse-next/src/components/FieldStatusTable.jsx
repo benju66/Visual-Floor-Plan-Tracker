@@ -24,6 +24,7 @@ export default function FieldStatusTable({
   onChooseStatus,
   defaultView = 'table',
   onSelectUnit,
+  onUpdateTemporalState,
 }) {
   const [viewStyle, setViewStyle] = useState(defaultView);
 
@@ -61,15 +62,30 @@ export default function FieldStatusTable({
     );
   }
 
-  const StatusTrigger = ({ unit, currentMilestone, large }) => (
-    <button
-      type="button"
-      onClick={() => onChooseStatus(unit)}
-      disabled={savingUnitId === unit.id}
-      className={`w-full text-left rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm transition hover:bg-white/70 dark:hover:bg-black/25 disabled:opacity-50 ${large ? 'py-3 text-base' : ''}`}
-    >
-      {currentMilestone || 'Choose status…'}
-    </button>
+  const StatusTrigger = ({ unit, currentMilestone, log, large }) => (
+    <div className="flex flex-col sm:flex-row gap-2 w-full">
+      <button
+        type="button"
+        onClick={() => onChooseStatus(unit)}
+        disabled={savingUnitId === unit.id}
+        className={`w-full sm:flex-1 text-left rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm transition hover:bg-white/70 dark:hover:bg-black/25 disabled:opacity-50 ${large ? 'py-3 text-base' : ''}`}
+      >
+        {currentMilestone || 'Choose status…'}
+      </button>
+      {currentMilestone && (
+        <select
+          value={log?.temporal_state || 'completed'}
+          onChange={(e) => onUpdateTemporalState?.(unit, log, e.target.value)}
+          disabled={savingUnitId === unit.id}
+          className={`w-full sm:w-auto rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/60 dark:bg-black/25 px-2 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 ${large ? 'py-3 text-base' : ''}`}
+        >
+          <option value="none">No status (Choose status)</option>
+          <option value="planned">Planned</option>
+          <option value="ongoing">Ongoing</option>
+          <option value="completed">Completed</option>
+        </select>
+      )}
+    </div>
   );
 
   return (
@@ -120,7 +136,7 @@ export default function FieldStatusTable({
                     </div>
                     {savingUnitId === unit.id && <UpdatingRing />}
                   </div>
-                  <StatusTrigger unit={unit} currentMilestone={currentMilestone} large={featured} />
+                  <StatusTrigger unit={unit} currentMilestone={currentMilestone} log={log} large={featured} />
                 </div>
               );
             })}
@@ -155,7 +171,7 @@ export default function FieldStatusTable({
                     {savingUnitId === unit.id && <UpdatingRing />}
                   </div>
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Current status</p>
-                  <StatusTrigger unit={unit} currentMilestone={currentMilestone} large={hero} />
+                  <StatusTrigger unit={unit} currentMilestone={currentMilestone} log={log} large={hero} />
                 </div>
               );
             })}
@@ -181,7 +197,7 @@ export default function FieldStatusTable({
                     </div>
                   </td>
                   <td className="px-5 py-2 align-middle">
-                    <StatusTrigger unit={unit} currentMilestone={log?.milestone ?? ''} large={false} />
+                    <StatusTrigger unit={unit} currentMilestone={log?.milestone ?? ''} log={log} large={false} />
                   </td>
                   <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
                     {log?.created_at ? new Date(log.created_at).toLocaleDateString() : '—'}

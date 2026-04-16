@@ -42,6 +42,7 @@ class PolygonData(BaseModel):
     unit_number: str
     status: str
     color: str
+    temporal_state: str = 'completed'
     points: List[PointData]
 
 class ExportRequest(BaseModel):
@@ -160,13 +161,40 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
             ]
             
             color_rgb = hex_to_rgb(poly.color)
+            fill_rgb = color_rgb
+            
+            # temporal state formatting mapping frontend styling
+            shape_opacity = 0.8
+            stroke_dash = None
+            
+            if poly.temporal_state == 'none':
+                fill_rgb = None
+                shape_opacity = 0.8
+            elif poly.temporal_state == 'planned':
+                shape_opacity = 0.3
+                stroke_dash = [10, 6]
+            elif poly.temporal_state == 'ongoing':
+                shape_opacity = 0.55
+            elif poly.temporal_state == 'completed':
+                shape_opacity = 0.8
+                
+            if poly.status == 'Not Started':
+                shape_opacity = 0.2
             
             # Create standard Interactive Data Layer Markup (Allows moving, coloring, and Bluebeam modification seamlessly)
             annot = page.add_polygon_annot(fitz_points)
-            annot.set_colors(stroke=color_rgb, fill=color_rgb)
-            annot.set_opacity(0.4)
+            if fill_rgb:
+                annot.set_colors(stroke=color_rgb, fill=fill_rgb)
+            else:
+                annot.set_colors(stroke=color_rgb)
+                
+            annot.set_opacity(shape_opacity)
             annot.set_blendmode(fitz.PDF_BM_Multiply)
-            annot.set_border(width=1.5)
+            
+            if stroke_dash:
+                annot.set_border(width=1.5, dashes=stroke_dash)
+            else:
+                annot.set_border(width=1.5)
             
             info = annot.info
             info["title"] = "SitePulse Tracking"
