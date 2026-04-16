@@ -3,33 +3,8 @@ import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeH
 import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path } from 'react-konva';
 import useImage from 'use-image';
 import { Hand, MousePointer2, RotateCcw, Check, Pointer, PlusCircle, MinusCircle, Copy, ZoomIn, ZoomOut, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp } from 'lucide-react';
-
-const sqr = (x) => x * x;
-const dist2 = (v, w) => sqr(v.pctX - w.pctX) + sqr(v.pctY - w.pctY);
-const distToSegmentSquared = (p, v, w) => {
-  const l2 = dist2(v, w);
-  if (l2 === 0) return dist2(p, v);
-  let t = ((p.pctX - v.pctX) * (w.pctX - v.pctX) + (p.pctY - v.pctY) * (w.pctY - v.pctY)) / l2;
-  t = Math.max(0, Math.min(1, t));
-  return dist2(p, { pctX: v.pctX + t * (w.pctX - v.pctX), pctY: v.pctY + t * (w.pctY - v.pctY) });
-};
-const distToSegment = (p, v, w) => Math.sqrt(distToSegmentSquared(p, v, w));
-
-const getCentroid = (points) => {
-  if (!points || points.length === 0) return { pctX: 0, pctY: 0 };
-  let sumX = 0, sumY = 0;
-  points.forEach(p => { sumX += p.pctX; sumY += p.pctY; });
-  return { 
-    pctX: sumX / points.length, 
-    pctY: sumY / points.length 
-  };
-};
-
-const ICON_PATHS = {
-  planned: "M8 2v4M16 2v4M3 8h18M4 4h16c1.1 0 2 .9 2 2v14c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z", // Calendar
-  ongoing: "M5 3l14 9-14 9V3z", // Play
-  completed: "M9 11l3 3L22 4 M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" // CheckSquare
-};
+import { distToSegment, getCentroid } from '@/utils/geometry';
+import { ICON_PATHS } from '@/utils/constants';
 
 const FloorplanCanvas = forwardRef(({
   imageUrl,
