@@ -263,11 +263,14 @@ function App() {
         };
       });
 
+      const activeTemporalStates = [...new Set(activePolygons.map(p => p.temporal_state))];
+
       payload.legend_data = {
         pctX: legendPosition.pctX,
         pctY: legendPosition.pctY,
         scaleX: legendPosition.scaleX,
-        active_milestones: active_milestones
+        active_milestones: active_milestones,
+        active_temporal_states: activeTemporalStates
       };
     }
 

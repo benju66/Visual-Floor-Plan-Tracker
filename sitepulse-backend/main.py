@@ -212,39 +212,90 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
             scaleX = legend.get('scaleX', 1)
             active_milestones = legend.get('active_milestones', [])
 
-            base_x = page.rect.width * pctX
-            base_y = page.rect.height * pctY
+            # Correctly map a visual percentage point to the underlying unrotated PDF canvas
+            def get_mapped_pt(px_pct, py_pct):
+                return fitz.Point(
+                    page.rect.x0 + (page.rect.width * px_pct),
+                    page.rect.y0 + (page.rect.height * py_pct)
+                ) * page.derotation_matrix
 
-            font_size = 12 * scaleX
-            box_size = 15 * scaleX
-            padding = 10 * scaleX
-            line_height = 20 * scaleX
+            font_size = 14 * scaleX
+            title_size = 16 * scaleX
+            item_height = 24 * scaleX
+            padding = 16 * scaleX
+            legend_w = 200 * scaleX
 
-            # Calculate a rough width and height for the legend background
-            max_text_len = max([len(m['name']) for m in active_milestones]) if active_milestones else 10
-            legend_w = padding * 2 + box_size + padding + (max_text_len * font_size * 0.6)
-            legend_h = padding * 2 + line_height + (len(active_milestones) * line_height)
+            active_temporal_states = legend.get('active_temporal_states', [])
 
-            bg_rect = fitz.Rect(base_x, base_y, base_x + legend_w, base_y + legend_h)
+            milestones_height = (30 * scaleX) + (len(active_milestones) * item_height) if active_milestones else 0
+            statuses_height = (30 * scaleX) + (len(active_temporal_states) * item_height) if active_temporal_states else 0
             
-            # draw a background rect
-            page.draw_rect(bg_rect, color=(0,0,0), fill=(1,1,1))
+            middle_pad = padding if (active_milestones and active_temporal_states) else 0
+            total_items_height = milestones_height + statuses_height + middle_pad
+            
+            legend_h = padding * 2 + total_items_height
 
-            # Title
-            page.insert_text(fitz.Point(base_x + padding, base_y + padding + font_size), "Sheet Legend", fontsize=font_size * 1.2, fontname="hebo", color=(0,0,0))
+            def map_quad(vx_pct, vy_pct, vw_pct, vh_pct):
+                p1 = get_mapped_pt(vx_pct, vy_pct)
+                p2 = get_mapped_pt(vx_pct + vw_pct, vy_pct)
+                p3 = get_mapped_pt(vx_pct, vy_pct + vh_pct)
+                p4 = get_mapped_pt(vx_pct + vw_pct, vy_pct + vh_pct)
+                return fitz.Quad(p1, p2, p3, p4)
 
-            # Loop through active milestones
-            y_offset = base_y + padding + line_height * 1.5
-            for m in active_milestones:
-                r_rgb = hex_to_rgb(m['color'])
-                swatch_rect = fitz.Rect(base_x + padding, y_offset, base_x + padding + box_size, y_offset + box_size)
-                page.draw_rect(swatch_rect, color=(0,0,0), fill=r_rgb)
-                
-                # Insert text
-                text_pt = fitz.Point(base_x + padding + box_size + padding * 0.5, y_offset + box_size * 0.8)
-                page.insert_text(text_pt, m['name'], fontsize=font_size, fontname="helv", color=(0.1,0.1,0.1))
-                
-                y_offset += line_height
+            w_pct = legend_w / page.rect.width
+            h_pct = legend_h / page.rect.height
+
+            # BG Quad
+            bg_quad = map_quad(pctX, pctY, w_pct, h_pct)
+            # Remove shadows, add gray border as requested by user
+            page.draw_quad(bg_quad, color=(0.8,0.8,0.8), fill=(1,1,1), width=1.5)
+
+            def map_offset_pt(x_off, y_off):
+                return get_mapped_pt(pctX + (x_off / page.rect.width), pctY + (y_off / page.rect.height))
+
+            def map_offset_quad(x_off, y_off, w, h):
+                return map_quad(pctX + (x_off / page.rect.width), pctY + (y_off / page.rect.height), w / page.rect.width, h / page.rect.height)
+
+            if active_milestones:
+                # Title 1
+                title_1_pt = map_offset_pt(padding, padding + title_size * 0.8)
+                page.insert_text(title_1_pt, "Milestones", fontsize=title_size, fontname="hebo", color=hex_to_rgb("#334155"), rotate=page.rotation)
+
+                y_offset = padding + (30 * scaleX)
+                for m in active_milestones:
+                    r_rgb = hex_to_rgb(m['color'])
+                    # Swatch is 14x14 
+                    swatch_quad = map_offset_quad(padding, y_offset, 14 * scaleX, 14 * scaleX)
+                    page.draw_quad(swatch_quad, color=hex_to_rgb("#cbd5e1"), fill=r_rgb, width=1*scaleX)
+                    
+                    # Text
+                    text_pt = map_offset_pt(padding + 22 * scaleX, y_offset + 11 * scaleX)
+                    page.insert_text(text_pt, m['name'], fontsize=font_size, fontname="helv", color=hex_to_rgb("#475569"), rotate=page.rotation)
+                    
+                    y_offset += item_height
+
+            if active_temporal_states:
+                start_y = padding + milestones_height + middle_pad
+                title_2_pt = map_offset_pt(padding, start_y + title_size * 0.8)
+                page.insert_text(title_2_pt, "Map Statuses", fontsize=title_size, fontname="hebo", color=hex_to_rgb("#334155"), rotate=page.rotation)
+
+                y_offset = start_y + (30 * scaleX)
+                TEMPORAL_COLORS = {
+                    'planned': '#94a3b8',
+                    'ongoing': '#f59e0b',
+                    'completed': '#10b981',
+                }
+                for state in active_temporal_states:
+                    icon_color = TEMPORAL_COLORS.get(state, '#cbd5e1')
+                    
+                    center_pt = map_offset_pt(padding + (16.6 * scaleX), y_offset + (10 * scaleX))
+                    page.draw_circle(center_pt, 9.6 * scaleX, color=hex_to_rgb(icon_color), fill=hex_to_rgb("#ffffff"), width=2.5*scaleX)
+                    
+                    state_text = state.capitalize()
+                    text_pt = map_offset_pt(padding + 32 * scaleX, y_offset + 14 * scaleX)
+                    page.insert_text(text_pt, state_text, fontsize=font_size, fontname="helv", color=hex_to_rgb("#475569"), rotate=page.rotation)
+                    
+                    y_offset += item_height
 
         if req.include_data:
             # We determine landscape or portrait to append a correctly oriented trailing page
