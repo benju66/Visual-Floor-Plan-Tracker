@@ -7,6 +7,8 @@ import MilestoneCommandMenu from '@/components/MilestoneCommandMenu';
 import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import { supabase } from '@/supabaseClient';
+import { useProjectData } from '@/hooks/useProjectData';
+import { useUndoRedo } from '@/hooks/useUndoRedo';
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
@@ -27,8 +29,6 @@ function App() {
   }, [settings]);
 
   const [viewMode, setViewMode] = useState(settings.defaultViewMode || 'list');
-  const [undoStack, setUndoStack] = useState([]);
-  const [redoStack, setRedoStack] = useState([]);
 
   const [toolMode, setToolMode] = useState('pan');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -52,95 +52,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [selectedUnitId]);
 
-  const triggerUndo = async () => {
-    if (undoStack.length === 0) return;
-    const action = undoStack[undoStack.length - 1];
-    setUndoStack(prev => prev.slice(0, -1));
-    setRedoStack(prev => [...prev, action]);
-
-    switch (action.actionType) {
-      case 'UPDATE_GEOMETRY':
-        await handleUpdateUnitPolygon(action.unitId, action.oldData, true); 
-        break;
-      case 'DELETE_UNIT':
-        const { error: undoDelErr } = await supabase.from('units').insert([action.unitData]);
-        if (!undoDelErr) {
-          setUnits(prev => [...prev, action.unitData]);
-          if (action.statusData) {
-            await supabase.from('status_logs').insert([action.statusData]);
-            setActiveStatuses(prev => [...prev.filter(s => s.unit_id !== action.unitData.id), action.statusData]);
-          }
-        }
-        break;
-      case 'UPDATE_STATUS':
-        if (action.oldLog) {
-            await commitUnitMilestone({ id: action.unitId }, action.oldLog, true);
-        }
-        break;
-      case 'CREATE_UNIT':
-        const { error: undoCreErr } = await supabase.from('units').delete().eq('id', action.unitData.id);
-        if (!undoCreErr) {
-          setUnits(prev => prev.filter(u => u.id !== action.unitData.id));
-        }
-        break;
-    }
-  };
-
-  const triggerRedo = async () => {
-    if (redoStack.length === 0) return;
-    const action = redoStack[redoStack.length - 1];
-    setRedoStack(prev => prev.slice(0, -1));
-    setUndoStack(prev => {
-        const next = [...prev, action];
-        return next.length > 50 ? next.slice(next.length - 50) : next;
-    });
-
-    switch (action.actionType) {
-      case 'UPDATE_GEOMETRY':
-        await handleUpdateUnitPolygon(action.unitId, action.newData, true);
-        break;
-      case 'DELETE_UNIT':
-        const { error: redoDelErr } = await supabase.from('units').delete().eq('id', action.unitData.id);
-        if (!redoDelErr) {
-          setUnits(prev => prev.filter(u => u.id !== action.unitData.id));
-          setActiveStatuses(prev => prev.filter(s => s.unit_id !== action.unitData.id));
-        }
-        break;
-      case 'UPDATE_STATUS':
-        await commitUnitMilestone({ id: action.unitId }, action.newLog, true);
-        break;
-      case 'CREATE_UNIT':
-        const { error: redoCreErr } = await supabase.from('units').insert([action.unitData]);
-        if (!redoCreErr) {
-          setUnits(prev => [...prev, action.unitData]);
-        }
-        break;
-    }
-  };
-
-  const undoStateRef = useRef({ toolMode, triggerUndo, triggerRedo });
-  useEffect(() => {
-    undoStateRef.current = { toolMode, triggerUndo, triggerRedo };
-  });
-
-  useEffect(() => {
-    const handleGlobalUndoRedo = (e) => {
-      const { toolMode, triggerUndo, triggerRedo } = undoStateRef.current;
-      if (toolMode === 'draw') return; 
-
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          triggerRedo();
-        } else {
-          triggerUndo();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalUndoRedo);
-    return () => window.removeEventListener('keydown', handleGlobalUndoRedo);
-  }, []);
 
   useEffect(() => {
     if (selectedUnitId && listRefs.current[selectedUnitId]) {
@@ -163,14 +74,28 @@ function App() {
   const [unitNamingOpen, setUnitNamingOpen] = useState(false);
   const [newUnitName, setNewUnitName] = useState('');
 
-  const [project, setProject] = useState(null);
-  const [sheets, setSheets] = useState([]);
-  const [activeSheetId, setActiveSheetId] = useState('');
-  const [units, setUnits] = useState([]);
-  const [activeStatuses, setActiveStatuses] = useState([]);
-  const [milestones, setMilestones] = useState([]);
-  const [trackingMode, setTrackingMode] = useState('Production');
-  const [temporalFilters, setTemporalFilters] = useState(['none', 'planned', 'ongoing', 'completed']);
+  const {
+    project, setProject,
+    sheets, setSheets,
+    activeSheetId, setActiveSheetId,
+    units, setUnits,
+    activeStatuses, setActiveStatuses,
+    milestones, setMilestones,
+    trackingMode, setTrackingMode,
+    temporalFilters, setTemporalFilters
+  } = useProjectData();
+
+  const {
+    undoStack, setUndoStack,
+    redoStack, setRedoStack,
+    triggerUndo, triggerRedo
+  } = useUndoRedo({
+    toolMode,
+    setUnits,
+    setActiveStatuses,
+    onUpdateGeometry: (unitId, points, isUndoRedo) => handleUpdateUnitPolygon(unitId, points, isUndoRedo),
+    onUpdateStatus: (unit, log, isUndoRedo) => commitUnitMilestone(unit, log, 'none', isUndoRedo)
+  });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newLevelName, setNewLevelName] = useState('');
@@ -185,95 +110,7 @@ function App() {
     else root.setAttribute('data-theme', colorMode);
   }, [colorMode]);
 
-  useEffect(() => {
-    async function loadData() {
-      let { data: projects } = await supabase.from('projects').select('*');
-      if (!projects || projects.length === 0) {
-        const { data } = await supabase.from('projects').insert([{ name: 'Orchard Path III' }]).select();
-        projects = data;
-      }
-      setProject(projects[0]);
 
-      const { data: loadedSheets } = await supabase.from('sheets').select('*').eq('project_id', projects[0].id);
-      setSheets(loadedSheets || []);
-      if (loadedSheets && loadedSheets.length > 0) setActiveSheetId(loadedSheets[0].id);
-
-      // Fetch Milestones
-      let { data: loadedMilestones } = await supabase
-        .from('project_milestones')
-        .select('*')
-        .eq('project_id', projects[0].id)
-        .order('id', { ascending: true });
-
-      // CRITICAL SEEDING: If empty, seed from legacy constants AND Inspection defaults
-      if (!loadedMilestones || loadedMilestones.length === 0) {
-        const defaultMilestones = [
-          // Production Track
-          { project_id: projects[0].id, name: 'Framing', color: '#f59e0b', track: 'Production' },
-          { project_id: projects[0].id, name: 'Drywall', color: '#3b82f6', track: 'Production' },
-          { project_id: projects[0].id, name: 'Cabinets', color: '#f97316', track: 'Production' },
-          { project_id: projects[0].id, name: 'Paint', color: '#8b5cf6', track: 'Production' },
-          // Inspections Track
-          { project_id: projects[0].id, name: 'AHJ Rough-in', color: '#eab308', track: 'Inspections' },
-          { project_id: projects[0].id, name: 'AHJ Final', color: '#10b981', track: 'Inspections' },
-        ];
-        
-        const { data: seeded } = await supabase.from('project_milestones').insert(defaultMilestones).select();
-        loadedMilestones = seeded;
-      }
-      setMilestones(loadedMilestones || []);
-    }
-    loadData();
-  }, []);
-
-  useEffect(() => {
-    async function loadUnitsAndStatuses() {
-      if (!activeSheetId) {
-        setUnits([]);
-        setActiveStatuses([]);
-        return;
-      }
-
-      const { data: loadedUnits, error: unitError } = await supabase
-        .from('units')
-        .select('*')
-        .eq('sheet_id', activeSheetId);
-
-      if (!unitError && loadedUnits) {
-        setUnits(loadedUnits);
-
-        if (loadedUnits.length > 0) {
-          const unitIds = loadedUnits.map((u) => u.id);
-
-          const { data: logs, error: logError } = await supabase
-            .from('status_logs')
-            .select('*')
-            .in('unit_id', unitIds)
-            .order('created_at', { ascending: false });
-
-          if (!logError && logs) {
-            const latestStatuses = [];
-            const seen = new Set();
-            for (const log of logs) {
-              // Find which track this milestone belongs to, default to Production
-              const milestoneDef = milestones.find((m) => m.name === log.milestone);
-              const track = milestoneDef ? milestoneDef.track : 'Production';
-              const key = `${log.unit_id}-${track}`;
-              
-              if (!seen.has(key)) {
-                latestStatuses.push({ ...log, track });
-                seen.add(key);
-              }
-            }
-            setActiveStatuses(latestStatuses);
-          }
-        } else {
-          setActiveStatuses([]);
-        }
-      }
-    }
-    loadUnitsAndStatuses();
-  }, [activeSheetId, milestones]);
 
   useEffect(() => {
     const onKey = (e) => {
