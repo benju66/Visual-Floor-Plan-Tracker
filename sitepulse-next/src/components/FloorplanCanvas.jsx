@@ -791,7 +791,15 @@ const FloorplanCanvas = forwardRef(({
                     </Group>
                     
                     {/* The Status Icon */}
-                    {(activeStatus && !isFilteredOut) && (() => {
+                    {(activeStatus && tState !== 'none' && !isFilteredOut) && (() => {
+                      // 1. Statically defined colors for the temporal states
+                      const TEMPORAL_COLORS = {
+                        planned: '#94a3b8',   // Slate Gray
+                        ongoing: '#f59e0b',   // Amber
+                        completed: '#10b981', // Emerald
+                      };
+                      const iconColor = TEMPORAL_COLORS[tState] || '#cbd5e1';
+
                       let previewPolygon = unit.polygon_coordinates;
                       if (activeDragNode?.unitId === unit.id) {
                           previewPolygon = unit.polygon_coordinates.map((p, i) =>
@@ -822,9 +830,17 @@ const FloorplanCanvas = forwardRef(({
                           }}
                           onDragEnd={(e) => {
                             e.cancelBubble = true;
+                            
+                            // Capture the visual dropped position
                             const newAbsX = e.target.x();
                             const newAbsY = e.target.y();
                             
+                            // Konva Uncontrolled Fix: Instantly snap the internal node back to origin 
+                            // so React state takes full declarative control of the new layout on re-render.
+                            e.target.x(layout.offsetX + centroid.pctX * layout.drawW);
+                            e.target.y(layout.offsetY + centroid.pctY * layout.drawH);
+                            
+                            // Calculate percentages
                             const newPctX = (newAbsX - layout.offsetX) / layout.drawW;
                             const newPctY = (newAbsY - layout.offsetY) / layout.drawH;
                             
@@ -849,7 +865,7 @@ const FloorplanCanvas = forwardRef(({
                           <Circle
                             radius={12}
                             fill="#ffffff"
-                            stroke={activeStatus.status_color}
+                            stroke={iconColor}
                             strokeWidth={2.5}
                             shadowColor="rgba(0,0,0,0.4)"
                             shadowBlur={4}
@@ -859,14 +875,14 @@ const FloorplanCanvas = forwardRef(({
                           <Path
                             x={-8}
                             y={-8}
-                            data={ICON_PATHS[activeStatus.temporal_state] || ICON_PATHS.completed}
+                            data={ICON_PATHS[tState] || ICON_PATHS.completed}
                             fill="transparent"
-                            stroke={activeStatus.status_color}
+                            stroke={iconColor}
                             strokeWidth={2}
                             strokeLineCap="round"
                             strokeLineJoin="round"
                             scale={{ x: 0.65, y: 0.65 }}
-                            listening={false} // Prevents path from interfering with Group drag
+                            listening={false}
                           />
                         </Group>
                       );
