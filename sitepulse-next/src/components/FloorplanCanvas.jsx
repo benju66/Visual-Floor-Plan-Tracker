@@ -728,33 +728,9 @@ const FloorplanCanvas = forwardRef(({
 
                 return (
                   <React.Fragment key={unit.id}>
-                    {/* The highlight/glow outer selection border (only visible if selected/hovered) */}
-                    {(highlight && !isFilteredOut) && (
-                      <Line
-                        points={currentPoints}
-                        stroke={isSelected ? '#8b5cf6' : '#0ea5e9'}
-                        strokeWidth={7.5 * (settings?.markupThickness || 1)}
-                        closed={true}
-                        opacity={1}
-                        shadowBlur={18}
-                        shadowColor={isSelected ? 'rgba(139, 92, 246, 0.85)' : 'rgba(14, 165, 233, 0.85)'}
-                        shadowOpacity={0.9}
-                        listening={false}
-                      />
-                    )}
-
-                    {/* The actual markup shape (solid internal colored border) */}
-                    <Line
-                      points={currentPoints}
-                      fill={currentFill}
-                      stroke={currentStroke}
-                      strokeWidth={(dim ? 1.0 : 3.0) * (settings?.markupThickness || 1)}
-                      dash={strokeDash}
-                      closed={true}
-                      opacity={1}
+                    {/* The Separated Layer Pattern for Markup Borders */}
+                    <Group
                       visible={!isFilteredOut}
-                      listening={!isFilteredOut}
-                      globalCompositeOperation="multiply"
                       draggable={isSelected && toolMode === 'select'}
                       onDragMove={(e) => {
                         const dx = e.target.x() / layout.drawW;
@@ -790,7 +766,29 @@ const FloorplanCanvas = forwardRef(({
                            setContextMenu({ x: pointer.x, y: pointer.y, unitId: unit.id });
                         }, 10);
                       }}
-                    />
+                    >
+                      {/* LAYER 1: Fill Only (Multiplied to reveal architectural text) */}
+                      <Line
+                        points={currentPoints}
+                        fill={currentFill}
+                        closed={true}
+                        globalCompositeOperation="multiply"
+                        listening={false}
+                      />
+
+                      {/* LAYER 2: Stroke Only (Standard rendering, sharp, vibrant) */}
+                      <Line
+                        points={currentPoints}
+                        stroke={highlight ? (isSelected ? '#8b5cf6' : '#0ea5e9') : currentStroke}
+                        strokeWidth={(dim ? 1.0 : (highlight ? 4.0 : 2.5)) * (settings?.markupThickness || 1)}
+                        dash={strokeDash}
+                        closed={true}
+                        shadowColor={highlight ? (isSelected ? 'rgba(139, 92, 246, 0.85)' : 'rgba(14, 165, 233, 0.85)') : 'transparent'}
+                        shadowBlur={highlight ? 18 : 0}
+                        shadowOpacity={highlight ? 0.9 : 0}
+                        listening={!isFilteredOut}
+                      />
+                    </Group>
                     
                     {/* The Status Icon */}
                     {(activeStatus && !isFilteredOut) && (() => {
@@ -812,29 +810,11 @@ const FloorplanCanvas = forwardRef(({
 
                       const isDimmed = dim || isFilteredOut;
 
-                      // Dynamically calculate the perfect size tailored to EACH room:
-                      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-                      unit.polygon_coordinates.forEach(p => {
-                          if (p.pctX < minX) minX = p.pctX;
-                          if (p.pctX > maxX) maxX = p.pctX;
-                          if (p.pctY < minY) minY = p.pctY;
-                          if (p.pctY > maxY) maxY = p.pctY;
-                      });
-                      const roomW = (maxX - minX) * layout.drawW;
-                      const roomH = (maxY - minY) * layout.drawH;
-                      const minDimension = Math.min(roomW, roomH);
-
-                      // 1. Give it a native size tailored to this exact room (so its diameter is at most 40% of the room's shortest side)
-                      const roomFittedRadius = minDimension * 0.20; 
-                      // 2. But we don't want it to look massive on the screen when fully zoomed in, so we set a maximum screen pixel limit
-                      const maxScreenRadius = 8; 
-                      // 3. We take the smallest option. This guarantees it NEVER overlaps the room borders, but also never looks huge on screen.
-                      const effectiveRadius = Math.min(roomFittedRadius, maxScreenRadius / stageScale);
-
                       return (
                         <Group
                           x={iconAbsX}
                           y={iconAbsY}
+                          scale={{ x: 1 / stageScale, y: 1 / stageScale }}
                           draggable={toolMode === 'select' && isShiftDown}
                           opacity={dim ? 0.3 : 1}
                           onDragStart={(e) => {
@@ -867,26 +847,25 @@ const FloorplanCanvas = forwardRef(({
                         >
                           {/* The visual icon background */}
                           <Circle
-                            radius={effectiveRadius}
+                            radius={12}
                             fill="#ffffff"
                             stroke={activeStatus.status_color}
-                            strokeWidth={Math.max(1.5, effectiveRadius * 0.25)}
-                            shadowColor="black"
-                            shadowBlur={Math.max(2, effectiveRadius * 0.3)}
-                            shadowOpacity={0.3}
-                            shadowOffset={{ x: 1, y: 1 }}
+                            strokeWidth={2.5}
+                            shadowColor="rgba(0,0,0,0.4)"
+                            shadowBlur={4}
+                            shadowOffset={{ x: 0, y: 2 }}
                           />
                           {/* The SVG Path */}
                           <Path
-                            x={-12 * (effectiveRadius / 15)} 
-                            y={-12 * (effectiveRadius / 15)}
+                            x={-8}
+                            y={-8}
                             data={ICON_PATHS[activeStatus.temporal_state] || ICON_PATHS.completed}
                             fill="transparent"
                             stroke={activeStatus.status_color}
-                            strokeWidth={2.5}
+                            strokeWidth={2}
                             strokeLineCap="round"
                             strokeLineJoin="round"
-                            scale={{ x: effectiveRadius / 15, y: effectiveRadius / 15 }}
+                            scale={{ x: 0.65, y: 0.65 }}
                             listening={false} // Prevents path from interfering with Group drag
                           />
                         </Group>
