@@ -6,7 +6,8 @@ function TopHeader({
   setIsModalOpen, setIsProjectMenuOpen,
   setMilestoneMenu, trackingMode, setTrackingMode,
   viewMode, setViewMode, setToolMode,
-  activeSheet, exportToPDF, setIsSettingsOpen
+  activeSheet, exportToPDF, setIsSettingsOpen,
+  triggerUndo, triggerRedo, undoStack, redoStack
 }) {
   return (
     <header className="mb-4 flex-shrink-0 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 rounded-2xl border px-4 py-3 glass-panel">
@@ -115,6 +116,29 @@ function TopHeader({
             >
               Export PDF
             </button>
+          )}
+          {viewMode === 'list' && (
+            <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
+              <button
+                type="button"
+                onClick={triggerUndo}
+                disabled={!undoStack || undoStack.length === 0}
+                className="p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                title="Undo"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+              </button>
+              <div className="w-px bg-slate-300/80 dark:bg-white/10" />
+              <button
+                type="button"
+                onClick={triggerRedo}
+                disabled={!redoStack || redoStack.length === 0}
+                className="p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                title="Redo"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></svg>
+              </button>
+            </div>
           )}
           <button
             type="button"

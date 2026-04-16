@@ -28,9 +28,17 @@ export default function CanvasToolbar({
   onRenameUnit,
   onDuplicateUnit,
   handleFlip,
-  onDeleteUnit
+  onDeleteUnit,
+  mapSettings = { showHorizontalToolbar: false, pinnedTools: [] }
 }) {
   const dockClass = 'pointer-events-auto flex flex-col gap-1 p-2 rounded-2xl border shadow-xl backdrop-blur-md z-20';
+
+  const isDockTool = (toolId) => {
+    if (mapSettings.showHorizontalToolbar && mapSettings.pinnedTools.includes(toolId)) {
+      return false;
+    }
+    return true;
+  };
 
   return (
     <div
@@ -59,25 +67,29 @@ export default function CanvasToolbar({
       </div>
       <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
       
-      <ActionButton icon={Pointer} label="Select" currentMode={toolMode} activeMode="select" onClick={() => onToolModeChange?.('select')} />
-      <ActionButton icon={Hand} label="Pan" currentMode={toolMode} activeMode="pan" onClick={() => onToolModeChange?.('pan')} />
-      <ActionButton icon={MousePointer2} label="Draw" currentMode={toolMode} activeMode="draw" onClick={() => onToolModeChange?.('draw')} />
+      {isDockTool('select') && <ActionButton icon={Pointer} label="Select" currentMode={toolMode} activeMode="select" onClick={() => onToolModeChange?.('select')} />}
+      {isDockTool('pan') && <ActionButton icon={Hand} label="Pan" currentMode={toolMode} activeMode="pan" onClick={() => onToolModeChange?.('pan')} />}
+      {isDockTool('draw') && <ActionButton icon={MousePointer2} label="Draw" currentMode={toolMode} activeMode="draw" onClick={() => onToolModeChange?.('draw')} />}
       
-      <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
-      <ActionButton icon={PlusCircle} label="Add Node" currentMode={toolMode} activeMode="add_node" onClick={() => onToolModeChange?.('add_node')} colorClass="emerald" />
-      <ActionButton icon={MinusCircle} label="Delete Node" currentMode={toolMode} activeMode="delete_node" onClick={() => onToolModeChange?.('delete_node')} colorClass="red" />
+      {(isDockTool('add_node') || isDockTool('delete_node')) && (
+        <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
+      )}
+      {isDockTool('add_node') && <ActionButton icon={PlusCircle} label="Add Node" currentMode={toolMode} activeMode="add_node" onClick={() => onToolModeChange?.('add_node')} colorClass="emerald" />}
+      {isDockTool('delete_node') && <ActionButton icon={MinusCircle} label="Delete Node" currentMode={toolMode} activeMode="delete_node" onClick={() => onToolModeChange?.('delete_node')} colorClass="red" />}
 
       {selectedUnitId && (
         <>
           <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
-          <ActionButton
-            icon={Stamp}
-            label="Stamp Trace"
-            currentMode={toolMode}
-            activeMode="stamp"
-            onClick={() => onToolModeChange?.('stamp')}
-            colorClass="fuchsia"
-          />
+          {isDockTool('stamp') && (
+            <ActionButton
+              icon={Stamp}
+              label="Stamp Trace"
+              currentMode={toolMode}
+              activeMode="stamp"
+              onClick={() => onToolModeChange?.('stamp')}
+              colorClass="fuchsia"
+            />
+          )}
           <ActionButton 
             icon={Pencil} 
             label="Rename" 

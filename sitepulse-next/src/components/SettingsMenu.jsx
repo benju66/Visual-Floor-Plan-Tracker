@@ -13,6 +13,8 @@ export default function SettingsMenu({
   onAddMilestone,
   onUpdateMilestone,
   onDeleteMilestone,
+  mapSettings,
+  onUpdateMapSettings,
 }) {
   const [activeTab, setActiveTab] = useState('appearance');
   const [activeSettingsTrack, setActiveSettingsTrack] = useState('Production');
@@ -153,6 +155,54 @@ export default function SettingsMenu({
                   <option value="letter">Letter (8.5"x11")</option>
                   <option value="tabloid">Tabloid (11"x17")</option>
                 </select>
+              </div>
+
+              <div className="pt-6 mt-4 border-t border-slate-200 dark:border-white/10">
+                <h3 className="font-bold text-sm mb-4">Map Interface Settings</h3>
+                
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <span className="font-semibold block text-sm">Horizontal Toolbar</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Show floating top toolbar</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={mapSettings?.showHorizontalToolbar || false}
+                      onChange={(e) => onUpdateMapSettings({ ...mapSettings, showHorizontalToolbar: e.target.checked })}
+                    />
+                    <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
+                  </label>
+                </div>
+
+                <div>
+                  <span className="font-semibold block text-sm mb-2">Pinned Toolbar Actions</span>
+                  <div className="flex flex-wrap gap-2">
+                    {['undo', 'redo', 'pan', 'draw', 'add_node', 'delete_node', 'stamp', 'select'].map((tool) => {
+                      const isPinned = mapSettings?.pinnedTools?.includes(tool);
+                      return (
+                        <button
+                          key={tool}
+                          onClick={() => {
+                            const current = mapSettings?.pinnedTools || [];
+                            const newPinned = isPinned
+                              ? current.filter(t => t !== tool)
+                              : [...current, tool];
+                            onUpdateMapSettings({ ...mapSettings, pinnedTools: newPinned });
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                            isPinned
+                              ? 'bg-sky-500 text-white shadow-sm'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/20'
+                          }`}
+                        >
+                          {tool.charAt(0).toUpperCase() + tool.slice(1).replace('_', ' ')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </>
           )}

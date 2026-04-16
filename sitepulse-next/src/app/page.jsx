@@ -12,6 +12,7 @@ import { useUndoRedo } from '@/hooks/useUndoRedo';
 import TopHeader from '@/components/TopHeader';
 import MapSidebar from '@/components/MapSidebar';
 import UnitNamingPopover from '@/components/UnitNamingPopover';
+import MapHorizontalToolbar from '@/components/MapHorizontalToolbar';
 import AddLevelModal from '@/components/AddLevelModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { exportToPDFService, uploadFloorplanService, attachOriginalService } from '@/services/api';
@@ -88,7 +89,8 @@ function App() {
     activeStatuses, setActiveStatuses,
     milestones, setMilestones,
     trackingMode, setTrackingMode,
-    temporalFilters, setTemporalFilters
+    temporalFilters, setTemporalFilters,
+    mapSettings, setMapSettings
   } = useProjectData();
 
   const {
@@ -698,6 +700,10 @@ function App() {
         activeSheet={activeSheet}
         exportToPDF={exportToPDF}
         setIsSettingsOpen={setIsSettingsOpen}
+        triggerUndo={triggerUndo}
+        triggerRedo={triggerRedo}
+        undoStack={undoStack}
+        redoStack={redoStack}
       />
 
       <div className="flex-1 min-h-0 flex flex-col">
@@ -718,10 +724,21 @@ function App() {
           </div>
         ) : (
           <div className="h-full flex flex-col lg:flex-row gap-5 items-stretch min-h-0">
-            <div className="flex-[3] lg:flex-[4] flex flex-col min-h-0 min-w-0 h-full">
+            <div className="flex-[3] lg:flex-[4] flex flex-col min-h-0 min-w-0 h-full relative">
               {activeSheet && activeSheet.base_image_url ? (
-                <FloorplanCanvas
-                  ref={floorplanRef}
+                <>
+                  <MapHorizontalToolbar 
+                    mapSettings={mapSettings} 
+                    toolMode={toolMode} 
+                    onToolModeChange={setToolMode}
+                    triggerUndo={triggerUndo}
+                    triggerRedo={triggerRedo}
+                    undoStack={undoStack}
+                    redoStack={redoStack}
+                  />
+                  <FloorplanCanvas
+                    ref={floorplanRef}
+                    mapSettings={mapSettings}
                   imageUrl={activeSheet.base_image_url}
                   units={units}
                   activeStatuses={currentTrackStatuses}
@@ -750,6 +767,7 @@ function App() {
                   settings={settings}
                   temporalFilters={temporalFilters}
                 />
+                </>
               ) : (
                 <div
                   className="w-full h-full border-2 border-dashed rounded-xl flex items-center justify-center text-slate-500 glass-panel"
@@ -849,6 +867,8 @@ function App() {
         onAddMilestone={handleAddMilestone}
         onUpdateMilestone={handleUpdateMilestone}
         onDeleteMilestone={handleDeleteMilestone}
+        mapSettings={mapSettings}
+        onUpdateMapSettings={setMapSettings}
       />
 
       <ProjectManagementMenu

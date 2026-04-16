@@ -10,6 +10,19 @@ export function useProjectData() {
   const [milestones, setMilestones] = useState([]);
   const [trackingMode, setTrackingMode] = useState('Production');
   const [temporalFilters, setTemporalFilters] = useState(['none', 'planned', 'ongoing', 'completed']);
+  const [mapSettings, setMapSettings] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sitepulse-map-settings');
+      if (saved) return JSON.parse(saved);
+    }
+    return { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] };
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sitepulse-map-settings', JSON.stringify(mapSettings));
+    }
+  }, [mapSettings]);
 
   useEffect(() => {
     async function loadData() {
@@ -109,6 +122,7 @@ export function useProjectData() {
     activeStatuses, setActiveStatuses,
     milestones, setMilestones,
     trackingMode, setTrackingMode,
-    temporalFilters, setTemporalFilters
+    temporalFilters, setTemporalFilters,
+    mapSettings, setMapSettings
   };
 }
