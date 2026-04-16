@@ -80,6 +80,7 @@ function App() {
   const [savingUnitId, setSavingUnitId] = useState(null);
   const [quickStatusUnitId, setQuickStatusUnitId] = useState(null);
   const [quickMilestoneUnitId, setQuickMilestoneUnitId] = useState(null);
+  const [legendPosition, setLegendPosition] = useState({ x: 50, y: 50, isVisible: false });
 
   const [pendingPolygonPoints, setPendingPolygonPoints] = useState(null);
   const [unitNamingOpen, setUnitNamingOpen] = useState(false);
@@ -768,6 +769,8 @@ function App() {
                     triggerRedo={triggerRedo}
                     undoStack={undoStack}
                     redoStack={redoStack}
+                    legendIsVisible={legendPosition.isVisible}
+                    onToggleLegend={() => setLegendPosition(prev => ({ ...prev, isVisible: !prev.isVisible }))}
                   />
                   <FloorplanCanvas
                     ref={floorplanRef}
@@ -801,6 +804,9 @@ function App() {
                   temporalFilters={temporalFilters}
                   onOpenStatusModal={(id) => setQuickStatusUnitId(id)}
                   onOpenMilestoneModal={(id) => setQuickMilestoneUnitId(id)}
+                  legendPosition={legendPosition}
+                  onLegendDragEnd={(pos) => setLegendPosition(prev => ({ ...prev, x: pos.x, y: pos.y }))}
+                  milestones={milestones.filter(m => m.track === trackingMode)}
                 />
                 </>
               ) : (

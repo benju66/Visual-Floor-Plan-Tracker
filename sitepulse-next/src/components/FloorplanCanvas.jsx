@@ -10,6 +10,7 @@ import MappedUnit from '@/components/canvas/MappedUnit';
 import DraftPolygon from '@/components/canvas/DraftPolygon';
 import StampPreview from '@/components/canvas/StampPreview';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
+import MapLegend from '@/components/canvas/MapLegend';
 import { distToSegment, getCentroid } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 
@@ -38,6 +39,9 @@ const FloorplanCanvas = forwardRef(({
   temporalFilters,
   onOpenMilestoneModal,
   onOpenStatusModal,
+  legendPosition,
+  onLegendDragEnd,
+  milestones,
 }, ref) => {
   const [image] = useImage(imageUrl, 'anonymous');
 
@@ -673,6 +677,22 @@ const FloorplanCanvas = forwardRef(({
               onPendingPolygonMove={onPendingPolygonMove}
               setActiveDragNode={setActiveDragNode}
               setIsHoveringAnchor={setIsHoveringAnchor}
+            />
+
+            <MapLegend
+              isVisible={legendPosition?.isVisible}
+              x={legendPosition?.x || 50}
+              y={legendPosition?.y || 50}
+              units={units}
+              milestones={milestones}
+              activeStatuses={activeStatuses}
+              onDragEnd={(e) => {
+                onLegendDragEnd?.({
+                  x: e.target.x(),
+                  y: e.target.y()
+                });
+              }}
+              stageScale={stageScale}
             />
           </Layer>
         </Stage>

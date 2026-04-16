@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List } from 'lucide-react';
 
 export default function MapHorizontalToolbar({
   mapSettings,
@@ -8,7 +8,9 @@ export default function MapHorizontalToolbar({
   triggerUndo,
   triggerRedo,
   undoStack,
-  redoStack
+  redoStack,
+  legendIsVisible,
+  onToggleLegend
 }) {
   if (!mapSettings?.showHorizontalToolbar) return null;
 
@@ -83,6 +85,21 @@ export default function MapHorizontalToolbar({
           </button>
         );
       })}
+
+      <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
+
+      <button
+        type="button"
+        onClick={onToggleLegend}
+        className={`p-2 rounded-full flex items-center justify-center transition-all ${
+          legendIsVisible 
+            ? 'bg-emerald-500 text-white shadow-sm scale-110' 
+            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+        }`}
+        title={`${legendIsVisible ? 'Hide' : 'Show'} Legend`}
+      >
+        <List size={18} />
+      </button>
     </div>
   );
 }
