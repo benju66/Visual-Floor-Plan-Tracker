@@ -17,6 +17,7 @@ export default function MappedUnit({
   activeDragNode,
   activeDragPolygon,
   isShiftDown,
+  isZoomedOut,
   computedCursor,
   mixAlpha,
   toPixels,
@@ -138,7 +139,7 @@ export default function MappedUnit({
       </Group>
       
       {/* The Status Icon */}
-      {(activeStatus && tState !== 'none' && !isFilteredOut) && (() => {
+      {(activeStatus && tState !== 'none' && !isFilteredOut && !isZoomedOut) && (() => {
         const TEMPORAL_COLORS = {
           planned: '#94a3b8',   // Slate Gray
           ongoing: '#f59e0b',   // Amber
