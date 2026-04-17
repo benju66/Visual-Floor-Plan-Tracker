@@ -207,6 +207,10 @@ async def export_status_pdf(sheet_id: str, req: ExportRequest):
 
         if req.legend_data:
             legend = req.legend_data
+            
+            with open("legend_debug.txt", "w") as df:
+                df.write(str(legend))
+                
             pctX = legend.get('pctX', 0.05)
             pctY = legend.get('pctY', 0.05)
             scaleX = legend.get('scaleX', 1)

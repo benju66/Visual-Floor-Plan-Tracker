@@ -1,0 +1,1 @@
+{'pctX': 0.056463271850917506, 'pctY': 0.5185169689404301, 'scaleX': 0.6447344501643241, 'active_milestones': [{'name': 'Testing 1', 'color': '#3b82f6'}, {'name': 'Hello', 'color': '#9b9fa6'}], 'active_temporal_states': ['planned', 'ongoing', 'completed']}

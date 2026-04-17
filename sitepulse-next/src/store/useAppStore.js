@@ -36,17 +36,17 @@ export const useAppStore = create(
       // Settings / Local State (Persisted)
       settings: { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' },
       setSettings: (settingsFn) => set((state) => ({ 
-        settings: typeof settingsFn === 'function' ? settingsFn(state.settings) : settingsFn 
+        settings: typeof settingsFn === 'function' ? settingsFn(state.settings) : { ...state.settings, ...settingsFn } 
       })),
 
       mapSettings: { showHorizontalToolbar: true, showCrosshair: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
-        mapSettings: typeof settingsFn === 'function' ? settingsFn(state.mapSettings) : settingsFn 
+        mapSettings: typeof settingsFn === 'function' ? settingsFn(state.mapSettings) : { ...state.mapSettings, ...settingsFn } 
       })),
 
       legendPosition: { pctX: 0.05, pctY: 0.05, scaleX: 1, scaleY: 1, rotation: 0, isVisible: false },
       setLegendPosition: (posFn) => set((state) => ({ 
-        legendPosition: typeof posFn === 'function' ? posFn(state.legendPosition) : posFn 
+        legendPosition: typeof posFn === 'function' ? posFn(state.legendPosition) : { ...state.legendPosition, ...posFn } 
       })),
 
       colorMode: 'system',

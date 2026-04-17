@@ -101,19 +101,14 @@ export default function MapLegend({
         }}
         onTransformEnd={(e) => {
           const node = groupRef.current;
-          const newScaleX = node.scaleX();
-          const newScaleY = node.scaleY();
           const newPctX = (node.x() - layout.offsetX) / layout.drawW;
           const newPctY = (node.y() - layout.offsetY) / layout.drawH;
-          
-          node.scaleX(1);
-          node.scaleY(1);
           
           onUpdate?.({
             pctX: newPctX,
             pctY: newPctY,
-            scaleX: scaleX * newScaleX,
-            scaleY: scaleY * newScaleY,
+            scaleX: node.scaleX(),
+            scaleY: node.scaleY(),
             rotation: node.rotation()
           });
         }}

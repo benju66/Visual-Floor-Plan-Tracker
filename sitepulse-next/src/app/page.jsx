@@ -8,7 +8,7 @@ import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import { supabase } from '@/supabaseClient';
 import { useAppStore, useHydratedStore } from '@/store/useAppStore';
-import { useProject, useSheets, useMilestones } from '@/hooks/useProjectQueries';
+import { useProject, useSheets, useMilestones, useUnits, useStatuses } from '@/hooks/useProjectQueries';
 import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
@@ -59,6 +59,8 @@ function App() {
   const { data: project } = useProject();
   const { data: sheets = [] } = useSheets(project?.id);
   const { data: milestones = [] } = useMilestones(project?.id);
+  const { data: units = [] } = useUnits(activeSheetId);
+  const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), milestones);
 
   // Auto-select first available sheet to prevent invalid UI mounting or empty cache fallbacks
   useEffect(() => {
@@ -165,8 +167,6 @@ function App() {
 
   const exportToPDF = async () => {
     if (!activeSheetId || !activeSheet) return;
-    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
-    const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
     const currentTrackStatuses = activeStatuses.filter((s) => s.track === trackingMode);
     
     showToast('Generating Vector PDF... This may take a few seconds.', 'success');
@@ -202,18 +202,24 @@ function App() {
 
     if (legendPosition?.isVisible) {
       const activeStates = ['planned', 'ongoing', 'completed'];
-      const activePolygons = polygonsPayload.filter(p => activeStates.includes(p.temporal_state) && p.status !== 'Not Started');
-      const uniqueNames = [...new Set(activePolygons.map(p => p.status))];
       
-      const active_milestones = uniqueNames.map(name => {
-        const poly = activePolygons.find(p => p.status === name);
+      const matchingStatuses = currentTrackStatuses.filter(s => 
+        activeStates.includes(s.temporal_state) &&
+        units.some(u => u.id === s.unit_id)
+      );
+
+      const uniqueMilestoneNames = [...new Set(matchingStatuses.map(s => s.milestone))];
+      
+      const active_milestones = uniqueMilestoneNames.map(name => {
+        const milestoneDef = milestones.find(m => m.name === name);
+        const log = matchingStatuses.find(s => s.milestone === name);
         return {
           name: name,
-          color: poly?.color || '#cccccc'
+          color: milestoneDef?.color || milestoneDef?.status_color || log?.status_color || '#cccccc'
         };
       });
 
-      const activeTemporalStates = [...new Set(activePolygons.map(p => p.temporal_state))];
+      const activeTemporalStates = [...new Set(matchingStatuses.map(s => s.temporal_state))];
 
       payload.legend_data = {
         pctX: legendPosition.pctX,
@@ -264,8 +270,6 @@ function App() {
   const colorModeLabel = colorMode === 'system' ? 'System' : colorMode === 'light' ? 'Light' : 'Dark';
 
   if (!isMounted) return null;
-
-  const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
 
   return (
     <div
@@ -321,6 +325,7 @@ function App() {
                     redoStack={redoStack}
                     legendIsVisible={legendPosition.isVisible}
                     onToggleLegend={() => setLegendPosition(prev => ({ ...prev, isVisible: !prev.isVisible }))}
+                    onUpdateMapSettings={setMapSettings}
                   />
                   <FloorplanCanvas
                     ref={floorplanRef}

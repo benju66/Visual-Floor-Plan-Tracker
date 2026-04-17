@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 
 export default function MapHorizontalToolbar({
@@ -9,7 +9,8 @@ export default function MapHorizontalToolbar({
   undoStack,
   redoStack,
   legendIsVisible,
-  onToggleLegend
+  onToggleLegend,
+  onUpdateMapSettings
 }) {
   const toolMode = useAppStore(s => s.toolMode);
   const onToolModeChange = useAppStore(s => s.setToolMode);
@@ -23,7 +24,8 @@ export default function MapHorizontalToolbar({
     add_node: PlusCircle,
     delete_node: MinusCircle,
     stamp: Stamp,
-    select: Pointer
+    select: Pointer,
+    crosshair: Crosshair
   };
 
   const isUndoEmpty = !undoStack || undoStack.length === 0;
@@ -61,6 +63,24 @@ export default function MapHorizontalToolbar({
                   : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
               }`}
               title={toolId === 'undo' ? 'Undo' : 'Redo'}
+            >
+              <Icon size={18} />
+            </button>
+          );
+        }
+
+        if (toolId === 'crosshair') {
+          return (
+            <button
+              key={`${toolId}-${idx}`}
+              type="button"
+              onClick={() => onUpdateMapSettings?.({ ...mapSettings, showCrosshair: !mapSettings?.showCrosshair })}
+              className={`p-2 rounded-full flex items-center justify-center transition-all ${
+                mapSettings?.showCrosshair 
+                  ? 'bg-blue-500 text-white shadow-sm scale-110' 
+                  : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+              }`}
+              title="Toggle Crosshairs"
             >
               <Icon size={18} />
             </button>

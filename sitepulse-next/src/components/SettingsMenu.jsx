@@ -193,7 +193,7 @@ export default function SettingsMenu({
                 <div>
                   <span className="font-semibold block text-sm mb-2">Pinned Toolbar Actions</span>
                   <div className="flex flex-wrap gap-2">
-                    {['undo', 'redo', 'pan', 'draw', 'add_node', 'delete_node', 'stamp', 'select'].map((tool) => {
+                    {['undo', 'redo', 'pan', 'draw', 'add_node', 'delete_node', 'stamp', 'select', 'crosshair'].map((tool) => {
                       const isPinned = mapSettings?.pinnedTools?.includes(tool);
                       return (
                         <button
