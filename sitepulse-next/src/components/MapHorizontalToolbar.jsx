@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 
 export default function MapHorizontalToolbar({
@@ -25,13 +25,14 @@ export default function MapHorizontalToolbar({
     delete_node: MinusCircle,
     stamp: Stamp,
     select: Pointer,
+    multi_select: ListChecks,
     crosshair: Crosshair
   };
 
   const isUndoEmpty = !undoStack || undoStack.length === 0;
   const isRedoEmpty = !redoStack || redoStack.length === 0;
 
-  const toolsToRender = mapSettings?.pinnedTools || ['select', 'pan', 'draw', 'add_node', 'delete_node'];
+  const toolsToRender = mapSettings?.pinnedTools || ['select', 'multi_select', 'pan', 'draw', 'add_node', 'delete_node'];
 
   return (
     <div

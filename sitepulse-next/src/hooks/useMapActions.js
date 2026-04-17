@@ -3,7 +3,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import {
   useCreateUnit, useUpdateUnitGeometry, useUpdateUnitFields,
-  useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateMilestone
+  useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateMilestone, useBulkUpdateStatus
 } from '@/hooks/useProjectQueries';
 
 export function useMapActions(project) {
@@ -46,6 +46,7 @@ export function useMapActions(project) {
   const updateStatusMutation = useUpdateStatus(activeSheetId);
   const clearStatusMutation = useClearStatus(activeSheetId);
   const updateMilestoneMutation = useUpdateMilestone(project?.id, activeSheetId);
+  const bulkUpdateStatusMutation = useBulkUpdateStatus(activeSheetId);
 
   const {
     undoStack, setUndoStack,
@@ -286,6 +287,30 @@ export function useMapActions(project) {
     }
   };
 
+  const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track }, isUndoRedo = false) => {
+    const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
+    
+    // Save old state for undo
+    const oldLogs = activeStatuses.filter(s => unitIds.includes(s.unit_id) && s.track === track);
+
+    try {
+      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track });
+      
+      const newLogs = unitIds.map(id => ({ unit_id: id, milestone, status_color: color, temporal_state, track }));
+      
+      if (!isUndoRedo) {
+        setUndoStack(prev => {
+          const next = [...prev, { actionType: 'BULK_UPDATE_STATUS', unitIds, track, oldLogs, newLogs: temporal_state === 'none' ? [] : newLogs }];
+          return next.length > 50 ? next.slice(next.length - 50) : next;
+        });
+        setRedoStack([]);
+      }
+      showToast(`${unitIds.length} locations updated.`, 'success');
+    } catch (err) {
+      showToast('Error applying bulk status: ' + err.message, 'error');
+    }
+  };
+
   return {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
@@ -306,6 +331,8 @@ export function useMapActions(project) {
     handleUpdateUnitIconOffset,
     commitUnitMilestone,
     handleQuickUpdate,
+    handleApplyBulkStatus,
+    isPendingBulk: bulkUpdateStatusMutation.isPending,
     updateMilestoneMutation
   };
 }

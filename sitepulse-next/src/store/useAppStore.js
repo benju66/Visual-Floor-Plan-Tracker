@@ -16,8 +16,14 @@ export const useAppStore = create(
       setTrackingMode: (mode) => set({ trackingMode: typeof mode === 'function' ? mode(useAppStore.getState().trackingMode) : mode }),
 
       // Selection State
-      selectedUnitId: null,
-      setSelectedUnitId: (id) => set({ selectedUnitId: typeof id === 'function' ? id(useAppStore.getState().selectedUnitId) : id }),
+      selectedUnitIds: [],
+      setSelectedUnitIds: (ids) => set({ selectedUnitIds: typeof ids === 'function' ? ids(useAppStore.getState().selectedUnitIds) : ids }),
+      toggleSelectedUnitId: (id) => set((state) => ({
+        selectedUnitIds: state.selectedUnitIds.includes(id)
+          ? state.selectedUnitIds.filter(uid => uid !== id)
+          : [...state.selectedUnitIds, id]
+      })),
+      clearSelectedUnits: () => set({ selectedUnitIds: [] }),
 
       editingUnitId: null,
       setEditingUnitId: (id) => set({ editingUnitId: typeof id === 'function' ? id(useAppStore.getState().editingUnitId) : id }),

@@ -15,7 +15,7 @@ const ActionButton = ({ icon: Icon, label, onClick, colorClass = "blue" }) => {
 };
 
 export default function ContextActionDock({
-  selectedUnitId,
+  selectedUnitIds,
   toolMode,
   onToolModeChange,
   onRenameUnit,
@@ -29,7 +29,11 @@ export default function ContextActionDock({
   onRotateLegend,
   onHideLegend
 }) {
-  if (!selectedUnitId && !isLegendSelected) return null;
+  if ((!selectedUnitIds || selectedUnitIds.length === 0) && !isLegendSelected) return null;
+
+  const isMulti = selectedUnitIds?.length > 1;
+  const isSingle = selectedUnitIds?.length === 1;
+  const targetId = isSingle ? selectedUnitIds[0] : null;
 
   const dockClass = 'pointer-events-auto flex flex-col gap-1 p-2 rounded-2xl border shadow-xl backdrop-blur-md z-20';
 
@@ -73,24 +77,28 @@ export default function ContextActionDock({
         borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
       }}
     >
-      <ActionButton
-        icon={Stamp}
-        label="Stamp Trace"
-        onClick={() => onToolModeChange?.('stamp')}
-        colorClass="fuchsia"
-      />
-      <ActionButton 
-        icon={Pencil} 
-        label="Rename" 
-        onClick={() => onRenameUnit?.(selectedUnitId)} 
-        colorClass="purple" 
-      />
-      <ActionButton 
-        icon={Copy} 
-        label="Duplicate" 
-        onClick={() => onDuplicateUnit?.(selectedUnitId)} 
-        colorClass="purple" 
-      />
+      {isSingle && (
+        <>
+          <ActionButton
+            icon={Stamp}
+            label="Stamp Trace"
+            onClick={() => onToolModeChange?.('stamp')}
+            colorClass="fuchsia"
+          />
+          <ActionButton 
+            icon={Pencil} 
+            label="Rename" 
+            onClick={() => onRenameUnit?.(targetId)} 
+            colorClass="purple" 
+          />
+          <ActionButton 
+            icon={Copy} 
+            label="Duplicate" 
+            onClick={() => onDuplicateUnit?.(targetId)} 
+            colorClass="purple" 
+          />
+        </>
+      )}
       <ActionButton 
         icon={FlipHorizontal} 
         label="Flip H" 
@@ -115,23 +123,27 @@ export default function ContextActionDock({
         onClick={() => handleRotatePolygon?.('right')}
         colorClass="emerald"
       />
-      <ActionButton
-        icon={Flag}
-        label="Set Milestone"
-        onClick={() => onOpenMilestoneModal?.(selectedUnitId)}
-        colorClass="amber"
-      />
-      <ActionButton
-        icon={Activity}
-        label="Set Status"
-        onClick={() => onOpenStatusModal?.(selectedUnitId)}
-        colorClass="amber"
-      />
+      {isSingle && (
+        <>
+          <ActionButton
+            icon={Flag}
+            label="Set Milestone"
+            onClick={() => onOpenMilestoneModal?.(targetId)}
+            colorClass="amber"
+          />
+          <ActionButton
+            icon={Activity}
+            label="Set Status"
+            onClick={() => onOpenStatusModal?.(targetId)}
+            colorClass="amber"
+          />
+        </>
+      )}
       <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
       <ActionButton 
         icon={Trash2} 
-        label="Delete" 
-        onClick={() => onDeleteUnit?.(selectedUnitId)} 
+        label={isMulti ? "Delete All" : "Delete"} 
+        onClick={() => onDeleteUnit?.(isMulti ? selectedUnitIds : targetId)} 
         colorClass="red" 
       />
     </div>

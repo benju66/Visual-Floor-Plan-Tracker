@@ -56,6 +56,26 @@ export function useUndoRedo({
         }
         break;
 
+      case 'BULK_UPDATE_STATUS':
+        queryClient.setQueryData(['statuses', sheetId], (old) => {
+          if (!old) return old;
+          const filtered = old.filter(s => !(action.unitIds.includes(s.unit_id) && s.track === action.track));
+          if (action.oldLogs && action.oldLogs.length > 0) {
+            return [...filtered, ...action.oldLogs];
+          }
+          return filtered;
+        });
+        
+        await supabase.from('status_logs').delete().in('unit_id', action.unitIds).eq('track', action.track);
+        if (action.oldLogs && action.oldLogs.length > 0) {
+          // Chunk inserts if necessary to avoid postgrest limits
+          const CHUNK_SIZE = 800;
+          for (let i = 0; i < action.oldLogs.length; i += CHUNK_SIZE) {
+            await supabase.from('status_logs').insert(action.oldLogs.slice(i, i + CHUNK_SIZE));
+          }
+        }
+        break;
+
       case 'CREATE_UNIT':
         queryClient.setQueryData(['units', sheetId], (old) => old ? old.filter(u => u.id !== action.unitData.id) : old);
         await supabase.from('units').delete().eq('id', action.unitData.id);
@@ -101,6 +121,25 @@ export function useUndoRedo({
         await supabase.from('status_logs').delete().eq('unit_id', action.unitId).eq('track', currentTrackRedo);
         if (action.newLog) {
           await supabase.from('status_logs').insert([action.newLog]);
+        }
+        break;
+
+      case 'BULK_UPDATE_STATUS':
+        queryClient.setQueryData(['statuses', sheetId], (old) => {
+          if (!old) return old;
+          const filtered = old.filter(s => !(action.unitIds.includes(s.unit_id) && s.track === action.track));
+          if (action.newLogs && action.newLogs.length > 0) {
+            return [...filtered, ...action.newLogs];
+          }
+          return filtered;
+        });
+        
+        await supabase.from('status_logs').delete().in('unit_id', action.unitIds).eq('track', action.track);
+        if (action.newLogs && action.newLogs.length > 0) {
+          const CHUNK_SIZE = 800;
+          for (let i = 0; i < action.newLogs.length; i += CHUNK_SIZE) {
+            await supabase.from('status_logs').insert(action.newLogs.slice(i, i + CHUNK_SIZE));
+          }
         }
         break;
 

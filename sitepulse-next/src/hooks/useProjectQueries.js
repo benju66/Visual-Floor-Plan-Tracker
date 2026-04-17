@@ -1,14 +1,17 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 
-export function useProject() {
+export function useProject(projectId) {
   return useQuery({
-    queryKey: ['project'],
+    queryKey: ['project', projectId],
     queryFn: async () => {
-      const { data, error } = await supabase.from('projects').select('*').limit(1).single();
+      if (!projectId) return null;
+      const { data, error } = await supabase.from('projects').select('*').eq('id', projectId).single();
+      // PGRST116 is the PostgREST error for "0 rows returned" when expecting a single object.
       if (error && error.code !== 'PGRST116') throw error;
       return data || null;
-    }
+    },
+    enabled: !!projectId
   });
 }
 
@@ -242,5 +245,63 @@ export function useUpdateMilestone(projectId, sheetId) {
       queryClient.invalidateQueries({ queryKey: ['milestones', projectId] });
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
     }
+  });
+}
+
+export function useBulkUpdateStatus(sheetId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ unitIds, milestone, color, temporal_state, track }) => {
+      const CHUNK_SIZE = 800;
+      
+      for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
+        const chunkIds = unitIds.slice(i, i + CHUNK_SIZE);
+        
+        const { error: deleteError } = await supabase.from('status_logs')
+          .delete()
+          .in('unit_id', chunkIds)
+          .eq('track', track);
+        if (deleteError) throw deleteError;
+
+        if (temporal_state !== 'none') {
+          const newLogs = chunkIds.map(id => ({
+            unit_id: id,
+            milestone,
+            status_color: color,
+            temporal_state,
+            track
+          }));
+          
+          const { error: insertError } = await supabase.from('status_logs').insert(newLogs);
+          if (insertError) throw insertError;
+        }
+      }
+    },
+    onMutate: async ({ unitIds, milestone, color, temporal_state, track }) => {
+      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
+      
+      queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
+        if (!old) return old;
+        const filtered = old.filter(s => !(unitIds.includes(s.unit_id) && s.track === track));
+        
+        if (temporal_state === 'none') {
+          return filtered;
+        }
+        
+        const optimisticLogs = unitIds.map(id => ({
+          id: `temp_${id}_${Date.now()}`,
+          unit_id: id,
+          milestone,
+          status_color: color,
+          temporal_state,
+          track,
+          created_at: new Date().toISOString()
+        }));
+        return [...filtered, ...optimisticLogs];
+      });
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
   });
 }

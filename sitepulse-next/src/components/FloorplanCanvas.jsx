@@ -15,6 +15,7 @@ import { distToSegment, getCentroid } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 import { useAppStore, useHydratedStore } from '@/store/useAppStore';
 import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
+import { useParams } from 'next/navigation';
 
 const FloorplanCanvas = forwardRef(({
   imageUrl,
@@ -35,8 +36,10 @@ const FloorplanCanvas = forwardRef(({
   const activeSheetId = useAppStore(s => s.activeSheetId);
   const toolMode = useAppStore(s => s.toolMode);
   const onToolModeChange = useAppStore(s => s.setToolMode);
-  const selectedUnitId = useAppStore(s => s.selectedUnitId);
-  const onSelectUnit = useAppStore(s => s.setSelectedUnitId);
+  const selectedUnitIds = useAppStore(s => s.selectedUnitIds);
+  const onSelectUnit = useAppStore(s => s.toggleSelectedUnitId);
+  const onClearSelection = useAppStore(s => s.clearSelectedUnits);
+  const onSetSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
   const temporalFilters = useAppStore(s => s.temporalFilters);
   const trackingMode = useAppStore(s => s.trackingMode);
   const legendFilter = useAppStore(s => s.filterMilestone);
@@ -46,8 +49,11 @@ const FloorplanCanvas = forwardRef(({
   const legendPosition = useHydratedStore(s => s.legendPosition, { isVisible: false });
   const onLegendDragEnd = useAppStore(s => s.setLegendPosition);
 
-  const { data: project } = useProject();
-  const { data: allMilestones = [] } = useMilestones(project?.id);
+  const params = useParams();
+  const projectId = params?.projectId;
+
+  const { data: project } = useProject(projectId);
+  const { data: allMilestones = [] } = useMilestones(projectId);
   const milestones = allMilestones.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
   const unitIds = units.map(u => u.id);
@@ -137,8 +143,8 @@ const FloorplanCanvas = forwardRef(({
 
   useEffect(() => {
     if (toolMode !== 'draw') setDraftPoints([]);
-    if (!['select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
-      onSelectUnit(null);
+    if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
+      onClearSelection();
     }
   }, [toolMode]);
 
@@ -310,8 +316,8 @@ const FloorplanCanvas = forwardRef(({
     let pctX = (logicalX - offsetX) / drawW;
     let pctY = (logicalY - offsetY) / drawH;
 
-    if (toolMode === 'stamp' && selectedUnitId) {
-      const sourceUnit = units.find(u => u.id === selectedUnitId);
+    if (toolMode === 'stamp' && selectedUnitIds?.length === 1) {
+      const sourceUnit = units.find(u => u.id === selectedUnitIds[0]);
       if (sourceUnit && sourceUnit.polygon_coordinates && sourceUnit.polygon_coordinates.length > 0) {
         let sumX = 0, sumY = 0;
         sourceUnit.polygon_coordinates.forEach(pt => { sumX += pt.pctX; sumY += pt.pctY; });
@@ -325,7 +331,7 @@ const FloorplanCanvas = forwardRef(({
           pctY: pt.pctY + dy
         }));
         
-        onInstantStamp?.(selectedUnitId, translatedPoints);
+        onInstantStamp?.(selectedUnitIds[0], translatedPoints);
       }
     } else if (toolMode === 'draw') {
       if (Date.now() - lastBoxEndRef.current < 200) return;
@@ -337,9 +343,9 @@ const FloorplanCanvas = forwardRef(({
         else pctX = lastPoint.pctX;
       }
       setDraftPoints([...draftPoints, { pctX, pctY }]);
-    } else if (['select', 'add_node', 'delete_node'].includes(toolMode)) {
+    } else if (['select', 'multi_select', 'add_node', 'delete_node'].includes(toolMode)) {
       if (e.target === stage || e.target.nodeType === 'Image' || e.target.attrs?.id === 'bg-rect') {
-        onSelectUnit(null);
+        onClearSelection();
         setIsLegendSelected(false);
       }
     } else {
@@ -361,12 +367,19 @@ const FloorplanCanvas = forwardRef(({
   };
 
   const handlePolygonClick = (e, unit) => {
-    if (!['select', 'add_node', 'delete_node'].includes(toolMode)) return;
+    if (!['select', 'multi_select', 'add_node', 'delete_node'].includes(toolMode)) return;
     e.cancelBubble = true;
     
-    if (selectedUnitId !== unit.id) {
-       onSelectUnit(unit.id);
+    if (toolMode === 'multi_select') {
+       onSelectUnit(unit.id); // It's actually toggleSelectedUnitId
        return;
+    }
+
+    if (toolMode === 'select') {
+      if (!selectedUnitIds.includes(unit.id)) {
+        onSetSelectedUnitIds([unit.id]);
+        return;
+      }
     }
 
     if (toolMode === 'add_node') {
@@ -413,8 +426,8 @@ const FloorplanCanvas = forwardRef(({
       return;
     }
 
-    if (!selectedUnitId) return;
-    const unit = units.find(u => u.id === selectedUnitId);
+    if (selectedUnitIds?.length !== 1) return;
+    const unit = units.find(u => u.id === selectedUnitIds[0]);
     if (!unit || unit.polygon_coordinates.length === 0) return;
     
     const pts = unit.polygon_coordinates;
@@ -435,7 +448,7 @@ const FloorplanCanvas = forwardRef(({
   };
 
   const handleRotatePolygon = (direction, overrideId = null) => {
-    const targetId = overrideId || selectedUnitId;
+    const targetId = overrideId || (selectedUnitIds?.length === 1 ? selectedUnitIds[0] : null);
     if (!targetId) return;
     const unit = units.find(u => u.id === targetId);
     if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length === 0) return;
@@ -531,9 +544,9 @@ const FloorplanCanvas = forwardRef(({
     computedCursor = 'copy';
   } else if (toolMode === 'add_node') {
     computedCursor = addNodeCursor;
-  } else if (toolMode === 'select') {
+  } else if (['select', 'multi_select'].includes(toolMode)) {
     if (isHoveringAnchor) computedCursor = 'pointer';
-    else if (hoveredUnit) computedCursor = hoveredUnit === selectedUnitId ? 'grab' : 'pointer';
+    else if (hoveredUnit) computedCursor = selectedUnitIds?.includes(hoveredUnit) ? 'grab' : 'pointer';
     else computedCursor = 'default';
   } else if (toolMode === 'delete_node') {
     computedCursor = isHoveringAnchor ? deleteNodeCursor : 'default';
@@ -572,7 +585,7 @@ const FloorplanCanvas = forwardRef(({
       />
 
       <ContextActionDock
-        selectedUnitId={selectedUnitId}
+        selectedUnitIds={selectedUnitIds}
         isLegendSelected={isLegendSelected}
         toolMode={toolMode}
         onToolModeChange={onToolModeChange}
@@ -690,7 +703,7 @@ const FloorplanCanvas = forwardRef(({
                   unit={unit}
                   activeStatuses={activeStatuses}
                   legendFilter={legendFilter}
-                  selectedUnitId={selectedUnitId}
+                  selectedUnitIds={selectedUnitIds}
                   hoveredUnit={hoveredUnit}
                   temporalFilters={temporalFilters}
                   toolMode={toolMode}
@@ -733,7 +746,7 @@ const FloorplanCanvas = forwardRef(({
 
             <StampPreview
               toolMode={toolMode}
-              selectedUnitId={selectedUnitId}
+              selectedUnitId={selectedUnitIds?.length === 1 ? selectedUnitIds[0] : null}
               pointerPos={pointerPos}
               stagePosition={stagePosition}
               stageScale={stageScale}

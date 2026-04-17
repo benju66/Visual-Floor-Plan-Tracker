@@ -2,6 +2,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
+import { useParams } from 'next/navigation';
 
 function UpdatingRing() {
   return (
@@ -26,11 +27,18 @@ export default function FieldStatusTable({
 }) {
   const activeSheetId = useAppStore(s => s.activeSheetId);
   const statusFilter = useAppStore(s => s.filterMilestone);
-  const onSelectUnit = useAppStore(s => s.setSelectedUnitId);
+  const selectedUnitIds = useAppStore(s => s.selectedUnitIds);
+  const toggleSelectedUnitId = useAppStore(s => s.toggleSelectedUnitId);
+  const setSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
   const trackingMode = useAppStore(s => s.trackingMode);
   
-  const { data: project } = useProject();
-  const { data: allMilestones = [] } = useMilestones(project?.id);
+  const [lastClickedIndex, setLastClickedIndex] = useState(null);
+  
+  const params = useParams();
+  const projectId = params?.projectId;
+  
+  const { data: project } = useProject(projectId);
+  const { data: allMilestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
   const { data: statuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), allMilestones);
   const activeStatuses = statuses.filter(s => s.track === trackingMode);
@@ -78,6 +86,7 @@ export default function FieldStatusTable({
         onClick={() => onChooseStatus(unit)}
         disabled={savingUnitId === unit.id}
         className={`w-full sm:flex-1 text-left rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm transition hover:bg-white/70 dark:hover:bg-black/25 disabled:opacity-50 ${large ? 'py-3 text-base' : ''}`}
+        onClick={(e) => { e.stopPropagation(); onChooseStatus(unit); }}
       >
         {currentMilestone || 'Choose status…'}
       </button>
@@ -96,6 +105,32 @@ export default function FieldStatusTable({
       )}
     </div>
   );
+
+  const handleRowClick = (e, unitId, index) => {
+    if (e.shiftKey && lastClickedIndex !== null) {
+      const start = Math.min(lastClickedIndex, index);
+      const end = Math.max(lastClickedIndex, index);
+      const idsToSelect = visible.slice(start, end + 1).map(r => r.unit.id);
+      
+      const newSelected = new Set(selectedUnitIds);
+      idsToSelect.forEach(id => newSelected.add(id));
+      setSelectedUnitIds(Array.from(newSelected));
+    } else {
+      toggleSelectedUnitId(unitId);
+    }
+    setLastClickedIndex(index);
+  };
+
+  const allVisibleSelected = visible.length > 0 && visible.every(r => selectedUnitIds.includes(r.unit.id));
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedUnitIds(selectedUnitIds.filter(id => !visible.find(r => r.unit.id === id)));
+    } else {
+      const newSelected = new Set(selectedUnitIds);
+      visible.forEach(r => newSelected.add(r.unit.id));
+      setSelectedUnitIds(Array.from(newSelected));
+    }
+  };
 
   return (
     <div className="w-full pb-6">
@@ -135,13 +170,21 @@ export default function FieldStatusTable({
               return (
                 <div
                   key={unit.id}
-                  onClick={() => onSelectUnit?.(unit.id)}
-                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col gap-3 transition-transform cursor-pointer hover:border-blue-500/50 ${featured ? 'ring-2 ring-blue-400/40' : ''}`}
+                  onClick={(e) => handleRowClick(e, unit.id, index)}
+                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col gap-3 transition-transform cursor-pointer hover:border-blue-500/50 ${featured ? 'ring-2 ring-blue-400/40' : ''} ${selectedUnitIds.includes(unit.id) ? 'ring-2 ring-purple-500 bg-purple-50/50 dark:bg-purple-900/20' : ''}`}
                   style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className={`font-bold text-slate-900 dark:text-slate-100 ${featured ? 'text-xl' : 'text-lg'}`}>
-                      Location {unit.unit_number}
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedUnitIds.includes(unit.id)} 
+                        readOnly 
+                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
+                      />
+                      <div className={`font-bold text-slate-900 dark:text-slate-100 ${featured ? 'text-xl' : 'text-lg'}`}>
+                        Location {unit.unit_number}
+                      </div>
                     </div>
                     {savingUnitId === unit.id && <UpdatingRing />}
                   </div>
@@ -165,8 +208,8 @@ export default function FieldStatusTable({
               return (
                 <div
                   key={unit.id}
-                  onClick={() => onSelectUnit?.(unit.id)}
-                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col justify-between gap-3 transition hover:scale-[1.01] cursor-pointer hover:border-blue-500/50 ${cellClass}`}
+                  onClick={(e) => handleRowClick(e, unit.id, index)}
+                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col justify-between gap-3 transition hover:scale-[1.01] cursor-pointer hover:border-blue-500/50 ${cellClass} ${selectedUnitIds.includes(unit.id) ? 'ring-2 ring-purple-500 bg-purple-50/50 dark:bg-purple-900/20' : ''}`}
                   style={{
                     background: 'var(--glass-bg)',
                     borderColor: 'var(--glass-border)',
@@ -174,8 +217,16 @@ export default function FieldStatusTable({
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className={`font-bold text-slate-900 dark:text-slate-100 ${hero ? 'text-2xl' : 'text-lg'}`}>
-                      {unit.unit_number}
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedUnitIds.includes(unit.id)} 
+                        readOnly 
+                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
+                      />
+                      <div className={`font-bold text-slate-900 dark:text-slate-100 ${hero ? 'text-2xl' : 'text-lg'}`}>
+                        {unit.unit_number}
+                      </div>
                     </div>
                     {savingUnitId === unit.id && <UpdatingRing />}
                   </div>
@@ -191,14 +242,30 @@ export default function FieldStatusTable({
           <table className="w-full text-left border-collapse text-sm text-slate-800 dark:text-slate-200">
             <thead className="bg-slate-100/50 dark:bg-slate-800/10 border-b border-slate-200/80 dark:border-white/10">
               <tr>
+                <th className="px-5 py-3 w-10">
+                  <input 
+                    type="checkbox" 
+                    checked={allVisibleSelected} 
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer" 
+                  />
+                </th>
                 <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4">Location</th>
                 <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/2">Current Status</th>
                 <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right">Last Updated</th>
               </tr>
             </thead>
             <tbody>
-              {visible.map(({ unit, log }) => (
-                <tr key={unit.id} onClick={() => onSelectUnit?.(unit.id)} className="border-b border-slate-200/50 dark:border-white/5 last:border-none hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer">
+              {visible.map(({ unit, log }, index) => (
+                <tr key={unit.id} onClick={(e) => handleRowClick(e, unit.id, index)} className={`border-b border-slate-200/50 dark:border-white/5 last:border-none hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer ${selectedUnitIds.includes(unit.id) ? 'bg-purple-50/40 dark:bg-purple-900/10' : ''}`}>
+                  <td className="px-5 py-3 align-middle text-center">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedUnitIds.includes(unit.id)} 
+                      readOnly 
+                      className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
+                    />
+                  </td>
                   <td className="px-5 py-3 font-bold text-slate-900 dark:text-slate-100 align-middle">
                     <div className="flex items-center gap-2">
                        {unit.unit_number}

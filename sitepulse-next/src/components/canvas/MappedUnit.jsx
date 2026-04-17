@@ -7,7 +7,7 @@ export default function MappedUnit({
   unit,
   activeStatuses,
   legendFilter,
-  selectedUnitId,
+  selectedUnitIds,
   hoveredUnit,
   temporalFilters,
   toolMode,
@@ -39,7 +39,7 @@ export default function MappedUnit({
   const fillColor = activeStatus ? activeStatus.status_color : 'rgba(0,0,0,0)';
   const matchesLegend =
     !legendFilter || (activeStatus && activeStatus.milestone === legendFilter);
-  const isSelected = selectedUnitId === unit.id;
+  const isSelected = selectedUnitIds?.includes(unit.id) || false;
   const dim = legendFilter && !matchesLegend;
   const isHover = hoveredUnit === unit.id;
   

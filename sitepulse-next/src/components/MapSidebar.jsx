@@ -12,19 +12,19 @@ function MapSidebar({
 }) {
   const activeSheetId = useAppStore(s => s.activeSheetId);
   const trackingMode = useAppStore(s => s.trackingMode);
-  const selectedUnitId = useAppStore(s => s.selectedUnitId);
+  const selectedUnitIds = useAppStore(s => s.selectedUnitIds);
   const setToolMode = useAppStore(s => s.setToolMode);
-  const setSelectedUnitId = useAppStore(s => s.setSelectedUnitId);
+  const setSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
   
   const { data: units = [] } = useUnits(activeSheetId);
   
   const listRefs = useRef({});
 
   useEffect(() => {
-    if (selectedUnitId && listRefs.current[selectedUnitId]) {
-      listRefs.current[selectedUnitId].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (selectedUnitIds?.length === 1 && listRefs.current[selectedUnitIds[0]]) {
+      listRefs.current[selectedUnitIds[0]].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-  }, [selectedUnitId]);
+  }, [selectedUnitIds]);
   return (
     <div
       className="w-full lg:w-[320px] p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel"
@@ -132,10 +132,10 @@ function MapSidebar({
                   ref={(el) => listRefs.current[unit.id] = el}
                   onClick={() => {
                     setToolMode('select');
-                    setSelectedUnitId(unit.id);
+                    setSelectedUnitIds([unit.id]);
                   }}
                   className={`cursor-pointer relative pl-10 pr-3 py-3 border-b border-slate-100/80 dark:border-white/5 last:border-0 hover:bg-white/50 dark:hover:bg-white/5 flex justify-between items-center group transition-colors ${
-                    selectedUnitId === unit.id ? 'bg-purple-100/50 dark:bg-purple-900/30' : ''
+                    selectedUnitIds?.includes(unit.id) ? 'bg-purple-100/50 dark:bg-purple-900/30' : ''
                   }`}
                 >
                   <div
@@ -145,7 +145,7 @@ function MapSidebar({
                   />
                   <div className="absolute left-4 top-1/2 w-4 h-px bg-slate-300/80 dark:bg-white/20" />
 
-                  <span className={`text-sm ${selectedUnitId === unit.id ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-200'}`}>
+                  <span className={`text-sm ${selectedUnitIds?.includes(unit.id) ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-200'}`}>
                     Location: {unit.unit_number}
                   </span>
                   <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
