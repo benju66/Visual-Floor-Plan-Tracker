@@ -532,7 +532,9 @@ const FloorplanCanvas = forwardRef(({
 
   const isZoomedOut = stageScale < 1.5;
 
-  const isWaitingForStatuses = unitIds.length > 0 && isStatusesPending;
+  // Only wait for statuses if there are REAL units to fetch statuses for
+  const validUnitIds = unitIds.filter(id => !String(id).startsWith('temp_'));
+  const isWaitingForStatuses = validUnitIds.length > 0 && isStatusesPending;
 
   if (isLoadingUnits || isWaitingForStatuses) {
     return (

@@ -52,12 +52,16 @@ export function useUnits(sheetId) {
 }
 
 export function useStatuses(sheetId, unitIds, milestones) {
+  // Filter out temporary optimistic IDs to prevent Postgres UUID syntax errors
+  const validUnitIds = unitIds?.filter(id => !String(id).startsWith('temp_')) || [];
+  
   return useQuery({
-    queryKey: ['statuses', sheetId],
+    // Include validUnitIds in the queryKey so it refetches when real IDs arrive
+    queryKey: ['statuses', sheetId, validUnitIds],
     queryFn: async () => {
-      if (!sheetId || !unitIds || unitIds.length === 0) return [];
+      if (!sheetId || validUnitIds.length === 0) return [];
       
-      const { data, error } = await supabase.from('status_logs').select('*').in('unit_id', unitIds);
+      const { data, error } = await supabase.from('status_logs').select('*').in('unit_id', validUnitIds);
 
       if (error) throw error;
       
@@ -70,7 +74,7 @@ export function useStatuses(sheetId, unitIds, milestones) {
       });
       return Object.values(latestStatusMap);
     },
-    enabled: !!sheetId && unitIds?.length > 0
+    enabled: !!sheetId && validUnitIds.length > 0
   });
 }
 
