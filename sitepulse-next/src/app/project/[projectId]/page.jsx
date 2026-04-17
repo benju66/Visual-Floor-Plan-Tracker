@@ -406,6 +406,7 @@ function App() {
             ? 'Pick one to filter the map and field list. Use Ctrl+K anytime.'
             : 'Search and press Enter to save this location’s status.'
         }
+        milestones={milestones.filter(m => m.track === trackingMode)}
         onSelect={handleMilestoneMenuSelect}
       />
 

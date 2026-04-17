@@ -91,3 +91,8 @@ body {
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
 }
+
+select option, select optgroup {
+  background-color: var(--bg);
+  color: var(--text-h);
+}
