@@ -54,17 +54,13 @@ function App() {
   const queryClient = useQueryClient();
   const { data: project } = useProject();
   const { data: sheets = [] } = useSheets(project?.id);
-  const { data: milestones = [] } = useMilestones(project?.id);
-  const { data: units = [] } = useUnits(activeSheetId);
-  const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), milestones);
-
   const createUnitMutation = useCreateUnit(activeSheetId);
   const updateUnitGeometryMutation = useUpdateUnitGeometry(activeSheetId);
   const updateUnitFieldsMutation = useUpdateUnitFields(activeSheetId);
   const deleteUnitMutation = useDeleteUnit(activeSheetId);
-  const updateStatusMutation = useUpdateStatus(activeSheetId, units.length);
-  const clearStatusMutation = useClearStatus(activeSheetId, units.length);
-  const updateMilestoneMutation = useUpdateMilestone(project?.id, activeSheetId, units.length);
+  const updateStatusMutation = useUpdateStatus(activeSheetId);
+  const clearStatusMutation = useClearStatus(activeSheetId);
+  const updateMilestoneMutation = useUpdateMilestone(project?.id, activeSheetId);
 
   const isSettingsOpen = useAppStore(s => s.isSettingsOpen);
   const setIsSettingsOpen = useAppStore(s => s.setIsSettingsOpen);
@@ -116,7 +112,6 @@ function App() {
   } = useUndoRedo({
     toolMode,
     sheetId: activeSheetId,
-    unitIdsLength: units.length,
   });
 
   const isModalOpen = useAppStore(s => s.isModalOpen);
@@ -190,6 +185,8 @@ function App() {
 
   const exportToPDF = async () => {
     if (!activeSheetId || !activeSheet) return;
+    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
+    const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
     
     showToast('Generating Vector PDF... This may take a few seconds.', 'success');
     
@@ -363,6 +360,7 @@ function App() {
   };
 
   const handleUpdateUnitPolygon = async (unitId, newPoints, isUndoRedo = false) => {
+    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
     if (!isUndoRedo) {
       const oldUnit = units.find(u => u.id === unitId);
       if (oldUnit) {
@@ -380,6 +378,7 @@ function App() {
   };
 
   const handleDuplicateUnit = async (unitId) => {
+    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
     const sourceUnit = units.find(u => u.id === unitId);
     if (!sourceUnit) return;
     
@@ -394,6 +393,7 @@ function App() {
   };
 
   const handleInstantStamp = async (sourceUnitId, newPoints) => {
+    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
     const sourceUnit = units.find(u => u.id === sourceUnitId);
     if (!sourceUnit) return;
     
@@ -425,6 +425,7 @@ function App() {
   };
 
   const handleRenameUnitInitiate = (unitId) => {
+     const units = queryClient.getQueryData(['units', activeSheetId]) || [];
      const unit = units.find(u => u.id === unitId);
      if (!unit) return;
      setEditingUnitId(unitId);
@@ -472,6 +473,8 @@ function App() {
     setConfirmModal({
       message: 'Are you sure you want to delete this location markup?',
       onConfirm: async () => {
+        const units = queryClient.getQueryData(['units', activeSheetId]) || [];
+        const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
         const unitToDelete = units.find(u => u.id === unitId);
         const statusToDelete = activeStatuses.find(s => s.unit_id === unitId);
         
@@ -501,6 +504,9 @@ function App() {
   };
 
   const handleQuickUpdate = (unitId, type, value) => {
+    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
+    const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
+    const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
     const unit = units.find(u => u.id === unitId);
     if (!unit) return;
 
@@ -531,6 +537,9 @@ function App() {
 
   const commitUnitMilestone = async (unit, milestone, currentTemporalState = 'none', isUndoRedo = false) => {
     setSavingUnitId(unit.id);
+    const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
+    const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
+    
     if (milestone.isClearAction) {
       try {
         const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
@@ -627,16 +636,12 @@ function App() {
         {viewMode === 'list' ? (
           <div className="h-full overflow-auto">
             <FieldStatusTable
-              units={units}
-              activeStatuses={currentTrackStatuses}
-              statusFilter={filterMilestone}
               savingUnitId={savingUnitId}
               onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
               onUpdateTemporalState={(unit, log, state) => {
                  void commitUnitMilestone(unit, { name: log.milestone, color: log.status_color, track: log.track }, state);
               }}
               defaultView={settings.defaultFieldView || 'table'}
-              milestones={milestones.filter(m => m.track === trackingMode)}
             />
           </div>
         ) : (
@@ -657,25 +662,11 @@ function App() {
                   />
                   <FloorplanCanvas
                     ref={floorplanRef}
-                    mapSettings={mapSettings}
                   imageUrl={activeSheet.base_image_url}
-                  units={units}
-                  activeStatuses={currentTrackStatuses}
-                  toolMode={toolMode}
-                  onToolModeChange={setToolMode}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
                   onUpdateUnitIconOffset={handleUpdateUnitIconOffset}
                   onDuplicateUnit={handleDuplicateUnit}
                   onPolygonComplete={handlePolygonComplete}
-                  legendFilter={filterMilestone}
-                  selectedUnitId={selectedUnitId}
-                  onSelectUnit={(id) => {
-                    setSelectedUnitId(id);
-                    if (id && listRefs.current[id]) {
-                       console.log('Detected map selection -> scrolling list to unit', id);
-                       listRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                  }}
                   onRenameUnit={handleRenameUnitInitiate}
                   onDeleteUnit={handleDeleteUnit}
                   onInstantStamp={handleInstantStamp}
@@ -683,13 +674,8 @@ function App() {
                   onPendingPolygonMove={setPendingPolygonPoints}
                   onPendingPolygonComplete={handlePolygonComplete}
                   showTooltip={settings.showTooltips}
-                  settings={settings}
-                  temporalFilters={temporalFilters}
                   onOpenStatusModal={(id) => setQuickStatusUnitId(id)}
                   onOpenMilestoneModal={(id) => setQuickMilestoneUnitId(id)}
-                  legendPosition={legendPosition}
-                  onLegendDragEnd={(pos) => setLegendPosition(prev => ({ ...prev, ...pos }))}
-                  milestones={milestones.filter(m => m.track === trackingMode)}
                 />
                 </>
               ) : (
@@ -714,13 +700,11 @@ function App() {
             </div>
 
             <MapSidebar
-              milestones={milestones}
               trackingMode={trackingMode}
               filterMilestone={filterMilestone}
               setFilterMilestone={setFilterMilestone}
               temporalFilters={temporalFilters}
               setTemporalFilters={setTemporalFilters}
-              units={units}
               activeSheet={activeSheet}
               setToolMode={setToolMode}
               selectedUnitId={selectedUnitId}
@@ -736,7 +720,6 @@ function App() {
       <MilestoneCommandMenu
         open={milestoneMenu !== null}
         onOpenChange={(open) => !open && setMilestoneMenu(null)}
-        milestones={milestones.filter(m => m.track === trackingMode)}
         title={
           milestoneMenu?.mode === 'unit'
             ? `Status — Location ${milestoneMenu.unit.unit_number}`
