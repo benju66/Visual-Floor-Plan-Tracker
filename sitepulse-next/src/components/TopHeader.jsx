@@ -23,12 +23,12 @@ function TopHeader({
           </h1>
           <div className="flex flex-wrap gap-3 mt-2">
             <select
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg font-semibold shadow-sm bg-white/60 dark:bg-black/25"
+              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg font-semibold shadow-sm bg-white/60 dark:bg-black/25 cursor-not-allowed hover:bg-slate-100 dark:hover:bg-white/10 transition-colors opacity-90"
               disabled >
               <option>{project ? project.name : 'Loading...'}</option>
             </select>
             <select
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg shadow-sm bg-white/60 dark:bg-black/25"
+              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg shadow-sm bg-white/60 dark:bg-black/25 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
               value={activeSheetId}
               onChange={(e) => setActiveSheetId(e.target.value)}
             >
@@ -42,14 +42,14 @@ function TopHeader({
             <button
               type="button"
               onClick={() => setIsModalOpen(true)}
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer text-sm font-medium shadow-sm"
+              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer text-sm font-medium shadow-sm transition-colors"
             >
               + Add Level
             </button>
             <button
               type="button"
               onClick={() => setIsProjectMenuOpen(true)}
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer shadow-sm"
+              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer shadow-sm transition-colors"
               title="Manage Levels"
             >
               <FolderEdit size={20} />
@@ -61,7 +61,7 @@ function TopHeader({
           <button
             type="button"
             onClick={() => setMilestoneMenu({ mode: 'filter' })}
-            className="px-3 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm"
+            className="px-3 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
           >
             Milestones (Ctrl+K)
           </button>
@@ -69,10 +69,10 @@ function TopHeader({
             <button
               type="button"
               onClick={() => setTrackingMode('Production')}
-              className={`px-3 py-2 text-xs font-semibold cursor-pointer ${
+              className={`px-3 py-2 text-xs font-semibold cursor-pointer transition-colors ${
                 trackingMode === 'Production'
                   ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
             >
               Production
@@ -80,10 +80,10 @@ function TopHeader({
             <button
               type="button"
               onClick={() => setTrackingMode('Inspections')}
-              className={`px-3 py-2 text-xs font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 ${
+              className={`px-3 py-2 text-xs font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
                 trackingMode === 'Inspections'
                   ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
             >
               Inspections
@@ -96,10 +96,10 @@ function TopHeader({
                 setViewMode('list');
                 setToolMode('pan');
               }}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer ${
+              className={`px-4 py-2 text-sm font-semibold cursor-pointer transition-colors ${
                 viewMode === 'list'
                   ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
             >
               Field list
@@ -107,10 +107,10 @@ function TopHeader({
             <button
               type="button"
               onClick={() => setViewMode('map')}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 ${
+              className={`px-4 py-2 text-sm font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
                 viewMode === 'map'
                   ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
             >
               Map
@@ -120,7 +120,7 @@ function TopHeader({
             <button
               type="button"
               onClick={exportToPDF}
-              className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-sm"
+              className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
             >
               Export PDF
             </button>

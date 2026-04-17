@@ -27,6 +27,8 @@ import { exportToPDFService, uploadFloorplanService, attachOriginalService } fro
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(320);
+  const isResizingRef = useRef(false);
 
   const toolMode = useAppStore(s => s.toolMode);
   const setToolMode = useAppStore(s => s.setToolMode);
@@ -50,6 +52,35 @@ function App() {
     setIsMounted(true);
     setViewMode(useAppStore.getState().settings?.defaultViewMode || 'list');
   }, [setViewMode]);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizingRef.current) return;
+      const newWidth = window.innerWidth - e.clientX - 24;
+      if (newWidth >= 250 && newWidth <= 600) {
+        setSidebarWidth(newWidth);
+      }
+    };
+    const handleMouseUp = () => {
+      isResizingRef.current = false;
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const handleMouseDownResize = (e) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
   const setSettings = useAppStore(s => s.setSettings);
   const mapSettings = useHydratedStore(s => s.mapSettings, { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'select', 'multi_select', 'pan', 'draw', 'add_node'] });
   const setMapSettings = useAppStore(s => s.setMapSettings);
@@ -319,8 +350,8 @@ function App() {
             />
           </div>
         ) : (
-          <div className="h-full flex flex-col lg:flex-row gap-5 items-stretch min-h-0">
-            <div className="flex-[3] lg:flex-[4] flex flex-col min-h-0 min-w-0 h-full relative">
+          <div className="h-full flex flex-col lg:flex-row items-stretch min-h-0">
+            <div className="flex-1 flex flex-col min-h-0 min-w-0 h-full relative mb-5 lg:mb-0">
               {activeSheet && activeSheet.base_image_url ? (
                 <>
                   <MapHorizontalToolbar 
@@ -374,7 +405,18 @@ function App() {
               )}
             </div>
 
-            <MapSidebar
+            <div 
+              className="hidden lg:flex w-5 items-center justify-center cursor-col-resize flex-shrink-0 bg-transparent group relative z-10"
+              onMouseDown={handleMouseDownResize}
+            >
+               <div className="w-1 h-32 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-blue-400 transition-colors" />
+            </div>
+
+            <div 
+              className="w-full lg:w-[var(--sidebar-width)] h-full flex-shrink-0 group/sidebar"
+              style={{ '--sidebar-width': `${sidebarWidth}px` }}
+            >
+              <MapSidebar
               trackingMode={trackingMode}
               milestones={milestones}
               filterMilestone={filterMilestone}
@@ -389,6 +431,7 @@ function App() {
               onRenameUnitInitiate={handleRenameUnitInitiate}
               onDeleteUnit={handleDeleteUnit}
             />
+            </div>
           </div>
         )}
       </div>

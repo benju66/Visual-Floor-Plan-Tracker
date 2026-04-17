@@ -1,5 +1,6 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
+import { ArrowUp, ArrowDown } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
 import { useParams } from 'next/navigation';
@@ -33,6 +34,8 @@ export default function FieldStatusTable({
   const trackingMode = useAppStore(s => s.trackingMode);
   
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
+  const [sortColumn, setSortColumn] = useState('unit'); // 'unit', 'status', 'updated'
+  const [sortDirection, setSortDirection] = useState('asc'); // 'asc', 'desc'
   
   const params = useParams();
   const projectId = params?.projectId;
@@ -56,12 +59,32 @@ export default function FieldStatusTable({
         log: activeStatuses.find((s) => s.unit_id === unit.id),
       }))
       .sort((a, b) => {
-        const ta = a.log?.created_at ? new Date(a.log.created_at).getTime() : 0;
-        const tb = b.log?.created_at ? new Date(b.log.created_at).getTime() : 0;
-        if (tb !== ta) return tb - ta;
-        return a.unit.unit_number.localeCompare(b.unit.unit_number);
+        let cmp = 0;
+        if (sortColumn === 'unit') {
+          cmp = a.unit.unit_number.localeCompare(b.unit.unit_number, undefined, { numeric: true, sensitivity: 'base' });
+        } else if (sortColumn === 'status') {
+          const ma = a.log?.milestone || '';
+          const mb = b.log?.milestone || '';
+          cmp = ma.localeCompare(mb);
+          if (cmp === 0) {
+            const sa = a.log?.temporal_state || '';
+            const sb = b.log?.temporal_state || '';
+            cmp = sa.localeCompare(sb);
+          }
+        } else if (sortColumn === 'updated') {
+          const ta = a.log?.created_at ? new Date(a.log.created_at).getTime() : 0;
+          const tb = b.log?.created_at ? new Date(b.log.created_at).getTime() : 0;
+          cmp = ta - tb;
+        }
+
+        // If comparison is equal, fallback to natural sort on unit_number
+        if (cmp === 0 && sortColumn !== 'unit') {
+            cmp = a.unit.unit_number.localeCompare(b.unit.unit_number, undefined, { numeric: true, sensitivity: 'base' });
+        }
+        
+        return sortDirection === 'asc' ? cmp : -cmp;
       });
-  }, [units, activeStatuses]);
+  }, [units, activeStatuses, sortColumn, sortDirection]);
 
   const visible = useMemo(() => {
     if (!statusFilter) return ranked;
@@ -133,6 +156,20 @@ export default function FieldStatusTable({
       visible.forEach(r => newSelected.add(r.unit.id));
       setSelectedUnitIds(Array.from(newSelected));
     }
+  };
+
+  const handleSort = (col) => {
+    if (sortColumn === col) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(col);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderSortIcon = (col) => {
+    if (sortColumn !== col) return null;
+    return sortDirection === 'asc' ? <ArrowUp size={14} className="inline-block ml-1" /> : <ArrowDown size={14} className="inline-block ml-1" />;
   };
 
   return (
@@ -243,7 +280,7 @@ export default function FieldStatusTable({
       ) : (
         <div className="w-full overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 shadow-sm backdrop-blur-md">
           <table className="w-full text-left border-collapse text-sm text-slate-800 dark:text-slate-200">
-            <thead className="bg-slate-100/50 dark:bg-slate-800/10 border-b border-slate-200/80 dark:border-white/10">
+            <thead className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-white/10">
               <tr>
                 <th className="px-5 py-3 w-10">
                   <input 
@@ -253,9 +290,26 @@ export default function FieldStatusTable({
                     className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer" 
                   />
                 </th>
-                <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4">Location</th>
-                <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/2">Current Status</th>
-                <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right">Last Updated</th>
+                <th 
+                  onClick={() => handleSort('unit')}
+                  className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+                >
+                  Location {renderSortIcon('unit')}
+                </th>
+                <th 
+                  onClick={() => handleSort('status')}
+                  className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+                >
+                  Milestone & Status {renderSortIcon('status')}
+                </th>
+                <th 
+                  onClick={() => handleSort('updated')}
+                  className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+                >
+                  <div className="flex justify-end items-center gap-1">
+                    Last Updated {renderSortIcon('updated')}
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>

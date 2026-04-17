@@ -1,8 +1,7 @@
-import React from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { useUnits } from '@/hooks/useProjectQueries';
-import { useRef, useEffect } from 'react';
 
 function MapSidebar({
   milestones = [], filterMilestone, setFilterMilestone,
@@ -16,8 +15,17 @@ function MapSidebar({
   const setToolMode = useAppStore(s => s.setToolMode);
   const setSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
   
+  const [isLegendExpanded, setIsLegendExpanded] = useState(true);
+  const [isStatusExpanded, setIsStatusExpanded] = useState(true);
+
   const { data: units = [] } = useUnits(activeSheetId);
   
+  const sortedUnits = useMemo(() => {
+    return [...units].sort((a, b) => 
+      a.unit_number.localeCompare(b.unit_number, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }, [units]);
+
   const listRefs = useRef({});
 
   useEffect(() => {
@@ -27,22 +35,29 @@ function MapSidebar({
   }, [selectedUnitIds]);
   return (
     <div
-      className="w-full lg:w-[320px] p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel"
+      className="w-full h-full p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel"
     >
-      <h3 className="font-bold text-lg mb-3 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0 text-slate-800 dark:text-slate-100">
+      <button
+        onClick={() => setIsLegendExpanded(p => !p)}
+        className="w-full font-bold text-lg mb-3 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0 text-slate-800 dark:text-slate-100 flex items-center justify-between hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+      >
         Live legend
-      </h3>
-      <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
-        Click a milestone to highlight matching locations on the map. “All” clears the filter.
-      </p>
-      <div className="flex flex-wrap gap-1.5 mb-4 max-h-[120px] overflow-y-auto pr-1">
-        <button
-          type="button"
-          onClick={() => setFilterMilestone(null)}
-          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${
+        {isLegendExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+      </button>
+      
+      {isLegendExpanded && (
+        <>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+            Click a milestone to highlight matching locations on the map. “All” clears the filter.
+          </p>
+          <div className="flex flex-wrap gap-1.5 mb-4 max-h-[120px] overflow-y-auto pr-1">
+            <button
+              type="button"
+              onClick={() => setFilterMilestone(null)}
+          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
             !filterMilestone
-              ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 border-transparent'
-              : 'bg-white/50 dark:bg-black/20 border-slate-200/80 dark:border-white/10'
+              ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 border-transparent hover:opacity-90'
+              : 'bg-white/50 dark:bg-black/20 border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
           }`}
         >
           All
@@ -52,10 +67,10 @@ function MapSidebar({
             key={m.id}
             type="button"
             onClick={() => setFilterMilestone((prev) => (prev === m.name ? null : m.name))}
-            className={`px-2.5 py-1 rounded-full text-[10px] font-medium border max-w-[140px] truncate transition ${
+            className={`px-2.5 py-1 rounded-full text-[10px] font-medium border max-w-[140px] truncate transition-all cursor-pointer hover:opacity-80 ${
               filterMilestone === m.name
-                ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900'
-                : ''
+                ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900 scale-[1.02]'
+                : 'hover:scale-[1.02]'
             }`}
             style={{
               background: m.color,
@@ -66,14 +81,22 @@ function MapSidebar({
             {m.name.length > 22 ? `${m.name.slice(0, 20)}…` : m.name}
           </button>
         ))}
-      </div>
+          </div>
+        </>
+      )}
 
-      <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2">
+      <button
+        onClick={() => setIsStatusExpanded(p => !p)}
+        className="w-full font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2 flex items-center justify-between hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+      >
         Progress Status Toggles
-      </h4>
-      <div className="flex flex-wrap gap-2 mb-4">
-        {[
-          { value: 'none', label: 'No Status' },
+        {isStatusExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+      </button>
+
+      {isStatusExpanded && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {[
+            { value: 'none', label: 'No Status' },
           { value: 'planned', label: 'Planned' },
           { value: 'ongoing', label: 'Ongoing' },
           { value: 'completed', label: 'Completed' }
@@ -86,23 +109,24 @@ function MapSidebar({
                 prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
               );
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
               temporalFilters.includes(value)
-                ? 'bg-blue-600/90 text-white border-blue-600'
-                : 'bg-white/50 dark:bg-black/20 text-slate-500 border-slate-300 dark:border-slate-700'
+                ? 'bg-blue-600/90 text-white border-blue-600 hover:bg-blue-700/90'
+                : 'bg-white/50 dark:bg-black/20 text-slate-500 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-white/10'
             }`}
           >
             {label}
           </button>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2">
+      <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0">
         Mapped locations
       </h4>
 
       <div className="overflow-y-auto flex-1 pr-2">
-        {units.length === 0 ? (
+        {sortedUnits.length === 0 ? (
           <p className="text-slate-500 text-sm italic">
             No locations mapped on this level yet. Use Draw on the map dock to begin.
           </p>
@@ -126,7 +150,7 @@ function MapSidebar({
             </div>
 
             <ul className="flex flex-col bg-white/40 dark:bg-black/15">
-              {units.map((unit, index) => (
+              {sortedUnits.map((unit, index) => (
                 <li
                   key={unit.id}
                   ref={(el) => listRefs.current[unit.id] = el}
@@ -140,7 +164,7 @@ function MapSidebar({
                 >
                   <div
                     className={`absolute left-4 top-0 w-px bg-slate-300/80 dark:bg-white/20 ${
-                      index === units.length - 1 ? 'h-1/2' : 'h-full'
+                      index === sortedUnits.length - 1 ? 'h-1/2' : 'h-full'
                     }`}
                   />
                   <div className="absolute left-4 top-1/2 w-4 h-px bg-slate-300/80 dark:bg-white/20" />
