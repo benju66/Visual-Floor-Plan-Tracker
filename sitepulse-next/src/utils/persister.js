@@ -1,5 +1,5 @@
 import { get, set, del } from 'idb-keyval';
-import { createAsyncStoragePersister } from '@tanstack/react-query-persist-client';
+import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 
 /**
  * Creates an IndexedDB AsyncStorage wrapper adhering to React Query's storage interface.
