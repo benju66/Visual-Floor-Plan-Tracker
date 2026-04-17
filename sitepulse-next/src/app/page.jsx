@@ -8,9 +8,11 @@ import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import { supabase } from '@/supabaseClient';
 import { useAppStore, useHydratedStore } from '@/store/useAppStore';
-import { useProject, useSheets, useMilestones, useUnits, useStatuses, useCreateUnit, useUpdateUnitGeometry, useUpdateUnitFields, useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateMilestone } from '@/hooks/useProjectQueries';
+import { useProject, useSheets } from '@/hooks/useProjectQueries';
+import { useMapActions } from '@/hooks/useMapActions';
+import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUndoRedo } from '@/hooks/useUndoRedo';
+
 import TopHeader from '@/components/TopHeader';
 import MapSidebar from '@/components/MapSidebar';
 import UnitNamingPopover from '@/components/UnitNamingPopover';
@@ -33,8 +35,6 @@ function App() {
   const setTrackingMode = useAppStore(s => s.setTrackingMode);
   const selectedUnitId = useAppStore(s => s.selectedUnitId);
   const setSelectedUnitId = useAppStore(s => s.setSelectedUnitId);
-  const editingUnitId = useAppStore(s => s.editingUnitId);
-  const setEditingUnitId = useAppStore(s => s.setEditingUnitId);
   const activeSheetId = useAppStore(s => s.activeSheetId);
   const setActiveSheetId = useAppStore(s => s.setActiveSheetId);
   const temporalFilters = useAppStore(s => s.temporalFilters);
@@ -54,37 +54,51 @@ function App() {
   const queryClient = useQueryClient();
   const { data: project } = useProject();
   const { data: sheets = [] } = useSheets(project?.id);
-  const createUnitMutation = useCreateUnit(activeSheetId);
-  const updateUnitGeometryMutation = useUpdateUnitGeometry(activeSheetId);
-  const updateUnitFieldsMutation = useUpdateUnitFields(activeSheetId);
-  const deleteUnitMutation = useDeleteUnit(activeSheetId);
-  const updateStatusMutation = useUpdateStatus(activeSheetId);
-  const clearStatusMutation = useClearStatus(activeSheetId);
-  const updateMilestoneMutation = useUpdateMilestone(project?.id, activeSheetId);
+  const {
+    undoStack, triggerUndo, triggerRedo, redoStack,
+    unitNamingOpen, setUnitNamingOpen,
+    newUnitName, setNewUnitName,
+    editingUnitId, savingUnitId,
+    confirmModal, setConfirmModal,
+    quickStatusUnitId, setQuickStatusUnitId,
+    quickMilestoneUnitId, setQuickMilestoneUnitId,
+    pendingPolygonPoints, setPendingPolygonPoints,
+    toast, setToast,
+    handlePolygonComplete,
+    handleUpdateUnitPolygon,
+    handleDuplicateUnit,
+    handleInstantStamp,
+    handleRenameUnitInitiate,
+    saveNewUnitFromPopover,
+    cancelUnitNaming,
+    handleDeleteUnit,
+    handleUpdateUnitIconOffset,
+    commitUnitMilestone,
+    handleQuickUpdate
+  } = useMapActions(project);
+
+  const {
+    isModalOpen, setIsModalOpen,
+    newLevelName, setNewLevelName,
+    selectedFile, setSelectedFile,
+    pdfPageNumber, setPdfPageNumber,
+    isUploading, setIsUploading,
+    handleAddLevel,
+    handleAttachOriginal,
+    handleRenameSheet,
+    handleDeleteSheet,
+    handleAddMilestone,
+    handleUpdateMilestone,
+    handleDeleteMilestone
+  } = useProjectActions(project, sheets);
 
   const isSettingsOpen = useAppStore(s => s.isSettingsOpen);
   const setIsSettingsOpen = useAppStore(s => s.setIsSettingsOpen);
   const isProjectMenuOpen = useAppStore(s => s.isProjectMenuOpen);
   const setIsProjectMenuOpen = useAppStore(s => s.setIsProjectMenuOpen);
-  const toast = useAppStore(s => s.toast);
-  const setToast = useAppStore(s => s.setToast);
   const listRefs = useRef({});
-  const confirmModal = useAppStore(s => s.confirmModal);
-  const setConfirmModal = useAppStore(s => s.setConfirmModal);
   const milestoneMenu = useAppStore(s => s.milestoneMenu);
   const setMilestoneMenu = useAppStore(s => s.setMilestoneMenu);
-  const savingUnitId = useAppStore(s => s.savingUnitId);
-  const setSavingUnitId = useAppStore(s => s.setSavingUnitId);
-  const quickStatusUnitId = useAppStore(s => s.quickStatusUnitId);
-  const setQuickStatusUnitId = useAppStore(s => s.setQuickStatusUnitId);
-  const quickMilestoneUnitId = useAppStore(s => s.quickMilestoneUnitId);
-  const setQuickMilestoneUnitId = useAppStore(s => s.setQuickMilestoneUnitId);
-  const pendingPolygonPoints = useAppStore(s => s.pendingPolygonPoints);
-  const setPendingPolygonPoints = useAppStore(s => s.setPendingPolygonPoints);
-  const unitNamingOpen = useAppStore(s => s.unitNamingOpen);
-  const setUnitNamingOpen = useAppStore(s => s.setUnitNamingOpen);
-  const newUnitName = useAppStore(s => s.newUnitName);
-  const setNewUnitName = useAppStore(s => s.setNewUnitName);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
@@ -105,25 +119,7 @@ function App() {
     }
   }, [selectedUnitId]);
 
-  const {
-    undoStack, setUndoStack,
-    redoStack, setRedoStack,
-    triggerUndo, triggerRedo
-  } = useUndoRedo({
-    toolMode,
-    sheetId: activeSheetId,
-  });
 
-  const isModalOpen = useAppStore(s => s.isModalOpen);
-  const setIsModalOpen = useAppStore(s => s.setIsModalOpen);
-  const newLevelName = useAppStore(s => s.newLevelName);
-  const setNewLevelName = useAppStore(s => s.setNewLevelName);
-  const selectedFile = useAppStore(s => s.selectedFile);
-  const setSelectedFile = useAppStore(s => s.setSelectedFile);
-  const pdfPageNumber = useAppStore(s => s.pdfPageNumber);
-  const setPdfPageNumber = useAppStore(s => s.setPdfPageNumber);
-  const isUploading = useAppStore(s => s.isUploading);
-  const setIsUploading = useAppStore(s => s.setIsUploading);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -144,35 +140,6 @@ function App() {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  const handleAddMilestone = async (name, color, track) => {
-    if (!name || !project) return;
-    try {
-      const { data, error } = await supabase.from('project_milestones').insert([{ project_id: project.id, name, color, track }]).select();
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['milestones'] });
-    } catch (err) {
-      showToast('Failed to add milestone: ' + err.message, 'error');
-    }
-  };
-
-  const handleUpdateMilestone = async (id, oldName, newName, newColor) => {
-    try {
-      await updateMilestoneMutation.mutateAsync({ id, oldName, newName, newColor });
-    } catch (err) {
-      showToast('Failed to update milestone: ' + err.message, 'error');
-    }
-  };
-
-  const handleDeleteMilestone = async (id) => {
-    try {
-      const { error } = await supabase.from('project_milestones').delete().eq('id', id);
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['milestones'] });
-    } catch (err) {
-      showToast('Failed to delete milestone: ' + err.message, 'error');
-    }
-  };
-
   const showToast = (message, type) => {
     if (!settings.enableToasts) return;
     setToast({ message, type });
@@ -187,10 +154,9 @@ function App() {
     if (!activeSheetId || !activeSheet) return;
     const units = queryClient.getQueryData(['units', activeSheetId]) || [];
     const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
+    const currentTrackStatuses = activeStatuses.filter((s) => s.track === trackingMode);
     
     showToast('Generating Vector PDF... This may take a few seconds.', 'success');
-    
-    const currentTrackStatuses = activeStatuses.filter((s) => s.track === trackingMode);
     
     const polygonsPayload = units
       .filter(u => u.polygon_coordinates && u.polygon_coordinates.length > 2)
@@ -266,324 +232,7 @@ function App() {
     }
   };
 
-  const handleAddLevel = async (e) => {
-    e.preventDefault();
-    if (!selectedFile || !newLevelName) return;
-    setIsUploading(true);
 
-    try {
-      const { data: newSheet, error } = await supabase
-        .from('sheets')
-        .insert([{ project_id: project.id, sheet_name: newLevelName }])
-        .select();
-
-      if (error) throw error;
-      const sheetId = newSheet[0].id;
-
-      const { image_url } = await uploadFloorplanService(sheetId, selectedFile, pdfPageNumber);
-
-      await supabase.from('sheets').update({ base_image_url: image_url }).eq('id', sheetId);
-
-      const updatedSheet = { ...newSheet[0], base_image_url: image_url };
-      queryClient.invalidateQueries({ queryKey: ['sheets'] });
-      setActiveSheetId(sheetId);
-      setIsModalOpen(false);
-      setNewLevelName('');
-      setSelectedFile(null);
-      setPdfPageNumber(1);
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleAttachOriginal = async (file) => {
-    if (!activeSheetId || !file) return;
-    try {
-      showToast('Uploading original PDF...', 'success');
-      await attachOriginalService(activeSheetId, file);
-      showToast('Successfully attached original PDF!', 'success');
-    } catch (e) {
-      showToast('Failed to attach: ' + e.message, 'error');
-    }
-  };
-
-  const handleRenameSheet = async (sheetId, newName) => {
-    try {
-      const { error } = await supabase.from('sheets').update({ sheet_name: newName }).eq('id', sheetId);
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['sheets'] });
-      showToast('Level renamed successfully!', 'success');
-    } catch (e) {
-      showToast('Failed to rename: ' + e.message, 'error');
-    }
-  };
-
-  const handleDeleteSheet = async (sheetId) => {
-    try {
-      showToast('Wiping level and all data...', 'success');
-      
-      await supabase.storage.from('floorplans').remove([
-        `converted/${sheetId}.png`,
-        `originals/${sheetId}.pdf`
-      ]);
-
-      const { data: sheetUnits } = await supabase.from('units').select('id').eq('sheet_id', sheetId);
-      if (sheetUnits && sheetUnits.length > 0) {
-        const unitIds = sheetUnits.map(u => u.id);
-        await supabase.from('status_logs').delete().in('unit_id', unitIds);
-        await supabase.from('units').delete().in('id', unitIds);
-      }
-
-      const { error } = await supabase.from('sheets').delete().eq('id', sheetId);
-      if (error) throw error;
-
-      const newSheets = sheets.filter(s => s.id !== sheetId);
-      queryClient.invalidateQueries({ queryKey: ['sheets'] });
-      
-      if (activeSheetId === sheetId) {
-        setActiveSheetId(newSheets.length > 0 ? newSheets[0].id : '');
-      }
-
-      showToast('Level deleted successfully!', 'success');
-    } catch (e) {
-      showToast('Failed to delete: ' + e.message, 'error');
-    }
-  };
-
-  const handlePolygonComplete = (points) => {
-    setToolMode('pan');
-    setPendingPolygonPoints(points);
-    setNewUnitName('');
-    setUnitNamingOpen(true);
-  };
-
-  const handleUpdateUnitPolygon = async (unitId, newPoints, isUndoRedo = false) => {
-    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
-    if (!isUndoRedo) {
-      const oldUnit = units.find(u => u.id === unitId);
-      if (oldUnit) {
-        setUndoStack(prev => {
-          const nextStack = [...prev, { actionType: 'UPDATE_GEOMETRY', unitId: unitId, oldData: oldUnit.polygon_coordinates, newData: newPoints }];
-          return nextStack.length > 50 ? nextStack.slice(nextStack.length - 50) : nextStack;
-        });
-        setRedoStack([]);
-      }
-    }
-    await updateUnitGeometryMutation.mutateAsync({ unitId, polygon_coordinates: newPoints }).catch(err => {
-      if (!isUndoRedo) setUndoStack(prev => prev.slice(0, -1)); 
-      showToast('Error updating location geometry: ' + err.message, 'error');
-    });
-  };
-
-  const handleDuplicateUnit = async (unitId) => {
-    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
-    const sourceUnit = units.find(u => u.id === unitId);
-    if (!sourceUnit) return;
-    
-    const newPoints = sourceUnit.polygon_coordinates.map(p => ({
-      pctX: p.pctX + 0.02,
-      pctY: p.pctY + 0.02
-    }));
-    
-    setPendingPolygonPoints(newPoints);
-    setNewUnitName(`${sourceUnit.unit_number} (Copy)`);
-    setUnitNamingOpen(true);
-  };
-
-  const handleInstantStamp = async (sourceUnitId, newPoints) => {
-    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
-    const sourceUnit = units.find(u => u.id === sourceUnitId);
-    if (!sourceUnit) return;
-    
-    const baseNameMatch = sourceUnit.unit_number.match(/^(.*?)(?:\s*\(Stamp\s*(\d+)\))?$/);
-    const baseName = baseNameMatch ? baseNameMatch[1].trim() : sourceUnit.unit_number;
-    
-    let nextIndex = 1;
-    units.forEach(u => {
-      if (u.unit_number.startsWith(`${baseName} (Stamp`)) {
-        const match = u.unit_number.match(/\(Stamp\s*(\d+)\)$/);
-        if (match) {
-          const idx = parseInt(match[1]);
-          if (idx >= nextIndex) nextIndex = idx + 1;
-        }
-      }
-    });
-    
-    const stampedName = `${baseName} (Stamp ${nextIndex})`;
-    try {
-      const data = await createUnitMutation.mutateAsync({ sheet_id: activeSheetId, unit_number: stampedName, polygon_coordinates: newPoints });
-      setUndoStack(prev => {
-        const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data }];
-        return next.length > 50 ? next.slice(next.length - 50) : next;
-      });
-      setRedoStack([]);
-    } catch (err) {
-      showToast('Error stamping location: ' + err.message, 'error');
-    }
-  };
-
-  const handleRenameUnitInitiate = (unitId) => {
-     const units = queryClient.getQueryData(['units', activeSheetId]) || [];
-     const unit = units.find(u => u.id === unitId);
-     if (!unit) return;
-     setEditingUnitId(unitId);
-     setNewUnitName(unit.unit_number);
-     setUnitNamingOpen(true);
-  };
-
-  const saveNewUnitFromPopover = async () => {
-    const name = newUnitName.trim();
-    if (!name) return;
-    if (!editingUnitId && !pendingPolygonPoints) return;
-
-    try {
-      if (editingUnitId) {
-         await updateUnitFieldsMutation.mutateAsync({ unitId: editingUnitId, updates: { unit_number: name } });
-         setUnitNamingOpen(false);
-         setEditingUnitId(null);
-         setNewUnitName('');
-         showToast('Location renamed.', 'success');
-      } else {
-         const data = await createUnitMutation.mutateAsync({ sheet_id: activeSheetId, unit_number: name, polygon_coordinates: pendingPolygonPoints });
-         setUndoStack(prev => {
-             const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data }];
-             return next.length > 50 ? next.slice(next.length - 50) : next;
-         });
-         setRedoStack([]);
-         setUnitNamingOpen(false);
-         setPendingPolygonPoints(null);
-         setNewUnitName('');
-         showToast('Location saved.', 'success');
-      }
-    } catch (err) {
-      showToast('Error saving location: ' + err.message, 'error');
-    }
-  };
-
-  const cancelUnitNaming = () => {
-    setUnitNamingOpen(false);
-    setPendingPolygonPoints(null);
-    setEditingUnitId(null);
-    setNewUnitName('');
-  };
-
-  const handleDeleteUnit = (unitId) => {
-    setConfirmModal({
-      message: 'Are you sure you want to delete this location markup?',
-      onConfirm: async () => {
-        const units = queryClient.getQueryData(['units', activeSheetId]) || [];
-        const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
-        const unitToDelete = units.find(u => u.id === unitId);
-        const statusToDelete = activeStatuses.find(s => s.unit_id === unitId);
-        
-        try {
-          await deleteUnitMutation.mutateAsync(unitId);
-          setUndoStack(prev => {
-            const next = [...prev, { actionType: 'DELETE_UNIT', unitData: unitToDelete, statusData: statusToDelete }];
-            return next.length > 50 ? next.slice(next.length - 50) : next;
-          });
-          setRedoStack([]);
-          showToast('Location deleted successfully.', 'success');
-        } catch (err) {
-          showToast('Error deleting location: ' + err.message, 'error');
-        } finally {
-          setConfirmModal(null);
-        }
-      },
-    });
-  };
-
-  const handleUpdateUnitIconOffset = async (unitId, offsetX, offsetY) => {
-    try {
-      await updateUnitFieldsMutation.mutateAsync({ unitId, updates: { icon_offset_x: offsetX, icon_offset_y: offsetY } });
-    } catch (err) {
-      showToast('Failed to save icon offset: ' + err.message, 'error');
-    }
-  };
-
-  const handleQuickUpdate = (unitId, type, value) => {
-    const units = queryClient.getQueryData(['units', activeSheetId]) || [];
-    const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
-    const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
-    const unit = units.find(u => u.id === unitId);
-    if (!unit) return;
-
-    const existingStatus = activeStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
-
-    if (type === 'status') {
-      if (value === 'none') {
-        const milestone = { isClearAction: true, track: trackingMode };
-        commitUnitMilestone(unit, milestone);
-        return;
-      }
-      
-      let milestoneObj;
-      if (existingStatus) {
-         milestoneObj = { name: existingStatus.milestone, color: existingStatus.status_color, track: trackingMode };
-      } else {
-         milestoneObj = milestones.find(m => m.track === trackingMode) || { name: 'Not Started', color: '#64748b', track: trackingMode };
-      }
-      commitUnitMilestone(unit, milestoneObj, value);
-    } else if (type === 'milestone') {
-      const selectedMilestone = milestones.find(m => m.name === value && m.track === trackingMode);
-      if (!selectedMilestone) return;
-
-      const temporalState = existingStatus ? existingStatus.temporal_state : 'completed';
-      commitUnitMilestone(unit, selectedMilestone, temporalState);
-    }
-  };
-
-  const commitUnitMilestone = async (unit, milestone, currentTemporalState = 'none', isUndoRedo = false) => {
-    setSavingUnitId(unit.id);
-    const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
-    const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
-    
-    if (milestone.isClearAction) {
-      try {
-        const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
-        if (!oldLog) return;
-        await clearStatusMutation.mutateAsync({ unitId: unit.id, track: trackingMode, milestone: oldLog.milestone });
-        if (!isUndoRedo) {
-          setUndoStack(prev => {
-            const next = [...prev, { actionType: 'UPDATE_STATUS', unitId: unit.id, oldLog, newLog: null }];
-            return next.length > 50 ? next.slice(next.length - 50) : next;
-          });
-          setRedoStack([]);
-        }
-      } catch (err) {
-        showToast('Failed to clear status: ' + err.message, 'error');
-      } finally {
-        setSavingUnitId(null);
-      }
-      return;
-    }
-
-    const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track) || null;
-    try {
-      const status_color = milestone.color || milestone.status_color;
-      const newLogData = {
-        unit_id: unit.id,
-        milestone: milestone.name || milestone.milestone,
-        status_color,
-        temporal_state: currentTemporalState,
-        track: milestone.track
-      };
-      const newLog = await updateStatusMutation.mutateAsync(newLogData);
-      if (!isUndoRedo) {
-        setUndoStack(prev => {
-          const next = [...prev, { actionType: 'UPDATE_STATUS', unitId: unit.id, oldLog: oldStatus, newLog }];
-          return next.length > 50 ? next.slice(next.length - 50) : next;
-        });
-        setRedoStack([]);
-      }
-    } catch (err) {
-      showToast('Failed to update status: ' + err.message, 'error');
-    } finally {
-      setSavingUnitId(null);
-    }
-  };
 
   const handleMilestoneMenuSelect = (m) => {
     if (milestoneMenu?.mode === 'filter') {
@@ -603,7 +252,8 @@ function App() {
 
   if (!isMounted) return null;
 
-  const currentTrackStatuses = activeStatuses.filter((s) => s.track === trackingMode);
+  const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
+  const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
 
   return (
     <div
