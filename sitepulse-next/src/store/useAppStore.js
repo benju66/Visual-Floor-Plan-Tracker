@@ -26,7 +26,7 @@ export const useAppStore = create(
       temporalFilters: ['planned', 'ongoing', 'completed', 'none'],
       setTemporalFilters: (filters) => set(typeof filters === 'function' ? (state) => ({ temporalFilters: filters(state.temporalFilters) }) : { temporalFilters: filters }),
 
-      filterMilestone: 'All',
+      filterMilestone: null,
       setFilterMilestone: (ml) => set({ filterMilestone: typeof ml === 'function' ? ml(useAppStore.getState().filterMilestone) : ml }),
 
       // Active Sheet State

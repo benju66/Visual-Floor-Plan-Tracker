@@ -54,6 +54,14 @@ function App() {
   const queryClient = useQueryClient();
   const { data: project } = useProject();
   const { data: sheets = [] } = useSheets(project?.id);
+
+  // Auto-select first available sheet to prevent invalid UI mounting or empty cache fallbacks
+  useEffect(() => {
+    if (sheets.length > 0 && (!activeSheetId || !sheets.find(s => s.id === activeSheetId))) {
+      setActiveSheetId(sheets[0].id);
+    }
+  }, [sheets, activeSheetId, setActiveSheetId]);
+
   const {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
