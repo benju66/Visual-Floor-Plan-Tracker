@@ -162,6 +162,36 @@ const FloorplanCanvas = forwardRef(({
     return { offsetX, offsetY, drawW, drawH, stageW, stageH };
   }, [image, dimensions.width, dimensions.height]);
 
+  const visibleBoundingBox = useMemo(() => {
+    if (!layout.drawW || !layout.drawH || !dimensions.width || !dimensions.height) return null;
+    const minX = ((-stagePosition.x / stageScale) - layout.offsetX) / layout.drawW;
+    const minY = ((-stagePosition.y / stageScale) - layout.offsetY) / layout.drawH;
+    const maxX = (((dimensions.width - stagePosition.x) / stageScale) - layout.offsetX) / layout.drawW;
+    const maxY = (((dimensions.height - stagePosition.y) / stageScale) - layout.offsetY) / layout.drawH;
+    return {
+      minPctX: minX - 0.05,
+      maxPctX: maxX + 0.05,
+      minPctY: minY - 0.05,
+      maxPctY: maxY + 0.05,
+    };
+  }, [stagePosition, stageScale, dimensions, layout]);
+
+  const visibleUnits = useMemo(() => {
+    if (!visibleBoundingBox || !layout.drawW) return units;
+    const { minPctX, maxPctX, minPctY, maxPctY } = visibleBoundingBox;
+
+    return units.filter(unit => {
+      if (!unit.polygon_coordinates || unit.polygon_coordinates.length === 0) return true;
+      
+      return unit.polygon_coordinates.some(pt => 
+        pt.pctX >= minPctX && 
+        pt.pctX <= maxPctX && 
+        pt.pctY >= minPctY && 
+        pt.pctY <= maxPctY
+      );
+    });
+  }, [units, visibleBoundingBox, layout.drawW]);
+
   useImperativeHandle(ref, () => ({
     exportFullImage: () => {
       if (!stageRef.current || !image) return null;
@@ -499,6 +529,8 @@ const FloorplanCanvas = forwardRef(({
     computedCursor = isHoveringAnchor ? deleteNodeCursor : 'default';
   }
 
+  const isZoomedOut = stageScale < 1.5;
+
   return (
     <div
       id="sitepulse-floorplan-container"
@@ -628,8 +660,8 @@ const FloorplanCanvas = forwardRef(({
               />
             )}
 
-            {units &&
-              units.map((unit) => (
+            {visibleUnits &&
+              visibleUnits.map((unit) => (
                 <MappedUnit
                   key={unit.id}
                   unit={unit}
@@ -641,6 +673,7 @@ const FloorplanCanvas = forwardRef(({
                   toolMode={toolMode}
                   layout={layout}
                   stageScale={stageScale}
+                  isZoomedOut={isZoomedOut}
                   settings={settings}
                   activeDragNode={activeDragNode}
                   activeDragPolygon={activeDragPolygon}
