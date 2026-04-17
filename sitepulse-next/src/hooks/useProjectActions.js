@@ -30,9 +30,10 @@ export function useProjectActions(project, sheets) {
   };
 
   const handleAddMilestone = async (name, color, track) => {
-    if (!name || !project) return;
+    const rawName = name?.trim();
+    if (!rawName || !project) return;
     try {
-      const { data, error } = await supabase.from('project_milestones').insert([{ project_id: project.id, name, color, track }]).select();
+      const { data, error } = await supabase.from('project_milestones').insert([{ project_id: project.id, name: rawName, color, track }]).select();
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['milestones'] });
     } catch (err) {
@@ -50,9 +51,19 @@ export function useProjectActions(project, sheets) {
 
   const handleDeleteMilestone = async (id) => {
     try {
+      const { data: milestoneData, error: fetchErr } = await supabase.from('project_milestones').select('name').eq('id', id).single();
+      if (fetchErr) throw fetchErr;
+
+      if (milestoneData?.name) {
+        const { error: logErr } = await supabase.from('status_logs').delete().eq('milestone', milestoneData.name);
+        if (logErr) throw logErr;
+      }
+
       const { error } = await supabase.from('project_milestones').delete().eq('id', id);
       if (error) throw error;
+      
       queryClient.invalidateQueries({ queryKey: ['milestones'] });
+      queryClient.invalidateQueries({ queryKey: ['statuses'] });
     } catch (err) {
       showToast('Failed to delete milestone: ' + err.message, 'error');
     }

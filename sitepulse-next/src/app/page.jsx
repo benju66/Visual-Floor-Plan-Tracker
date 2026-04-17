@@ -8,7 +8,7 @@ import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import { supabase } from '@/supabaseClient';
 import { useAppStore, useHydratedStore } from '@/store/useAppStore';
-import { useProject, useSheets } from '@/hooks/useProjectQueries';
+import { useProject, useSheets, useMilestones } from '@/hooks/useProjectQueries';
 import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
@@ -54,6 +54,7 @@ function App() {
   const queryClient = useQueryClient();
   const { data: project } = useProject();
   const { data: sheets = [] } = useSheets(project?.id);
+  const { data: milestones = [] } = useMilestones(project?.id);
 
   // Auto-select first available sheet to prevent invalid UI mounting or empty cache fallbacks
   useEffect(() => {
@@ -261,7 +262,6 @@ function App() {
   if (!isMounted) return null;
 
   const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
-  const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
 
   return (
     <div

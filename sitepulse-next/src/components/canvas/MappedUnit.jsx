@@ -179,9 +179,6 @@ export default function MappedUnit({
               const newAbsX = e.target.x();
               const newAbsY = e.target.y();
               
-              e.target.x(layout.offsetX + centroid.pctX * layout.drawW);
-              e.target.y(layout.offsetY + centroid.pctY * layout.drawH);
-              
               const newPctX = (newAbsX - layout.offsetX) / layout.drawW;
               const newPctY = (newAbsY - layout.offsetY) / layout.drawH;
               

@@ -228,9 +228,8 @@ const FloorplanCanvas = forwardRef(({
   const handleWheel = (e) => {
     e.evt.preventDefault();
     const stage = e.target.getStage();
-    const scaleBy = 1.1;
+    
     const oldScale = stage.scaleX();
-
     const pointer = stage.getPointerPosition();
 
     const mousePointTo = {
@@ -238,7 +237,16 @@ const FloorplanCanvas = forwardRef(({
       y: (pointer.y - stage.y()) / oldScale,
     };
 
-    const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
+    let newScale;
+    if (e.evt.ctrlKey) {
+      // Trackpad native pinch
+      newScale = e.evt.deltaY > 0 ? oldScale / 1.05 : oldScale * 1.05;
+    } else {
+      // Fluid inertial friction for continuous slides and wheels
+      const delta = Math.abs(e.evt.deltaY);
+      const stretch = Math.pow(1.08, Math.min(delta, 100) / 50);
+      newScale = e.evt.deltaY > 0 ? oldScale / stretch : oldScale * stretch;
+    }
 
     setStageScale(newScale);
     setStagePosition({

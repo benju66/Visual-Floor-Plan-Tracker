@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 
 export function useProject() {
@@ -74,7 +74,8 @@ export function useStatuses(sheetId, unitIds, milestones) {
       });
       return Object.values(latestStatusMap);
     },
-    enabled: !!sheetId && validUnitIds.length > 0
+    enabled: !!sheetId && validUnitIds.length > 0,
+    placeholderData: keepPreviousData
   });
 }
 
@@ -91,15 +92,12 @@ export function useCreateUnit(sheetId) {
     },
     onMutate: async (newUnit) => {
       await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
-      const previousUnits = queryClient.getQueryData(['units', sheetId]);
       const tempId = `temp_${Date.now()}`;
       const tempUnit = { ...newUnit, id: tempId };
-      queryClient.setQueryData(['units', sheetId], old => old ? [...old, tempUnit] : [tempUnit]);
-      return { previousUnits };
+      queryClient.setQueriesData({ queryKey: ['units', sheetId] }, old => old ? [...old, tempUnit] : [tempUnit]);
+      return {};
     },
-    onError: (err, newUnit, context) => {
-      queryClient.setQueryData(['units', sheetId], context.previousUnits);
-    },
+    onError: () => {},
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
     }
@@ -116,14 +114,13 @@ export function useUpdateUnitGeometry(sheetId) {
     },
     onMutate: async ({ unitId, polygon_coordinates }) => {
       await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
-      const previousUnits = queryClient.getQueryData(['units', sheetId]);
-      queryClient.setQueryData(['units', sheetId], old => {
+      queryClient.setQueriesData({ queryKey: ['units', sheetId] }, old => {
         if (!old) return old;
         return old.map(u => u.id === unitId ? { ...u, polygon_coordinates } : u);
       });
-      return { previousUnits };
+      return {};
     },
-    onError: (err, newUnits, context) => queryClient.setQueryData(['units', sheetId], context.previousUnits),
+    onError: () => {},
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['units', sheetId] })
   });
 }
@@ -139,14 +136,13 @@ export function useUpdateUnitFields(sheetId) {
     },
     onMutate: async ({ unitId, updates }) => {
       await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
-      const previousUnits = queryClient.getQueryData(['units', sheetId]);
-      queryClient.setQueryData(['units', sheetId], old => {
+      queryClient.setQueriesData({ queryKey: ['units', sheetId] }, old => {
         if (!old) return old;
         return old.map(u => u.id === unitId ? { ...u, ...updates } : u);
       });
-      return { previousUnits };
+      return {};
     },
-    onError: (err, newUnits, context) => queryClient.setQueryData(['units', sheetId], context.previousUnits),
+    onError: () => {},
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['units', sheetId] })
   });
 }
@@ -161,11 +157,10 @@ export function useDeleteUnit(sheetId) {
     },
     onMutate: async (unitId) => {
       await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
-      const previousUnits = queryClient.getQueryData(['units', sheetId]);
-      queryClient.setQueryData(['units', sheetId], old => old ? old.filter(u => u.id !== unitId) : old);
-      return { previousUnits };
+      queryClient.setQueriesData({ queryKey: ['units', sheetId] }, old => old ? old.filter(u => u.id !== unitId) : old);
+      return {};
     },
-    onError: (err, unitId, context) => queryClient.setQueryData(['units', sheetId], context.previousUnits),
+    onError: () => {},
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
       queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
@@ -186,16 +181,15 @@ export function useUpdateStatus(sheetId) {
     },
     onMutate: async (newLogData) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
-      const previousStatuses = queryClient.getQueryData(['statuses', sheetId]);
       
-      queryClient.setQueryData(['statuses', sheetId], old => {
+      queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
         const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track));
         return [...filtered, { ...newLogData, id: `temp_${Date.now()}` }];
       });
-      return { previousStatuses };
+      return {};
     },
-    onError: (err, newLogData, context) => queryClient.setQueryData(['statuses', sheetId], context.previousStatuses),
+    onError: () => {},
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
   });
 }
@@ -209,14 +203,13 @@ export function useClearStatus(sheetId) {
     },
     onMutate: async ({ unitId, track }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
-      const previousStatuses = queryClient.getQueryData(['statuses', sheetId]);
-      queryClient.setQueryData(['statuses', sheetId], old => {
+      queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
         return old.filter(s => !(s.unit_id === unitId && s.track === track));
       });
-      return { previousStatuses };
+      return {};
     },
-    onError: (err, variables, context) => queryClient.setQueryData(['statuses', sheetId], context.previousStatuses),
+    onError: () => {},
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
   });
 }

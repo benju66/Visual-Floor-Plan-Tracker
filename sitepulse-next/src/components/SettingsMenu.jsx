@@ -269,6 +269,7 @@ export default function SettingsMenu({
                           type="text"
                           value={editMilestoneName}
                           onChange={(e) => setEditMilestoneName(e.target.value)}
+                          autoFocus
                           className="w-full bg-transparent text-sm font-medium outline-none px-2"
                         />
                         <input

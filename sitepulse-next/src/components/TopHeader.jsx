@@ -1,5 +1,6 @@
 import React from 'react';
-import { Settings, FolderEdit } from 'lucide-react';
+import { Settings, FolderEdit, RefreshCw } from 'lucide-react';
+import { useIsFetching } from '@tanstack/react-query';
 
 function TopHeader({
   project, sheets, activeSheetId, setActiveSheetId,
@@ -9,10 +10,17 @@ function TopHeader({
   activeSheet, exportToPDF, setIsSettingsOpen,
   triggerUndo, triggerRedo, undoStack, redoStack
 }) {
+  const isFetching = useIsFetching();
+  
   return (
     <header className="mb-4 flex-shrink-0 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 rounded-2xl border px-4 py-3 glass-panel">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">SitePulse Visual Tracker</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            SitePulse Visual Tracker
+            {isFetching > 0 && (
+              <RefreshCw size={16} className="text-blue-500 animate-spin opacity-80" />
+            )}
+          </h1>
           <div className="flex flex-wrap gap-3 mt-2">
             <select
               className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg font-semibold shadow-sm bg-white/60 dark:bg-black/25"
