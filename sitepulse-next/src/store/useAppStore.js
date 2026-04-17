@@ -39,7 +39,7 @@ export const useAppStore = create(
         settings: typeof settingsFn === 'function' ? settingsFn(state.settings) : settingsFn 
       })),
 
-      mapSettings: { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? settingsFn(state.mapSettings) : settingsFn 
       })),

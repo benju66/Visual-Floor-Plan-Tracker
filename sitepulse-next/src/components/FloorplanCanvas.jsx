@@ -42,6 +42,7 @@ const FloorplanCanvas = forwardRef(({
   const legendFilter = useAppStore(s => s.filterMilestone);
   
   const settings = useHydratedStore(s => s.settings, { showHistoryHover: false });
+  const mapSettings = useHydratedStore(s => s.mapSettings, { showCrosshair: false });
   const legendPosition = useHydratedStore(s => s.legendPosition, { isVisible: false });
   const onLegendDragEnd = useAppStore(s => s.setLegendPosition);
 
@@ -778,16 +779,46 @@ const FloorplanCanvas = forwardRef(({
         </Stage>
       )}
 
-      {settings?.showHistoryHover && hoveredUnit && pointerPos && !contextMenu && toolMode !== 'draw' && toolMode !== 'add_node' && (
-        <div
-          className="absolute z-40 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-1.5 rounded-lg text-sm font-bold shadow-xl pointer-events-none transition-opacity animate-in fade-in duration-150"
-          style={{
-            left: pointerPos.x + 15,
-            top: pointerPos.y + 15,
-          }}
-        >
-          {units.find(u => u.id === hoveredUnit)?.unit_number || ''}
+      {mapSettings?.showCrosshair && pointerPos && (
+        <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden mix-blend-difference opacity-40">
+          <div className="absolute top-0 bottom-0 border-l border-dashed border-white" style={{ left: pointerPos.x }} />
+          <div className="absolute left-0 right-0 border-t border-dashed border-white" style={{ top: pointerPos.y }} />
         </div>
+      )}
+
+      {settings?.showHistoryHover && hoveredUnit && pointerPos && !contextMenu && toolMode !== 'draw' && toolMode !== 'add_node' && (
+        (() => {
+          const u = units.find(x => x.id === hoveredUnit);
+          const s = activeStatuses.find(status => status.unit_id === hoveredUnit);
+
+          return (
+            <div
+              className="absolute z-40 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-4 py-3 rounded-xl text-sm shadow-2xl pointer-events-none transition-opacity animate-in fade-in duration-150 border border-slate-700 dark:border-white/20 min-w-[180px]"
+              style={{
+                left: pointerPos.x + 20,
+                top: pointerPos.y + 20,
+              }}
+            >
+              <div className="font-bold text-base mb-1">{u?.unit_number || 'Unknown Location'}</div>
+              {s ? (
+                <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-slate-700/50 dark:border-black/10">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: s.status_color }} />
+                    <span className="font-semibold">{s.milestone}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                    <span className="capitalize">{s.temporal_state || 'Completed'}</span>
+                    <span>{new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 pt-2 border-t border-slate-700/50 dark:border-black/10 text-xs text-slate-400 dark:text-slate-500 italic">
+                  Not Started
+                </div>
+              )}
+            </div>
+          );
+        })()
       )}
 
       <CanvasContextMenu

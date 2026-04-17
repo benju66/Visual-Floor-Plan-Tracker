@@ -25,7 +25,6 @@ import { exportToPDFService, uploadFloorplanService, attachOriginalService } fro
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => setIsMounted(true), []);
 
   const toolMode = useAppStore(s => s.toolMode);
   const setToolMode = useAppStore(s => s.setToolMode);
@@ -43,6 +42,11 @@ function App() {
   const setFilterMilestone = useAppStore(s => s.setFilterMilestone);
   
   const settings = useHydratedStore(s => s.settings, { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' });
+
+  useEffect(() => {
+    setIsMounted(true);
+    setViewMode(useAppStore.getState().settings?.defaultViewMode || 'list');
+  }, [setViewMode]);
   const setSettings = useAppStore(s => s.setSettings);
   const mapSettings = useHydratedStore(s => s.mapSettings, { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] });
   const setMapSettings = useAppStore(s => s.setMapSettings);

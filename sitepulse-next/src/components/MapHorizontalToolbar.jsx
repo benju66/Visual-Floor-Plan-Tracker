@@ -29,9 +29,7 @@ export default function MapHorizontalToolbar({
   const isUndoEmpty = !undoStack || undoStack.length === 0;
   const isRedoEmpty = !redoStack || redoStack.length === 0;
 
-  const coreTools = ['select', 'pan', 'draw', 'add_node', 'delete_node'];
-  const userPinned = mapSettings?.pinnedTools || [];
-  const toolsToRender = Array.from(new Set([...coreTools, ...userPinned]));
+  const toolsToRender = mapSettings?.pinnedTools || ['select', 'pan', 'draw', 'add_node', 'delete_node'];
 
   return (
     <div
