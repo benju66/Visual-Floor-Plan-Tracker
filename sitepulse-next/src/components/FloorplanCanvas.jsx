@@ -48,8 +48,9 @@ const FloorplanCanvas = forwardRef(({
   const { data: project } = useProject();
   const { data: allMilestones = [] } = useMilestones(project?.id);
   const milestones = allMilestones.filter(m => m.track === trackingMode);
-  const { data: units = [] } = useUnits(activeSheetId);
-  const { data: statuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), allMilestones);
+  const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
+  const unitIds = units.map(u => u.id);
+  const { data: statuses = [], isPending: isStatusesPending } = useStatuses(activeSheetId, unitIds, allMilestones);
   const activeStatuses = statuses.filter(s => s.track === trackingMode);
   const [image] = useImage(imageUrl, 'anonymous');
 
@@ -530,6 +531,17 @@ const FloorplanCanvas = forwardRef(({
   }
 
   const isZoomedOut = stageScale < 1.5;
+
+  const isWaitingForStatuses = unitIds.length > 0 && isStatusesPending;
+
+  if (isLoadingUnits || isWaitingForStatuses) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-50 dark:bg-[#0f172a] rounded-xl border border-slate-200/60 dark:border-white/10">
+        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4 shadow-sm"></div>
+        <p className="text-slate-500 font-medium text-sm animate-pulse">Loading floor plan...</p>
+      </div>
+    );
+  }
 
   return (
     <div

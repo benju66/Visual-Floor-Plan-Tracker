@@ -80,7 +80,8 @@ export function useCreateUnit(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newUnit) => {
-      const { data, error } = await supabase.from('units').insert([newUnit]).select().single();
+      const { status_logs, ...dbUnit } = newUnit;
+      const { data, error } = await supabase.from('units').insert([dbUnit]).select().single();
       if (error) throw error;
       return data;
     },
@@ -127,7 +128,8 @@ export function useUpdateUnitFields(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ unitId, updates }) => {
-      const { data, error } = await supabase.from('units').update(updates).eq('id', unitId).select().single();
+      const { status_logs, ...dbUpdates } = updates;
+      const { data, error } = await supabase.from('units').update(dbUpdates).eq('id', unitId).select().single();
       if (error) throw error;
       return data;
     },
