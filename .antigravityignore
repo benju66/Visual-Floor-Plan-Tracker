@@ -1,0 +1,22 @@
+# Dependency Directories
+node_modules/
+*/node_modules/
+sitepulse-backend/venv/
+sitepulse-backend/__pycache__/
+sitepulse-backend/.pytest_cache/
+
+# Build Output and Next.js Cache
+sitepulse-next/.next/
+sitepulse-next/out/
+sitepulse-next/build/
+
+# Large Binary & Media Files
+**/*.pdf
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.mp4
+**/*.mov
+
+# Version Control
+.git/
