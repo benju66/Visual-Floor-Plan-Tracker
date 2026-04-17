@@ -18,17 +18,10 @@ import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/usePro
 
 const FloorplanCanvas = forwardRef(({
   imageUrl,
-  units,
-  activeStatuses,
-  toolMode,
-  onToolModeChange,
   onUpdateUnitPolygon,
   onUpdateUnitIconOffset,
   onDuplicateUnit,
   onPolygonComplete,
-  legendFilter,
-  selectedUnitId,
-  onSelectUnit,
   onRenameUnit,
   onDeleteUnit,
   onInstantStamp,
@@ -36,15 +29,28 @@ const FloorplanCanvas = forwardRef(({
   onPendingPolygonMove,
   onAddNodeToSegment,
   onPendingPolygonComplete,
-  
-  settings,
-  temporalFilters,
   onOpenMilestoneModal,
   onOpenStatusModal,
-  legendPosition,
-  onLegendDragEnd,
-  milestones,
 }, ref) => {
+  const activeSheetId = useAppStore(s => s.activeSheetId);
+  const toolMode = useAppStore(s => s.toolMode);
+  const onToolModeChange = useAppStore(s => s.setToolMode);
+  const selectedUnitId = useAppStore(s => s.selectedUnitId);
+  const onSelectUnit = useAppStore(s => s.setSelectedUnitId);
+  const temporalFilters = useAppStore(s => s.temporalFilters);
+  const trackingMode = useAppStore(s => s.trackingMode);
+  const legendFilter = useAppStore(s => s.filterMilestone);
+  
+  const settings = useHydratedStore(s => s.settings, { showHistoryHover: false });
+  const legendPosition = useHydratedStore(s => s.legendPosition, { isVisible: false });
+  const onLegendDragEnd = useAppStore(s => s.setLegendPosition);
+
+  const { data: project } = useProject();
+  const { data: allMilestones = [] } = useMilestones(project?.id);
+  const milestones = allMilestones.filter(m => m.track === trackingMode);
+  const { data: units = [] } = useUnits(activeSheetId);
+  const { data: statuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), allMilestones);
+  const activeStatuses = statuses.filter(s => s.track === trackingMode);
   const [image] = useImage(imageUrl, 'anonymous');
 
   const stageRef = useRef(null);

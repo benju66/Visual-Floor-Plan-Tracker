@@ -66,18 +66,29 @@ function App() {
   const clearStatusMutation = useClearStatus(activeSheetId, units.length);
   const updateMilestoneMutation = useUpdateMilestone(project?.id, activeSheetId, units.length);
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
-  const [toast, setToast] = useState(null);
+  const isSettingsOpen = useAppStore(s => s.isSettingsOpen);
+  const setIsSettingsOpen = useAppStore(s => s.setIsSettingsOpen);
+  const isProjectMenuOpen = useAppStore(s => s.isProjectMenuOpen);
+  const setIsProjectMenuOpen = useAppStore(s => s.setIsProjectMenuOpen);
+  const toast = useAppStore(s => s.toast);
+  const setToast = useAppStore(s => s.setToast);
   const listRefs = useRef({});
-  const [confirmModal, setConfirmModal] = useState(null);
-  const [milestoneMenu, setMilestoneMenu] = useState(null);
-  const [savingUnitId, setSavingUnitId] = useState(null);
-  const [quickStatusUnitId, setQuickStatusUnitId] = useState(null);
-  const [quickMilestoneUnitId, setQuickMilestoneUnitId] = useState(null);
-  const [pendingPolygonPoints, setPendingPolygonPoints] = useState(null);
-  const [unitNamingOpen, setUnitNamingOpen] = useState(false);
-  const [newUnitName, setNewUnitName] = useState('');
+  const confirmModal = useAppStore(s => s.confirmModal);
+  const setConfirmModal = useAppStore(s => s.setConfirmModal);
+  const milestoneMenu = useAppStore(s => s.milestoneMenu);
+  const setMilestoneMenu = useAppStore(s => s.setMilestoneMenu);
+  const savingUnitId = useAppStore(s => s.savingUnitId);
+  const setSavingUnitId = useAppStore(s => s.setSavingUnitId);
+  const quickStatusUnitId = useAppStore(s => s.quickStatusUnitId);
+  const setQuickStatusUnitId = useAppStore(s => s.setQuickStatusUnitId);
+  const quickMilestoneUnitId = useAppStore(s => s.quickMilestoneUnitId);
+  const setQuickMilestoneUnitId = useAppStore(s => s.setQuickMilestoneUnitId);
+  const pendingPolygonPoints = useAppStore(s => s.pendingPolygonPoints);
+  const setPendingPolygonPoints = useAppStore(s => s.setPendingPolygonPoints);
+  const unitNamingOpen = useAppStore(s => s.unitNamingOpen);
+  const setUnitNamingOpen = useAppStore(s => s.setUnitNamingOpen);
+  const newUnitName = useAppStore(s => s.newUnitName);
+  const setNewUnitName = useAppStore(s => s.setNewUnitName);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
@@ -108,11 +119,16 @@ function App() {
     unitIdsLength: units.length,
   });
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newLevelName, setNewLevelName] = useState('');
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [pdfPageNumber, setPdfPageNumber] = useState(1);
-  const [isUploading, setIsUploading] = useState(false);
+  const isModalOpen = useAppStore(s => s.isModalOpen);
+  const setIsModalOpen = useAppStore(s => s.setIsModalOpen);
+  const newLevelName = useAppStore(s => s.newLevelName);
+  const setNewLevelName = useAppStore(s => s.setNewLevelName);
+  const selectedFile = useAppStore(s => s.selectedFile);
+  const setSelectedFile = useAppStore(s => s.setSelectedFile);
+  const pdfPageNumber = useAppStore(s => s.pdfPageNumber);
+  const setPdfPageNumber = useAppStore(s => s.setPdfPageNumber);
+  const isUploading = useAppStore(s => s.isUploading);
+  const setIsUploading = useAppStore(s => s.setIsUploading);
 
   useEffect(() => {
     const root = document.documentElement;

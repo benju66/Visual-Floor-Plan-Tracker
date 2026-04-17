@@ -1,10 +1,9 @@
 import React from 'react';
 import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List } from 'lucide-react';
+import { useAppStore } from '@/store/useAppStore';
 
 export default function MapHorizontalToolbar({
   mapSettings,
-  toolMode,
-  onToolModeChange,
   triggerUndo,
   triggerRedo,
   undoStack,
@@ -12,6 +11,8 @@ export default function MapHorizontalToolbar({
   legendIsVisible,
   onToggleLegend
 }) {
+  const toolMode = useAppStore(s => s.toolMode);
+  const onToolModeChange = useAppStore(s => s.setToolMode);
   if (!mapSettings?.showHorizontalToolbar) return null;
 
   const toolIcons = {

@@ -1,14 +1,30 @@
 import React from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
+import { useAppStore } from '@/store/useAppStore';
+import { useUnits } from '@/hooks/useProjectQueries';
+import { useRef, useEffect } from 'react';
 
 function MapSidebar({
-  milestones, trackingMode, filterMilestone, setFilterMilestone,
+  milestones, filterMilestone, setFilterMilestone,
   temporalFilters, setTemporalFilters,
-  units, activeSheet,
-  setToolMode, selectedUnitId, setSelectedUnitId,
-  setListRef,
+  activeSheet,
   onRenameUnitInitiate, onDeleteUnit
 }) {
+  const activeSheetId = useAppStore(s => s.activeSheetId);
+  const trackingMode = useAppStore(s => s.trackingMode);
+  const selectedUnitId = useAppStore(s => s.selectedUnitId);
+  const setToolMode = useAppStore(s => s.setToolMode);
+  const setSelectedUnitId = useAppStore(s => s.setSelectedUnitId);
+  
+  const { data: units = [] } = useUnits(activeSheetId);
+  
+  const listRefs = useRef({});
+
+  useEffect(() => {
+    if (selectedUnitId && listRefs.current[selectedUnitId]) {
+      listRefs.current[selectedUnitId].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [selectedUnitId]);
   return (
     <div
       className="w-full lg:w-[320px] p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel"
@@ -113,7 +129,7 @@ function MapSidebar({
               {units.map((unit, index) => (
                 <li
                   key={unit.id}
-                  ref={(el) => setListRef(unit.id, el)}
+                  ref={(el) => listRefs.current[unit.id] = el}
                   onClick={() => {
                     setToolMode('select');
                     setSelectedUnitId(unit.id);

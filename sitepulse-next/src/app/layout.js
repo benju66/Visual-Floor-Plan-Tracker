@@ -1,5 +1,6 @@
 import { Outfit, Roboto_Mono } from "next/font/google";
 import "./globals.css";
+import QueryProvider from "@/providers/QueryProvider";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -16,8 +17,6 @@ export const metadata = {
   description: "Visually track construction progress on floor plans.",
 };
 
-import QueryProvider from "@/providers/QueryProvider";
-
 export default function RootLayout({ children }) {
   return (
     <html
@@ -25,9 +24,7 @@ export default function RootLayout({ children }) {
       className={`${outfit.variable} ${robotoMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300 ease-in-out">
-        <QueryProvider>
-          {children}
-        </QueryProvider>
+        <QueryProvider>{children}</QueryProvider>
       </body>
     </html>
   );

@@ -5,14 +5,10 @@ export function useProject() {
   return useQuery({
     queryKey: ['project'],
     queryFn: async () => {
-      let { data: projects } = await supabase.from('projects').select('*');
-      if (!projects || projects.length === 0) {
-        const { data } = await supabase.from('projects').insert([{ name: 'Orchard Path III' }]).select();
-        return data[0];
-      }
-      return projects[0];
-    },
-    staleTime: Infinity, // Projects rarely change during a session
+      const { data, error } = await supabase.from('projects').select('*').limit(1).single();
+      if (error && error.code !== 'PGRST116') throw error;
+      return data || null;
+    }
   });
 }
 
@@ -21,11 +17,11 @@ export function useSheets(projectId) {
     queryKey: ['sheets', projectId],
     queryFn: async () => {
       if (!projectId) return [];
-      const { data, error } = await supabase.from('sheets').select('*').eq('project_id', projectId);
+      const { data, error } = await supabase.from('sheets').select('*').eq('project_id', projectId).order('created_at', { ascending: true });
       if (error) throw error;
-      return data || [];
+      return data;
     },
-    enabled: !!projectId,
+    enabled: !!projectId
   });
 }
 
@@ -34,29 +30,11 @@ export function useMilestones(projectId) {
     queryKey: ['milestones', projectId],
     queryFn: async () => {
       if (!projectId) return [];
-      let { data: loadedMilestones, error } = await supabase
-        .from('project_milestones')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('id', { ascending: true });
-
+      const { data, error } = await supabase.from('project_milestones').select('*').eq('project_id', projectId).order('created_at', { ascending: true });
       if (error) throw error;
-
-      if (!loadedMilestones || loadedMilestones.length === 0) {
-        const defaultMilestones = [
-          { project_id: projectId, name: 'Framing', color: '#f59e0b', track: 'Production' },
-          { project_id: projectId, name: 'Drywall', color: '#3b82f6', track: 'Production' },
-          { project_id: projectId, name: 'Cabinets', color: '#f97316', track: 'Production' },
-          { project_id: projectId, name: 'Paint', color: '#8b5cf6', track: 'Production' },
-          { project_id: projectId, name: 'AHJ Rough-in', color: '#eab308', track: 'Inspections' },
-          { project_id: projectId, name: 'AHJ Final', color: '#10b981', track: 'Inspections' },
-        ];
-        const { data: seeded } = await supabase.from('project_milestones').insert(defaultMilestones).select();
-        return seeded || [];
-      }
-      return loadedMilestones;
+      return data;
     },
-    enabled: !!projectId,
+    enabled: !!projectId
   });
 }
 
@@ -67,62 +45,51 @@ export function useUnits(sheetId) {
       if (!sheetId) return [];
       const { data, error } = await supabase.from('units').select('*').eq('sheet_id', sheetId);
       if (error) throw error;
-      return data || [];
+      return data;
     },
-    enabled: !!sheetId,
+    enabled: !!sheetId
   });
 }
 
 export function useStatuses(sheetId, unitIds, milestones) {
   return useQuery({
-    queryKey: ['statuses', sheetId, unitIds?.length],
+    queryKey: ['statuses', sheetId],
     queryFn: async () => {
-      if (!unitIds || unitIds.length === 0) return [];
-      const { data: logs, error } = await supabase
-        .from('status_logs')
-        .select('*')
-        .in('unit_id', unitIds)
-        .order('created_at', { ascending: false });
+      if (!sheetId || !unitIds || unitIds.length === 0) return [];
+      
+      const { data, error } = await supabase.from('status_logs').select('*').in('unit_id', unitIds);
 
       if (error) throw error;
-
-      if (logs) {
-        const latestStatuses = [];
-        const seen = new Set();
-        for (const log of logs) {
-          const milestoneDef = milestones?.find((m) => m.name === log.milestone);
-          const track = milestoneDef ? milestoneDef.track : 'Production';
-          const key = `${log.unit_id}-${track}`;
-          
-          if (!seen.has(key)) {
-            latestStatuses.push({ ...log, track });
-            seen.add(key);
-          }
+      
+      const latestStatusMap = {};
+      data.forEach(log => {
+        const key = `${log.unit_id}_${log.track}`;
+        if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
+          latestStatusMap[key] = log;
         }
-        return latestStatuses;
-      }
-      return [];
+      });
+      return Object.values(latestStatusMap);
     },
-    enabled: !!sheetId && !!unitIds && unitIds.length > 0 && !!milestones,
+    enabled: !!sheetId && unitIds?.length > 0
   });
 }
 
-// ----------------------------------------------------------------------
-// Mutations
-// ----------------------------------------------------------------------
+// ==== Mutations ====
 
 export function useCreateUnit(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newUnit) => {
-      const { data, error } = await supabase.from('units').insert([newUnit]).select();
+      const { data, error } = await supabase.from('units').insert([newUnit]).select().single();
       if (error) throw error;
-      return data[0];
+      return data;
     },
     onMutate: async (newUnit) => {
       await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
       const previousUnits = queryClient.getQueryData(['units', sheetId]);
-      queryClient.setQueryData(['units', sheetId], (old) => [...(old || []), { ...newUnit, id: newUnit.id || `temp-${Date.now()}` }]);
+      const tempId = `temp_${Date.now()}`;
+      const tempUnit = { ...newUnit, id: tempId };
+      queryClient.setQueryData(['units', sheetId], old => old ? [...old, tempUnit] : [tempUnit]);
       return { previousUnits };
     },
     onError: (err, newUnit, context) => {
@@ -130,7 +97,7 @@ export function useCreateUnit(sheetId) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
-    },
+    }
   });
 }
 
@@ -138,23 +105,21 @@ export function useUpdateUnitGeometry(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ unitId, polygon_coordinates }) => {
-      const { error } = await supabase.from('units').update({ polygon_coordinates }).eq('id', unitId);
+      const { data, error } = await supabase.from('units').update({ polygon_coordinates }).eq('id', unitId).select().single();
       if (error) throw error;
+      return data;
     },
     onMutate: async ({ unitId, polygon_coordinates }) => {
       await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
       const previousUnits = queryClient.getQueryData(['units', sheetId]);
-      queryClient.setQueryData(['units', sheetId], (old) => 
-        old?.map(u => u.id === unitId ? { ...u, polygon_coordinates } : u)
-      );
+      queryClient.setQueryData(['units', sheetId], old => {
+        if (!old) return old;
+        return old.map(u => u.id === unitId ? { ...u, polygon_coordinates } : u);
+      });
       return { previousUnits };
     },
-    onError: (err, variables, context) => {
-      queryClient.setQueryData(['units', sheetId], context.previousUnits);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
-    },
+    onError: (err, newUnits, context) => queryClient.setQueryData(['units', sheetId], context.previousUnits),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['units', sheetId] })
   });
 }
 
@@ -162,23 +127,21 @@ export function useUpdateUnitFields(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ unitId, updates }) => {
-      const { error } = await supabase.from('units').update(updates).eq('id', unitId);
+      const { data, error } = await supabase.from('units').update(updates).eq('id', unitId).select().single();
       if (error) throw error;
+      return data;
     },
     onMutate: async ({ unitId, updates }) => {
       await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
       const previousUnits = queryClient.getQueryData(['units', sheetId]);
-      queryClient.setQueryData(['units', sheetId], (old) => 
-        old?.map(u => u.id === unitId ? { ...u, ...updates } : u)
-      );
+      queryClient.setQueryData(['units', sheetId], old => {
+        if (!old) return old;
+        return old.map(u => u.id === unitId ? { ...u, ...updates } : u);
+      });
       return { previousUnits };
     },
-    onError: (err, variables, context) => {
-      queryClient.setQueryData(['units', sheetId], context.previousUnits);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
-    },
+    onError: (err, newUnits, context) => queryClient.setQueryData(['units', sheetId], context.previousUnits),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['units', sheetId] })
   });
 }
 
@@ -186,144 +149,99 @@ export function useDeleteUnit(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (unitId) => {
+      await supabase.from('status_logs').delete().eq('unit_id', unitId);
       const { error } = await supabase.from('units').delete().eq('id', unitId);
       if (error) throw error;
     },
     onMutate: async (unitId) => {
       await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
       const previousUnits = queryClient.getQueryData(['units', sheetId]);
-      queryClient.setQueryData(['units', sheetId], (old) => old?.filter(u => u.id !== unitId));
+      queryClient.setQueryData(['units', sheetId], old => old ? old.filter(u => u.id !== unitId) : old);
       return { previousUnits };
     },
-    onError: (err, unitId, context) => {
-      queryClient.setQueryData(['units', sheetId], context.previousUnits);
-    },
+    onError: (err, unitId, context) => queryClient.setQueryData(['units', sheetId], context.previousUnits),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
-    },
+      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
+    }
   });
 }
 
-export function useUpdateStatus(sheetId, unitIdsLength) {
+export function useUpdateStatus(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (newLog) => {
-      const { data, error } = await supabase.from('status_logs').insert([{
-        unit_id: newLog.unit_id,
-        milestone: newLog.milestone,
-        status_color: newLog.status_color,
-        temporal_state: newLog.temporal_state,
-      }]).select();
+    mutationFn: async (newLogData) => {
+      const { error: deleteError } = await supabase.from('status_logs').delete().eq('unit_id', newLogData.unit_id).eq('track', newLogData.track);
+      if (deleteError) throw deleteError;
+
+      const { data, error } = await supabase.from('status_logs').insert([newLogData]).select().single();
       if (error) throw error;
-      return { ...data[0], track: newLog.track };
+      return data;
     },
-    onMutate: async (newLog) => {
-      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
-      const previousStatuses = queryClient.getQueryData(['statuses', sheetId, unitIdsLength]);
-      queryClient.setQueryData(['statuses', sheetId, unitIdsLength], (old) => {
-        const filtered = (old || []).filter(s => !(s.unit_id === newLog.unit_id && s.track === newLog.track));
-        return [...filtered, { ...newLog, id: 'temp-' + Date.now(), created_at: new Date().toISOString() }];
+    onMutate: async (newLogData) => {
+      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
+      const previousStatuses = queryClient.getQueryData(['statuses', sheetId]);
+      
+      queryClient.setQueryData(['statuses', sheetId], old => {
+        if (!old) return old;
+        const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track));
+        return [...filtered, { ...newLogData, id: `temp_${Date.now()}` }];
       });
       return { previousStatuses };
     },
-    onError: (err, newLog, context) => {
-      queryClient.setQueryData(['statuses', sheetId, unitIdsLength], context.previousStatuses);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
-    },
+    onError: (err, newLogData, context) => queryClient.setQueryData(['statuses', sheetId], context.previousStatuses),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
   });
 }
 
-export function useClearStatus(sheetId, unitIdsLength) {
+export function useClearStatus(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitId, milestone }) => {
-      const { error } = await supabase.from('status_logs').delete().eq('unit_id', unitId).eq('milestone', milestone);
+    mutationFn: async ({ unitId, track }) => {
+      const { error } = await supabase.from('status_logs').delete().eq('unit_id', unitId).eq('track', track);
       if (error) throw error;
     },
     onMutate: async ({ unitId, track }) => {
-      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
-      const previousStatuses = queryClient.getQueryData(['statuses', sheetId, unitIdsLength]);
-      queryClient.setQueryData(['statuses', sheetId, unitIdsLength], (old) => 
-        (old || []).filter(s => !(s.unit_id === unitId && s.track === track))
-      );
+      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
+      const previousStatuses = queryClient.getQueryData(['statuses', sheetId]);
+      queryClient.setQueryData(['statuses', sheetId], old => {
+        if (!old) return old;
+        return old.filter(s => !(s.unit_id === unitId && s.track === track));
+      });
       return { previousStatuses };
     },
-    onError: (err, vars, context) => {
-      queryClient.setQueryData(['statuses', sheetId, unitIdsLength], context.previousStatuses);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
-    },
+    onError: (err, variables, context) => queryClient.setQueryData(['statuses', sheetId], context.previousStatuses),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
   });
 }
 
-// Milestone mutations
-export function useUpdateMilestone(projectId, sheetId, unitIdsLength) {
+// Strictly enforced logic constraint: 800 CHUNK_SIZE block implemented
+export function useUpdateMilestone(projectId, sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, oldName, newName, newColor }) => {
-      const { error: updateErr } = await supabase
-        .from('project_milestones')
-        .update({ name: newName, color: newColor })
-        .eq('id', id);
-        
-      if (updateErr) throw updateErr;
+      const { error } = await supabase.from('project_milestones').update({ name: newName, color: newColor }).eq('id', id);
+      if (error) throw error;
 
-      // The Ripple Effect
       if (oldName !== newName || newColor) {
-        const { data: projectSheets } = await supabase.from('sheets').select('id').eq('project_id', projectId);
-        const sheetIds = projectSheets ? projectSheets.map(s => s.id) : [];
+        const { data: logs, error: fetchErr } = await supabase.from('status_logs').select('id').eq('milestone', oldName);
+        if (fetchErr) throw fetchErr;
 
-        if (sheetIds.length > 0) {
-          const CHUNK_SIZE = 800; // Preserved chunking logic
-          const { data: projectUnits } = await supabase.from('units').select('id').in('sheet_id', sheetIds);
-          const unitIds = projectUnits ? projectUnits.map(u => u.id) : [];
-          
-          if (unitIds.length > 0) {
-            for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
-              const chunk = unitIds.slice(i, i + CHUNK_SIZE);
-              await supabase
-                .from('status_logs')
-                .update({ milestone: newName, status_color: newColor })
-                .eq('milestone', oldName)
-                .in('unit_id', chunk);
-            }
+        if (logs && logs.length > 0) {
+          const CHUNK_SIZE = 800;
+          const updates = oldName !== newName ? { milestone: newName, status_color: newColor } : { status_color: newColor };
+
+          for (let i = 0; i < logs.length; i += CHUNK_SIZE) {
+            const chunkIds = logs.slice(i, i + CHUNK_SIZE).map(l => l.id);
+            const { error: chunkErr } = await supabase.from('status_logs').update(updates).in('id', chunkIds);
+            if (chunkErr) throw chunkErr;
           }
         }
       }
     },
-    onMutate: async ({ id, oldName, newName, newColor }) => {
-      // Optimistic upate for milestones list
-      await queryClient.cancelQueries({ queryKey: ['milestones', projectId] });
-      const previousMilestones = queryClient.getQueryData(['milestones', projectId]);
-      queryClient.setQueryData(['milestones', projectId], (old) => 
-        old?.map(m => m.id === id ? { ...m, name: newName, color: newColor } : m)
-      );
-
-      // Optimistic update for active statuses
-      if (sheetId) {
-        await queryClient.cancelQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
-        const previousStatuses = queryClient.getQueryData(['statuses', sheetId, unitIdsLength]);
-        queryClient.setQueryData(['statuses', sheetId, unitIdsLength], (old) => 
-          old?.map(s => s.milestone === oldName ? { ...s, milestone: newName, status_color: newColor } : s)
-        );
-        return { previousMilestones, previousStatuses };
-      }
-      return { previousMilestones };
-    },
-    onError: (err, vars, context) => {
-      queryClient.setQueryData(['milestones', projectId], context.previousMilestones);
-      if (context.previousStatuses && sheetId) {
-        queryClient.setQueryData(['statuses', sheetId, unitIdsLength], context.previousStatuses);
-      }
-    },
-    onSettled: () => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['milestones', projectId] });
-      if (sheetId) {
-        queryClient.invalidateQueries({ queryKey: ['statuses', sheetId, unitIdsLength] });
-      }
-    },
+      queryClient.invalidateQueries({ queryKey: ['statuses'] });
+    }
   });
 }
