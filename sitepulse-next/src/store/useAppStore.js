@@ -28,6 +28,9 @@ export const useAppStore = create(
       editingUnitId: null,
       setEditingUnitId: (id) => set({ editingUnitId: typeof id === 'function' ? id(useAppStore.getState().editingUnitId) : id }),
 
+      historyModalUnitId: null,
+      setHistoryModalUnitId: (id) => set({ historyModalUnitId: typeof id === 'function' ? id(useAppStore.getState().historyModalUnitId) : id }),
+
       // Filters
       temporalFilters: ['planned', 'ongoing', 'completed', 'none'],
       setTemporalFilters: (filters) => set(typeof filters === 'function' ? (state) => ({ temporalFilters: filters(state.temporalFilters) }) : { temporalFilters: filters }),

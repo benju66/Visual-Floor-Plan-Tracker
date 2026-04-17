@@ -15,6 +15,22 @@ export function useProject(projectId) {
   });
 }
 
+export function useUnitHistory(unitId) {
+  return useQuery({
+    queryKey: ['unit_history', unitId],
+    queryFn: async () => {
+      if (!unitId) return [];
+      const { data, error } = await supabase.from('status_logs')
+        .select('*')
+        .eq('unit_id', unitId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!unitId
+  });
+}
+
 export function useSheets(projectId) {
   return useQuery({
     queryKey: ['sheets', projectId],
@@ -78,6 +94,43 @@ export function useStatuses(sheetId, unitIds, milestones) {
       return Object.values(latestStatusMap);
     },
     enabled: !!sheetId && validUnitIds.length > 0,
+    placeholderData: keepPreviousData
+  });
+}
+
+export function useAllProjectUnits(sheetIds) {
+  return useQuery({
+    queryKey: ['all_project_units', sheetIds],
+    queryFn: async () => {
+      if (!sheetIds || sheetIds.length === 0) return [];
+      const { data, error } = await supabase.from('units').select('*').in('sheet_id', sheetIds);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!sheetIds && sheetIds.length > 0
+  });
+}
+
+export function useAllProjectStatuses(unitIds) {
+  const validUnitIds = unitIds?.filter(id => !String(id).startsWith('temp_')) || [];
+  return useQuery({
+    queryKey: ['all_project_statuses', validUnitIds],
+    queryFn: async () => {
+      if (validUnitIds.length === 0) return [];
+      
+      const { data, error } = await supabase.from('status_logs').select('*').in('unit_id', validUnitIds);
+      if (error) throw error;
+      
+      const latestStatusMap = {};
+      data.forEach(log => {
+        const key = `${log.unit_id}_${log.track}`;
+        if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
+          latestStatusMap[key] = log;
+        }
+      });
+      return Object.values(latestStatusMap);
+    },
+    enabled: validUnitIds.length > 0,
     placeholderData: keepPreviousData
   });
 }

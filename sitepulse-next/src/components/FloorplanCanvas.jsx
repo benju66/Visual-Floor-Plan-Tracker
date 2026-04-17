@@ -43,6 +43,7 @@ const FloorplanCanvas = forwardRef(({
   const temporalFilters = useAppStore(s => s.temporalFilters);
   const trackingMode = useAppStore(s => s.trackingMode);
   const legendFilter = useAppStore(s => s.filterMilestone);
+  const setHistoryModalUnitId = useAppStore(s => s.setHistoryModalUnitId);
   
   const settings = useHydratedStore(s => s.settings, { showHistoryHover: false });
   const mapSettings = useHydratedStore(s => s.mapSettings, { showCrosshair: false });
@@ -596,6 +597,7 @@ const FloorplanCanvas = forwardRef(({
         onDeleteUnit={onDeleteUnit}
         onOpenMilestoneModal={onOpenMilestoneModal}
         onOpenStatusModal={onOpenStatusModal}
+        onOpenHistoryModal={(id) => setHistoryModalUnitId(id)}
         onHideLegend={() => onLegendDragEnd?.({ isVisible: false })}
         onRotateLegend={(dir) => {
           const rotDelta = dir === 'left' ? -90 : 90;
@@ -845,6 +847,7 @@ const FloorplanCanvas = forwardRef(({
         onDeleteUnit={onDeleteUnit}
         onOpenMilestoneModal={onOpenMilestoneModal}
         onOpenStatusModal={onOpenStatusModal}
+        onOpenHistoryModal={(id) => setHistoryModalUnitId(id)}
       />
     </div>
   );

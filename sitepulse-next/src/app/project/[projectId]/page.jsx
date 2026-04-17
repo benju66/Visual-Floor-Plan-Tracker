@@ -7,6 +7,8 @@ import BulkActionDock from '@/components/BulkActionDock';
 import MilestoneCommandMenu from '@/components/MilestoneCommandMenu';
 import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
+import ProjectDashboard from '@/components/ProjectDashboard';
+import UnitHistoryModal from '@/components/UnitHistoryModal';
 import { supabase } from '@/supabaseClient';
 import { useAppStore, useHydratedStore } from '@/store/useAppStore';
 import { useProject, useSheets, useMilestones, useUnits, useStatuses } from '@/hooks/useProjectQueries';
@@ -45,6 +47,8 @@ function App() {
   const setTemporalFilters = useAppStore(s => s.setTemporalFilters);
   const filterMilestone = useAppStore(s => s.filterMilestone);
   const setFilterMilestone = useAppStore(s => s.setFilterMilestone);
+  const historyModalUnitId = useAppStore(s => s.historyModalUnitId);
+  const setHistoryModalUnitId = useAppStore(s => s.setHistoryModalUnitId);
   
   const settings = useHydratedStore(s => s.settings, { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' });
 
@@ -308,6 +312,8 @@ function App() {
 
   const colorModeLabel = colorMode === 'system' ? 'System' : colorMode === 'light' ? 'Light' : 'Dark';
 
+  const targetHistoryUnit = units.find(u => u.id === historyModalUnitId);
+
   if (!isMounted) return null;
 
   return (
@@ -338,7 +344,18 @@ function App() {
       />
 
       <div className="flex-1 min-h-0 flex flex-col">
-        {viewMode === 'list' ? (
+        {viewMode === 'dashboard' ? (
+          <div className="h-full overflow-hidden">
+            <ProjectDashboard
+              units={units}
+              activeStatuses={activeStatuses}
+              milestones={milestones}
+              trackingMode={trackingMode}
+              sheets={sheets}
+              activeSheet={activeSheet}
+            />
+          </div>
+        ) : viewMode === 'list' ? (
           <div className="h-full overflow-auto">
             <FieldStatusTable
               savingUnitId={savingUnitId}
@@ -502,6 +519,13 @@ function App() {
         }
         milestones={milestones.filter(m => m.track === trackingMode)}
         onCommit={handleQuickUpdate}
+      />
+
+      <UnitHistoryModal
+        isOpen={!!historyModalUnitId}
+        onClose={() => setHistoryModalUnitId(null)}
+        unitId={historyModalUnitId}
+        unitNumber={targetHistoryUnit?.unit_number}
       />
 
       {toast && (

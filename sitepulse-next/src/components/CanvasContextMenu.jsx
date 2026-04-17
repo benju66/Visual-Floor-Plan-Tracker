@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pencil, Copy, FlipHorizontal, FlipVertical, Trash2, RotateCcw, RotateCw, Flag, Activity } from 'lucide-react';
+import { Pencil, Copy, FlipHorizontal, FlipVertical, Trash2, RotateCcw, RotateCw, Flag, Activity, History } from 'lucide-react';
 
 export default function CanvasContextMenu({
   contextMenu,
@@ -11,7 +11,8 @@ export default function CanvasContextMenu({
   handleRotatePolygon,
   onDeleteUnit,
   onOpenMilestoneModal,
-  onOpenStatusModal
+  onOpenStatusModal,
+  onOpenHistoryModal
 }) {
   if (!contextMenu) return null;
 
@@ -49,6 +50,9 @@ export default function CanvasContextMenu({
       </button>
       <button type="button" onClick={() => { onOpenStatusModal?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
         <Activity size={16} className="text-amber-500" /> Change Status
+      </button>
+      <button type="button" onClick={() => { onOpenHistoryModal?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+        <History size={16} className="text-blue-500" /> View History
       </button>
       <div className="h-px bg-slate-200/50 dark:bg-slate-700/50 mx-1 my-1" />
       <button type="button" onClick={() => { onDeleteUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-sm font-bold text-red-600 transition-colors text-left">

@@ -1,6 +1,6 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
-import { ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, History } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
 import { useParams } from 'next/navigation';
@@ -32,6 +32,7 @@ export default function FieldStatusTable({
   const toggleSelectedUnitId = useAppStore(s => s.toggleSelectedUnitId);
   const setSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
   const trackingMode = useAppStore(s => s.trackingMode);
+  const setHistoryModalUnitId = useAppStore(s => s.setHistoryModalUnitId);
   
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [sortColumn, setSortColumn] = useState('unit'); // 'unit', 'status', 'updated'
@@ -226,7 +227,17 @@ export default function FieldStatusTable({
                         Location {unit.unit_number}
                       </div>
                     </div>
-                    {savingUnitId === unit.id && <UpdatingRing />}
+                    <div className="flex items-center gap-2">
+                       <button
+                         type="button"
+                         onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unit.id); }}
+                         className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors cursor-pointer"
+                         title="View History"
+                       >
+                         <History size={18} />
+                       </button>
+                       {savingUnitId === unit.id && <UpdatingRing />}
+                    </div>
                   </div>
                   {renderStatusTrigger(unit, currentMilestone, log, featured)}
                 </div>
@@ -268,7 +279,17 @@ export default function FieldStatusTable({
                         {unit.unit_number}
                       </div>
                     </div>
-                    {savingUnitId === unit.id && <UpdatingRing />}
+                    <div className="flex items-center gap-2">
+                       <button
+                         type="button"
+                         onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unit.id); }}
+                         className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors cursor-pointer"
+                         title="View History"
+                       >
+                         <History size={18} />
+                       </button>
+                       {savingUnitId === unit.id && <UpdatingRing />}
+                    </div>
                   </div>
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Current status</p>
                   {renderStatusTrigger(unit, currentMilestone, log, hero)}
@@ -310,6 +331,7 @@ export default function FieldStatusTable({
                     Last Updated {renderSortIcon('updated')}
                   </div>
                 </th>
+                <th className="px-5 py-3 w-10"></th>
               </tr>
             </thead>
             <tbody>
@@ -334,6 +356,16 @@ export default function FieldStatusTable({
                   </td>
                   <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
                     {log?.created_at ? new Date(log.created_at).toLocaleDateString() : '—'}
+                  </td>
+                  <td className="px-5 py-3 align-middle text-right">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unit.id); }}
+                      className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors cursor-pointer"
+                      title="View History"
+                    >
+                      <History size={16} />
+                    </button>
                   </td>
                 </tr>
               ))}

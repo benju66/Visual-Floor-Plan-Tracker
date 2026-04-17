@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp, RotateCcw, RotateCw, Flag, Activity } from 'lucide-react';
+import { Copy, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp, RotateCcw, RotateCw, Flag, Activity, History } from 'lucide-react';
 
 const ActionButton = ({ icon: Icon, label, onClick, colorClass = "blue" }) => {
   return (
@@ -25,6 +25,7 @@ export default function ContextActionDock({
   onDeleteUnit,
   onOpenMilestoneModal,
   onOpenStatusModal,
+  onOpenHistoryModal,
   isLegendSelected,
   onRotateLegend,
   onHideLegend
@@ -136,6 +137,12 @@ export default function ContextActionDock({
             label="Set Status"
             onClick={() => onOpenStatusModal?.(targetId)}
             colorClass="amber"
+          />
+          <ActionButton
+            icon={History}
+            label="History"
+            onClick={() => onOpenHistoryModal?.(targetId)}
+            colorClass="blue"
           />
         </>
       )}
