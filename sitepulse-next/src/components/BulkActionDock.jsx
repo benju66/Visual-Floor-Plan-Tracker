@@ -10,27 +10,38 @@ export default function BulkActionDock({
   onApplyBulkStatus,
   isPending
 }) {
-  const [selectedMilestone, setSelectedMilestone] = useState(null);
-  const [selectedState, setSelectedState] = useState('none');
+  const [selectedMilestone, setSelectedMilestone] = useState('__KEEP_EXISTING__');
+  const [selectedState, setSelectedState] = useState('__KEEP_EXISTING__');
   const trackingMode = useAppStore(s => s.trackingMode);
 
   if (!selectedUnitIds || selectedUnitIds.length < 2) return null;
 
   const handleApply = () => {
-    if (!selectedMilestone && selectedState !== 'none') return;
-    const m = selectedState === 'none' ? null : milestones.find(m => m.name === selectedMilestone);
+    if (selectedMilestone === '__KEEP_EXISTING__' && selectedState === '__KEEP_EXISTING__') return;
+    
+    // Support "Clear all statuses" which wipes the records
+    let targetMilestone = selectedMilestone;
+    let targetColor = null;
+    
+    if (selectedMilestone === '__CLEAR__') {
+      targetMilestone = null;
+    } else if (selectedMilestone !== '__KEEP_EXISTING__') {
+      const m = milestones.find(m => m.name === selectedMilestone);
+      targetMilestone = m?.name || null;
+      targetColor = m?.color || null;
+    }
     
     onApplyBulkStatus({
       unitIds: selectedUnitIds,
-      milestone: m?.name || null,
-      color: m?.color || null,
+      milestone: targetMilestone,
+      color: targetColor,
       temporal_state: selectedState,
       track: trackingMode
     });
     
     // Clear selection after a successful application
-    setSelectedMilestone(null);
-    setSelectedState('none');
+    setSelectedMilestone('__KEEP_EXISTING__');
+    setSelectedState('__KEEP_EXISTING__');
   };
 
   return (
@@ -51,15 +62,18 @@ export default function BulkActionDock({
 
       <div className="flex items-center gap-2">
         <select
-          value={selectedMilestone || ''}
+          value={selectedMilestone}
           onChange={(e) => {
             setSelectedMilestone(e.target.value);
-            if (selectedState === 'none') setSelectedState('completed');
+            if (e.target.value !== '__KEEP_EXISTING__' && e.target.value !== '__CLEAR__' && selectedState === '__KEEP_EXISTING__') {
+              setSelectedState('completed');
+            }
           }}
           disabled={isPending}
           className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 min-w-[140px]"
         >
-          <option value="">Reset Status (None)</option>
+          <option value="__KEEP_EXISTING__">Keep Existing Milestones</option>
+          <option value="__CLEAR__">Clear Status (Remove)</option>
           <optgroup label={`${trackingMode === 'production' ? 'Production' : 'Inspection'} Milestones`}>
             {milestones.filter(m => m.track === trackingMode).map(m => (
               <option key={m.id} value={m.name}>{m.name}</option>
@@ -67,26 +81,24 @@ export default function BulkActionDock({
           </optgroup>
         </select>
         
-        {selectedMilestone && (
-          <select
-            value={selectedState}
-            onChange={(e) => setSelectedState(e.target.value)}
-            disabled={isPending}
-            className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40"
-          >
-            <option value="none">No status (Remove)</option>
-            <option value="planned">Planned</option>
-            <option value="ongoing">Ongoing</option>
-            <option value="completed">Completed</option>
-          </select>
-        )}
+        <select
+          value={selectedState}
+          onChange={(e) => setSelectedState(e.target.value)}
+          disabled={isPending || selectedMilestone === '__CLEAR__'}
+          className={`bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 ${selectedMilestone === '__CLEAR__' ? 'opacity-50' : ''}`}
+        >
+          <option value="__KEEP_EXISTING__">No Change</option>
+          <option value="planned">Planned</option>
+          <option value="ongoing">Ongoing</option>
+          <option value="completed">Completed</option>
+        </select>
       </div>
 
       <div className="flex items-center gap-1 pl-1">
         <button
           type="button"
           onClick={handleApply}
-          disabled={isPending || (!selectedMilestone && selectedState !== 'none')}
+          disabled={isPending || (selectedMilestone === '__KEEP_EXISTING__' && selectedState === '__KEEP_EXISTING__')}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-50"
         >
           {isPending ? (

@@ -257,23 +257,33 @@ export function useBulkUpdateStatus(sheetId) {
       for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
         const chunkIds = unitIds.slice(i, i + CHUNK_SIZE);
         
-        const { error: deleteError } = await supabase.from('status_logs')
-          .delete()
-          .in('unit_id', chunkIds)
-          .eq('track', track);
-        if (deleteError) throw deleteError;
+        if (milestone === '__KEEP_EXISTING__') {
+          if (temporal_state !== '__KEEP_EXISTING__') {
+            const { error: updateError } = await supabase.from('status_logs')
+              .update({ temporal_state })
+              .in('unit_id', chunkIds)
+              .eq('track', track);
+            if (updateError) throw updateError;
+          }
+        } else {
+          const { error: deleteError } = await supabase.from('status_logs')
+            .delete()
+            .in('unit_id', chunkIds)
+            .eq('track', track);
+          if (deleteError) throw deleteError;
 
-        if (temporal_state !== 'none') {
-          const newLogs = chunkIds.map(id => ({
-            unit_id: id,
-            milestone,
-            status_color: color,
-            temporal_state,
-            track
-          }));
-          
-          const { error: insertError } = await supabase.from('status_logs').insert(newLogs);
-          if (insertError) throw insertError;
+          if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
+            const newLogs = chunkIds.map(id => ({
+              unit_id: id,
+              milestone,
+              status_color: color,
+              temporal_state,
+              track
+            }));
+            
+            const { error: insertError } = await supabase.from('status_logs').insert(newLogs);
+            if (insertError) throw insertError;
+          }
         }
       }
     },
@@ -282,9 +292,20 @@ export function useBulkUpdateStatus(sheetId) {
       
       queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
+        
+        if (milestone === '__KEEP_EXISTING__') {
+          if (temporal_state === '__KEEP_EXISTING__') return old;
+          return old.map(s => {
+            if (unitIds.includes(s.unit_id) && s.track === track) {
+              return { ...s, temporal_state };
+            }
+            return s;
+          });
+        }
+        
         const filtered = old.filter(s => !(unitIds.includes(s.unit_id) && s.track === track));
         
-        if (temporal_state === 'none') {
+        if (milestone === null || temporal_state === 'none' || temporal_state === '__KEEP_EXISTING__') {
           return filtered;
         }
         

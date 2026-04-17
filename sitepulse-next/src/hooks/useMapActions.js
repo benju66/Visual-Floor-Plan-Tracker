@@ -296,11 +296,20 @@ export function useMapActions(project) {
     try {
       await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track });
       
-      const newLogs = unitIds.map(id => ({ unit_id: id, milestone, status_color: color, temporal_state, track }));
+      let newLogs = [];
+      if (milestone === '__KEEP_EXISTING__') {
+        if (temporal_state !== '__KEEP_EXISTING__') {
+          newLogs = oldLogs.map(s => ({ ...s, temporal_state }));
+        } else {
+          newLogs = oldLogs;
+        }
+      } else if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
+        newLogs = unitIds.map(id => ({ unit_id: id, milestone, status_color: color, temporal_state, track }));
+      }
       
       if (!isUndoRedo) {
         setUndoStack(prev => {
-          const next = [...prev, { actionType: 'BULK_UPDATE_STATUS', unitIds, track, oldLogs, newLogs: temporal_state === 'none' ? [] : newLogs }];
+          const next = [...prev, { actionType: 'BULK_UPDATE_STATUS', unitIds, track, oldLogs, newLogs }];
           return next.length > 50 ? next.slice(next.length - 50) : next;
         });
         setRedoStack([]);
