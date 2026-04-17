@@ -5,7 +5,7 @@ import { useUnits } from '@/hooks/useProjectQueries';
 import { useRef, useEffect } from 'react';
 
 function MapSidebar({
-  milestones, filterMilestone, setFilterMilestone,
+  milestones = [], filterMilestone, setFilterMilestone,
   temporalFilters, setTemporalFilters,
   activeSheet,
   onRenameUnitInitiate, onDeleteUnit

@@ -351,6 +351,7 @@ function App() {
 
             <MapSidebar
               trackingMode={trackingMode}
+              milestones={milestones}
               filterMilestone={filterMilestone}
               setFilterMilestone={setFilterMilestone}
               temporalFilters={temporalFilters}
