@@ -185,10 +185,10 @@ async def export_status_pdf(
             
             # Re-map standard visual percentages to the exact unrotated PDF canvas logic
             fitz_points = [
-                fitz.Point(
-                    page.rect.x0 + p.pctX * page.rect.width, 
-                    page.rect.y0 + p.pctY * page.rect.height
-                ) * page.derotation_matrix 
+                (fitz.Point(
+                    p.pctX * page.rect.width, 
+                    p.pctY * page.rect.height
+                ) * page.derotation_matrix) + page.cropbox.tl
                 for p in poly.points
             ]
             
@@ -249,10 +249,10 @@ async def export_status_pdf(
 
             # Correctly map a visual percentage point to the underlying unrotated PDF canvas
             def get_mapped_pt(px_pct, py_pct):
-                return fitz.Point(
-                    page.rect.x0 + (page.rect.width * px_pct),
-                    page.rect.y0 + (page.rect.height * py_pct)
-                ) * page.derotation_matrix
+                return (fitz.Point(
+                    page.rect.width * px_pct,
+                    page.rect.height * py_pct
+                ) * page.derotation_matrix) + page.cropbox.tl
 
             # Scale proportionally to what a user sees on a standard ~1200px map canvas
             overall_scale = scaleX * (page.rect.width / 1200.0)
