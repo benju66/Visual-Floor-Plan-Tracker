@@ -94,16 +94,19 @@ export default function MappedUnit({
         onClick={(e) => handlePolygonClick(e, unit)}
         onTap={(e) => handlePolygonClick(e, unit)}
         onDblClick={(e) => {
+          if (['draw', 'stamp'].includes(toolMode)) return;
           e.cancelBubble = true;
           onSelectUnit?.(unit.id);
           onToolModeChange?.('select');
         }}
         onDblTap={(e) => {
+          if (['draw', 'stamp'].includes(toolMode)) return;
           e.cancelBubble = true;
           onSelectUnit?.(unit.id);
           onToolModeChange?.('select');
         }}
         onContextMenu={(e) => {
+          if (['draw'].includes(toolMode)) return;
           e.cancelBubble = true;
           e.evt.preventDefault();
           onSelectUnit?.(unit.id);
@@ -196,8 +199,8 @@ export default function MappedUnit({
             onMouseLeave={(e) => {
               e.target.getStage().container().style.cursor = computedCursor;
             }}
-            onClick={(e) => { e.cancelBubble = true; handlePolygonClick(e, unit); }}
-            onTap={(e) => { e.cancelBubble = true; handlePolygonClick(e, unit); }}
+            onClick={(e) => handlePolygonClick(e, unit)}
+            onTap={(e) => handlePolygonClick(e, unit)}
           >
             <Circle
               radius={12}

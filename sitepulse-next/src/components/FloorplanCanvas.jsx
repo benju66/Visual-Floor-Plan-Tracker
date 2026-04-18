@@ -100,14 +100,15 @@ const FloorplanCanvas = forwardRef(({
         }
       }
       if (toolMode === 'draw') {
+        const isInputActive = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
         if (e.key === 'Escape') {
-          if (draftPointsRef.current.length > 0) {
+          if (!isInputActive && draftPointsRef.current.length > 0) {
             e.stopImmediatePropagation();
             setDraftPoints([]);
           }
         }
         if (e.key === 'Enter') {
-          if (draftPointsRef.current.length > 2) {
+          if (!isInputActive && draftPointsRef.current.length > 2) {
             e.stopImmediatePropagation();
             onPolygonComplete(draftPointsRef.current);
             setDraftPoints([]);
@@ -640,7 +641,11 @@ const FloorplanCanvas = forwardRef(({
             setIsDraggingCanvas(false);
             if (toolMode === 'draw' && boxOrigin) {
               const stage = e.target.getStage();
-              const pointer = stage.getPointerPosition();
+              const pointer = stage.getPointerPosition() || pointerPos;
+              if (!pointer) {
+                setBoxOrigin(null);
+                return;
+              }
               const logicalX = (pointer.x - stage.x()) / stageScale;
               const logicalY = (pointer.y - stage.y()) / stageScale;
               const pctX = (logicalX - layout.offsetX) / layout.drawW;
@@ -652,7 +657,7 @@ const FloorplanCanvas = forwardRef(({
               const startY = boxOrigin.pctY;
               setBoxOrigin(null);
               
-              if ((dx > 0.02 && dy > 0.02) && draftPoints.length === 0) {
+              if ((dx > 0.005 && dy > 0.005) && draftPoints.length === 0) {
                 lastBoxEndRef.current = Date.now();
                 onPolygonComplete([
                   { pctX: startX, pctY: startY },

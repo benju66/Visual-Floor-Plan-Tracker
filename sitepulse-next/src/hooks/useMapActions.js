@@ -55,7 +55,6 @@ export function useMapActions(project) {
   } = useUndoRedo({ toolMode, sheetId: activeSheetId });
 
   const handlePolygonComplete = (points) => {
-    useAppStore.getState().setToolMode('pan');
     setPendingPolygonPoints(points);
     setNewUnitName('');
     setUnitNamingOpen(true);
