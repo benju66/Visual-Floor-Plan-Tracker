@@ -10,7 +10,9 @@ import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import ProjectDashboard from '@/components/ProjectDashboard';
 import UnitHistoryModal from '@/components/UnitHistoryModal';
 import { supabase } from '@/supabaseClient';
-import { useAppStore, useHydratedStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
+import { useUIStore } from '@/store/useUIStore';
+import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import { useProject, useSheets, useMilestones, useUnits, useStatuses } from '@/hooks/useProjectQueries';
 import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
@@ -32,29 +34,31 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const isResizingRef = useRef(false);
 
-  const toolMode = useAppStore(s => s.toolMode);
-  const setToolMode = useAppStore(s => s.setToolMode);
-  const viewMode = useAppStore(s => s.viewMode);
-  const setViewMode = useAppStore(s => s.setViewMode);
-  const trackingMode = useAppStore(s => s.trackingMode);
-  const setTrackingMode = useAppStore(s => s.setTrackingMode);
-  const selectedUnitIds = useAppStore(s => s.selectedUnitIds);
-  const setSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
-  const clearSelectedUnits = useAppStore(s => s.clearSelectedUnits);
-  const activeSheetId = useAppStore(s => s.activeSheetId);
-  const setActiveSheetId = useAppStore(s => s.setActiveSheetId);
-  const temporalFilters = useAppStore(s => s.temporalFilters);
-  const setTemporalFilters = useAppStore(s => s.setTemporalFilters);
-  const filterMilestone = useAppStore(s => s.filterMilestone);
-  const setFilterMilestone = useAppStore(s => s.setFilterMilestone);
-  const historyModalUnitId = useAppStore(s => s.historyModalUnitId);
-  const setHistoryModalUnitId = useAppStore(s => s.setHistoryModalUnitId);
+  const toolMode = useMapStore(s => s.toolMode);
+  const setToolMode = useMapStore(s => s.setToolMode);
+  const trackingMode = useMapStore(s => s.trackingMode);
+  const setTrackingMode = useMapStore(s => s.setTrackingMode);
+  const selectedUnitIds = useMapStore(s => s.selectedUnitIds);
+  const setSelectedUnitIds = useMapStore(s => s.setSelectedUnitIds);
+  const clearSelectedUnits = useMapStore(s => s.clearSelectedUnits);
+  const activeSheetId = useMapStore(s => s.activeSheetId);
+  const setActiveSheetId = useMapStore(s => s.setActiveSheetId);
+
+  const viewMode = useUIStore(s => s.viewMode);
+  const setViewMode = useUIStore(s => s.setViewMode);
+  const historyModalUnitId = useUIStore(s => s.historyModalUnitId);
+  const setHistoryModalUnitId = useUIStore(s => s.setHistoryModalUnitId);
+  
+  const temporalFilters = useSettingsStore(s => s.temporalFilters);
+  const setTemporalFilters = useSettingsStore(s => s.setTemporalFilters);
+  const filterMilestone = useSettingsStore(s => s.filterMilestone);
+  const setFilterMilestone = useSettingsStore(s => s.setFilterMilestone);
   
   const settings = useHydratedStore(s => s.settings, { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' });
 
   useEffect(() => {
     setIsMounted(true);
-    setViewMode(useAppStore.getState().settings?.defaultViewMode || 'list');
+    setViewMode(useSettingsStore.getState().settings?.defaultViewMode || 'list');
   }, [setViewMode]);
 
   useEffect(() => {
@@ -85,13 +89,13 @@ function App() {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
-  const setSettings = useAppStore(s => s.setSettings);
+  const setSettings = useSettingsStore(s => s.setSettings);
   const mapSettings = useHydratedStore(s => s.mapSettings, { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'select', 'multi_select', 'pan', 'draw', 'add_node'] });
-  const setMapSettings = useAppStore(s => s.setMapSettings);
+  const setMapSettings = useSettingsStore(s => s.setMapSettings);
   const legendPosition = useHydratedStore(s => s.legendPosition, { pctX: 0.05, pctY: 0.05, scaleX: 1, scaleY: 1, rotation: 0, isVisible: false });
-  const setLegendPosition = useAppStore(s => s.setLegendPosition);
+  const setLegendPosition = useSettingsStore(s => s.setLegendPosition);
   const colorMode = useHydratedStore(s => s.colorMode, 'system');
-  const setColorMode = useAppStore(s => s.setColorMode);
+  const setColorMode = useSettingsStore(s => s.setColorMode);
 
   const params = useParams();
   const projectId = params?.projectId;
@@ -150,13 +154,13 @@ function App() {
     handleDeleteMilestone
   } = useProjectActions(project, sheets);
 
-  const isSettingsOpen = useAppStore(s => s.isSettingsOpen);
-  const setIsSettingsOpen = useAppStore(s => s.setIsSettingsOpen);
-  const isProjectMenuOpen = useAppStore(s => s.isProjectMenuOpen);
-  const setIsProjectMenuOpen = useAppStore(s => s.setIsProjectMenuOpen);
+  const isSettingsOpen = useUIStore(s => s.isSettingsOpen);
+  const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
+  const isProjectMenuOpen = useUIStore(s => s.isProjectMenuOpen);
+  const setIsProjectMenuOpen = useUIStore(s => s.setIsProjectMenuOpen);
   const listRefs = useRef({});
-  const milestoneMenu = useAppStore(s => s.milestoneMenu);
-  const setMilestoneMenu = useAppStore(s => s.setMilestoneMenu);
+  const milestoneMenu = useUIStore(s => s.milestoneMenu);
+  const setMilestoneMenu = useUIStore(s => s.setMilestoneMenu);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {

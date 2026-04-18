@@ -1,5 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
+import { useUIStore } from '@/store/useUIStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import {
   useCreateUnit, useUpdateUnitGeometry, useUpdateUnitFields,
@@ -9,29 +11,31 @@ import {
 export function useMapActions(project) {
   const queryClient = useQueryClient();
 
-  const activeSheetId = useAppStore(s => s.activeSheetId);
-  const trackingMode = useAppStore(s => s.trackingMode);
-  const toolMode = useAppStore(s => s.toolMode);
+  const activeSheetId = useMapStore(s => s.activeSheetId);
+  const trackingMode = useMapStore(s => s.trackingMode);
+  const toolMode = useMapStore(s => s.toolMode);
   
-  const setSavingUnitId = useAppStore(s => s.setSavingUnitId);
-  const savingUnitId = useAppStore(s => s.savingUnitId);
-  const editingUnitId = useAppStore(s => s.editingUnitId);
-  const setEditingUnitId = useAppStore(s => s.setEditingUnitId);
-  const newUnitName = useAppStore(s => s.newUnitName);
-  const setNewUnitName = useAppStore(s => s.setNewUnitName);
-  const setUnitNamingOpen = useAppStore(s => s.setUnitNamingOpen);
-  const unitNamingOpen = useAppStore(s => s.unitNamingOpen);
-  const pendingPolygonPoints = useAppStore(s => s.pendingPolygonPoints);
-  const setPendingPolygonPoints = useAppStore(s => s.setPendingPolygonPoints);
-  const setConfirmModal = useAppStore(s => s.setConfirmModal);
-  const confirmModal = useAppStore(s => s.confirmModal);
-  const quickStatusUnitId = useAppStore(s => s.quickStatusUnitId);
-  const setQuickStatusUnitId = useAppStore(s => s.setQuickStatusUnitId);
-  const quickMilestoneUnitId = useAppStore(s => s.quickMilestoneUnitId);
-  const setQuickMilestoneUnitId = useAppStore(s => s.setQuickMilestoneUnitId);
-  const setToast = useAppStore(s => s.setToast);
-  const toast = useAppStore(s => s.toast);
-  const settings = useAppStore(s => s.settings) || {};
+  const setSavingUnitId = useMapStore(s => s.setSavingUnitId);
+  const savingUnitId = useMapStore(s => s.savingUnitId);
+  const editingUnitId = useMapStore(s => s.editingUnitId);
+  const setEditingUnitId = useMapStore(s => s.setEditingUnitId);
+  const pendingPolygonPoints = useMapStore(s => s.pendingPolygonPoints);
+  const setPendingPolygonPoints = useMapStore(s => s.setPendingPolygonPoints);
+  const quickStatusUnitId = useMapStore(s => s.quickStatusUnitId);
+  const setQuickStatusUnitId = useMapStore(s => s.setQuickStatusUnitId);
+  const quickMilestoneUnitId = useMapStore(s => s.quickMilestoneUnitId);
+  const setQuickMilestoneUnitId = useMapStore(s => s.setQuickMilestoneUnitId);
+
+  const newUnitName = useUIStore(s => s.newUnitName);
+  const setNewUnitName = useUIStore(s => s.setNewUnitName);
+  const setUnitNamingOpen = useUIStore(s => s.setUnitNamingOpen);
+  const unitNamingOpen = useUIStore(s => s.unitNamingOpen);
+  const setConfirmModal = useUIStore(s => s.setConfirmModal);
+  const confirmModal = useUIStore(s => s.confirmModal);
+  const setToast = useUIStore(s => s.setToast);
+  const toast = useUIStore(s => s.toast);
+
+  const settings = useSettingsStore(s => s.settings) || {};
 
   const showToast = (message, type) => {
     if (!settings.enableToasts) return;

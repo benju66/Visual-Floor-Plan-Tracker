@@ -1,7 +1,9 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
 import { ArrowUp, ArrowDown, History } from 'lucide-react';
-import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
+import { useUIStore } from '@/store/useUIStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
 import { useParams } from 'next/navigation';
 
@@ -26,13 +28,13 @@ export default function FieldStatusTable({
   defaultView = 'table',
   onUpdateTemporalState,
 }) {
-  const activeSheetId = useAppStore(s => s.activeSheetId);
-  const statusFilter = useAppStore(s => s.filterMilestone);
-  const selectedUnitIds = useAppStore(s => s.selectedUnitIds);
-  const toggleSelectedUnitId = useAppStore(s => s.toggleSelectedUnitId);
-  const setSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
-  const trackingMode = useAppStore(s => s.trackingMode);
-  const setHistoryModalUnitId = useAppStore(s => s.setHistoryModalUnitId);
+  const activeSheetId = useMapStore(s => s.activeSheetId);
+  const selectedUnitIds = useMapStore(s => s.selectedUnitIds);
+  const toggleSelectedUnitId = useMapStore(s => s.toggleSelectedUnitId);
+  const setSelectedUnitIds = useMapStore(s => s.setSelectedUnitIds);
+  const trackingMode = useMapStore(s => s.trackingMode);
+  const statusFilter = useSettingsStore(s => s.filterMilestone);
+  const setHistoryModalUnitId = useUIStore(s => s.setHistoryModalUnitId);
   
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [sortColumn, setSortColumn] = useState('unit'); // 'unit', 'status', 'updated'

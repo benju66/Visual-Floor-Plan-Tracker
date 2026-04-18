@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
-import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
 import { useUnits } from '@/hooks/useProjectQueries';
 
 function MapSidebar({
@@ -9,11 +9,11 @@ function MapSidebar({
   activeSheet,
   onRenameUnitInitiate, onDeleteUnit
 }) {
-  const activeSheetId = useAppStore(s => s.activeSheetId);
-  const trackingMode = useAppStore(s => s.trackingMode);
-  const selectedUnitIds = useAppStore(s => s.selectedUnitIds);
-  const setToolMode = useAppStore(s => s.setToolMode);
-  const setSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
+  const activeSheetId = useMapStore(s => s.activeSheetId);
+  const trackingMode = useMapStore(s => s.trackingMode);
+  const selectedUnitIds = useMapStore(s => s.selectedUnitIds);
+  const setToolMode = useMapStore(s => s.setToolMode);
+  const setSelectedUnitIds = useMapStore(s => s.setSelectedUnitIds);
   
   const [isLegendExpanded, setIsLegendExpanded] = useState(true);
   const [isStatusExpanded, setIsStatusExpanded] = useState(true);

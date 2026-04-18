@@ -1,6 +1,6 @@
 import React from 'react';
 import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks } from 'lucide-react';
-import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
 
 export default function MapHorizontalToolbar({
   mapSettings,
@@ -12,8 +12,8 @@ export default function MapHorizontalToolbar({
   onToggleLegend,
   onUpdateMapSettings
 }) {
-  const toolMode = useAppStore(s => s.toolMode);
-  const onToolModeChange = useAppStore(s => s.setToolMode);
+  const toolMode = useMapStore(s => s.toolMode);
+  const onToolModeChange = useMapStore(s => s.setToolMode);
   if (!mapSettings?.showHorizontalToolbar) return null;
 
   const toolIcons = {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Check } from 'lucide-react';
-import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
 
 export default function BulkActionDock({
   selectedUnitIds,
@@ -12,7 +12,7 @@ export default function BulkActionDock({
 }) {
   const [selectedMilestone, setSelectedMilestone] = useState('__KEEP_EXISTING__');
   const [selectedState, setSelectedState] = useState('__KEEP_EXISTING__');
-  const trackingMode = useAppStore(s => s.trackingMode);
+  const trackingMode = useMapStore(s => s.trackingMode);
 
   if (!selectedUnitIds || selectedUnitIds.length < 2) return null;
 

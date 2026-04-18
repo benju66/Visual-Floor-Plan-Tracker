@@ -1,25 +1,29 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
-import { useAppStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
+import { useUIStore } from '@/store/useUIStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { uploadFloorplanService, attachOriginalService } from '@/services/api';
 import { useUpdateMilestone } from '@/hooks/useProjectQueries';
 
 export function useProjectActions(project, sheets) {
   const queryClient = useQueryClient();
-  const activeSheetId = useAppStore(s => s.activeSheetId);
-  const setActiveSheetId = useAppStore(s => s.setActiveSheetId);
-  const selectedFile = useAppStore(s => s.selectedFile);
-  const setSelectedFile = useAppStore(s => s.setSelectedFile);
-  const newLevelName = useAppStore(s => s.newLevelName);
-  const setNewLevelName = useAppStore(s => s.setNewLevelName);
-  const setIsUploading = useAppStore(s => s.setIsUploading);
-  const isUploading = useAppStore(s => s.isUploading);
-  const setIsModalOpen = useAppStore(s => s.setIsModalOpen);
-  const isModalOpen = useAppStore(s => s.isModalOpen);
-  const pdfPageNumber = useAppStore(s => s.pdfPageNumber);
-  const setPdfPageNumber = useAppStore(s => s.setPdfPageNumber);
-  const setToast = useAppStore(s => s.setToast);
-  const settings = useAppStore(s => s.settings) || {};
+  const activeSheetId = useMapStore(s => s.activeSheetId);
+  const setActiveSheetId = useMapStore(s => s.setActiveSheetId);
+  const selectedFile = useMapStore(s => s.selectedFile);
+  const setSelectedFile = useMapStore(s => s.setSelectedFile);
+  const setIsUploading = useMapStore(s => s.setIsUploading);
+  const isUploading = useMapStore(s => s.isUploading);
+  const pdfPageNumber = useMapStore(s => s.pdfPageNumber);
+  const setPdfPageNumber = useMapStore(s => s.setPdfPageNumber);
+
+  const newLevelName = useUIStore(s => s.newLevelName);
+  const setNewLevelName = useUIStore(s => s.setNewLevelName);
+  const setIsModalOpen = useUIStore(s => s.setIsModalOpen);
+  const isModalOpen = useUIStore(s => s.isModalOpen);
+  const setToast = useUIStore(s => s.setToast);
+
+  const settings = useSettingsStore(s => s.settings) || {};
 
   const updateMilestoneMutation = useUpdateMilestone(project?.id, activeSheetId);
 

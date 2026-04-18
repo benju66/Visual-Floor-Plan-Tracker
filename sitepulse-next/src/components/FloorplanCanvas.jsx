@@ -13,7 +13,9 @@ import PendingPolygon from '@/components/canvas/PendingPolygon';
 import MapLegend from '@/components/canvas/MapLegend';
 import { distToSegment, getCentroid } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
-import { useAppStore, useHydratedStore } from '@/store/useAppStore';
+import { useMapStore } from '@/store/useMapStore';
+import { useUIStore } from '@/store/useUIStore';
+import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
 import { useParams } from 'next/navigation';
 
@@ -33,22 +35,24 @@ const FloorplanCanvas = forwardRef(({
   onOpenMilestoneModal,
   onOpenStatusModal,
 }, ref) => {
-  const activeSheetId = useAppStore(s => s.activeSheetId);
-  const toolMode = useAppStore(s => s.toolMode);
-  const onToolModeChange = useAppStore(s => s.setToolMode);
-  const selectedUnitIds = useAppStore(s => s.selectedUnitIds);
-  const onSelectUnit = useAppStore(s => s.toggleSelectedUnitId);
-  const onClearSelection = useAppStore(s => s.clearSelectedUnits);
-  const onSetSelectedUnitIds = useAppStore(s => s.setSelectedUnitIds);
-  const temporalFilters = useAppStore(s => s.temporalFilters);
-  const trackingMode = useAppStore(s => s.trackingMode);
-  const legendFilter = useAppStore(s => s.filterMilestone);
-  const setHistoryModalUnitId = useAppStore(s => s.setHistoryModalUnitId);
+  const activeSheetId = useMapStore(s => s.activeSheetId);
+  const toolMode = useMapStore(s => s.toolMode);
+  const onToolModeChange = useMapStore(s => s.setToolMode);
+  const selectedUnitIds = useMapStore(s => s.selectedUnitIds);
+  const onSelectUnit = useMapStore(s => s.toggleSelectedUnitId);
+  const onClearSelection = useMapStore(s => s.clearSelectedUnits);
+  const onSetSelectedUnitIds = useMapStore(s => s.setSelectedUnitIds);
+  const trackingMode = useMapStore(s => s.trackingMode);
+
+  const temporalFilters = useSettingsStore(s => s.temporalFilters);
+  const legendFilter = useSettingsStore(s => s.filterMilestone);
+  
+  const setHistoryModalUnitId = useUIStore(s => s.setHistoryModalUnitId);
   
   const settings = useHydratedStore(s => s.settings, { showHistoryHover: false });
   const mapSettings = useHydratedStore(s => s.mapSettings, { showCrosshair: false });
   const legendPosition = useHydratedStore(s => s.legendPosition, { isVisible: false });
-  const onLegendDragEnd = useAppStore(s => s.setLegendPosition);
+  const onLegendDragEnd = useSettingsStore(s => s.setLegendPosition);
 
   const params = useParams();
   const projectId = params?.projectId;
