@@ -274,7 +274,9 @@ function App() {
     }
 
     try {
-      const { blob, filename: serverFilename } = await exportToPDFService(activeSheetId, payload);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const { blob, filename: serverFilename } = await exportToPDFService(activeSheetId, payload, token);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.style.display = 'none';

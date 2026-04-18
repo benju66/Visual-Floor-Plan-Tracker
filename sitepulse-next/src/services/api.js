@@ -1,9 +1,12 @@
 const BASE_URL = 'http://127.0.0.1:8000';
 
-export async function exportToPDFService(activeSheetId, payload) {
+export async function exportToPDFService(activeSheetId, payload, token) {
   const response = await fetch(`${BASE_URL}/export-pdf/${activeSheetId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}` 
+    },
     body: JSON.stringify(payload)
   });
 
@@ -24,7 +27,7 @@ export async function exportToPDFService(activeSheetId, payload) {
   return { blob, filename };
 }
 
-export async function uploadFloorplanService(sheetId, file, pdfPageNumber) {
+export async function uploadFloorplanService(sheetId, file, pdfPageNumber, token) {
   const formData = new FormData();
   formData.append('file', file);
 
@@ -32,6 +35,9 @@ export async function uploadFloorplanService(sheetId, file, pdfPageNumber) {
     `${BASE_URL}/upload-floorplan/${sheetId}?page_number=${pdfPageNumber}`,
     {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
       body: formData,
     }
   );
@@ -44,12 +50,15 @@ export async function uploadFloorplanService(sheetId, file, pdfPageNumber) {
   return response.json();
 }
 
-export async function attachOriginalService(activeSheetId, file) {
+export async function attachOriginalService(activeSheetId, file, token) {
   const formData = new FormData();
   formData.append('file', file);
   
   const response = await fetch(`${BASE_URL}/attach-original/${activeSheetId}`, {
     method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    },
     body: formData
   });
   

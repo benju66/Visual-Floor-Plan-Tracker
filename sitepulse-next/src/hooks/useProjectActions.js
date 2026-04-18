@@ -83,7 +83,10 @@ export function useProjectActions(project, sheets) {
       if (error) throw error;
       const sheetId = newSheet[0].id;
 
-      const { image_url } = await uploadFloorplanService(sheetId, selectedFile, pdfPageNumber);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      const { image_url } = await uploadFloorplanService(sheetId, selectedFile, pdfPageNumber, token);
 
       await supabase.from('sheets').update({ base_image_url: image_url }).eq('id', sheetId);
 
@@ -104,7 +107,9 @@ export function useProjectActions(project, sheets) {
     if (!activeSheetId || !file) return;
     try {
       showToast('Uploading original PDF...', 'success');
-      await attachOriginalService(activeSheetId, file);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      await attachOriginalService(activeSheetId, file, token);
       showToast('Successfully attached original PDF!', 'success');
     } catch (e) {
       showToast('Failed to attach: ' + e.message, 'error');

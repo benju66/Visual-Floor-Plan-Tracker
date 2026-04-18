@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
@@ -7,6 +7,8 @@ from typing import List, Optional, Dict
 import os
 import io
 import fitz  # PyMuPDF for fast PDF to Image conversion
+from jose import jwt, JWTError
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,7 +17,7 @@ app = FastAPI(title="SitePulse Backend API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["http://localhost:3000"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -23,8 +25,9 @@ app.add_middleware(
 
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
+supabase_jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
 
-if not supabase_url or not supabase_key:
+if not supabase_url or not supabase_key or not supabase_jwt_secret:
     raise ValueError("FATAL ERROR: Supabase keys are missing from the .env file!")
 
 supabase: Client = create_client(supabase_url, supabase_key)
@@ -32,6 +35,25 @@ supabase: Client = create_client(supabase_url, supabase_key)
 @app.get("/")
 def health_check():
     return {"status": "success", "message": "Backend is online!"}
+
+security = HTTPBearer()
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(
+            token,
+            supabase_jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated"
+        )
+        return payload
+    except JWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 class PointData(BaseModel):
     pctX: float
@@ -68,6 +90,7 @@ async def upload_and_convert_floorplan(
     sheet_id: str,
     page_number: int = 1,
     file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
 ):
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
@@ -118,7 +141,11 @@ async def upload_and_convert_floorplan(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/attach-original/{sheet_id}")
-async def attach_original_pdf(sheet_id: str, file: UploadFile = File(...)):
+async def attach_original_pdf(
+    sheet_id: str, 
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     
@@ -137,7 +164,11 @@ async def attach_original_pdf(sheet_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/export-pdf/{sheet_id}")
-async def export_status_pdf(sheet_id: str, req: ExportRequest):
+async def export_status_pdf(
+    sheet_id: str, 
+    req: ExportRequest,
+    user: dict = Depends(get_current_user),
+):
     try:
         pdf_path = f"originals/{sheet_id}.pdf"
         # Download as raw bytes directly from Supabase
