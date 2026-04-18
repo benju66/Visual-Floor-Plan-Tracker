@@ -1,1 +1,1 @@
-{'pctX': 0.056463271850917506, 'pctY': 0.5185169689404301, 'scaleX': 0.6447344501643241, 'active_milestones': [{'name': 'Testing 1', 'color': '#3b82f6'}, {'name': 'Hello', 'color': '#9b9fa6'}], 'active_temporal_states': ['planned', 'ongoing', 'completed']}
+{'pctX': 0.052968950292086474, 'pctY': 0.5573275848169783, 'scaleX': 0.4394870869748914, 'active_milestones': [{'name': 'Testing 1', 'color': '#3b82f6'}, {'name': 'Hello', 'color': '#abd21e'}], 'active_temporal_states': ['planned', 'ongoing', 'completed']}

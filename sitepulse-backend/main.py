@@ -7,7 +7,7 @@ from typing import List, Optional, Dict
 import os
 import io
 import fitz  # PyMuPDF for fast PDF to Image conversion
-from jose import jwt, JWTError
+from jose import jwt, JWTError, ExpiredSignatureError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 
@@ -41,14 +41,17 @@ security = HTTPBearer()
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     try:
-        payload = jwt.decode(
-            token,
-            supabase_jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated"
-        )
-        return payload
-    except JWTError:
+        user_response = supabase.auth.get_user(token)
+        
+        if not user_response or not user_response.user:
+            raise HTTPException(status_code=401, detail="Invalid token structure")
+            
+        if user_response.user.role != "authenticated":
+            raise HTTPException(status_code=401, detail="Not authorized")
+            
+        return {"sub": user_response.user.id, "role": user_response.user.role}
+        
+    except Exception as e:
         raise HTTPException(
             status_code=401,
             detail="Invalid authentication credentials",
