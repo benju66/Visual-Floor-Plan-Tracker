@@ -6,7 +6,7 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import { uploadFloorplanService, attachOriginalService } from '@/services/api';
 import { useUpdateMilestone } from '@/hooks/useProjectQueries';
 
-export function useProjectActions(project, sheets) {
+export function useProjectActions(project, sheets, projectId) {
   const queryClient = useQueryClient();
   const activeSheetId = useMapStore(s => s.activeSheetId);
   const setActiveSheetId = useMapStore(s => s.setActiveSheetId);
@@ -35,9 +35,13 @@ export function useProjectActions(project, sheets) {
 
   const handleAddMilestone = async (name, color, track) => {
     const rawName = name?.trim();
-    if (!rawName || !project) return;
+    if (!rawName || !project || !project.id) return;
     try {
-      const { data, error } = await supabase.from('project_milestones').insert([{ project_id: project.id, name: rawName, color, track }]).select();
+      const milestones = queryClient.getQueryData(['milestones', project.id]) || [];
+      const trackMs = milestones.filter(m => m.track === track);
+      const maxOrder = trackMs.reduce((max, m) => Math.max(max, m.sequence_order || 0), -1);
+      
+      const { data, error } = await supabase.from('project_milestones').insert([{ project_id: project.id, name: rawName, color, track, sequence_order: maxOrder + 1 }]).select();
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['milestones'] });
     } catch (err) {
@@ -76,6 +80,12 @@ export function useProjectActions(project, sheets) {
   const handleAddLevel = async (e) => {
     e.preventDefault();
     if (!selectedFile || !newLevelName) return;
+    
+    if (!project || !project.id) {
+        showToast('FATAL: Invalid Project ID. Please navigate back to the dashboard home to refresh your active project.', 'error');
+        return;
+    }
+
     setIsUploading(true);
 
     try {

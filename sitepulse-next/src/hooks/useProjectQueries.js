@@ -49,7 +49,11 @@ export function useMilestones(projectId) {
     queryKey: ['milestones', projectId],
     queryFn: async () => {
       if (!projectId) return [];
-      const { data, error } = await supabase.from('project_milestones').select('*').eq('project_id', projectId).order('created_at', { ascending: true });
+      const { data, error } = await supabase.from('project_milestones')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('sequence_order', { ascending: true })
+        .order('created_at', { ascending: true });
       if (error) throw error;
       return data;
     },
@@ -228,9 +232,7 @@ export function useUpdateStatus(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (newLogData) => {
-      const { error: deleteError } = await supabase.from('status_logs').delete().eq('unit_id', newLogData.unit_id).eq('track', newLogData.track);
-      if (deleteError) throw deleteError;
-
+      // NOTE: Removed destructive .delete() to preserve event sourcing history.
       const { data, error } = await supabase.from('status_logs').insert([newLogData]).select().single();
       if (error) throw error;
       return data;
@@ -312,19 +314,45 @@ export function useBulkUpdateStatus(sheetId) {
         
         if (milestone === '__KEEP_EXISTING__') {
           if (temporal_state !== '__KEEP_EXISTING__') {
-            const { error: updateError } = await supabase.from('status_logs')
-              .update({ temporal_state })
+            // Note: If keeping existing milestone but changing state, we should ideally insert a NEW event log
+            // However, since we don't have the current milestone names easily available inside this loop without a query,
+            // we will fetch the latest statuses, build new objects, and insert them.
+            const { data: latestLogs, error: logError } = await supabase.from('status_logs')
+              .select('*')
               .in('unit_id', chunkIds)
               .eq('track', track);
-            if (updateError) throw updateError;
+            
+            if (logError) throw logError;
+            
+            // Map to unit_id logic: get latest log for each unit
+            const latestStatusMap = {};
+            latestLogs.forEach(log => {
+              const key = log.unit_id;
+              if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
+                latestStatusMap[key] = log;
+              }
+            });
+            
+            const newLogs = [];
+            for (const id of chunkIds) {
+              const existing = latestStatusMap[id];
+              if (existing) {
+                newLogs.push({
+                   unit_id: id,
+                   milestone: existing.milestone,
+                   status_color: existing.status_color,
+                   temporal_state,
+                   track
+                });
+              }
+            }
+            if (newLogs.length > 0) {
+              const { error: insertError } = await supabase.from('status_logs').insert(newLogs);
+              if (insertError) throw insertError;
+            }
           }
         } else {
-          const { error: deleteError } = await supabase.from('status_logs')
-            .delete()
-            .in('unit_id', chunkIds)
-            .eq('track', track);
-          if (deleteError) throw deleteError;
-
+          // NOTE: Removed destructive .delete() to preserve event sourcing history.
           if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
             const newLogs = chunkIds.map(id => ({
               unit_id: id,
@@ -377,5 +405,61 @@ export function useBulkUpdateStatus(sheetId) {
     },
     onError: () => {},
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
+  });
+}
+
+export function useUpdateSheetScopes(projectId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ sheetId, active_scopes }) => {
+      const { data, error } = await supabase.from('sheets').update({ active_scopes }).eq('id', sheetId).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async ({ sheetId, active_scopes }) => {
+      await queryClient.cancelQueries({ queryKey: ['sheets', projectId] });
+      queryClient.setQueriesData({ queryKey: ['sheets', projectId] }, old => {
+        if (!old) return old;
+        return old.map(s => s.id === sheetId ? { ...s, active_scopes } : s);
+      });
+      return {};
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['sheets', projectId] })
+  });
+}
+
+export function useReorderMilestones(projectId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (updatedMilestones) => {
+      const CHUNK_SIZE = 800;
+      for (const m of updatedMilestones) {
+        const { error } = await supabase.from('project_milestones')
+          .update({ sequence_order: m.sequence_order })
+          .eq('id', m.id);
+        if (error) throw error;
+      }
+    },
+    onMutate: async (updatedMilestones) => {
+      await queryClient.cancelQueries({ queryKey: ['milestones', projectId] });
+      queryClient.setQueriesData({ queryKey: ['milestones', projectId] }, old => {
+        if (!old) return old;
+        const updatesMap = {};
+        updatedMilestones.forEach(um => updatesMap[um.id] = um.sequence_order);
+        
+        return old.map(m => {
+          if (updatesMap[m.id] !== undefined) {
+            return { ...m, sequence_order: updatesMap[m.id] };
+          }
+          return m;
+        }).sort((a, b) => {
+          if (a.sequence_order !== b.sequence_order) {
+            return a.sequence_order - b.sequence_order;
+          }
+          return new Date(a.created_at) - new Date(b.created_at);
+        });
+      });
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['milestones', projectId] })
   });
 }

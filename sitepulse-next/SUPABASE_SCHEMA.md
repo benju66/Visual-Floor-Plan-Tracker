@@ -12,6 +12,7 @@
 - `project_id` (UUID, Foreign Key -> projects.id)
 - `sheet_name` (TEXT, Not Null)
 - `base_image_url` (TEXT)
+- `active_scopes` (JSONB, Default '[]') -- Array of assigned scope names
 - `created_at` (TIMESTAMPTZ)
 
 ## 3. units
@@ -26,9 +27,10 @@
 ## 4. project_milestones
 - `id` (UUID, Primary Key)
 - `project_id` (UUID, Foreign Key -> projects.id)
+- `sequence_order` (INTEGER, Default 0)
 - `name` (TEXT, Not Null)
 - `color` (TEXT, Not Null)
-- `track` (TEXT, Not Null, Default 'Production')
+- `track` (TEXT, Not Null, Default 'Production') -- Conceptually acts as the "Scope of Work"
 - `created_at` (TIMESTAMPTZ)
 
 ## 5. status_logs (The Event Sourcing Table)

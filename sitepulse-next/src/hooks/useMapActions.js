@@ -244,6 +244,25 @@ export function useMapActions(project) {
         track: milestone.track
       };
       const newLog = await updateStatusMutation.mutateAsync(newLogData);
+      
+      const autoAdvanceEnabled = settings.auto_advance_enabled !== false;
+      let nextLog = null;
+      if (currentTemporalState === 'completed' && autoAdvanceEnabled && !isUndoRedo) {
+        const trackMilestones = milestones.filter(m => m.track === milestone.track).sort((a,b) => a.sequence_order - b.sequence_order);
+        const currentIndex = trackMilestones.findIndex(m => m.name === newLogData.milestone);
+        if (currentIndex !== -1 && currentIndex < trackMilestones.length - 1) {
+          const nextMilestone = trackMilestones[currentIndex + 1];
+          const nextLogData = {
+            unit_id: unit.id,
+            milestone: nextMilestone.name,
+            status_color: nextMilestone.color,
+            temporal_state: 'planned',
+            track: nextMilestone.track
+          };
+          nextLog = await updateStatusMutation.mutateAsync(nextLogData);
+        }
+      }
+
       if (!isUndoRedo) {
         setUndoStack(prev => {
           const next = [...prev, { actionType: 'UPDATE_STATUS', unitId: unit.id, oldLog: oldStatus, newLog }];
@@ -299,15 +318,41 @@ export function useMapActions(project) {
     try {
       await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track });
       
+      const autoAdvanceEnabled = settings.auto_advance_enabled !== false;
+      let usedTemporalState = temporal_state;
+      let usedMilestone = milestone;
+      let usedColor = color;
+
+      if (temporal_state === 'completed' && autoAdvanceEnabled && milestone !== '__KEEP_EXISTING__' && milestone !== null && !isUndoRedo) {
+        const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
+        const trackMilestones = milestones.filter(m => m.track === track).sort((a,b) => a.sequence_order - b.sequence_order);
+        const currentIndex = trackMilestones.findIndex(m => m.name === milestone);
+        
+        if (currentIndex !== -1 && currentIndex < trackMilestones.length - 1) {
+          const nextMilestone = trackMilestones[currentIndex + 1];
+          usedMilestone = nextMilestone.name;
+          usedColor = nextMilestone.color;
+          usedTemporalState = 'planned';
+          
+          await bulkUpdateStatusMutation.mutateAsync({
+             unitIds,
+             milestone: usedMilestone,
+             color: usedColor,
+             temporal_state: usedTemporalState,
+             track
+          });
+        }
+      }
+
       let newLogs = [];
-      if (milestone === '__KEEP_EXISTING__') {
-        if (temporal_state !== '__KEEP_EXISTING__') {
-          newLogs = oldLogs.map(s => ({ ...s, temporal_state }));
+      if (usedMilestone === '__KEEP_EXISTING__') {
+        if (usedTemporalState !== '__KEEP_EXISTING__') {
+          newLogs = oldLogs.map(s => ({ ...s, temporal_state: usedTemporalState }));
         } else {
           newLogs = oldLogs;
         }
-      } else if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
-        newLogs = unitIds.map(id => ({ unit_id: id, milestone, status_color: color, temporal_state, track }));
+      } else if (usedMilestone !== null && usedTemporalState !== 'none' && usedTemporalState !== '__KEEP_EXISTING__') {
+        newLogs = unitIds.map(id => ({ unit_id: id, milestone: usedMilestone, status_color: usedColor, temporal_state: usedTemporalState, track }));
       }
       
       if (!isUndoRedo) {

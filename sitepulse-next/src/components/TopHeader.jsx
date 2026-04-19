@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, FolderEdit, RefreshCw } from 'lucide-react';
+import { Settings, FolderEdit, RefreshCw, Folders, Plus, Download, LayoutDashboard, Map as MapIcon, List } from 'lucide-react';
 import { useIsFetching } from '@tanstack/react-query';
 
 function TopHeader({
@@ -11,167 +11,152 @@ function TopHeader({
   triggerUndo, triggerRedo, undoStack, redoStack
 }) {
   const isFetching = useIsFetching();
+
+  // Custom scorllbar hiding utility class (if tailwind-scrollbar-hide is missing)
+  // Usually added via global css, we just use arbitrary Tailwind for scrollbar hiding
+  const hideScrollbar = "[&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']";
   
   return (
-    <header className="mb-4 flex-shrink-0 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 rounded-2xl border px-4 py-3 glass-panel">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            SitePulse Visual Tracker
-            {isFetching > 0 && (
-              <RefreshCw size={16} className="text-blue-500 animate-spin opacity-80" />
-            )}
-          </h1>
-          <div className="flex flex-wrap gap-3 mt-2">
-            <select
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg font-semibold shadow-sm bg-white/60 dark:bg-black/25 cursor-not-allowed hover:bg-slate-100 dark:hover:bg-white/10 transition-colors opacity-90"
-              disabled >
-              <option>{project ? project.name : 'Loading...'}</option>
-            </select>
-            <select
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg shadow-sm bg-white/60 dark:bg-black/25 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
-              value={activeSheetId}
-              onChange={(e) => setActiveSheetId(e.target.value)}
-            >
-              {sheets.length === 0 && <option disabled value="">No levels added</option>}
-              {sheets.map((sheet) => (
-                <option key={sheet.id} value={sheet.id}>
-                  {sheet.sheet_name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(true)}
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer text-sm font-medium shadow-sm transition-colors"
-            >
-              + Add Level
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsProjectMenuOpen(true)}
-              className="border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer shadow-sm transition-colors"
-              title="Manage Levels"
-            >
-              <FolderEdit size={20} />
-            </button>
+    <header className="mb-4 flex-shrink-0 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3 rounded-xl border px-3 py-2 bg-white/30 dark:bg-black/10 backdrop-blur-md border-slate-200/60 dark:border-white/10 shadow-sm relative z-20">
+      
+      {/* 1. LEFT SIDE: Title & Project Location Controls */}
+      <div className="flex items-center gap-3 w-full xl:w-auto">
+        <div className="flex items-center gap-2 pr-1 xl:pr-3 xl:border-r border-slate-200 dark:border-white/10">
+          <div className="text-blue-500 bg-blue-100 dark:bg-blue-900/40 p-1.5 rounded-lg flex-shrink-0">
+            <Folders size={18} />
+          </div>
+          <div className="flex flex-col">
+            <h1 className="text-base font-bold text-slate-900 dark:text-white leading-tight flex items-center gap-2 whitespace-nowrap">
+              SitePulse Tracker
+              {isFetching > 0 && <RefreshCw size={12} className="text-blue-500 animate-spin opacity-80" />}
+            </h1>
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest truncate max-w-[150px] lg:max-w-[200px]">
+              {project ? project.name : 'Loading...'}
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <select
+            className="border border-slate-300/80 dark:border-white/15 py-1.5 px-2 rounded-lg text-sm font-semibold shadow-sm bg-white/60 dark:bg-black/25 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/10 transition-colors w-full xl:w-auto"
+            value={activeSheetId}
+            onChange={(e) => setActiveSheetId(e.target.value)}
+          >
+            {sheets.length === 0 && <option disabled value="">No levels added</option>}
+            {sheets.map((sheet) => (
+              <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
+            ))}
+          </select>
           <button
             type="button"
-            onClick={() => setMilestoneMenu({ mode: 'filter' })}
-            className="px-3 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            onClick={() => setIsModalOpen(true)}
+            className="border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer text-slate-600 dark:text-slate-300 shadow-sm transition-colors flex-shrink-0"
+            title="Add New Level"
           >
-            Milestones (Ctrl+K)
+            <Plus size={18} />
           </button>
-          <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm mr-2">
-            <button
-              type="button"
-              onClick={() => setTrackingMode('Production')}
-              className={`px-3 py-2 text-xs font-semibold cursor-pointer transition-colors ${
-                trackingMode === 'Production'
-                  ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-            >
-              Production
-            </button>
-            <button
-              type="button"
-              onClick={() => setTrackingMode('Inspections')}
-              className={`px-3 py-2 text-xs font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-                trackingMode === 'Inspections'
-                  ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-            >
-              Inspections
-            </button>
-          </div>
-          <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('dashboard');
-                setToolMode('pan');
-              }}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer transition-colors ${
-                viewMode === 'dashboard'
-                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-            >
-              Dashboard
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('list');
-                setToolMode('pan');
-              }}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-                viewMode === 'list'
-                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-            >
-              Field list
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('map')}
-              className={`px-4 py-2 text-sm font-semibold cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-                viewMode === 'map'
-                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-            >
-              Map
-            </button>
-          </div>
-          {viewMode === 'map' && activeSheet?.base_image_url && (
-            <button
-              type="button"
-              onClick={exportToPDF}
-              className="px-4 py-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
-            >
-              Export PDF
-            </button>
-          )}
-          {viewMode === 'list' && (
-            <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
-              <button
-                type="button"
-                onClick={triggerUndo}
-                disabled={!undoStack || undoStack.length === 0}
-                className="p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                title="Undo"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
-              </button>
-              <div className="w-px bg-slate-300/80 dark:bg-white/10" />
-              <button
-                type="button"
-                onClick={triggerRedo}
-                disabled={!redoStack || redoStack.length === 0}
-                className="p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                title="Redo"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></svg>
-              </button>
-            </div>
-          )}
           <button
             type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
-            title="Settings"
+            onClick={() => setIsProjectMenuOpen(true)}
+            className="border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer shadow-sm transition-colors flex-shrink-0"
+            title="Manage Levels"
           >
-            <Settings size={20} />
+            <FolderEdit size={18} />
           </button>
         </div>
-      </header>
+      </div>
+
+      {/* 2. RIGHT SIDE: Tools, Scopes, and Settings */}
+      <div className={`flex items-center gap-2 w-full xl:w-auto overflow-x-auto pb-1 xl:pb-0 ${hideScrollbar}`}>
+        
+        {/* Milestones Button */}
+        <button
+          type="button"
+          onClick={() => setMilestoneMenu({ mode: 'filter' })}
+          className="flex-shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+        >
+          Milestones (Ctrl+K)
+        </button>
+        
+        {/* Scope Tabs - Flex None to prevent squishing */}
+        <div className="flex flex-shrink-0 flex-nowrap rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
+          {activeSheet?.active_scopes && activeSheet.active_scopes.length > 0 ? (
+            activeSheet.active_scopes.map((scope, index) => (
+              <button
+                key={scope}
+                type="button"
+                onClick={() => setTrackingMode(scope)}
+                className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${index > 0 ? 'border-l border-slate-300/80 dark:border-white/10' : ''} ${
+                  trackingMode === scope
+                    ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
+                    : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+                }`}
+              >
+                {scope}
+              </button>
+            ))
+          ) : (
+            <span className="px-3 py-1.5 text-xs font-semibold text-slate-500 italic whitespace-nowrap">No Scopes Assigned</span>
+          )}
+        </div>
+
+        {/* View Mode Toggle */}
+        <div className="flex flex-shrink-0 rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
+          <button
+            type="button"
+            title="Dashboard View"
+            onClick={() => { setViewMode('dashboard'); setToolMode('pan'); }}
+            className={`px-3 py-1.5 cursor-pointer transition-colors ${
+              viewMode === 'dashboard' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+            }`}
+          >
+            <LayoutDashboard size={16} />
+          </button>
+          <button
+            type="button"
+            title="Field List View"
+            onClick={() => { setViewMode('list'); setToolMode('pan'); }}
+            className={`px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
+              viewMode === 'list' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+            }`}
+          >
+            <List size={16} />
+          </button>
+          <button
+            type="button"
+            title="Interactive Map View"
+            onClick={() => setViewMode('map')}
+            className={`px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
+              viewMode === 'map' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+            }`}
+          >
+            <MapIcon size={16} />
+          </button>
+        </div>
+
+        {viewMode === 'map' && activeSheet?.base_image_url && (
+          <button
+            type="button"
+            onClick={exportToPDF}
+            className="flex-shrink-0 p-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            title="Export to PDF"
+          >
+            <Download size={18} />
+          </button>
+        )}
+
+        {/* Global Settings */}
+        <button
+          type="button"
+          onClick={() => setIsSettingsOpen(true)}
+          className="flex-shrink-0 p-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+          title="Settings"
+        >
+          <Settings size={18} />
+        </button>
+      </div>
+
+    </header>
   );
 }
 

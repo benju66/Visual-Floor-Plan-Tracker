@@ -114,6 +114,17 @@ function App() {
     }
   }, [sheets, activeSheetId, setActiveSheetId]);
 
+  const activeSheet = sheets.find((s) => s.id === activeSheetId);
+
+  // Auto-select valid tracking mode if the active sheet changes and doesn't contain it
+  useEffect(() => {
+    if (activeSheet?.active_scopes && activeSheet.active_scopes.length > 0) {
+      if (!activeSheet.active_scopes.includes(trackingMode)) {
+        setTrackingMode(activeSheet.active_scopes[0]);
+      }
+    }
+  }, [activeSheet, trackingMode, setTrackingMode]);
+
   const {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
@@ -152,7 +163,7 @@ function App() {
     handleAddMilestone,
     handleUpdateMilestone,
     handleDeleteMilestone
-  } = useProjectActions(project, sheets);
+  } = useProjectActions(project, sheets, projectId);
 
   const isSettingsOpen = useUIStore(s => s.isSettingsOpen);
   const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
@@ -207,8 +218,6 @@ function App() {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
-
-  const activeSheet = sheets.find((s) => s.id === activeSheetId);
 
   const floorplanRef = useRef(null);
 
@@ -559,6 +568,8 @@ function App() {
         onDeleteMilestone={handleDeleteMilestone}
         mapSettings={mapSettings}
         onUpdateMapSettings={setMapSettings}
+        sheets={sheets}
+        projectId={projectId}
       />
 
       <ProjectManagementMenu

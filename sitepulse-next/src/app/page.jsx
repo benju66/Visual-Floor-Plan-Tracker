@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { supabase } from '@/supabaseClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function RootPage() {
   // Fetch the first available project
   const { data: project, error } = await supabase
