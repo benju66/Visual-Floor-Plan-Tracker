@@ -1,7 +1,7 @@
-const BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 export async function exportToPDFService(activeSheetId, payload, token) {
-  const response = await fetch(`${BASE_URL}/export-pdf/${activeSheetId}`, {
+  const response = await fetch(`${API_BASE_URL}/export-pdf/${activeSheetId}`, {
     method: 'POST',
     headers: { 
       'Content-Type': 'application/json',
@@ -32,7 +32,7 @@ export async function uploadFloorplanService(sheetId, file, pdfPageNumber, token
   formData.append('file', file);
 
   const response = await fetch(
-    `${BASE_URL}/upload-floorplan/${sheetId}?page_number=${pdfPageNumber}`,
+    `${API_BASE_URL}/upload-floorplan/${sheetId}?page_number=${pdfPageNumber}`,
     {
       method: 'POST',
       headers: {
@@ -54,7 +54,7 @@ export async function attachOriginalService(activeSheetId, file, token) {
   const formData = new FormData();
   formData.append('file', file);
   
-  const response = await fetch(`${BASE_URL}/attach-original/${activeSheetId}`, {
+  const response = await fetch(`${API_BASE_URL}/attach-original/${activeSheetId}`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`
