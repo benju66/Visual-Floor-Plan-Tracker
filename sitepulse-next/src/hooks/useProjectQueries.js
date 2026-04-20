@@ -1,6 +1,57 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 
+export function useProjectMembers(projectId) {
+  return useQuery({
+    queryKey: ['project_members', projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const { data: members, error } = await supabase
+        .from('project_members')
+        .select('*')
+        .eq('project_id', projectId);
+      if (error) throw error;
+      
+      if (!members || members.length === 0) return [];
+      
+      const userIds = members.map(m => m.user_id);
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, email, display_name')
+        .in('id', userIds);
+        
+      return members.map(m => ({
+        ...m,
+        profiles: profiles?.find(p => p.id === m.user_id) || null
+      }));
+    },
+    enabled: !!projectId
+  });
+}
+
+export function useCurrentUserRole(projectId) {
+  return useQuery({
+    queryKey: ['current_user_role', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.user) return null;
+      
+      const { data, error } = await supabase
+        .from('project_members')
+        .select('role')
+        .eq('project_id', projectId)
+        .eq('user_id', session.user.id)
+        .single();
+        
+      if (error && error.code !== 'PGRST116') throw error;
+      return data?.role || null;
+    },
+    enabled: !!projectId,
+    staleTime: 1000 * 60 * 5 // 5 minutes
+  });
+}
+
 export function useProject(projectId) {
   return useQuery({
     queryKey: ['project', projectId],

@@ -1,6 +1,8 @@
 import React from 'react';
-import { Settings, FolderEdit, RefreshCw, Folders, Plus, Download, LayoutDashboard, Map as MapIcon, List } from 'lucide-react';
+import { Settings, FolderEdit, RefreshCw, Folders, Plus, Download, LayoutDashboard, Map as MapIcon, List, Home } from 'lucide-react';
+import Link from 'next/link';
 import { useIsFetching } from '@tanstack/react-query';
+import { useCurrentUserRole } from '@/hooks/useProjectQueries';
 
 function TopHeader({
   project, sheets, activeSheetId, setActiveSheetId,
@@ -11,6 +13,7 @@ function TopHeader({
   triggerUndo, triggerRedo, undoStack, redoStack
 }) {
   const isFetching = useIsFetching();
+  const { data: currentUserRole } = useCurrentUserRole(project?.id);
 
   // Custom scorllbar hiding utility class (if tailwind-scrollbar-hide is missing)
   // Usually added via global css, we just use arbitrary Tailwind for scrollbar hiding
@@ -21,8 +24,11 @@ function TopHeader({
       
       {/* 1. LEFT SIDE: Title & Project Location Controls */}
       <div className="flex items-center gap-3 w-full xl:w-auto">
+        <Link href="/dashboard" className="p-2 mr-1 rounded-xl bg-slate-100/50 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-sky-500 transition-colors shadow-sm" title="Back to Dashboard">
+          <Home size={20} />
+        </Link>
         <div className="flex items-center gap-2 pr-1 xl:pr-3 xl:border-r border-slate-200 dark:border-white/10">
-          <div className="text-blue-500 bg-blue-100 dark:bg-blue-900/40 p-1.5 rounded-lg flex-shrink-0">
+          <div className="flex items-center justify-center text-sky-500 bg-sky-100 dark:bg-sky-500/20 w-8 h-8 rounded-lg flex-shrink-0">
             <Folders size={18} />
           </div>
           <div className="flex flex-col">
@@ -47,22 +53,26 @@ function TopHeader({
               <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer text-slate-600 dark:text-slate-300 shadow-sm transition-colors flex-shrink-0"
-            title="Add New Level"
-          >
-            <Plus size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsProjectMenuOpen(true)}
-            className="border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer shadow-sm transition-colors flex-shrink-0"
-            title="Manage Levels"
-          >
-            <FolderEdit size={18} />
-          </button>
+          {currentUserRole !== 'superintendent' && (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(true)}
+                className="border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer text-slate-600 dark:text-slate-300 shadow-sm transition-colors flex-shrink-0"
+                title="Add New Level"
+              >
+                <Plus size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsProjectMenuOpen(true)}
+                className="border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer shadow-sm transition-colors flex-shrink-0"
+                title="Manage Levels"
+              >
+                <FolderEdit size={18} />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -146,14 +156,16 @@ function TopHeader({
         )}
 
         {/* Global Settings */}
-        <button
-          type="button"
-          onClick={() => setIsSettingsOpen(true)}
-          className="flex-shrink-0 p-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
-          title="Settings"
-        >
-          <Settings size={18} />
-        </button>
+        {currentUserRole !== 'superintendent' && (
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex-shrink-0 p-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+            title="Settings"
+          >
+            <Settings size={18} />
+          </button>
+        )}
       </div>
 
     </header>

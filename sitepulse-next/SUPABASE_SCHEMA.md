@@ -52,3 +52,16 @@
 - `planned_end_date` (DATE)
 - `logged_date` (DATE, Not Null, Default CURRENT_DATE)
 - `created_at` (TIMESTAMPTZ)
+
+## 6. profiles
+- `id` (UUID, Primary Key, Foreign Key -> auth.users.id)
+- `display_name` (TEXT)
+- `email` (TEXT, Not Null)
+- `created_at` (TIMESTAMPTZ)
+
+## 7. project_members
+- `id` (UUID, Primary Key)
+- `project_id` (UUID, Foreign Key -> projects.id)
+- `user_id` (UUID, Foreign Key -> auth.users.id / profiles.id)
+- `role` (TEXT, Not Null) -- Enum: 'admin', 'pm', 'superintendent'
+- `created_at` (TIMESTAMPTZ)

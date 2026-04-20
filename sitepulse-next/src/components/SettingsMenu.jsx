@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar, User, Users, Shield } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useProjectMembers, useCurrentUserRole } from '@/hooks/useProjectQueries';
+import { useAuth } from '@/providers/AuthProvider';
+import { supabase } from '@/supabaseClient';
 
 function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEditMilestoneName, editMilestoneColor, setEditMilestoneColor, setEditingMilestoneId, onUpdateMilestone, onDeleteMilestone }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: m.id });
@@ -60,8 +62,27 @@ export default function SettingsMenu({
   sheets = [],
   projectId
 }) {
+  const { session } = useAuth();
+  const { data: currentUserRole } = useCurrentUserRole(projectId);
+  const { data: projectMembers = [] } = useProjectMembers(projectId);
+
   const [activeTab, setActiveTab] = useState('appearance');
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState('pm');
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   
+  // Set initial display name
+  useEffect(() => {
+    async function loadProfile() {
+      if (!session?.user?.id) return;
+      const { data } = await supabase.from('profiles').select('display_name').eq('id', session.user.id).single();
+      if (data?.display_name) setDisplayNameInput(data.display_name);
+    }
+    loadProfile();
+  }, [session]);
+
   const uniqueScopes = [...new Set(milestones.map(m => m.track))];
   if (uniqueScopes.length === 0) uniqueScopes.push('Production');
   
@@ -199,6 +220,28 @@ export default function SettingsMenu({
           >
             <Calendar size={16} /> Schedule
           </button>
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`flex items-center gap-2 shrink-0 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === 'profile'
+                ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <User size={16} /> Profile
+          </button>
+          {(currentUserRole === 'admin' || currentUserRole === 'pm') && (
+            <button
+              onClick={() => setActiveTab('team')}
+              className={`flex items-center gap-2 shrink-0 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${
+                activeTab === 'team'
+                  ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Users size={16} /> Team
+            </button>
+          )}
         </div>
 
         <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1 pb-2 custom-scrollbar">
@@ -896,6 +939,127 @@ export default function SettingsMenu({
                     })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+          {activeTab === 'profile' && (
+            <div className="space-y-4">
+              <h3 className="font-bold text-sm mb-2">User Profile</h3>
+              <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/10 pb-4">
+                <div>
+                  <span className="font-semibold block text-sm">Email Address</span>
+                  <span className="text-xs text-slate-500">{session?.user?.email}</span>
+                </div>
+              </div>
+              <div className="pt-2">
+                <label className="font-semibold block text-sm mb-2">Display Name</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={displayNameInput}
+                    onChange={e => setDisplayNameInput(e.target.value)}
+                    placeholder="Enter full name"
+                    className="flex-1 max-w-[300px] bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!session?.user?.id) return;
+                      setIsSavingProfile(true);
+                      await supabase.from('profiles').update({ display_name: displayNameInput }).eq('id', session.user.id);
+                      setIsSavingProfile(false);
+                    }}
+                    disabled={isSavingProfile}
+                    className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-sm font-bold shadow-sm transition-colors disabled:opacity-50"
+                  >
+                    {isSavingProfile ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'team' && (currentUserRole === 'admin' || currentUserRole === 'pm') && (
+            <div className="space-y-4 min-h-[40vh]">
+              <h3 className="font-bold text-sm mb-4">Project Team</h3>
+              
+              {/* Add member form */}
+              <div className="mb-6 p-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl">
+                 <h4 className="font-semibold text-xs text-slate-500 uppercase tracking-wider mb-3">Add Member</h4>
+                 <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                    <input
+                      type="email"
+                      value={newMemberEmail}
+                      onChange={e => setNewMemberEmail(e.target.value)}
+                      placeholder="User email address"
+                      className="flex-1 min-w-[200px] bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                    <select
+                      value={newMemberRole}
+                      onChange={e => setNewMemberRole(e.target.value)}
+                      className="bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-lg px-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                    >
+                      <option value="pm">Project Manager</option>
+                      <option value="superintendent">Superintendent</option>
+                      {currentUserRole === 'admin' && <option value="admin">Admin</option>}
+                    </select>
+                    <button
+                      disabled={isAddingMember || !newMemberEmail.trim()}
+                      onClick={async () => {
+                        setIsAddingMember(true);
+                        try {
+                           const { data: profile, error: profileErr } = await supabase.from('profiles').select('id').eq('email', newMemberEmail.trim().toLowerCase()).single();
+                           if (profileErr || !profile) {
+                              alert("User not found. They must sign up first.");
+                           } else {
+                              const { error: insertErr } = await supabase.from('project_members').insert([{ project_id: projectId, user_id: profile.id, role: newMemberRole }]);
+                              if (insertErr) {
+                                alert("Failed to add member.");
+                              } else {
+                                setNewMemberEmail('');
+                              }
+                           }
+                        } catch (err) {
+                           console.error(err);
+                           alert("Error adding member. They might already be on the project.");
+                        } finally {
+                           setIsAddingMember(false);
+                        }
+                      }}
+                      className="bg-sky-500 hover:bg-sky-600 text-white rounded-lg px-4 py-1.5 text-sm font-bold transition-colors disabled:opacity-50"
+                    >
+                      {isAddingMember ? '...' : 'Add'}
+                    </button>
+                 </div>
+              </div>
+
+              {/* Members list */}
+              <div className="overflow-y-auto max-h-[300px] border border-slate-200 dark:border-slate-700 rounded-xl">
+                 <table className="w-full text-left text-sm whitespace-nowrap">
+                    <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700">
+                      <tr>
+                        <th className="px-4 py-2 font-semibold">User</th>
+                        <th className="px-4 py-2 font-semibold">Role</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900/50">
+                       {projectMembers.map(member => (
+                          <tr key={member.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                            <td className="px-4 py-2">
+                               <div className="font-medium text-slate-800 dark:text-slate-200">{member.profiles?.display_name || 'Unknown User'}</div>
+                               <div className="text-xs text-slate-500">{member.profiles?.email}</div>
+                            </td>
+                            <td className="px-4 py-2">
+                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${member.role === 'admin' ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30' : member.role === 'pm' ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30'}`}>
+                                 {member.role}
+                               </span>
+                            </td>
+                          </tr>
+                       ))}
+                       {projectMembers.length === 0 && (
+                          <tr><td colSpan="2" className="px-4 py-6 text-center text-slate-500 text-sm">No members found.</td></tr>
+                       )}
+                    </tbody>
+                 </table>
               </div>
             </div>
           )}
