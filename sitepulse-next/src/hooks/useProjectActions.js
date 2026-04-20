@@ -4,7 +4,7 @@ import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { uploadFloorplanService, attachOriginalService } from '@/services/api';
-import { useUpdateMilestone } from '@/hooks/useProjectQueries';
+import { useUpdateMilestone, useReorderSheets } from '@/hooks/useProjectQueries';
 
 export function useProjectActions(project, sheets, projectId) {
   const queryClient = useQueryClient();
@@ -24,8 +24,8 @@ export function useProjectActions(project, sheets, projectId) {
   const setToast = useUIStore(s => s.setToast);
 
   const settings = useSettingsStore(s => s.settings) || {};
-
   const updateMilestoneMutation = useUpdateMilestone(project?.id, activeSheetId);
+  const reorderSheetsMutation = useReorderSheets(project?.id || projectId);
 
   const showToast = (message, type) => {
     if (!settings.enableToasts) return;
@@ -172,6 +172,15 @@ export function useProjectActions(project, sheets, projectId) {
     }
   };
 
+  const handleReorderSheets = async (updatedSheets) => {
+    try {
+      await reorderSheetsMutation.mutateAsync(updatedSheets);
+      showToast('Level order saved successfully!', 'success');
+    } catch (e) {
+      showToast('Failed to save order: ' + e.message, 'error');
+    }
+  };
+
   return {
     isModalOpen, setIsModalOpen,
     newLevelName, setNewLevelName,
@@ -182,6 +191,7 @@ export function useProjectActions(project, sheets, projectId) {
     handleAttachOriginal,
     handleRenameSheet,
     handleDeleteSheet,
+    handleReorderSheets,
     handleAddMilestone,
     handleUpdateMilestone,
     handleDeleteMilestone

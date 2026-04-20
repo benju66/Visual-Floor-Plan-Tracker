@@ -10,6 +10,7 @@
 ## 2. sheets
 - `id` (UUID, Primary Key)
 - `project_id` (UUID, Foreign Key -> projects.id)
+- `sequence_order` (INTEGER, Default 0)
 - `sheet_name` (TEXT, Not Null)
 - `base_image_url` (TEXT)
 - `active_scopes` (JSONB, Default '[]') -- Array of assigned scope names

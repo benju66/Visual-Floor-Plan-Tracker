@@ -160,6 +160,7 @@ function App() {
     handleAttachOriginal,
     handleRenameSheet,
     handleDeleteSheet,
+    handleReorderSheets,
     handleAddMilestone,
     handleUpdateMilestone,
     handleDeleteMilestone
@@ -578,6 +579,7 @@ function App() {
         sheets={sheets}
         onRenameSheet={handleRenameSheet}
         onDeleteSheet={handleDeleteSheet}
+        onReorderSheets={handleReorderSheets}
       />
     </div>
   );

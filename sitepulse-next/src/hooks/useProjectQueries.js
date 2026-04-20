@@ -36,7 +36,11 @@ export function useSheets(projectId) {
     queryKey: ['sheets', projectId],
     queryFn: async () => {
       if (!projectId) return [];
-      const { data, error } = await supabase.from('sheets').select('*').eq('project_id', projectId).order('created_at', { ascending: true });
+      const { data, error } = await supabase.from('sheets')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('sequence_order', { ascending: true })
+        .order('created_at', { ascending: true });
       if (error) throw error;
       return data;
     },
@@ -461,5 +465,40 @@ export function useReorderMilestones(projectId) {
       });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['milestones', projectId] })
+  });
+}
+
+export function useReorderSheets(projectId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (updatedSheets) => {
+      for (const sheet of updatedSheets) {
+        const { error } = await supabase.from('sheets')
+          .update({ sequence_order: sheet.sequence_order })
+          .eq('id', sheet.id);
+        if (error) throw error;
+      }
+    },
+    onMutate: async (updatedSheets) => {
+      await queryClient.cancelQueries({ queryKey: ['sheets', projectId] });
+      queryClient.setQueriesData({ queryKey: ['sheets', projectId] }, old => {
+        if (!old) return old;
+        const updatesMap = {};
+        updatedSheets.forEach(us => updatesMap[us.id] = us.sequence_order);
+        
+        return old.map(s => {
+          if (s.id in updatesMap) {
+            return { ...s, sequence_order: updatesMap[s.id] };
+          }
+          return s;
+        }).sort((a,b) => {
+          const aOrder = typeof a.sequence_order === 'number' ? a.sequence_order : Infinity;
+          const bOrder = typeof b.sequence_order === 'number' ? b.sequence_order : Infinity;
+          return aOrder - bOrder;
+        });
+      });
+      return {};
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['sheets', projectId] })
   });
 }
