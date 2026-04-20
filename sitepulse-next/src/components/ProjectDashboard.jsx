@@ -33,27 +33,27 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
       if (unitStatuses.length === 0) {
         notStartedCount++;
       } else {
-        const sortedUnitStatuses = unitStatuses.sort((a, b) => {
-          const indexA = currentTrackMilestones.findIndex(m => m.name === a.milestone);
-          const indexB = currentTrackMilestones.findIndex(m => m.name === b.milestone);
-          return indexA - indexB;
+        // Evaluate unit-level operational state
+        const isFullyCompleted = currentTrackMilestones.every(m => {
+           const log = unitStatuses.find(s => s.milestone === m.name);
+           return log && log.temporal_state === 'completed';
         });
-        const bottleneck = sortedUnitStatuses.find(s => s.temporal_state !== 'completed');
-        const status = bottleneck || sortedUnitStatuses[sortedUnitStatuses.length - 1];
-
-        if (!status || status.temporal_state === 'none') {
-          notStartedCount++;
-        } else if (status.temporal_state === 'completed') {
-          completedCount++;
-        } else if (status.temporal_state === 'ongoing' || status.temporal_state === 'planned') {
-          // Assume 'planned' and 'ongoing' represent active locations
-          ongoingCount++;
+        
+        if (isFullyCompleted) {
+           completedCount++;
+        } else {
+           // It's actively being worked on but not 100% finished
+           const hasActiveWork = unitStatuses.some(s => s.temporal_state !== 'none');
+           if (hasActiveWork) {
+             ongoingCount++;
+           } else {
+             notStartedCount++;
+           }
         }
       }
     });
 
     const totalDisplayUnits = displayUnits.length;
-    const progress = totalDisplayUnits > 0 ? Math.round((completedCount / totalDisplayUnits) * 100) : 0;
 
     const stats = currentTrackMilestones.map(milestone => {
       let tCompleted = 0;
@@ -81,6 +81,10 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
         total: totalDisplayUnits
       };
     });
+
+    const totalPossibleTasks = totalDisplayUnits * currentTrackMilestones.length;
+    const totalCompletedTasks = stats.reduce((sum, stat) => sum + stat.completed, 0);
+    const progress = totalPossibleTasks > 0 ? Math.round((totalCompletedTasks / totalPossibleTasks) * 100) : 0;
 
     return {
       overallProgress: progress,
@@ -154,7 +158,7 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
             <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 mt-1">{overallProgress}%</p>
           </div>
           <div className="absolute left-6 bottom-full mb-3 hidden group-hover:block w-64 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20 z-50">
-            Percentage of locations with a "Completed" status in the active tracking mode.
+            Percentage of all possible milestones completed across all tracked locations.
           </div>
         </div>
 

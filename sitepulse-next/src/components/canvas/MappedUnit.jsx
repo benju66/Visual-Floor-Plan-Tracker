@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Group, Line, Circle, Path } from 'react-konva';
 import { getCentroid } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
@@ -53,6 +53,12 @@ export const MappedUnitComponent = ({
   handleAnchorDragEnd,
   handleAnchorClick
 }) => {
+  const [optimisticCoords, setOptimisticCoords] = useState(null);
+
+  useEffect(() => {
+    setOptimisticCoords(null);
+  }, [unit.polygon_coordinates]);
+
   const activeStatus = activeStatuses.find((s) => s.unit_id === unit.id);
   const tState = activeStatus?.temporal_state || 'completed';
   const fillColor = activeStatus ? activeStatus.status_color : 'rgba(0,0,0,0)';
@@ -83,12 +89,13 @@ export const MappedUnitComponent = ({
     currentStroke = mixAlpha(activeStatus.status_color, 0.3);
   }
 
+  const basePolygon = optimisticCoords || unit.polygon_coordinates;
   const currentPoints = toPixels(
     activeDragNode?.unitId === unit.id
-      ? unit.polygon_coordinates.map((p, i) =>
+      ? basePolygon.map((p, i) =>
           i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
         )
-      : unit.polygon_coordinates
+      : basePolygon
   );
 
   return (
@@ -103,6 +110,14 @@ export const MappedUnitComponent = ({
           setActiveDragPolygon({ unitId: unit.id, dx, dy });
         }}
         onDragEnd={(e) => {
+          const dx = e.target.x() / layout.drawW;
+          const dy = e.target.y() / layout.drawH;
+          if (dx !== 0 || dy !== 0) {
+            setOptimisticCoords(basePolygon.map(p => ({
+               pctX: p.pctX + dx,
+               pctY: p.pctY + dy
+            })));
+          }
           setActiveDragPolygon(null);
           handlePolygonDragEnd(e, unit);
         }}
@@ -182,9 +197,9 @@ export const MappedUnitComponent = ({
         };
         const iconColor = TEMPORAL_COLORS[tState] || '#cbd5e1';
 
-        let previewPolygon = unit.polygon_coordinates;
+        let previewPolygon = basePolygon;
         if (activeDragNode?.unitId === unit.id) {
-            previewPolygon = unit.polygon_coordinates.map((p, i) =>
+            previewPolygon = basePolygon.map((p, i) =>
                 i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
             );
         }
@@ -223,7 +238,7 @@ export const MappedUnitComponent = ({
               const newPctX = (newAbsX - layout.offsetX) / layout.drawW;
               const newPctY = (newAbsY - layout.offsetY) / layout.drawH;
               
-              const baseCentroid = getCentroid(unit.polygon_coordinates);
+              const baseCentroid = getCentroid(basePolygon);
               const newOffsetX = newPctX - baseCentroid.pctX;
               const newOffsetY = newPctY - baseCentroid.pctY;
               
@@ -276,7 +291,7 @@ export const MappedUnitComponent = ({
         );
       })()}
       
-      {isSelected && unit.polygon_coordinates.map((pt, i) => (
+      {isSelected && basePolygon.map((pt, i) => (
          <Circle
            key={`anchor-${i}`}
            x={layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0)) * layout.drawW}
@@ -303,6 +318,13 @@ export const MappedUnitComponent = ({
              setActiveDragNode({ unitId: unit.id, index: i, pctX, pctY });
            }}
            onDragEnd={(e) => {
+             const node = e.target;
+             let pctX = (node.x() - layout.offsetX) / layout.drawW;
+             let pctY = (node.y() - layout.offsetY) / layout.drawH;
+             const newPoints = [...basePolygon];
+             newPoints[i] = { pctX, pctY };
+             setOptimisticCoords(newPoints);
+
              setActiveDragNode(null);
              handleAnchorDragEnd(e, unit.id, i);
            }}
@@ -324,7 +346,14 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
     prevProps.toolMode === nextProps.toolMode &&
     prevProps.legendFilter === nextProps.legendFilter &&
     prevProps.activeDragNode?.unitId === nextProps.activeDragNode?.unitId &&
+    (prevProps.activeDragNode?.unitId !== prevProps.unit.id ? true :
+      prevProps.activeDragNode?.index === nextProps.activeDragNode?.index &&
+      prevProps.activeDragNode?.pctX === nextProps.activeDragNode?.pctX &&
+      prevProps.activeDragNode?.pctY === nextProps.activeDragNode?.pctY) &&
     prevProps.activeDragPolygon?.unitId === nextProps.activeDragPolygon?.unitId &&
+    (prevProps.activeDragPolygon?.unitId !== prevProps.unit.id ? true :
+      prevProps.activeDragPolygon?.dx === nextProps.activeDragPolygon?.dx &&
+      prevProps.activeDragPolygon?.dy === nextProps.activeDragPolygon?.dy) &&
     prevProps.layout.drawW === nextProps.layout.drawW &&
     prevProps.activeStatuses.find(s => s.unit_id === prevProps.unit.id)?.temporal_state === 
     nextProps.activeStatuses.find(s => s.unit_id === nextProps.unit.id)?.temporal_state &&

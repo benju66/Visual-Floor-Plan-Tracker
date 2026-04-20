@@ -38,6 +38,7 @@ const BottleneckIndicator = ({ outOfSequence }) => {
             <div key={seq.id} className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: seq.status_color }} />
               <span className="truncate font-medium">{seq.milestone}</span>
+              <span className="text-[9px] uppercase tracking-widest opacity-50 ml-auto pt-[1px]">{seq.temporal_state}</span>
             </div>
           ))}
         </div>

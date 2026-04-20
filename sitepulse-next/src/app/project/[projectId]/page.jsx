@@ -148,9 +148,9 @@ function App() {
          track: trackingMode
       };
       
-      // 3. Find Out-of-Sequence Completed work existing AFTER the bottleneck sequentially
+      // 3. Find Out-of-Sequence work existing AFTER the bottleneck sequentially
       const outOfSequence = unitStatuses.filter(s => {
-          if (s.temporal_state !== 'completed') return false;
+          if (s.temporal_state !== 'completed' && s.temporal_state !== 'ongoing') return false;
           const sIdx = currentTrackMilestones.findIndex(m => m.name === s.milestone);
           return sIdx > primaryMasterIdx;
       });

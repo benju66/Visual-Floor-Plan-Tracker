@@ -68,6 +68,7 @@ const FloorplanCanvas = forwardRef(({
   const [image] = useImage(imageUrl, 'anonymous');
 
   const stageRef = useRef(null);
+  const zoomDebounceRef = useRef(null);
 
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -294,7 +295,8 @@ const FloorplanCanvas = forwardRef(({
 
     let newScale;
     if (e.evt.ctrlKey) {
-      newScale = e.evt.deltaY > 0 ? oldScale / 1.05 : oldScale * 1.05;
+      // True trackpad sensitivity
+      newScale = oldScale * Math.exp(-e.evt.deltaY / 100);
     } else {
       // Smoother inertial friction, capping the max delta
       const delta = Math.min(Math.abs(e.evt.deltaY), 50); 
@@ -302,11 +304,27 @@ const FloorplanCanvas = forwardRef(({
       newScale = e.evt.deltaY > 0 ? oldScale / stretch : oldScale * stretch;
     }
 
-    setStageScale(newScale);
-    setStagePosition({
+    // Scale Clamping
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 15;
+    newScale = Math.max(MIN_SCALE, Math.min(newScale, MAX_SCALE));
+
+    const newPos = {
       x: pointer.x - mousePointTo.x * newScale,
       y: pointer.y - mousePointTo.y * newScale,
-    });
+    };
+
+    // Direct Konva Mutation (bypasses React loop for 60fps)
+    stage.scale({ x: newScale, y: newScale });
+    stage.position(newPos);
+    stage.batchDraw();
+
+    // Sync back to React state debounced
+    if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
+    zoomDebounceRef.current = setTimeout(() => {
+      setStageScale(newScale);
+      setStagePosition(newPos);
+    }, 100);
   };
 
   const handleZoom = (direction) => {
@@ -907,7 +925,7 @@ const FloorplanCanvas = forwardRef(({
                      <div className="pt-2 border-t border-slate-700/30 dark:border-black/5">
                        <div className="text-[10px] uppercase font-bold text-emerald-400 dark:text-emerald-600 tracking-wider mb-1.5 flex items-center gap-1.5">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                          Completed Out-of-Sequence
+                          Logged Out-of-Sequence
                        </div>
                        <div className="flex flex-col gap-1.5">
                          {s.outOfSequence.map(seq => (
@@ -918,6 +936,7 @@ const FloorplanCanvas = forwardRef(({
                                  </svg>
                               </div>
                               <span className="text-xs text-slate-300 dark:text-slate-600 truncate">{seq.milestone}</span>
+                              <span className="text-[9px] uppercase tracking-widest opacity-50 ml-auto">{seq.temporal_state}</span>
                            </div>
                          ))}
                        </div>
