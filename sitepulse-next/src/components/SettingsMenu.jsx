@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical } from 'lucide-react';
+import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus } from '@/hooks/useProjectQueries';
 
 function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEditMilestoneName, editMilestoneColor, setEditMilestoneColor, setEditingMilestoneId, onUpdateMilestone, onDeleteMilestone }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: m.id });
@@ -65,17 +65,34 @@ export default function SettingsMenu({
   const uniqueScopes = [...new Set(milestones.map(m => m.track))];
   if (uniqueScopes.length === 0) uniqueScopes.push('Production');
   
-  const [activeSettingsTrack, setActiveSettingsTrack] = useState(uniqueScopes[0]);
+  const [activeSettingsTrack, setActiveSettingsTrack] = useState(uniqueScopes[0] || 'Production');
   const [newSettingsTrackInput, setNewSettingsTrackInput] = useState('');
-  
   const [newMilestoneName, setNewMilestoneName] = useState('');
   const [newMilestoneColor, setNewMilestoneColor] = useState('#3b82f6');
   const [editingMilestoneId, setEditingMilestoneId] = useState(null);
   const [editMilestoneName, setEditMilestoneName] = useState('');
   const [editMilestoneColor, setEditMilestoneColor] = useState('');
+  const [expandedSchedules, setExpandedSchedules] = useState({});
+  const [newUnitTypeAdd, setNewUnitTypeAdd] = useState('');
+  
+  const [scheduleLevelId, setScheduleLevelId] = useState(sheets?.[0]?.id || '');
+  const [scheduleMilestoneId, setScheduleMilestoneId] = useState('');
 
   const reorderMilestonesMutation = useReorderMilestones(projectId);
   const updateSheetScopesMutation = useUpdateSheetScopes(projectId);
+  const updateSheetScaleMutation = useUpdateSheetScale(projectId);
+  const updateSheetScheduleMutation = useUpdateSheetSchedule(projectId);
+  const updateUnitFieldsMutation = useUpdateUnitFields(null);
+  const updateStatusMutation = useUpdateStatus();
+
+  const { data: project } = useProject(projectId);
+  const updateProjectMutation = useUpdateProject(projectId);
+  const { data: allUnits = [] } = useAllProjectUnits(sheets?.map(s => s.id) || []);
+  
+  const scheduleUnits = allUnits.filter(u => u.sheet_id === scheduleLevelId);
+  const { data: scheduleStatuses = [] } = useStatuses(scheduleLevelId, scheduleUnits.map(u => u.id), milestones);
+  
+  const projectUnitTypes = project?.unit_types || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -105,7 +122,7 @@ export default function SettingsMenu({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border p-6 shadow-2xl glass-panel animate-in fade-in zoom-in-95 duration-200"
+        className="w-full max-w-4xl rounded-2xl border p-6 shadow-2xl glass-panel animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-6">
@@ -161,6 +178,26 @@ export default function SettingsMenu({
             }`}
           >
             <PenTool size={16} /> Drawing
+          </button>
+          <button
+            onClick={() => setActiveTab('data')}
+            className={`flex items-center gap-2 shrink-0 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === 'data'
+                ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Settings size={16} /> Data & Units
+          </button>
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`flex items-center gap-2 shrink-0 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === 'schedule'
+                ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Calendar size={16} /> Schedule
           </button>
         </div>
 
@@ -393,9 +430,47 @@ export default function SettingsMenu({
                  <div className="space-y-3">
                    {sheets.map(sheet => {
                      const activeScopes = Array.isArray(sheet.active_scopes) ? sheet.active_scopes : [];
+                     const handlePresetChange = (e) => {
+                        const preset = e.target.value;
+                        let ratio = sheet.scale_ratio || 1;
+                        if (preset === '1/8" = 1\'') ratio = 96;
+                        else if (preset === '1/4" = 1\'') ratio = 48;
+                        else if (preset === '3/8" = 1\'') ratio = 32;
+                        else if (preset === '1/2" = 1\'') ratio = 24;
+                        else if (preset === '1" = 10\'') ratio = 120;
+                        else if (preset === '1" = 20\'') ratio = 240;
+                        updateSheetScaleMutation.mutate({ sheetId: sheet.id, scale_preset: preset, scale_ratio: ratio });
+                     };
+                     
                      return (
                        <div key={sheet.id} className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3">
-                         <div className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100">{sheet.sheet_name}</div>
+                         <div className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 flex justify-between items-center">
+                           <span>{sheet.sheet_name}</span>
+                           <div className="flex gap-2 items-center">
+                             <select 
+                               value={sheet.scale_preset || 'custom'} 
+                               onChange={handlePresetChange}
+                               className="text-xs border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 rounded px-1.5 py-0.5"
+                             >
+                               <option value="custom">Custom Scale</option>
+                               <option value="1/8&quot; = 1'">1/8&quot; = 1'</option>
+                               <option value="1/4&quot; = 1'">1/4&quot; = 1'</option>
+                               <option value="3/8&quot; = 1'">3/8&quot; = 1'</option>
+                               <option value="1/2&quot; = 1'">1/2&quot; = 1'</option>
+                               <option value="1&quot; = 10'">1&quot; = 10'</option>
+                               <option value="1&quot; = 20'">1&quot; = 20'</option>
+                             </select>
+                             {(!sheet.scale_preset || sheet.scale_preset === 'custom') && (
+                               <input 
+                                 type="number" 
+                                 step="0.01"
+                                 value={sheet.scale_ratio || 1}
+                                 onChange={(e) => updateSheetScaleMutation.mutate({ sheetId: sheet.id, scale_preset: 'custom', scale_ratio: parseFloat(e.target.value) || 1 })}
+                                 className="text-xs border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 rounded px-1.5 py-0.5 w-16"
+                               />
+                             )}
+                           </div>
+                         </div>
                          <div className="flex flex-wrap gap-2">
                            {uniqueScopes.map(scope => {
                              const isActive = activeScopes.includes(scope);
@@ -413,6 +488,61 @@ export default function SettingsMenu({
                                </button>
                              );
                            })}
+                         </div>
+                         
+                         {/* Level Schedulues Expansion */}
+                         <div className="mt-3 border-t border-slate-200 dark:border-slate-700/50 pt-2">
+                           <button 
+                             type="button"
+                             onClick={() => setExpandedSchedules(prev => ({ ...prev, [sheet.id]: !prev[sheet.id] }))}
+                             className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-700 flex items-center"
+                           >
+                             {expandedSchedules[sheet.id] ? 'Hide Level Schedule' : 'Set Level Schedule'}
+                           </button>
+                           {expandedSchedules[sheet.id] && (
+                             <div className="mt-2 space-y-2">
+                               {milestones.filter(m => activeScopes.includes(m.track)).map(m => {
+                                 const schedule = sheet.milestone_schedules?.[m.name] || { start_date: '', end_date: '' };
+                                 return (
+                                   <div key={m.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-black/20 p-2 rounded border border-slate-200 dark:border-white/10 text-xs">
+                                      <div className="font-medium flex items-center gap-2 mb-1 sm:mb-0 w-1/3">
+                                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: m.color }} />
+                                        <span className="truncate" title={m.name}>{m.name}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex flex-col">
+                                          <span className="text-[10px] text-slate-500 mb-0.5">Start</span>
+                                          <input 
+                                            type="date"
+                                            value={schedule.start_date || ''}
+                                            onChange={(e) => {
+                                              const newSchedules = { ...sheet.milestone_schedules, [m.name]: { ...schedule, start_date: e.target.value } };
+                                              updateSheetScheduleMutation.mutate({ sheetId: sheet.id, milestone_schedules: newSchedules });
+                                            }}
+                                            className="px-1.5 py-0.5 border rounded dark:bg-slate-800 dark:border-slate-600 outline-none"
+                                          />
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-[10px] text-slate-500 mb-0.5">End</span>
+                                          <input 
+                                            type="date"
+                                            value={schedule.end_date || ''}
+                                            onChange={(e) => {
+                                              const newSchedules = { ...sheet.milestone_schedules, [m.name]: { ...schedule, end_date: e.target.value } };
+                                              updateSheetScheduleMutation.mutate({ sheetId: sheet.id, milestone_schedules: newSchedules });
+                                            }}
+                                            className="px-1.5 py-0.5 border rounded dark:bg-slate-800 dark:border-slate-600 outline-none"
+                                          />
+                                        </div>
+                                      </div>
+                                   </div>
+                                 );
+                               })}
+                               {milestones.filter(m => activeScopes.includes(m.track)).length === 0 && (
+                                  <div className="text-[11px] text-slate-500 italic">No milestones available. Assign scopes first.</div>
+                               )}
+                             </div>
+                           )}
                          </div>
                        </div>
                      );
@@ -438,6 +568,22 @@ export default function SettingsMenu({
                     onChange={(e) => onUpdateSettings({ ...settings, auto_advance_enabled: e.target.checked })}
                   />
                   <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-white/10 pt-4">
+                <div>
+                  <span className="font-semibold block text-sm">Visual Delay Warning</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Show pulsing red icon on delayed locations</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={settings.show_delay_indicators !== false}
+                    onChange={(e) => onUpdateSettings({ ...settings, show_delay_indicators: e.target.checked })}
+                  />
+                  <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
                 </label>
               </div>
 
@@ -532,6 +678,226 @@ export default function SettingsMenu({
                 />
               </div>
             </>
+          )}
+
+          {activeTab === 'data' && (
+            <div className="flex flex-col h-[50vh]">
+              <div className="shrink-0 mb-6 border border-slate-200 dark:border-white/10 rounded-xl bg-slate-50 dark:bg-white/5 p-4">
+                <h3 className="font-bold text-sm mb-3">Project Unit Types</h3>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {projectUnitTypes.map((type) => (
+                    <div key={type} className="flex items-center gap-1 bg-white dark:bg-black/20 border border-slate-200 dark:border-white/10 px-2 py-1 rounded text-xs font-medium">
+                      {type}
+                      <button 
+                        onClick={() => {
+                          const newTypes = projectUnitTypes.filter(t => t !== type);
+                          updateProjectMutation.mutate({ unit_types: newTypes });
+                        }}
+                        className="text-slate-400 hover:text-red-500 ml-1"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  {projectUnitTypes.length === 0 && <span className="text-xs text-slate-500">No unit types defined.</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newUnitTypeAdd}
+                    onChange={e => setNewUnitTypeAdd(e.target.value)}
+                    placeholder="New unit type..."
+                    className="flex-1 max-w-[200px] border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 rounded px-2 py-1 text-xs outline-none"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && newUnitTypeAdd.trim()) {
+                         updateProjectMutation.mutate({ unit_types: [...newUnitTypeAdd.trim()] });
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      if (newUnitTypeAdd.trim() && !projectUnitTypes.includes(newUnitTypeAdd.trim())) {
+                        updateProjectMutation.mutate({ unit_types: [...projectUnitTypes, newUnitTypeAdd.trim()] });
+                        setNewUnitTypeAdd('');
+                      }
+                    }}
+                    className="bg-slate-800 text-white dark:bg-slate-200 dark:text-black px-3 py-1 rounded text-xs font-medium hover:opacity-90"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              <h3 className="font-bold text-sm mb-3 shrink-0">Unit Data Management</h3>
+              <div className="overflow-y-auto flex-1 rounded-xl border border-slate-200 dark:border-white/10">
+                <table className="w-full text-left text-sm whitespace-nowrap">
+                  <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0 z-10 shadow-sm border-b border-slate-200 dark:border-slate-700">
+                    <tr>
+                      <th className="px-4 py-2 font-semibold">Location</th>
+                      <th className="px-4 py-2 font-semibold">Level</th>
+                      <th className="px-4 py-2 font-semibold">Unit Type</th>
+                      <th className="px-4 py-2 font-semibold text-right">Computed Area</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900/50">
+                    {allUnits.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-slate-500">No project data available.</td>
+                      </tr>
+                    )}
+                    {allUnits.map(unit => {
+                      const sheet = sheets.find(s => s.id === unit.sheet_id);
+                      return (
+                        <tr key={unit.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="px-4 py-2 font-medium">{unit.unit_number}</td>
+                          <td className="px-4 py-2 text-slate-600 dark:text-slate-400 text-xs">{sheet?.sheet_name || 'Unknown'}</td>
+                          <td className="px-4 py-2 text-slate-800 dark:text-slate-200">
+                            <select 
+                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-full max-w-[160px]"
+                              value={unit.unit_type || 'Unknown'}
+                              onChange={(e) => updateUnitFieldsMutation.mutate({ unitId: unit.id, updates: { unit_type: e.target.value }})}
+                            >
+                              <option value="Unknown" disabled>Select Type...</option>
+                              {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums text-slate-600 dark:text-slate-400">
+                            {unit.computed_area ? unit.computed_area.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' sq units' : '--'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'schedule' && (
+            <div className="flex flex-col h-[65vh]">
+              <div className="shrink-0 mb-4 border border-slate-200 dark:border-white/10 rounded-xl bg-slate-50 dark:bg-white/5 p-4 flex flex-wrap gap-4 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <span className="block text-xs font-semibold text-slate-500 mb-1">Filter by Level</span>
+                  <select 
+                    value={scheduleLevelId}
+                    onChange={e => setScheduleLevelId(e.target.value)}
+                    className="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm outline-none"
+                  >
+                    {sheets.map(s => <option key={s.id} value={s.id}>{s.sheet_name}</option>)}
+                    {sheets.length === 0 && <option value="">No levels exist</option>}
+                  </select>
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <span className="block text-xs font-semibold text-slate-500 mb-1">Filter by Milestone</span>
+                  <select 
+                    value={scheduleMilestoneId}
+                    onChange={e => setScheduleMilestoneId(e.target.value)}
+                    className="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm outline-none"
+                  >
+                    <option value="" disabled>Select Milestone...</option>
+                    {milestones.filter(m => {
+                      const activeSheet = sheets.find(s => s.id === scheduleLevelId);
+                      return activeSheet?.active_scopes?.includes(m.track);
+                    }).map(m => (
+                      <option key={m.id} value={m.name}>{m.name} ({m.track})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="overflow-y-auto flex-1 rounded-xl border border-slate-200 dark:border-white/10">
+                <table className="w-full text-left text-sm whitespace-nowrap">
+                  <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0 z-10 shadow-sm border-b border-slate-200 dark:border-slate-700">
+                    <tr>
+                      <th className="px-4 py-2 font-semibold w-1/4">Location</th>
+                      <th className="px-4 py-2 font-semibold w-1/4">Temporal Status</th>
+                      <th className="px-4 py-2 font-semibold w-1/4">Planned Start</th>
+                      <th className="px-4 py-2 font-semibold w-1/4">Planned Finish</th>
+                      <th className="px-4 py-2 font-semibold text-slate-500 text-xs text-right">Actual Completed</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900/50">
+                    {(!scheduleMilestoneId || !scheduleLevelId) && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-slate-500 font-medium">Please select a milestone and level to view schedule.</td>
+                      </tr>
+                    )}
+                    {scheduleMilestoneId && scheduleLevelId && scheduleUnits.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-slate-500 font-medium">No locations exist on this level.</td>
+                      </tr>
+                    )}
+                    {scheduleMilestoneId && scheduleLevelId && scheduleUnits.map(unit => {
+                      const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
+                      const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                      
+                      const isCompleted = log?.temporal_state === 'completed';
+                      
+                      const handleDateUpdate = (type, val) => {
+                         if (!targetMilestone) return;
+                         updateStatusMutation.mutate({
+                           unit_id: unit.id,
+                           milestone: targetMilestone.name,
+                           status_color: targetMilestone.color,
+                           temporal_state: log?.temporal_state || 'none',
+                           track: targetMilestone.track,
+                           planned_start_date: type === 'start' ? (val || null) : (log?.planned_start_date || null),
+                           planned_end_date: type === 'end' ? (val || null) : (log?.planned_end_date || null),
+                         });
+                      };
+                      
+                      return (
+                        <tr key={unit.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="px-4 py-2 font-bold">{unit.unit_number}</td>
+                          <td className="px-4 py-2">
+                            <select
+                              value={log?.temporal_state || 'none'}
+                              onChange={(e) => {
+                                if (!targetMilestone) return;
+                                updateStatusMutation.mutate({
+                                   unit_id: unit.id,
+                                   milestone: targetMilestone.name,
+                                   status_color: targetMilestone.color,
+                                   temporal_state: e.target.value,
+                                   track: targetMilestone.track,
+                                   planned_start_date: log?.planned_start_date || null,
+                                   planned_end_date: log?.planned_end_date || null
+                                });
+                              }}
+                              className={`bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-full max-w-[140px] font-semibold ${isCompleted ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'}`}
+                            >
+                               <option value="none">Not Started</option>
+                               <option value="planned">Planned</option>
+                               <option value="ongoing">Ongoing</option>
+                               <option value="completed">Completed</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-2">
+                            <input 
+                              type="date"
+                              value={log?.planned_start_date || ''}
+                              onChange={(e) => handleDateUpdate('start', e.target.value)}
+                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                             <input 
+                              type="date"
+                              value={log?.planned_end_date || ''}
+                              onChange={(e) => handleDateUpdate('end', e.target.value)}
+                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium"
+                            />
+                          </td>
+                          <td className="px-4 py-2 text-right text-xs text-slate-500 font-medium">
+                            {isCompleted && log?.created_at ? new Date(log.created_at).toLocaleDateString() : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
       </div>

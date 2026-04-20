@@ -12,6 +12,8 @@ export default function BulkActionDock({
 }) {
   const [selectedMilestone, setSelectedMilestone] = useState('__KEEP_EXISTING__');
   const [selectedState, setSelectedState] = useState('__KEEP_EXISTING__');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const trackingMode = useMapStore(s => s.trackingMode);
 
   if (!selectedUnitIds || selectedUnitIds.length < 2) return null;
@@ -36,12 +38,16 @@ export default function BulkActionDock({
       milestone: targetMilestone,
       color: targetColor,
       temporal_state: selectedState,
-      track: trackingMode
+      track: trackingMode,
+      planned_start_date: startDate || null,
+      planned_end_date: endDate || null
     });
     
     // Clear selection after a successful application
     setSelectedMilestone('__KEEP_EXISTING__');
     setSelectedState('__KEEP_EXISTING__');
+    setStartDate('');
+    setEndDate('');
   };
 
   return (
@@ -92,6 +98,17 @@ export default function BulkActionDock({
           <option value="ongoing">Ongoing</option>
           <option value="completed">Completed</option>
         </select>
+        
+        <div className="flex flex-col ml-2 gap-1 text-xs">
+           <div className="flex items-center gap-1">
+             <span className="text-slate-500 font-semibold w-8">Start:</span>
+             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} disabled={isPending || selectedMilestone === '__CLEAR__'} className="bg-white/50 dark:bg-black/20 border border-slate-300 dark:border-slate-600 rounded px-1 min-w-[100px] outline-none" />
+           </div>
+           <div className="flex items-center gap-1">
+             <span className="text-slate-500 font-semibold w-8">End:</span>
+             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} disabled={isPending || selectedMilestone === '__CLEAR__'} className="bg-white/50 dark:bg-black/20 border border-slate-300 dark:border-slate-600 rounded px-1 min-w-[100px] outline-none" />
+           </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-1 pl-1">

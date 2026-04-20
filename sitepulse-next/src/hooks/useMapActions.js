@@ -28,6 +28,8 @@ export function useMapActions(project) {
 
   const newUnitName = useUIStore(s => s.newUnitName);
   const setNewUnitName = useUIStore(s => s.setNewUnitName);
+  const newUnitType = useUIStore(s => s.newUnitType);
+  const setNewUnitType = useUIStore(s => s.setNewUnitType);
   const setUnitNamingOpen = useUIStore(s => s.setUnitNamingOpen);
   const unitNamingOpen = useUIStore(s => s.unitNamingOpen);
   const setConfirmModal = useUIStore(s => s.setConfirmModal);
@@ -145,13 +147,48 @@ export function useMapActions(project) {
 
     try {
       if (editingUnitId) {
-         await updateUnitFieldsMutation.mutateAsync({ unitId: editingUnitId, updates: { unit_number: name } });
+         await updateUnitFieldsMutation.mutateAsync({ unitId: editingUnitId, updates: { unit_number: name, unit_type: newUnitType } });
          setUnitNamingOpen(false);
          setEditingUnitId(null);
          setNewUnitName('');
          showToast('Location renamed.', 'success');
       } else {
-         const data = await createUnitMutation.mutateAsync({ sheet_id: activeSheetId, unit_number: name, polygon_coordinates: pendingPolygonPoints });
+         let finalComputedArea = null;
+         if (pendingPolygonPoints && pendingPolygonPoints.length >= 3) {
+           const sheets = queryClient.getQueryData(['sheets', project?.id]) || [];
+           const sheet = sheets.find(s => s.id === activeSheetId);
+           if (sheet && sheet.base_image_url) {
+             const img = new Image();
+             img.src = sheet.base_image_url;
+             await new Promise(resolve => {
+                img.onload = resolve;
+                img.onerror = resolve; // proceed even if err
+             });
+             if (img.naturalWidth && img.naturalHeight) {
+                 let area = 0;
+                 for (let i = 0; i < pendingPolygonPoints.length; i++) {
+                    const j = (i + 1) % pendingPolygonPoints.length;
+                    const xA = pendingPolygonPoints[i].pctX * img.naturalWidth;
+                    const yA = pendingPolygonPoints[i].pctY * img.naturalHeight;
+                    const xB = pendingPolygonPoints[j].pctX * img.naturalWidth;
+                    const yB = pendingPolygonPoints[j].pctY * img.naturalHeight;
+                    area += xA * yB - xB * yA;
+                 }
+                 area = Math.abs(area) / 2;
+                 if (sheet.scale_ratio) {
+                    finalComputedArea = area * sheet.scale_ratio;
+                 }
+             }
+           }
+         }
+
+         const data = await createUnitMutation.mutateAsync({ 
+             sheet_id: activeSheetId, 
+             unit_number: name, 
+             polygon_coordinates: pendingPolygonPoints,
+             unit_type: newUnitType,
+             computed_area: finalComputedArea
+         });
          setUndoStack(prev => {
              const next = [...prev, { actionType: 'CREATE_UNIT', unitData: data }];
              return next.length > 50 ? next.slice(next.length - 50) : next;
@@ -208,10 +245,12 @@ export function useMapActions(project) {
     }
   };
 
-  const commitUnitMilestone = async (unit, milestone, currentTemporalState = 'none', isUndoRedo = false) => {
+  const commitUnitMilestone = async (unit, milestone, currentTemporalState = 'none', isUndoRedo = false, extraProps = {}) => {
     setSavingUnitId(unit.id);
     const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
     const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
+    const sheets = queryClient.getQueryData(['sheets', project?.id]) || [];
+    const activeSheet = sheets.find(s => s.id === activeSheetId);
     
     if (milestone.isClearAction) {
       try {
@@ -236,12 +275,17 @@ export function useMapActions(project) {
     const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track) || null;
     try {
       const status_color = milestone.color || milestone.status_color;
+      const milestoneName = milestone.name || milestone.milestone;
+      const sheetSchedule = activeSheet?.milestone_schedules?.[milestoneName] || {};
+      
       const newLogData = {
         unit_id: unit.id,
-        milestone: milestone.name || milestone.milestone,
+        milestone: milestoneName,
         status_color,
         temporal_state: currentTemporalState,
-        track: milestone.track
+        track: milestone.track,
+        planned_start_date: extraProps.startDate || sheetSchedule.start_date || null,
+        planned_end_date: extraProps.endDate || sheetSchedule.end_date || null
       };
       const newLog = await updateStatusMutation.mutateAsync(newLogData);
       
@@ -252,12 +296,17 @@ export function useMapActions(project) {
         const currentIndex = trackMilestones.findIndex(m => m.name === newLogData.milestone);
         if (currentIndex !== -1 && currentIndex < trackMilestones.length - 1) {
           const nextMilestone = trackMilestones[currentIndex + 1];
+          const nextMilestoneName = nextMilestone.name;
+          const nextSheetSchedule = activeSheet?.milestone_schedules?.[nextMilestoneName] || {};
+          
           const nextLogData = {
             unit_id: unit.id,
-            milestone: nextMilestone.name,
+            milestone: nextMilestoneName,
             status_color: nextMilestone.color,
             temporal_state: 'planned',
-            track: nextMilestone.track
+            track: nextMilestone.track,
+            planned_start_date: nextSheetSchedule.start_date || null,
+            planned_end_date: nextSheetSchedule.end_date || null
           };
           nextLog = await updateStatusMutation.mutateAsync(nextLogData);
         }
@@ -277,7 +326,7 @@ export function useMapActions(project) {
     }
   };
 
-  const handleQuickUpdate = (unitId, type, value) => {
+  const handleQuickUpdate = (unitId, type, value, extraProps = {}) => {
     const units = queryClient.getQueryData(['units', activeSheetId]) || [];
     const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
     const milestones = queryClient.getQueryData(['milestones', project?.id]) || [];
@@ -299,24 +348,24 @@ export function useMapActions(project) {
       } else {
          milestoneObj = milestones.find(m => m.track === trackingMode) || { name: 'Not Started', color: '#64748b', track: trackingMode };
       }
-      commitUnitMilestone(unit, milestoneObj, value);
+      commitUnitMilestone(unit, milestoneObj, value, false, extraProps);
     } else if (type === 'milestone') {
       const selectedMilestone = milestones.find(m => m.name === value && m.track === trackingMode);
       if (!selectedMilestone) return;
 
       const temporalState = existingStatus ? existingStatus.temporal_state : 'completed';
-      commitUnitMilestone(unit, selectedMilestone, temporalState);
+      commitUnitMilestone(unit, selectedMilestone, temporalState, false, extraProps);
     }
   };
 
-  const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track }, isUndoRedo = false) => {
+  const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date }, isUndoRedo = false) => {
     const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
     
     // Save old state for undo
     const oldLogs = activeStatuses.filter(s => unitIds.includes(s.unit_id) && s.track === track);
 
     try {
-      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track });
+      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date });
       
       const autoAdvanceEnabled = settings.auto_advance_enabled !== false;
       let usedTemporalState = temporal_state;
@@ -339,7 +388,9 @@ export function useMapActions(project) {
              milestone: usedMilestone,
              color: usedColor,
              temporal_state: usedTemporalState,
-             track
+             track,
+             planned_start_date: null,
+             planned_end_date: null
           });
         }
       }
@@ -372,6 +423,7 @@ export function useMapActions(project) {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
     newUnitName, setNewUnitName,
+    newUnitType, setNewUnitType,
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,

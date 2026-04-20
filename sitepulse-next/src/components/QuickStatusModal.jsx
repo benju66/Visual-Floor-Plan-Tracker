@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatus, onCommit }) {
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  
   if (!isOpen) return null;
 
   return (
@@ -21,24 +24,36 @@ export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatu
             Clear Status
           </button>
           <button
-            onClick={() => { onCommit(unitId, 'status', 'planned'); onClose(); }}
+            onClick={() => { onCommit(unitId, 'status', 'planned', { startDate, endDate }); onClose(); }}
             className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${currentStatus === 'planned' ? 'border-slate-500 bg-slate-500 text-white' : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-400 dark:hover:border-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
           >
             Planned
           </button>
           <button
-            onClick={() => { onCommit(unitId, 'status', 'ongoing'); onClose(); }}
+            onClick={() => { onCommit(unitId, 'status', 'ongoing', { startDate, endDate }); onClose(); }}
             className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${currentStatus === 'ongoing' ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-200 dark:border-amber-900/50 text-amber-600 dark:text-amber-500 hover:border-amber-400 dark:hover:border-amber-700'}`}
           >
             Ongoing
           </button>
           <button
-            onClick={() => { onCommit(unitId, 'status', 'completed'); onClose(); }}
+            onClick={() => { onCommit(unitId, 'status', 'completed', { startDate, endDate }); onClose(); }}
             className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${currentStatus === 'completed' ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-500 hover:border-emerald-400 dark:hover:border-emerald-700'}`}
           >
             Completed
           </button>
         </div>
+        
+        <div className="grid grid-cols-2 gap-4 mt-4">
+          <div className="flex flex-col gap-1">
+             <label className="text-xs font-bold text-slate-500">Planned Start</label>
+             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex flex-col gap-1">
+             <label className="text-xs font-bold text-slate-500">Planned End</label>
+             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+
         <div className="mt-6 flex justify-end">
           <button
             onClick={onClose}

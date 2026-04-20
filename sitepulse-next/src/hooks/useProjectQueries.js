@@ -7,11 +7,30 @@ export function useProject(projectId) {
     queryFn: async () => {
       if (!projectId) return null;
       const { data, error } = await supabase.from('projects').select('*').eq('id', projectId).single();
-      // PGRST116 is the PostgREST error for "0 rows returned" when expecting a single object.
       if (error && error.code !== 'PGRST116') throw error;
       return data || null;
     },
     enabled: !!projectId
+  });
+}
+
+export function useUpdateProject(projectId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (updates) => {
+      const { data, error } = await supabase.from('projects').update(updates).eq('id', projectId).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async (updates) => {
+      await queryClient.cancelQueries({ queryKey: ['project', projectId] });
+      queryClient.setQueriesData({ queryKey: ['project', projectId] }, old => {
+        if (!old) return old;
+        return { ...old, ...updates };
+      });
+      return {};
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['project', projectId] })
   });
 }
 
@@ -310,7 +329,7 @@ export function useUpdateMilestone(projectId, sheetId) {
 export function useBulkUpdateStatus(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitIds, milestone, color, temporal_state, track }) => {
+    mutationFn: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date }) => {
       const CHUNK_SIZE = 800;
       
       for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
@@ -346,7 +365,9 @@ export function useBulkUpdateStatus(sheetId) {
                    milestone: existing.milestone,
                    status_color: existing.status_color,
                    temporal_state,
-                   track
+                   track,
+                   planned_start_date: planned_start_date !== undefined ? planned_start_date : existing.planned_start_date,
+                   planned_end_date: planned_end_date !== undefined ? planned_end_date : existing.planned_end_date
                 });
               }
             }
@@ -363,7 +384,9 @@ export function useBulkUpdateStatus(sheetId) {
               milestone,
               status_color: color,
               temporal_state,
-              track
+              track,
+              planned_start_date: planned_start_date || null,
+              planned_end_date: planned_end_date || null
             }));
             
             const { error: insertError } = await supabase.from('status_logs').insert(newLogs);
@@ -372,7 +395,7 @@ export function useBulkUpdateStatus(sheetId) {
         }
       }
     },
-    onMutate: async ({ unitIds, milestone, color, temporal_state, track }) => {
+    onMutate: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
       
       queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
@@ -382,7 +405,12 @@ export function useBulkUpdateStatus(sheetId) {
           if (temporal_state === '__KEEP_EXISTING__') return old;
           return old.map(s => {
             if (unitIds.includes(s.unit_id) && s.track === track) {
-              return { ...s, temporal_state };
+              return { 
+                  ...s, 
+                  temporal_state,
+                  planned_start_date: planned_start_date !== undefined ? planned_start_date : s.planned_start_date,
+                  planned_end_date: planned_end_date !== undefined ? planned_end_date : s.planned_end_date
+              };
             }
             return s;
           });
@@ -401,6 +429,8 @@ export function useBulkUpdateStatus(sheetId) {
           status_color: color,
           temporal_state,
           track,
+          planned_start_date: planned_start_date || null,
+          planned_end_date: planned_end_date || null,
           created_at: new Date().toISOString()
         }));
         return [...filtered, ...optimisticLogs];
@@ -425,6 +455,46 @@ export function useUpdateSheetScopes(projectId) {
       queryClient.setQueriesData({ queryKey: ['sheets', projectId] }, old => {
         if (!old) return old;
         return old.map(s => s.id === sheetId ? { ...s, active_scopes } : s);
+      });
+      return {};
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['sheets', projectId] })
+  });
+}
+
+export function useUpdateSheetScale(projectId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ sheetId, scale_preset, scale_ratio }) => {
+      const { data, error } = await supabase.from('sheets').update({ scale_preset, scale_ratio }).eq('id', sheetId).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async ({ sheetId, scale_preset, scale_ratio }) => {
+      await queryClient.cancelQueries({ queryKey: ['sheets', projectId] });
+      queryClient.setQueriesData({ queryKey: ['sheets', projectId] }, old => {
+        if (!old) return old;
+        return old.map(s => s.id === sheetId ? { ...s, scale_preset, scale_ratio } : s);
+      });
+      return {};
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['sheets', projectId] })
+  });
+}
+
+export function useUpdateSheetSchedule(projectId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ sheetId, milestone_schedules }) => {
+      const { data, error } = await supabase.from('sheets').update({ milestone_schedules }).eq('id', sheetId).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async ({ sheetId, milestone_schedules }) => {
+      await queryClient.cancelQueries({ queryKey: ['sheets', projectId] });
+      queryClient.setQueriesData({ queryKey: ['sheets', projectId] }, old => {
+        if (!old) return old;
+        return old.map(s => s.id === sheetId ? { ...s, milestone_schedules } : s);
       });
       return {};
     },

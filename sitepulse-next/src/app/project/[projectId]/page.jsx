@@ -129,6 +129,7 @@ function App() {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
     newUnitName, setNewUnitName,
+    newUnitType, setNewUnitType,
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,
@@ -376,8 +377,8 @@ function App() {
             <FieldStatusTable
               savingUnitId={savingUnitId}
               onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
-              onUpdateTemporalState={(unit, log, state) => {
-                 void commitUnitMilestone(unit, { name: log.milestone, color: log.status_color, track: log.track }, state);
+              onUpdateTemporalState={(unit, log, state, extraProps = {}) => {
+                 void commitUnitMilestone(unit, { name: log.milestone, color: log.status_color, track: log.track }, state, false, extraProps);
               }}
               defaultView={settings.defaultFieldView || 'table'}
             />
@@ -432,6 +433,9 @@ function App() {
                   editingUnitId={editingUnitId}
                   newUnitName={newUnitName}
                   setNewUnitName={setNewUnitName}
+                  newUnitType={newUnitType}
+                  setNewUnitType={setNewUnitType}
+                  projectUnitTypes={project?.unit_types || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other']}
                   saveNewUnitFromPopover={saveNewUnitFromPopover}
                   cancelUnitNaming={cancelUnitNaming}
                 />

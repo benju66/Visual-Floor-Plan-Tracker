@@ -4,6 +4,9 @@ export default function UnitNamingPopover({
   editingUnitId,
   newUnitName,
   setNewUnitName,
+  newUnitType,
+  setNewUnitType,
+  projectUnitTypes = ['Apartment Unit', 'Common Area', 'Commercial Space', 'Other'],
   saveNewUnitFromPopover,
   cancelUnitNaming
 }) {
@@ -25,6 +28,13 @@ export default function UnitNamingPopover({
           if (e.key === 'Escape') cancelUnitNaming();
         }}
       />
+      <select
+        value={newUnitType || (projectUnitTypes.length > 0 ? projectUnitTypes[0] : 'Apartment Unit')}
+        onChange={(e) => setNewUnitType(e.target.value)}
+        className="w-full text-sm border border-slate-300/80 dark:border-white/15 rounded-xl px-2 py-1.5 mb-4 bg-white/70 dark:bg-black/25 outline-none focus:ring-2 focus:ring-blue-500/50"
+      >
+        {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
+      </select>
       <div className="flex justify-end gap-2">
         <button
           type="button"

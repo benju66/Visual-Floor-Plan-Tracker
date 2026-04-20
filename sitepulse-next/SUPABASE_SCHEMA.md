@@ -5,6 +5,7 @@
 ## 1. projects
 - `id` (UUID, Primary Key)
 - `name` (TEXT, Not Null)
+- `unit_types` (JSONB, Default '["Apartment Unit", "Common Area", "Back of House", "Commercial Space", "Other"]') 
 - `created_at` (TIMESTAMPTZ)
 
 ## 2. sheets
@@ -13,13 +14,18 @@
 - `sequence_order` (INTEGER, Default 0)
 - `sheet_name` (TEXT, Not Null)
 - `base_image_url` (TEXT)
+- `scale_ratio` (FLOAT)
+- `scale_preset` (TEXT)
 - `active_scopes` (JSONB, Default '[]') -- Array of assigned scope names
+- `milestone_schedules` (JSONB, Default '{}') -- Mapping of milestones to start/end dates
 - `created_at` (TIMESTAMPTZ)
 
 ## 3. units
 - `id` (UUID, Primary Key)
 - `sheet_id` (UUID, Foreign Key -> sheets.id)
 - `unit_number` (TEXT, Not Null)
+- `unit_type` (TEXT)
+- `computed_area` (FLOAT)
 - `polygon_coordinates` (JSONB, Not Null)
 - `icon_offset_x` (FLOAT, Default 0)
 - `icon_offset_y` (FLOAT, Default 0)
@@ -42,5 +48,7 @@
 - `status_color` (TEXT, Not Null)
 - `temporal_state` (TEXT, Not Null, Default 'completed') -- Enum: 'planned', 'ongoing', 'completed'
 - `track` (TEXT, Not Null, Default 'Production')
+- `planned_start_date` (DATE)
+- `planned_end_date` (DATE)
 - `logged_date` (DATE, Not Null, Default CURRENT_DATE)
 - `created_at` (TIMESTAMPTZ)

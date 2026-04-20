@@ -166,6 +166,12 @@ export default function MappedUnit({
         const iconAbsX = layout.offsetX + (centroid.pctX + draggedOffsetX + offsetX) * layout.drawW;
         const iconAbsY = layout.offsetY + (centroid.pctY + draggedOffsetY + offsetY) * layout.drawH;
 
+        const isDelayed = 
+          settings?.show_delay_indicators !== false &&
+          tState !== 'completed' &&
+          activeStatus.planned_end_date &&
+          new Date(activeStatus.planned_end_date) < new Date(new Date().setHours(0,0,0,0));
+
         return (
           <Group
             x={iconAbsX}
@@ -202,13 +208,24 @@ export default function MappedUnit({
             onClick={(e) => handlePolygonClick(e, unit)}
             onTap={(e) => handlePolygonClick(e, unit)}
           >
+            {isDelayed && (
+              <Circle
+                radius={16}
+                fill="transparent"
+                stroke="#ef4444"
+                strokeWidth={3}
+                shadowColor="#ef4444"
+                shadowBlur={8}
+                opacity={0.8}
+              />
+            )}
             <Circle
               radius={12}
               fill="#ffffff"
-              stroke={iconColor}
+              stroke={isDelayed ? '#ef4444' : iconColor}
               strokeWidth={2.5}
-              shadowColor="rgba(0,0,0,0.4)"
-              shadowBlur={4}
+              shadowColor={isDelayed ? "rgba(239, 68, 68, 0.4)" : "rgba(0,0,0,0.4)"}
+              shadowBlur={isDelayed ? 8 : 4}
               shadowOffset={{ x: 0, y: 2 }}
             />
             <Path
@@ -216,7 +233,7 @@ export default function MappedUnit({
               y={-8}
               data={ICON_PATHS[tState] || ICON_PATHS.completed}
               fill="transparent"
-              stroke={iconColor}
+              stroke={isDelayed ? '#ef4444' : iconColor}
               strokeWidth={2}
               strokeLineCap="round"
               strokeLineJoin="round"

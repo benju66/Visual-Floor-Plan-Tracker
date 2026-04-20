@@ -29,6 +29,9 @@ export const useUIStore = create((set) => ({
   newUnitName: '',
   setNewUnitName: (val) => set((state) => ({ newUnitName: typeof val === 'function' ? val(state.newUnitName) : val })),
 
+  newUnitType: 'Apartment Unit',
+  setNewUnitType: (val) => set((state) => ({ newUnitType: typeof val === 'function' ? val(state.newUnitType) : val })),
+
   isModalOpen: false,
   setIsModalOpen: (val) => set((state) => ({ isModalOpen: typeof val === 'function' ? val(state.isModalOpen) : val })),
 

@@ -135,6 +135,42 @@ export default function FieldStatusTable({
     </div>
   );
 
+  const renderDatesInline = (unit, log) => {
+    if (!log) return null;
+    return (
+      <div className="flex flex-row flex-wrap items-center gap-2 mt-2 pt-2 border-t border-slate-200/50 dark:border-white/5">
+        <label className="flex flex-col flex-1 min-w-[120px]">
+          <span className="text-[10px] text-slate-500 font-semibold uppercase mb-0.5">Planned Start</span>
+          <input 
+            type="date"
+            value={log.planned_start_date || ''}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: e.target.value, endDate: log.planned_end_date })}
+            className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+          />
+        </label>
+        <label className="flex flex-col flex-1 min-w-[120px]">
+          <span className="text-[10px] text-slate-500 font-semibold uppercase mb-0.5">Planned Finish</span>
+          <input 
+            type="date"
+            value={log.planned_end_date || ''}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: log.planned_start_date, endDate: e.target.value })}
+            className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+          />
+        </label>
+        {log.temporal_state === 'completed' && log.created_at && (
+          <div className="flex flex-col flex-1 min-w-[120px]">
+            <span className="text-[10px] text-slate-500 font-semibold uppercase mb-0.5">Actual Complete</span>
+            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 py-1">
+              {new Date(log.created_at).toLocaleDateString()}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const handleRowClick = (e, unitId, index) => {
     if (e.shiftKey && lastClickedIndex !== null) {
       const start = Math.min(lastClickedIndex, index);
@@ -242,6 +278,7 @@ export default function FieldStatusTable({
                     </div>
                   </div>
                   {renderStatusTrigger(unit, currentMilestone, log, featured)}
+                  {renderDatesInline(unit, log)}
                 </div>
               );
             })}
@@ -294,7 +331,10 @@ export default function FieldStatusTable({
                     </div>
                   </div>
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Current status</p>
-                  {renderStatusTrigger(unit, currentMilestone, log, hero)}
+                  <div className="flex-1">
+                    {renderStatusTrigger(unit, currentMilestone, log, hero)}
+                    {renderDatesInline(unit, log)}
+                  </div>
                 </div>
               );
             })}
@@ -321,9 +361,15 @@ export default function FieldStatusTable({
                 </th>
                 <th 
                   onClick={() => handleSort('status')}
-                  className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+                  className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[200px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
                 >
                   Milestone & Status {renderSortIcon('status')}
+                </th>
+                <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                  Planned Start
+                </th>
+                <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                  Planned Completion
                 </th>
                 <th 
                   onClick={() => handleSort('updated')}
@@ -356,8 +402,28 @@ export default function FieldStatusTable({
                   <td className="px-5 py-2 align-middle">
                     {renderStatusTrigger(unit, log?.milestone ?? '', log, false)}
                   </td>
+                  <td className="px-5 py-2 align-middle">
+                    {log ? (
+                       <input 
+                         type="date"
+                         value={log?.planned_start_date || ''}
+                         onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: e.target.value, endDate: log.planned_end_date })}
+                         className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+                       />
+                    ) : <span className="text-slate-400 text-xs italic">—</span>}
+                  </td>
+                  <td className="px-5 py-2 align-middle">
+                    {log ? (
+                       <input 
+                         type="date"
+                         value={log?.planned_end_date || ''}
+                         onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: log.planned_start_date, endDate: e.target.value })}
+                         className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+                       />
+                    ) : <span className="text-slate-400 text-xs italic">—</span>}
+                  </td>
                   <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
-                    {log?.created_at ? new Date(log.created_at).toLocaleDateString() : '—'}
+                    {log?.temporal_state === 'completed' && log?.created_at ? new Date(log.created_at).toLocaleDateString() : '—'}
                   </td>
                   <td className="px-5 py-3 align-middle text-right">
                     <button
