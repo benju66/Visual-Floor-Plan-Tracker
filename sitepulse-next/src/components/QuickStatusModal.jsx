@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, startTransition } from 'react';
 
 export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatus, onCommit }) {
   const [selectedState, setSelectedState] = useState(currentStatus || 'none');
@@ -63,7 +63,12 @@ export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatu
             Cancel
           </button>
           <button
-            onClick={() => { onCommit(unitId, 'status', selectedState, { startDate, endDate }); onClose(); }}
+            onClick={() => { 
+              startTransition(() => {
+                onCommit(unitId, 'status', selectedState, { startDate, endDate });
+              });
+              onClose(); 
+            }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition-colors"
           >
             Apply Changes

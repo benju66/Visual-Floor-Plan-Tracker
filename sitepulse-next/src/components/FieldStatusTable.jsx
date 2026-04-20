@@ -22,6 +22,30 @@ function UpdatingRing() {
   );
 }
 
+const BottleneckIndicator = ({ outOfSequence }) => {
+  if (!outOfSequence || outOfSequence.length === 0) return null;
+  return (
+    <div className="relative group/bottleneck flex items-center ml-1">
+      <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-help ring-2 ring-red-500/20" />
+      <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover/bottleneck:block w-56 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-xl p-3 shadow-2xl z-50 pointer-events-none before:content-[''] before:absolute before:-left-1 before:top-1/2 before:-translate-y-1/2 before:w-2 before:h-2 before:bg-slate-900 dark:before:bg-slate-100 before:rotate-45">
+        <div className="font-bold text-red-500 dark:text-red-600 mb-1 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          Sequence Blocked
+        </div>
+        <p className="opacity-80 mb-2 leading-tight text-slate-300 dark:text-slate-600">This baseline status is pending. Operations logged ahead in sequence:</p>
+        <div className="flex flex-col gap-1.5 border-t border-white/10 dark:border-black/5 pt-2">
+          {outOfSequence.map(seq => (
+            <div key={seq.id} className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: seq.status_color }} />
+              <span className="truncate font-medium">{seq.milestone}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function FieldStatusTable({
   activeStatuses = [],
   savingUnitId,
@@ -384,8 +408,9 @@ export default function FieldStatusTable({
                         readOnly 
                         className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
                       />
-                      <div className={`font-bold text-slate-900 dark:text-slate-100 ${hero ? 'text-2xl' : 'text-lg'}`}>
+                      <div className={`font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 ${hero ? 'text-2xl' : 'text-lg'}`}>
                         {unit.unit_number}
+                        <BottleneckIndicator outOfSequence={log?.outOfSequence} />
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -464,8 +489,9 @@ export default function FieldStatusTable({
                     />
                   </td>
                   <td className="px-5 py-3 font-bold text-slate-900 dark:text-slate-100 align-middle">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 relative">
                        {unit.unit_number}
+                       <BottleneckIndicator outOfSequence={log?.outOfSequence} />
                        {savingUnitId === unit.id && <UpdatingRing />}
                     </div>
                   </td>

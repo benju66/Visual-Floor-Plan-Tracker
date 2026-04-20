@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { startTransition } from 'react';
 
 export default function QuickMilestoneModal({ isOpen, onClose, unitId, currentMilestoneId, milestones, onCommit }) {
   const [selectedMilestoneId, setSelectedMilestoneId] = React.useState(currentMilestoneId);
@@ -44,7 +44,12 @@ export default function QuickMilestoneModal({ isOpen, onClose, unitId, currentMi
             Cancel
           </button>
           <button
-            onClick={() => { onCommit(unitId, 'milestone', selectedMilestoneId); onClose(); }}
+            onClick={() => { 
+              startTransition(() => {
+                onCommit(unitId, 'milestone', selectedMilestoneId); 
+              });
+              onClose(); 
+            }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition-colors"
           >
             Apply Changes

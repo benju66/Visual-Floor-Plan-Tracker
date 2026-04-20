@@ -395,9 +395,14 @@ function App() {
 
   return (
     <div
-      className="h-screen flex flex-col p-4 md:p-6 text-slate-800 dark:text-slate-100"
+      className="h-screen flex flex-col p-4 md:p-6 text-slate-800 dark:text-slate-100 select-none"
       style={{ fontFamily: 'sans-serif', background: 'var(--bg)' }}
     >
+      <div style={{ display: 'none' }}>
+        {sheets.map(sheet => (
+          sheet.base_image_url && <img key={sheet.id} src={sheet.base_image_url} alt="preload" />
+        ))}
+      </div>
       <TopHeader
         project={project}
         sheets={sheets}

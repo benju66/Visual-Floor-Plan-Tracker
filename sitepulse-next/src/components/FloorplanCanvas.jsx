@@ -294,12 +294,11 @@ const FloorplanCanvas = forwardRef(({
 
     let newScale;
     if (e.evt.ctrlKey) {
-      // Trackpad native pinch
       newScale = e.evt.deltaY > 0 ? oldScale / 1.05 : oldScale * 1.05;
     } else {
-      // Fluid inertial friction for continuous slides and wheels
-      const delta = Math.abs(e.evt.deltaY);
-      const stretch = Math.pow(1.08, Math.min(delta, 100) / 50);
+      // Smoother inertial friction, capping the max delta
+      const delta = Math.min(Math.abs(e.evt.deltaY), 50); 
+      const stretch = Math.pow(1.05, delta / 25); 
       newScale = e.evt.deltaY > 0 ? oldScale / stretch : oldScale * stretch;
     }
 
@@ -776,8 +775,8 @@ const FloorplanCanvas = forwardRef(({
                   unit={unit}
                   activeStatuses={activeStatuses}
                   legendFilter={legendFilter}
-                  selectedUnitIds={selectedUnitIds}
-                  hoveredUnit={hoveredUnit}
+                  isSelected={selectedUnitIds?.includes(unit.id)}
+                  isHovered={hoveredUnit === unit.id}
                   temporalFilters={temporalFilters}
                   toolMode={toolMode}
                   layout={layout}

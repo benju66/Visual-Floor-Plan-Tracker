@@ -22,12 +22,12 @@ const createStripePattern = (color) => {
   return canvas;
 };
 
-export default function MappedUnit({
+export const MappedUnitComponent = ({
   unit,
   activeStatuses,
   legendFilter,
-  selectedUnitIds,
-  hoveredUnit,
+  isSelected,
+  isHovered,
   temporalFilters,
   toolMode,
   layout,
@@ -52,17 +52,15 @@ export default function MappedUnit({
   setActiveDragNode,
   handleAnchorDragEnd,
   handleAnchorClick
-}) {
+}) => {
   const activeStatus = activeStatuses.find((s) => s.unit_id === unit.id);
   const tState = activeStatus?.temporal_state || 'completed';
   const fillColor = activeStatus ? activeStatus.status_color : 'rgba(0,0,0,0)';
   const matchesLegend =
     !legendFilter || (activeStatus && activeStatus.milestone === legendFilter);
-  const isSelected = selectedUnitIds?.includes(unit.id) || false;
   const dim = legendFilter && !matchesLegend;
-  const isHover = hoveredUnit === unit.id;
   
-  const highlight = isSelected || isHover;
+  const highlight = isSelected || isHovered;
   const isFilteredOut = activeStatus && temporalFilters && !temporalFilters.includes(tState);
 
   let strokeDash = [];
@@ -316,4 +314,21 @@ export default function MappedUnit({
       ))}
     </React.Fragment>
   );
-}
+};
+
+export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isHovered === nextProps.isHovered &&
+    prevProps.stageScale === nextProps.stageScale &&
+    prevProps.toolMode === nextProps.toolMode &&
+    prevProps.legendFilter === nextProps.legendFilter &&
+    prevProps.activeDragNode?.unitId === nextProps.activeDragNode?.unitId &&
+    prevProps.activeDragPolygon?.unitId === nextProps.activeDragPolygon?.unitId &&
+    prevProps.layout.drawW === nextProps.layout.drawW &&
+    prevProps.activeStatuses.find(s => s.unit_id === prevProps.unit.id)?.temporal_state === 
+    nextProps.activeStatuses.find(s => s.unit_id === nextProps.unit.id)?.temporal_state &&
+    prevProps.activeStatuses.find(s => s.unit_id === prevProps.unit.id)?.milestone === 
+    nextProps.activeStatuses.find(s => s.unit_id === nextProps.unit.id)?.milestone
+  );
+});
