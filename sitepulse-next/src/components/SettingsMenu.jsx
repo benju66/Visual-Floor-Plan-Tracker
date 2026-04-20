@@ -860,9 +860,100 @@ export default function SettingsMenu({
                   <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0 z-10 shadow-sm border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="px-4 py-2 font-semibold w-1/4">Location</th>
-                      <th className="px-4 py-2 font-semibold w-1/4">Temporal Status</th>
-                      <th className="px-4 py-2 font-semibold w-1/4">Planned Start</th>
-                      <th className="px-4 py-2 font-semibold w-1/4">Planned Finish</th>
+                      <th className="px-4 py-2 font-semibold w-1/4">
+                        <div className="flex flex-col gap-1 mt-1">
+                          <span>Temporal Status</span>
+                          <select
+                            title="Apply status to all currently displayed units"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (!val) return;
+                              const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
+                              if (!targetMilestone) return;
+                              
+                              scheduleUnits.forEach(unit => {
+                                const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                                updateStatusMutation.mutate({
+                                   unit_id: unit.id,
+                                   milestone: targetMilestone.name,
+                                   status_color: targetMilestone.color,
+                                   temporal_state: val,
+                                   track: targetMilestone.track,
+                                   planned_start_date: log?.planned_start_date || null,
+                                   planned_end_date: log?.planned_end_date || null,
+                                   logged_date: log?.logged_date || null
+                                });
+                              });
+                              e.target.value = ''; // Reset select
+                            }}
+                            className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-full max-w-[140px] font-medium"
+                          >
+                            <option value="">Bulk Edit...</option>
+                            <option value="none">Not Started</option>
+                            <option value="planned">Planned</option>
+                            <option value="ongoing">Ongoing</option>
+                            <option value="completed">Completed</option>
+                          </select>
+                        </div>
+                      </th>
+                      <th className="px-4 py-2 font-semibold w-1/4">
+                        <div className="flex flex-col gap-1 mt-1">
+                          <span>Planned Start</span>
+                          <input
+                            type="date"
+                            title="Apply planned start date to all currently displayed units"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
+                              if (!targetMilestone) return;
+                              
+                              scheduleUnits.forEach(unit => {
+                                const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                                updateStatusMutation.mutate({
+                                   unit_id: unit.id,
+                                   milestone: targetMilestone.name,
+                                   status_color: targetMilestone.color,
+                                   temporal_state: log?.temporal_state || 'none',
+                                   track: targetMilestone.track,
+                                   planned_start_date: val || null,
+                                   planned_end_date: log?.planned_end_date || null,
+                                   logged_date: log?.logged_date || null
+                                });
+                              });
+                            }}
+                            className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
+                          />
+                        </div>
+                      </th>
+                      <th className="px-4 py-2 font-semibold w-1/4">
+                        <div className="flex flex-col gap-1 mt-1">
+                          <span>Planned Finish</span>
+                          <input
+                            type="date"
+                            title="Apply planned finish date to all currently displayed units"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
+                              if (!targetMilestone) return;
+                              
+                              scheduleUnits.forEach(unit => {
+                                const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                                updateStatusMutation.mutate({
+                                   unit_id: unit.id,
+                                   milestone: targetMilestone.name,
+                                   status_color: targetMilestone.color,
+                                   temporal_state: log?.temporal_state || 'none',
+                                   track: targetMilestone.track,
+                                   planned_start_date: log?.planned_start_date || null,
+                                   planned_end_date: val || null,
+                                   logged_date: log?.logged_date || null
+                                });
+                              });
+                            }}
+                            className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
+                          />
+                        </div>
+                      </th>
                       <th className="px-4 py-2 font-semibold text-slate-500 text-xs text-right">
                         <div className="flex flex-col items-end gap-1">
                           <span>Actual Completed</span>
