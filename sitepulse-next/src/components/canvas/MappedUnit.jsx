@@ -287,7 +287,7 @@ export default function MappedUnit({
            fill={toolMode === 'delete_node' ? '#ef4444' : '#fff'}
            stroke={toolMode === 'delete_node' ? '#fff' : '#8b5cf6'}
            strokeWidth={2 / stageScale}
-           draggable={toolMode === 'select'}
+           draggable={['select', 'add_node'].includes(toolMode)}
            dragBoundFunc={(pos) => {
              if (!isShiftDown) return pos;
              const origX = layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0)) * layout.drawW;

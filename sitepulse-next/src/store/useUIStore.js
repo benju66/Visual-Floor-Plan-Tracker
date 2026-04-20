@@ -1,6 +1,9 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
-export const useUIStore = create((set) => ({
+export const useUIStore = create(
+  persist(
+    (set) => ({
   viewMode: 'list',
   setViewMode: (mode) => set((state) => ({ viewMode: typeof mode === 'function' ? mode(state.viewMode) : mode })),
 
@@ -37,4 +40,13 @@ export const useUIStore = create((set) => ({
 
   newLevelName: '',
   setNewLevelName: (val) => set((state) => ({ newLevelName: typeof val === 'function' ? val(state.newLevelName) : val })),
-}));
+    }),
+    {
+      name: 'sitepulse-ui-session',
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (state) => ({
+        viewMode: state.viewMode,
+      })
+    }
+  )
+);

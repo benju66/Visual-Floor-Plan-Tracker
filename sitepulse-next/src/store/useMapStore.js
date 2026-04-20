@@ -1,6 +1,9 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
-export const useMapStore = create((set) => ({
+export const useMapStore = create(
+  persist(
+    (set) => ({
   // Tool State
   toolMode: 'pan',
   setToolMode: (mode) => set((state) => ({ toolMode: typeof mode === 'function' ? mode(state.toolMode) : mode })),
@@ -45,4 +48,15 @@ export const useMapStore = create((set) => ({
 
   isUploading: false,
   setIsUploading: (val) => set((state) => ({ isUploading: typeof val === 'function' ? val(state.isUploading) : val })),
-}));
+    }),
+    {
+      name: 'sitepulse-map-session',
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (state) => ({
+        activeSheetId: state.activeSheetId,
+        trackingMode: state.trackingMode,
+        toolMode: state.toolMode
+      })
+    }
+  )
+);

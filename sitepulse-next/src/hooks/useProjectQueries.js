@@ -234,6 +234,7 @@ export function useCreateUnit(sheetId) {
     onError: () => {},
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
     }
   });
 }
@@ -255,7 +256,10 @@ export function useUpdateUnitGeometry(sheetId) {
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['units', sheetId] })
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+    }
   });
 }
 
@@ -277,7 +281,10 @@ export function useUpdateUnitFields(sheetId) {
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['units', sheetId] })
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+    }
   });
 }
 
@@ -298,6 +305,7 @@ export function useDeleteUnit(sheetId) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
       queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
     }
   });
 }
@@ -439,9 +447,10 @@ export function useBulkUpdateStatus(sheetId) {
               }
             }
             if (newLogs.length > 0) {
+              const today = new Date().toISOString().split('T')[0];
               const safeNewLogs = newLogs.map(l => {
                 const copy = { ...l };
-                if (copy.logged_date === null) delete copy.logged_date;
+                if (copy.logged_date === null) copy.logged_date = today;
                 return copy;
               });
               const { error: insertError } = await supabase.from('status_logs').insert(safeNewLogs);
@@ -463,7 +472,8 @@ export function useBulkUpdateStatus(sheetId) {
                 planned_end_date: planned_end_date || null,
                 logged_date: finalLoggedDate
               };
-              if (baseLog.logged_date === null) delete baseLog.logged_date;
+              const today = new Date().toISOString().split('T')[0];
+              if (baseLog.logged_date === null) baseLog.logged_date = today;
               return baseLog;
             });
             
@@ -527,10 +537,11 @@ export function useBulkInsertStatusLogs(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (logsArray) => {
+      const today = new Date().toISOString().split('T')[0];
       const safeLogs = logsArray.map(log => {
         const copy = { ...log };
         if (copy.logged_date === null) {
-          delete copy.logged_date;
+          copy.logged_date = today;
         }
         return copy;
       });

@@ -58,7 +58,10 @@ function App() {
 
   useEffect(() => {
     setIsMounted(true);
-    setViewMode(useSettingsStore.getState().settings?.defaultViewMode || 'list');
+    // Only apply default view mode on fresh tabs where no session exists
+    if (typeof window !== 'undefined' && !sessionStorage.getItem('sitepulse-ui-session')) {
+      setViewMode(useSettingsStore.getState().settings?.defaultViewMode || 'list');
+    }
   }, [setViewMode]);
 
   useEffect(() => {

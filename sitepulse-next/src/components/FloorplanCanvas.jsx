@@ -74,6 +74,17 @@ const FloorplanCanvas = forwardRef(({
   const [draftPoints, setDraftPoints] = useState([]);
   const draftPointsRef = useRef(draftPoints);
   useEffect(() => { draftPointsRef.current = draftPoints; }, [draftPoints]);
+
+  const unitsRef = useRef(units);
+  useEffect(() => { unitsRef.current = units; }, [units]);
+
+  const selectedUnitIdsRef = useRef(selectedUnitIds);
+  useEffect(() => { selectedUnitIdsRef.current = selectedUnitIds; }, [selectedUnitIds]);
+
+  const onUpdateUnitPolygonRef = useRef(onUpdateUnitPolygon);
+  useEffect(() => { onUpdateUnitPolygonRef.current = onUpdateUnitPolygon; }, [onUpdateUnitPolygon]);
+
+  const layoutRef = useRef({ drawW: 0, drawH: 0 });
   
   const [hoveredUnit, setHoveredUnit] = useState(null);
   const [isHoveringAnchor, setIsHoveringAnchor] = useState(false);
@@ -93,10 +104,46 @@ const FloorplanCanvas = forwardRef(({
 
   useEffect(() => {
     const handleKeyDown = (e) => {
+      const isInputActive = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
+      
       if (e.key === 'Shift') setIsShiftDown(true);
+      
       if (e.key === 'Escape') {
         setIsLegendSelected(false);
+        if (!isInputActive) {
+          if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
+            e.stopImmediatePropagation();
+            setDraftPoints([]);
+          } else if (toolMode !== 'pan') {
+            onToolModeChange('pan');
+          }
+        }
       }
+
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedUnitIdsRef.current?.length > 0 && !isInputActive) {
+        e.preventDefault();
+        const activeIds = selectedUnitIdsRef.current;
+        const currentUnits = unitsRef.current;
+        const currentLayout = layoutRef.current;
+
+        if (currentLayout && currentLayout.drawW && currentLayout.drawH) {
+          const nudgePx = 1; 
+          const dx = e.key === 'ArrowLeft' ? -nudgePx / currentLayout.drawW : e.key === 'ArrowRight' ? nudgePx / currentLayout.drawW : 0;
+          const dy = e.key === 'ArrowUp' ? -nudgePx / currentLayout.drawH : e.key === 'ArrowDown' ? nudgePx / currentLayout.drawH : 0;
+
+          activeIds.forEach(id => {
+            const unit = currentUnits.find(u => u.id === id);
+            if (unit && unit.polygon_coordinates) {
+              const newPoints = unit.polygon_coordinates.map(p => ({
+                pctX: p.pctX + dx,
+                pctY: p.pctY + dy
+              }));
+              onUpdateUnitPolygonRef.current?.(unit.id, newPoints);
+            }
+          });
+        }
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
         if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
           e.preventDefault();
@@ -104,20 +151,12 @@ const FloorplanCanvas = forwardRef(({
           setDraftPoints(prev => prev.slice(0, -1));
         }
       }
-      if (toolMode === 'draw') {
-        const isInputActive = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
-        if (e.key === 'Escape') {
-          if (!isInputActive && draftPointsRef.current.length > 0) {
-            e.stopImmediatePropagation();
-            setDraftPoints([]);
-          }
-        }
-        if (e.key === 'Enter') {
-          if (!isInputActive && draftPointsRef.current.length > 2) {
-            e.stopImmediatePropagation();
-            onPolygonComplete(draftPointsRef.current);
-            setDraftPoints([]);
-          }
+      
+      if (toolMode === 'draw' && e.key === 'Enter') {
+        if (!isInputActive && draftPointsRef.current.length > 2) {
+          e.stopImmediatePropagation();
+          onPolygonComplete(draftPointsRef.current);
+          setDraftPoints([]);
         }
       }
     };
@@ -176,6 +215,8 @@ const FloorplanCanvas = forwardRef(({
     const offsetY = (stageH - drawH) / 2;
     return { offsetX, offsetY, drawW, drawH, stageW, stageH };
   }, [image, dimensions.width, dimensions.height]);
+
+  useEffect(() => { layoutRef.current = layout; }, [layout]);
 
   const visibleBoundingBox = useMemo(() => {
     if (!layout.drawW || !layout.drawH || !dimensions.width || !dimensions.height) return null;
@@ -389,6 +430,12 @@ const FloorplanCanvas = forwardRef(({
       }
     }
 
+    if (['add_node', 'delete_node'].includes(toolMode)) {
+      if (!selectedUnitIds.includes(unit.id)) {
+        onSetSelectedUnitIds([unit.id]);
+      }
+    }
+
     if (toolMode === 'add_node') {
       const stage = e.target.getStage();
       const pointer = stage.getPointerPosition();
@@ -499,7 +546,7 @@ const FloorplanCanvas = forwardRef(({
   };
 
   const handleAnchorDragEnd = (e, unitId, index) => {
-    if (toolMode !== 'select') return;
+    if (!['select', 'add_node'].includes(toolMode)) return;
     const node = e.target;
     
     let pctX = (node.x() - layout.offsetX) / layout.drawW;
@@ -514,8 +561,8 @@ const FloorplanCanvas = forwardRef(({
   };
 
   const handleAnchorClick = (e, unitId, index) => {
-    if (toolMode !== 'delete_node') return;
     e.cancelBubble = true;
+    if (toolMode !== 'delete_node') return;
     const unit = units.find(u => u.id === unitId);
     if (!unit || unit.polygon_coordinates.length <= 3) return;
     
@@ -550,7 +597,7 @@ const FloorplanCanvas = forwardRef(({
   } else if (toolMode === 'stamp') {
     computedCursor = 'copy';
   } else if (toolMode === 'add_node') {
-    computedCursor = addNodeCursor;
+    computedCursor = isHoveringAnchor ? 'grab' : addNodeCursor;
   } else if (['select', 'multi_select'].includes(toolMode)) {
     if (isHoveringAnchor) computedCursor = 'pointer';
     else if (hoveredUnit) computedCursor = selectedUnitIds?.includes(hoveredUnit) ? 'grab' : 'pointer';
