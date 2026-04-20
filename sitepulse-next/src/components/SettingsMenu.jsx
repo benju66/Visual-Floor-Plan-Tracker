@@ -99,6 +99,12 @@ export default function SettingsMenu({
   const [scheduleLevelId, setScheduleLevelId] = useState(sheets?.[0]?.id || '');
   const [scheduleMilestoneId, setScheduleMilestoneId] = useState('');
 
+  useEffect(() => {
+    if (!scheduleLevelId && sheets?.length > 0) {
+      setScheduleLevelId(sheets[0].id);
+    }
+  }, [sheets, scheduleLevelId]);
+
   const reorderMilestonesMutation = useReorderMilestones(projectId);
   const updateSheetScopesMutation = useUpdateSheetScopes(projectId);
   const updateSheetScaleMutation = useUpdateSheetScale(projectId);
@@ -860,21 +866,17 @@ export default function SettingsMenu({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900/50">
-                    {(!scheduleMilestoneId || !scheduleLevelId) && (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-slate-500 font-medium">Please select a milestone and level to view schedule.</td>
-                      </tr>
-                    )}
-                    {scheduleMilestoneId && scheduleLevelId && scheduleUnits.length === 0 && (
+                    {scheduleUnits.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-4 py-8 text-center text-slate-500 font-medium">No locations exist on this level.</td>
                       </tr>
-                    )}
-                    {scheduleMilestoneId && scheduleLevelId && scheduleUnits.map(unit => {
-                      const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
-                      const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
-                      
-                      const isCompleted = log?.temporal_state === 'completed';
+                    ) : (
+                      scheduleUnits.map(unit => {
+                        const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
+                        const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                        
+                        const isAssigned = !!targetMilestone;
+                        const isCompleted = log?.temporal_state === 'completed';
                       
                       const handleDateUpdate = (type, val) => {
                          if (!targetMilestone) return;
@@ -890,45 +892,51 @@ export default function SettingsMenu({
                       };
                       
                       return (
-                        <tr key={unit.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <tr key={unit.id} className={`transition-colors ${isAssigned ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : 'opacity-40 hover:opacity-100 bg-slate-50/50 dark:bg-slate-900'}`}>
                           <td className="px-4 py-2 font-bold">{unit.unit_number}</td>
                           <td className="px-4 py-2">
-                            <select
-                              value={log?.temporal_state || 'none'}
-                              onChange={(e) => {
-                                if (!targetMilestone) return;
-                                updateStatusMutation.mutate({
-                                   unit_id: unit.id,
-                                   milestone: targetMilestone.name,
-                                   status_color: targetMilestone.color,
-                                   temporal_state: e.target.value,
-                                   track: targetMilestone.track,
-                                   planned_start_date: log?.planned_start_date || null,
-                                   planned_end_date: log?.planned_end_date || null
-                                });
-                              }}
-                              className={`bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-full max-w-[140px] font-semibold ${isCompleted ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'}`}
-                            >
-                               <option value="none">Not Started</option>
-                               <option value="planned">Planned</option>
-                               <option value="ongoing">Ongoing</option>
-                               <option value="completed">Completed</option>
-                            </select>
+                            {isAssigned ? (
+                              <select
+                                value={log?.temporal_state || 'none'}
+                                onChange={(e) => {
+                                  if (!targetMilestone) return;
+                                  updateStatusMutation.mutate({
+                                     unit_id: unit.id,
+                                     milestone: targetMilestone.name,
+                                     status_color: targetMilestone.color,
+                                     temporal_state: e.target.value,
+                                     track: targetMilestone.track,
+                                     planned_start_date: log?.planned_start_date || null,
+                                     planned_end_date: log?.planned_end_date || null
+                                  });
+                                }}
+                                className={`bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-full max-w-[140px] font-semibold ${isCompleted ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'}`}
+                              >
+                                 <option value="none">Not Started</option>
+                                 <option value="planned">Planned</option>
+                                 <option value="ongoing">Ongoing</option>
+                                 <option value="completed">Completed</option>
+                              </select>
+                            ) : (
+                               <span className="text-slate-400 italic text-[10px] pl-1">Unassigned</span>
+                            )}
                           </td>
                           <td className="px-4 py-2">
                             <input 
                               type="date"
+                              disabled={!isAssigned}
                               value={log?.planned_start_date || ''}
                               onChange={(e) => handleDateUpdate('start', e.target.value)}
-                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium"
+                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium disabled:opacity-50"
                             />
                           </td>
                           <td className="px-4 py-2">
                              <input 
                               type="date"
+                              disabled={!isAssigned}
                               value={log?.planned_end_date || ''}
                               onChange={(e) => handleDateUpdate('end', e.target.value)}
-                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium"
+                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium disabled:opacity-50"
                             />
                           </td>
                           <td className="px-4 py-2 text-right text-xs text-slate-500 font-medium">
@@ -936,7 +944,8 @@ export default function SettingsMenu({
                           </td>
                         </tr>
                       );
-                    })}
+                    })
+                  )}
                   </tbody>
                 </table>
               </div>
