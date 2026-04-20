@@ -20,6 +20,7 @@ import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/usePro
 import { useParams } from 'next/navigation';
 
 const FloorplanCanvas = forwardRef(({
+  activeStatuses,
   imageUrl,
   onUpdateUnitPolygon,
   onUpdateUnitIconOffset,
@@ -62,8 +63,8 @@ const FloorplanCanvas = forwardRef(({
   const milestones = allMilestones.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
   const unitIds = units.map(u => u.id);
-  const { data: statuses = [], isPending: isStatusesPending } = useStatuses(activeSheetId, unitIds, allMilestones);
-  const activeStatuses = statuses.filter(s => s.track === trackingMode);
+  
+  // activeStatuses is now provided by props and bottleneck resolution
   const [image] = useImage(imageUrl, 'anonymous');
 
   const stageRef = useRef(null);
@@ -560,11 +561,7 @@ const FloorplanCanvas = forwardRef(({
 
   const isZoomedOut = stageScale < 1.5;
 
-  // Only wait for statuses if there are REAL units to fetch statuses for
-  const validUnitIds = unitIds.filter(id => !String(id).startsWith('temp_'));
-  const isWaitingForStatuses = validUnitIds.length > 0 && isStatusesPending;
-
-  if (isLoadingUnits || isWaitingForStatuses) {
+  if (isLoadingUnits) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-slate-50 dark:bg-[#0f172a] rounded-xl border border-slate-200/60 dark:border-white/10">
         <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4 shadow-sm"></div>

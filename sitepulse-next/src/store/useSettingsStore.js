@@ -13,7 +13,7 @@ export const useSettingsStore = create(
       setFilterMilestone: (ml) => set((state) => ({ filterMilestone: typeof ml === 'function' ? ml(state.filterMilestone) : ml })),
 
       // Settings / Local State (Persisted)
-      settings: { enableToasts: true, showHistoryHover: false, defaultViewMode: 'dashboard', show_delay_indicators: true },
+      settings: { enableToasts: true, showHistoryHover: false, defaultViewMode: 'dashboard', show_delay_indicators: true, auto_advance_tracks: { 'Production': true } },
       setSettings: (settingsFn) => set((state) => ({ 
         settings: typeof settingsFn === 'function' ? settingsFn(state.settings) : { ...state.settings, ...settingsFn } 
       })),

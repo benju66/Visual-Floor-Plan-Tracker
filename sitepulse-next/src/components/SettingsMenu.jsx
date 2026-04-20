@@ -420,6 +420,28 @@ export default function SettingsMenu({
                 </div>
               </div>
 
+              <div className="flex items-center justify-between bg-white/50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl p-3 mb-2">
+                <div>
+                  <span className="font-semibold block text-sm">Auto-Advance {activeSettingsTrack}</span>
+                  <span className="text-xs text-slate-500">Automatically plan the next step when a milestone is completed.</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={settings.auto_advance_tracks?.[activeSettingsTrack] || false}
+                    onChange={(e) => onUpdateSettings({ 
+                      ...settings, 
+                      auto_advance_tracks: {
+                        ...settings.auto_advance_tracks,
+                        [activeSettingsTrack]: e.target.checked
+                      }
+                    })}
+                  />
+                  <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
+                </label>
+              </div>
+
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -607,22 +629,6 @@ export default function SettingsMenu({
           {activeTab === 'system' && (
             <>
               <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/10 pb-4">
-                <div>
-                  <span className="font-semibold block text-sm">Auto-Advance Locations</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Chain reaction to next trade when completed</span>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={settings.auto_advance_enabled !== false}
-                    onChange={(e) => onUpdateSettings({ ...settings, auto_advance_enabled: e.target.checked })}
-                  />
-                  <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
-                </label>
-              </div>
-
-              <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-white/10 pt-4">
                 <div>
                   <span className="font-semibold block text-sm">Visual Delay Warning</span>
                   <span className="text-xs text-slate-500 dark:text-slate-400">Show pulsing red icon on delayed locations</span>

@@ -165,7 +165,7 @@ export function useStatuses(sheetId, unitIds, milestones) {
       const latestStatusMap = {};
       data.forEach(log => {
         const key = `${log.unit_id}_${log.track}_${log.milestone}`;
-        if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
+        if (!latestStatusMap[key] || new Date(log.created_at) >= new Date(latestStatusMap[key].created_at)) {
           latestStatusMap[key] = log;
         }
       });
@@ -202,7 +202,7 @@ export function useAllProjectStatuses(unitIds) {
       const latestStatusMap = {};
       data.forEach(log => {
         const key = `${log.unit_id}_${log.track}_${log.milestone}`;
-        if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
+        if (!latestStatusMap[key] || new Date(log.created_at) >= new Date(latestStatusMap[key].created_at)) {
           latestStatusMap[key] = log;
         }
       });
@@ -415,7 +415,7 @@ export function useBulkUpdateStatus(sheetId) {
             const latestStatusMap = {};
             latestLogs.forEach(log => {
               const key = `${log.unit_id}_${log.track}_${log.milestone}`;
-              if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
+              if (!latestStatusMap[key] || new Date(log.created_at) >= new Date(latestStatusMap[key].created_at)) {
                 latestStatusMap[key] = log;
               }
             });
@@ -450,7 +450,7 @@ export function useBulkUpdateStatus(sheetId) {
           }
         } else {
           // NOTE: Removed destructive .delete() to preserve event sourcing history.
-          if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
+          if (milestone !== null && temporal_state !== '__KEEP_EXISTING__') {
             const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
             const newLogs = chunkIds.map(id => {
               const baseLog = {
@@ -497,7 +497,7 @@ export function useBulkUpdateStatus(sheetId) {
         
         const filtered = old.filter(s => !(unitIds.includes(s.unit_id) && s.track === track && s.milestone === milestone));
         
-        if (milestone === null || temporal_state === 'none' || temporal_state === '__KEEP_EXISTING__') {
+        if (milestone === null || temporal_state === '__KEEP_EXISTING__') {
           return filtered;
         }
         

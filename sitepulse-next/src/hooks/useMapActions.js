@@ -290,7 +290,7 @@ export function useMapActions(project) {
       };
       const newLog = await updateStatusMutation.mutateAsync(newLogData);
       
-      const autoAdvanceEnabled = settings.auto_advance_enabled !== false;
+      const autoAdvanceEnabled = settings.auto_advance_tracks?.[milestone.track] === true;
       let nextLog = null;
       if (currentTemporalState === 'completed' && autoAdvanceEnabled && !isUndoRedo) {
         const trackMilestones = milestones.filter(m => m.track === milestone.track).sort((a,b) => a.sequence_order - b.sequence_order);
@@ -368,7 +368,7 @@ export function useMapActions(project) {
     try {
       await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date });
       
-      const autoAdvanceEnabled = settings.auto_advance_enabled !== false;
+      const autoAdvanceEnabled = settings.auto_advance_tracks?.[track] === true;
       let usedTemporalState = temporal_state;
       let usedMilestone = milestone;
       let usedColor = color;
