@@ -116,14 +116,56 @@ function App() {
       const unitStatuses = activeStatuses.filter(s => s.unit_id === unit.id && s.track === trackingMode);
       if (unitStatuses.length === 0) return null;
 
-      const sortedUnitStatuses = unitStatuses.sort((a, b) => {
-        const indexA = currentTrackMilestones.findIndex(m => m.name === a.milestone);
-        const indexB = currentTrackMilestones.findIndex(m => m.name === b.milestone);
-        return indexA - indexB;
+      // 1. Evaluate against the Master Milestone Sequence to ensure we don't break on missing database logs
+      let masterFurthestCompletedIdx = -1;
+      let masterFirstOngoingIdx = -1;
+
+      currentTrackMilestones.forEach((m, idx) => {
+         const log = unitStatuses.find(s => s.milestone === m.name);
+         if (log) {
+             if (log.temporal_state === 'completed') {
+                 masterFurthestCompletedIdx = Math.max(masterFurthestCompletedIdx, idx);
+             }
+             if (log.temporal_state === 'ongoing' && masterFirstOngoingIdx === -1) {
+                 masterFirstOngoingIdx = idx;
+             }
+         }
       });
 
-      const bottleneck = sortedUnitStatuses.find(s => s.temporal_state !== 'completed');
-      return bottleneck || sortedUnitStatuses[sortedUnitStatuses.length - 1];
+      let primaryMasterIdx = 0;
+      
+      if (masterFirstOngoingIdx !== -1) {
+         // Active blockade overrides everything
+         primaryMasterIdx = masterFirstOngoingIdx;
+      } else if (masterFurthestCompletedIdx !== -1) {
+         // Advance sequence to the immediate next scheduled step, cap at the final milestone
+         primaryMasterIdx = Math.min(masterFurthestCompletedIdx + 1, currentTrackMilestones.length - 1);
+      }
+
+      // Reconstruct the structural active status block for the renderer
+      const primaryMilestone = currentTrackMilestones[primaryMasterIdx];
+      const existingLog = unitStatuses.find(s => s.milestone === primaryMilestone.name);
+      
+      const primaryStatus = existingLog || {
+         unit_id: unit.id,
+         milestone: primaryMilestone.name,
+         status_color: primaryMilestone.color,
+         temporal_state: primaryMasterIdx <= masterFurthestCompletedIdx ? 'completed' : 'planned',
+         track: trackingMode
+      };
+      
+      // 3. Find Out-of-Sequence Completed work existing AFTER the bottleneck sequentially
+      const outOfSequence = unitStatuses.filter(s => {
+          if (s.temporal_state !== 'completed') return false;
+          const sIdx = currentTrackMilestones.findIndex(m => m.name === s.milestone);
+          return sIdx > primaryMasterIdx;
+      });
+
+      // Return the merged object
+      return {
+          ...primaryStatus,
+          outOfSequence
+      };
     }).filter(Boolean);
   }, [units, activeStatuses, milestones, trackingMode]);
 
@@ -385,7 +427,7 @@ function App() {
           <div className="h-full overflow-hidden">
             <ProjectDashboard
               units={units}
-              activeStatuses={activeStatuses}
+              activeStatuses={mapDisplayStatuses}
               milestones={milestones}
               trackingMode={trackingMode}
               sheets={sheets}
@@ -544,7 +586,7 @@ function App() {
         unitId={quickStatusUnitId}
         currentStatus={
           quickStatusUnitId 
-            ? (activeStatuses.find(s => s.unit_id === quickStatusUnitId && s.track === trackingMode)?.temporal_state || 'none')
+            ? (mapDisplayStatuses.find(s => s.unit_id === quickStatusUnitId && s.track === trackingMode)?.temporal_state || 'none')
             : 'none'
         }
         onCommit={handleQuickUpdate}
@@ -556,7 +598,7 @@ function App() {
         unitId={quickMilestoneUnitId}
         currentMilestoneId={
           quickMilestoneUnitId
-            ? (activeStatuses.find(s => s.unit_id === quickMilestoneUnitId && s.track === trackingMode)?.milestone || null)
+            ? (mapDisplayStatuses.find(s => s.unit_id === quickMilestoneUnitId && s.track === trackingMode)?.milestone || null)
             : null
         }
         milestones={milestones.filter(m => m.track === trackingMode)}

@@ -3,6 +3,25 @@ import { Group, Line, Circle, Path } from 'react-konva';
 import { getCentroid } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 
+const stripeCache = {};
+
+const createStripePattern = (color) => {
+  if (typeof document === 'undefined') return null;
+  if (stripeCache[color]) return stripeCache[color];
+  const canvas = document.createElement('canvas');
+  canvas.width = 20;
+  canvas.height = 20;
+  const ctx = canvas.getContext('2d');
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(0, 20);
+  ctx.lineTo(20, 0);
+  ctx.stroke();
+  stripeCache[color] = canvas;
+  return canvas;
+};
+
 export default function MappedUnit({
   unit,
   activeStatuses,
@@ -139,6 +158,21 @@ export default function MappedUnit({
           shadowOpacity={highlight ? 0.9 : 0}
           listening={!isFilteredOut}
         />
+
+        {/* Out of Sequence Hatching Overlay */}
+        {(() => {
+          if (!activeStatus?.outOfSequence?.length || isFilteredOut || dim) return null;
+          const furthestStatus = activeStatus.outOfSequence[activeStatus.outOfSequence.length - 1];
+          return (
+            <Line
+              points={currentPoints}
+              fillPatternImage={createStripePattern(furthestStatus.status_color)}
+              closed={true}
+              opacity={0.6}
+              listening={false}
+            />
+          );
+        })()}
       </Group>
       
       {/* The Status Icon */}

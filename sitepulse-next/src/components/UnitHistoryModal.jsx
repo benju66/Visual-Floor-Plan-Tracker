@@ -34,18 +34,12 @@ export default function UnitHistoryModal({ isOpen, onClose, unitId, unitNumber }
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="p-6 overflow-y-auto flex-1 bg-slate-50/50 dark:bg-slate-900/20">
           {isPending ? (
             <div className="flex flex-col items-center justify-center h-48 text-slate-500">
-              <svg className="h-8 w-8 animate-spin text-blue-600 mb-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <svg className="h-8 w-8 animate-spin text-blue-600 mb-4" viewBox="0 0 24 24" fill="none">
                 <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                <path
-                  className="opacity-90"
-                  d="M12 2a10 10 0 0 1 10 10"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                />
+                <path className="opacity-90" d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
               </svg>
               <span>Loading history...</span>
             </div>
@@ -55,33 +49,43 @@ export default function UnitHistoryModal({ isOpen, onClose, unitId, unitNumber }
               <p>No activity recorded for this location yet.</p>
             </div>
           ) : (
-            <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 dark:before:via-slate-700 before:to-transparent">
-              {logs.map((log, i) => {
-                const date = new Date(log.created_at);
-                const isRecent = i === 0 && (Date.now() - date.getTime() < 1000 * 60 * 60 * 24);
-                return (
-                  <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white dark:border-slate-900 bg-slate-200 dark:bg-slate-700 text-slate-500 shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 shadow-sm relative z-10"
-                      style={{ backgroundColor: log.status_color || '#cbd5e1' }}>
-                    </div>
-                    
-                    <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-white/60 dark:bg-slate-800/60 shadow-sm backdrop-blur-sm">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-slate-800 dark:text-slate-100">{log.milestone || 'Unknown'}</span>
-                        <span className="text-xs font-medium text-slate-500 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700">
-                          {log.track}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 capitalize">{log.temporal_state}</span>
-                        <time className={`text-xs font-medium ${isRecent ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}>
-                          {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </time>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Milestone</th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Status</th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300 text-right">Date Logged</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {logs.map((log) => {
+                    const date = new Date(log.created_at);
+                    const isCompleted = log.temporal_state === 'completed';
+                    const isOngoing = log.temporal_state === 'ongoing';
+                    return (
+                      <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <td className="px-4 py-3 font-medium flex items-center gap-2 text-slate-800 dark:text-slate-200">
+                          <span className="w-3 h-3 rounded-full shadow-sm shrink-0" style={{ backgroundColor: log.status_color || '#cbd5e1' }} />
+                          {log.milestone || 'Unknown'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider
+                            ${isCompleted ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 
+                              isOngoing ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 
+                              'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}
+                          >
+                            {log.temporal_state}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-400 font-medium">
+                          {date.toLocaleDateString()} <span className="text-xs ml-1 opacity-60">{date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
