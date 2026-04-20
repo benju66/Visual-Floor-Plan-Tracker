@@ -408,7 +408,7 @@ export function useUpdateMilestone(projectId, sheetId) {
 export function useBulkUpdateStatus(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
+    mutationFn: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks }) => {
       const CHUNK_SIZE = 800;
       
       for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
@@ -416,43 +416,59 @@ export function useBulkUpdateStatus(sheetId) {
         
         if (milestone === '__KEEP_EXISTING__') {
           if (temporal_state !== '__KEEP_EXISTING__') {
-            // Note: If keeping existing milestone but changing state, we should ideally insert a NEW event log
-            // However, since we don't have the current milestone names easily available inside this loop without a query,
-            // we will fetch the latest statuses, build new objects, and insert them.
-            const { data: latestLogs, error: logError } = await supabase.from('status_logs')
-              .select('*')
-              .in('unit_id', chunkIds)
-              .eq('track', track);
-            
-            if (logError) throw logError;
-            
-            // Map to unit_id logic: get latest log for each unit
-            const latestStatusMap = {};
-            latestLogs.forEach(log => {
-              const key = `${log.unit_id}_${log.track}_${log.milestone}`;
-              if (!latestStatusMap[key] || new Date(log.created_at) >= new Date(latestStatusMap[key].created_at)) {
-                latestStatusMap[key] = log;
-              }
-            });
-            
             const newLogs = [];
-            for (const id of chunkIds) {
-              const existingArray = Object.values(latestStatusMap).filter(s => s.unit_id === id);
-              // It's possible there are multiple milestones for this unit. We'd have to update them all or find the bottleneck.
-              // For bulk updates with __KEEP_EXISTING__, typically we'd update whatever is current. Let's update all their current states for this track.
-              for (const existing of existingArray) {
+
+            if (bottlenecks && bottlenecks.length > 0) {
+              // Primary Route: UI provided the calculated Smart Bottleneck logic
+              for (const id of chunkIds) {
+                const b = bottlenecks.find(b => b.unit_id === id);
+                if (b) {
                   newLogs.push({
                      unit_id: id,
-                     milestone: existing.milestone,
-                     status_color: existing.status_color,
+                     milestone: b.milestone,
+                     status_color: b.status_color || '',
                      temporal_state,
                      track,
-                     planned_start_date: planned_start_date !== undefined ? planned_start_date : existing.planned_start_date,
-                     planned_end_date: planned_end_date !== undefined ? planned_end_date : existing.planned_end_date,
-                     logged_date: logged_date !== undefined ? logged_date : existing.logged_date
+                     planned_start_date: planned_start_date !== undefined ? planned_start_date : b.planned_start_date,
+                     planned_end_date: planned_end_date !== undefined ? planned_end_date : b.planned_end_date,
+                     logged_date: logged_date !== undefined ? logged_date : b.logged_date
                   });
+                }
+              }
+            } else {
+              // Fallback Route: API call or Schedule tools that lack pre-computed bottlenecks.
+              const { data: latestLogs, error: logError } = await supabase.from('status_logs')
+                .select('*')
+                .in('unit_id', chunkIds)
+                .eq('track', track);
+              
+              if (logError) throw logError;
+              
+              const latestStatusMap = {};
+              latestLogs.forEach(log => {
+                const key = `${log.unit_id}_${log.track}_${log.milestone}`;
+                if (!latestStatusMap[key] || new Date(log.created_at) >= new Date(latestStatusMap[key].created_at)) {
+                  latestStatusMap[key] = log;
+                }
+              });
+              
+              for (const id of chunkIds) {
+                const existingArray = Object.values(latestStatusMap).filter(s => s.unit_id === id);
+                for (const existing of existingArray) {
+                    newLogs.push({
+                       unit_id: id,
+                       milestone: existing.milestone,
+                       status_color: existing.status_color,
+                       temporal_state,
+                       track,
+                       planned_start_date: planned_start_date !== undefined ? planned_start_date : existing.planned_start_date,
+                       planned_end_date: planned_end_date !== undefined ? planned_end_date : existing.planned_end_date,
+                       logged_date: logged_date !== undefined ? logged_date : existing.logged_date
+                    });
+                }
               }
             }
+
             if (newLogs.length > 0) {
               const today = new Date().toISOString().split('T')[0];
               const safeNewLogs = newLogs.map(l => {

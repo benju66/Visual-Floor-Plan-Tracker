@@ -295,7 +295,21 @@ export function useMapActions(project) {
       if (currentTemporalState === 'completed' && autoAdvanceEnabled && !isUndoRedo) {
         const trackMilestones = milestones.filter(m => m.track === milestone.track).sort((a,b) => a.sequence_order - b.sequence_order);
         const currentIndex = trackMilestones.findIndex(m => m.name === newLogData.milestone);
-        if (currentIndex !== -1 && currentIndex < trackMilestones.length - 1) {
+        
+        // Defensive Auto-Advance: Only advance if the backlog track sequence is flawless
+        let hasGaps = false;
+        if (currentIndex > 0) {
+           for (let i = 0; i < currentIndex; i++) {
+              const m = trackMilestones[i];
+              const logForM = activeStatuses.find(s => s.unit_id === unit.id && s.milestone === m.name);
+              if (!logForM || logForM.temporal_state !== 'completed') {
+                  hasGaps = true;
+                  break;
+              }
+           }
+        }
+
+        if (!hasGaps && currentIndex !== -1 && currentIndex < trackMilestones.length - 1) {
           const nextMilestone = trackMilestones[currentIndex + 1];
           const nextMilestoneName = nextMilestone.name;
           const nextSheetSchedule = activeSheet?.milestone_schedules?.[nextMilestoneName] || {};
@@ -344,7 +358,9 @@ export function useMapActions(project) {
       }
       
       let milestoneObj;
-      if (existingStatus) {
+      if (extraProps.milestoneObj) {
+         milestoneObj = extraProps.milestoneObj;
+      } else if (existingStatus) {
          milestoneObj = { name: existingStatus.milestone, color: existingStatus.status_color, track: trackingMode };
       } else {
          milestoneObj = milestones.find(m => m.track === trackingMode) || { name: 'Not Started', color: '#64748b', track: trackingMode };
@@ -354,19 +370,19 @@ export function useMapActions(project) {
       const selectedMilestone = milestones.find(m => m.name === value && m.track === trackingMode);
       if (!selectedMilestone) return;
 
-      const temporalState = existingStatus ? existingStatus.temporal_state : 'completed';
+      const temporalState = extraProps.temporal_state ? extraProps.temporal_state : (existingStatus ? existingStatus.temporal_state : 'completed');
       commitUnitMilestone(unit, selectedMilestone, temporalState, false, extraProps);
     }
   };
 
-  const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }, isUndoRedo = false) => {
+  const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks = [] }, isUndoRedo = false) => {
     const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
     
     // Save old state for undo
     const oldLogs = activeStatuses.filter(s => unitIds.includes(s.unit_id) && s.track === track);
 
     try {
-      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date });
+      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks });
       
       const autoAdvanceEnabled = settings.auto_advance_tracks?.[track] === true;
       let usedTemporalState = temporal_state;

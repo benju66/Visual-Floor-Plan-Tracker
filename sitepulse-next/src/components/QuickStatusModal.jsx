@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 
 export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatus, onCommit }) {
+  const [selectedState, setSelectedState] = useState(currentStatus || 'none');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   
@@ -18,26 +19,26 @@ export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatu
         <h3 className="text-xl font-bold mb-4 text-slate-800 dark:text-slate-100">Update Status</h3>
         <div className="grid grid-cols-2 gap-4">
           <button
-            onClick={() => { onCommit(unitId, 'status', 'none'); onClose(); }}
-            className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${currentStatus === 'none' ? 'border-slate-800 text-slate-800 dark:border-white dark:text-white bg-slate-100 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-400 dark:hover:border-slate-500'}`}
+            onClick={() => setSelectedState('none')}
+            className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${selectedState === 'none' ? 'border-slate-800 text-slate-800 dark:border-white dark:text-white bg-slate-100 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-400 dark:hover:border-slate-500'}`}
           >
             Clear Status
           </button>
           <button
-            onClick={() => { onCommit(unitId, 'status', 'planned', { startDate, endDate }); onClose(); }}
-            className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${currentStatus === 'planned' ? 'border-slate-500 bg-slate-500 text-white' : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-400 dark:hover:border-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
+            onClick={() => setSelectedState('planned')}
+            className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${selectedState === 'planned' ? 'border-slate-500 bg-slate-500 text-white' : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-400 dark:hover:border-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
           >
             Planned
           </button>
           <button
-            onClick={() => { onCommit(unitId, 'status', 'ongoing', { startDate, endDate }); onClose(); }}
-            className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${currentStatus === 'ongoing' ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-200 dark:border-amber-900/50 text-amber-600 dark:text-amber-500 hover:border-amber-400 dark:hover:border-amber-700'}`}
+            onClick={() => setSelectedState('ongoing')}
+            className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${selectedState === 'ongoing' ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-200 dark:border-amber-900/50 text-amber-600 dark:text-amber-500 hover:border-amber-400 dark:hover:border-amber-700'}`}
           >
             Ongoing
           </button>
           <button
-            onClick={() => { onCommit(unitId, 'status', 'completed', { startDate, endDate }); onClose(); }}
-            className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${currentStatus === 'completed' ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-500 hover:border-emerald-400 dark:hover:border-emerald-700'}`}
+            onClick={() => setSelectedState('completed')}
+            className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-2 ${selectedState === 'completed' ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-500 hover:border-emerald-400 dark:hover:border-emerald-700'}`}
           >
             Completed
           </button>
@@ -54,12 +55,18 @@ export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatu
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end gap-2">
           <button
             onClick={onClose}
             className="px-4 py-2 font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
           >
             Cancel
+          </button>
+          <button
+            onClick={() => { onCommit(unitId, 'status', selectedState, { startDate, endDate }); onClose(); }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition-colors"
+          >
+            Apply Changes
           </button>
         </div>
       </div>

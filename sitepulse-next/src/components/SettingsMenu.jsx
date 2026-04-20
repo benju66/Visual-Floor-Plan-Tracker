@@ -98,6 +98,9 @@ export default function SettingsMenu({
   
   const [scheduleLevelId, setScheduleLevelId] = useState(sheets?.[0]?.id || '');
   const [scheduleMilestoneId, setScheduleMilestoneId] = useState('');
+  
+  const [pendingScheduleUpdates, setPendingScheduleUpdates] = useState({});
+  const [isApplyingSchedule, setIsApplyingSchedule] = useState(false);
 
   useEffect(() => {
     if (!scheduleLevelId && sheets?.length > 0) {
@@ -120,6 +123,48 @@ export default function SettingsMenu({
   const scheduleUnits = allUnits.filter(u => u.sheet_id === scheduleLevelId);
   const { data: scheduleStatuses = [] } = useStatuses(scheduleLevelId, scheduleUnits.map(u => u.id), milestones);
   
+  const handleApplyScheduleChanges = async () => {
+    const changesArray = Object.values(pendingScheduleUpdates);
+    if(changesArray.length === 0) return;
+    setIsApplyingSchedule(true);
+    try {
+      const logsToInsert = changesArray.map(c => ({
+         unit_id: c.unit.id,
+         milestone: c.targetMilestone.name,
+         status_color: c.targetMilestone.color,
+         temporal_state: c.state,
+         track: c.targetMilestone.track,
+         planned_start_date: c.startDate,
+         planned_end_date: c.endDate,
+         logged_date: c.loggedDate
+      }));
+      await bulkInsertLogsMutation.mutateAsync(logsToInsert);
+      setPendingScheduleUpdates({});
+    } catch(err) {
+      console.error(err);
+    } finally {
+      setIsApplyingSchedule(false);
+    }
+  };
+
+  const stageScheduleUpdate = (unit, baseLog, targetMilestone, updates) => {
+     setPendingScheduleUpdates(prev => {
+        const existing = prev[unit.id] || {
+           unit,
+           baseLog,
+           targetMilestone,
+           state: baseLog?.temporal_state || 'none',
+           startDate: baseLog?.planned_start_date || null,
+           endDate: baseLog?.planned_end_date || null,
+           loggedDate: baseLog?.logged_date || null
+        };
+        return {
+           ...prev,
+           [unit.id]: { ...existing, ...updates }
+        };
+     });
+  };
+
   const projectUnitTypes = project?.unit_types || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
 
   const sensors = useSensors(
@@ -832,6 +877,27 @@ export default function SettingsMenu({
 
           {activeTab === 'schedule' && (
             <div className="flex flex-col h-[65vh]">
+              {Object.keys(pendingScheduleUpdates).length > 0 && (
+                <div className="shrink-0 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-4 py-2 mb-4 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                  <span className="text-sm font-semibold text-amber-800 dark:text-amber-400">
+                    {Object.keys(pendingScheduleUpdates).length} pending {Object.keys(pendingScheduleUpdates).length === 1 ? 'change' : 'changes'}
+                  </span>
+                  <button
+                    onClick={handleApplyScheduleChanges}
+                    disabled={isApplyingSchedule}
+                    className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold ml-auto transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    {isApplyingSchedule ? 'Saving...' : 'Apply Changes'}
+                  </button>
+                  <button
+                    onClick={() => setPendingScheduleUpdates({})}
+                    disabled={isApplyingSchedule}
+                    className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 text-xs font-semibold px-2 py-1.5 transition-colors"
+                   >
+                    Discard
+                  </button>
+                </div>
+              )}
               <div className="shrink-0 mb-4 border border-slate-200 dark:border-white/10 rounded-xl bg-slate-50 dark:bg-white/5 p-4 flex flex-wrap gap-4 items-end">
                 <div className="flex-1 min-w-[200px]">
                   <span className="block text-xs font-semibold text-slate-500 mb-1">Filter by Level</span>
@@ -878,23 +944,23 @@ export default function SettingsMenu({
                               const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                               if (!targetMilestone) return;
                               
-                              const logsToInsert = [];
-                              scheduleUnits.forEach(unit => {
-                                const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
-                                logsToInsert.push({
-                                   unit_id: unit.id,
-                                   milestone: targetMilestone.name,
-                                   status_color: targetMilestone.color,
-                                   temporal_state: val,
-                                   track: targetMilestone.track,
-                                   planned_start_date: log?.planned_start_date || null,
-                                   planned_end_date: log?.planned_end_date || null,
-                                   logged_date: log?.logged_date || null
+                              setPendingScheduleUpdates(prev => {
+                                const next = { ...prev };
+                                scheduleUnits.forEach(unit => {
+                                  const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                                  const existing = next[unit.id] || {
+                                    unit,
+                                    baseLog: log,
+                                    targetMilestone,
+                                    state: log?.temporal_state || 'none',
+                                    startDate: log?.planned_start_date || null,
+                                    endDate: log?.planned_end_date || null,
+                                    loggedDate: log?.logged_date || null
+                                  };
+                                  next[unit.id] = { ...existing, state: val };
                                 });
+                                return next;
                               });
-                              if (logsToInsert.length > 0) {
-                                bulkInsertLogsMutation.mutate(logsToInsert);
-                              }
                               e.target.value = ''; // Reset select
                             }}
                             className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-full max-w-[140px] font-medium"
@@ -918,23 +984,23 @@ export default function SettingsMenu({
                               const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                               if (!targetMilestone) return;
                               
-                              const logsToInsert = [];
-                              scheduleUnits.forEach(unit => {
-                                const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
-                                logsToInsert.push({
-                                   unit_id: unit.id,
-                                   milestone: targetMilestone.name,
-                                   status_color: targetMilestone.color,
-                                   temporal_state: log?.temporal_state || 'none',
-                                   track: targetMilestone.track,
-                                   planned_start_date: val || null,
-                                   planned_end_date: log?.planned_end_date || null,
-                                   logged_date: log?.logged_date || null
+                              setPendingScheduleUpdates(prev => {
+                                const next = { ...prev };
+                                scheduleUnits.forEach(unit => {
+                                  const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                                  const existing = next[unit.id] || {
+                                    unit,
+                                    baseLog: log,
+                                    targetMilestone,
+                                    state: log?.temporal_state || 'none',
+                                    startDate: log?.planned_start_date || null,
+                                    endDate: log?.planned_end_date || null,
+                                    loggedDate: log?.logged_date || null
+                                  };
+                                  next[unit.id] = { ...existing, startDate: val || null };
                                 });
+                                return next;
                               });
-                              if (logsToInsert.length > 0) {
-                                bulkInsertLogsMutation.mutate(logsToInsert);
-                              }
                             }}
                             className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
                           />
@@ -951,23 +1017,23 @@ export default function SettingsMenu({
                               const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                               if (!targetMilestone) return;
                               
-                              const logsToInsert = [];
-                              scheduleUnits.forEach(unit => {
-                                const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
-                                logsToInsert.push({
-                                   unit_id: unit.id,
-                                   milestone: targetMilestone.name,
-                                   status_color: targetMilestone.color,
-                                   temporal_state: log?.temporal_state || 'none',
-                                   track: targetMilestone.track,
-                                   planned_start_date: log?.planned_start_date || null,
-                                   planned_end_date: val || null,
-                                   logged_date: log?.logged_date || null
+                              setPendingScheduleUpdates(prev => {
+                                const next = { ...prev };
+                                scheduleUnits.forEach(unit => {
+                                  const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                                  const existing = next[unit.id] || {
+                                    unit,
+                                    baseLog: log,
+                                    targetMilestone,
+                                    state: log?.temporal_state || 'none',
+                                    startDate: log?.planned_start_date || null,
+                                    endDate: log?.planned_end_date || null,
+                                    loggedDate: log?.logged_date || null
+                                  };
+                                  next[unit.id] = { ...existing, endDate: val || null };
                                 });
+                                return next;
                               });
-                              if (logsToInsert.length > 0) {
-                                bulkInsertLogsMutation.mutate(logsToInsert);
-                              }
                             }}
                             className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
                           />
@@ -983,25 +1049,25 @@ export default function SettingsMenu({
                               const val = e.target.value;
                               const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                               if (!targetMilestone) return;
-                              const logsToInsert = [];
-                              scheduleUnits.forEach(unit => {
-                                const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
-                                if (log?.temporal_state === 'completed') {
-                                   logsToInsert.push({
-                                     unit_id: unit.id,
-                                     milestone: targetMilestone.name,
-                                     status_color: targetMilestone.color,
-                                     temporal_state: 'completed',
-                                     track: targetMilestone.track,
-                                     planned_start_date: log.planned_start_date || null,
-                                     planned_end_date: log.planned_end_date || null,
-                                     logged_date: val || null
-                                   });
-                                }
+                              setPendingScheduleUpdates(prev => {
+                                const next = { ...prev };
+                                scheduleUnits.forEach(unit => {
+                                  const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                                  const existing = next[unit.id] || {
+                                    unit,
+                                    baseLog: log,
+                                    targetMilestone,
+                                    state: log?.temporal_state || 'none',
+                                    startDate: log?.planned_start_date || null,
+                                    endDate: log?.planned_end_date || null,
+                                    loggedDate: log?.logged_date || null
+                                  };
+                                  if (existing.state === 'completed') {
+                                    next[unit.id] = { ...existing, loggedDate: val || null };
+                                  }
+                                });
+                                return next;
                               });
-                              if (logsToInsert.length > 0) {
-                                bulkInsertLogsMutation.mutate(logsToInsert);
-                              }
                             }}
                             className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
                           />
@@ -1019,22 +1085,10 @@ export default function SettingsMenu({
                         const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                         const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
                         
+                        const pending = pendingScheduleUpdates[unit.id];
+                        const displayLog = pending ? { ...log, ...pending, temporal_state: pending.state || log?.temporal_state, planned_start_date: pending.startDate !== undefined ? pending.startDate : log?.planned_start_date, planned_end_date: pending.endDate !== undefined ? pending.endDate : log?.planned_end_date, logged_date: pending.loggedDate !== undefined ? pending.loggedDate : log?.logged_date } : log;
                         const isAssigned = !!targetMilestone;
-                        const isCompleted = log?.temporal_state === 'completed';
-                      
-                       const handleDateUpdate = (type, val) => {
-                         if (!targetMilestone) return;
-                         updateStatusMutation.mutate({
-                           unit_id: unit.id,
-                           milestone: targetMilestone.name,
-                           status_color: targetMilestone.color,
-                           temporal_state: log?.temporal_state || 'none',
-                           track: targetMilestone.track,
-                           planned_start_date: type === 'start' ? (val || null) : (log?.planned_start_date || null),
-                           planned_end_date: type === 'end' ? (val || null) : (log?.planned_end_date || null),
-                           logged_date: type === 'actual' ? (val || null) : (log?.logged_date || null)
-                         });
-                      };
+                        const isCompleted = displayLog?.temporal_state === 'completed';
                       
                       return (
                         <tr key={unit.id} className={`transition-colors ${isAssigned ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : 'opacity-40 hover:opacity-100 bg-slate-50/50 dark:bg-slate-900'}`}>
@@ -1042,20 +1096,13 @@ export default function SettingsMenu({
                           <td className="px-4 py-2">
                             {isAssigned ? (
                               <select
-                                value={log?.temporal_state || 'none'}
+                                value={displayLog?.temporal_state || 'none'}
                                 onChange={(e) => {
                                   if (!targetMilestone) return;
-                                  updateStatusMutation.mutate({
-                                     unit_id: unit.id,
-                                     milestone: targetMilestone.name,
-                                     status_color: targetMilestone.color,
-                                     temporal_state: e.target.value,
-                                     track: targetMilestone.track,
-                                     planned_start_date: log?.planned_start_date || null,
-                                     planned_end_date: log?.planned_end_date || null
-                                  });
+                                  stageScheduleUpdate(unit, log || {}, targetMilestone, { state: e.target.value });
                                 }}
-                                className={`bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-full max-w-[140px] font-semibold ${isCompleted ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'}`}
+                                disabled={isApplyingSchedule}
+                                className={`bg-transparent border ${pending?.state && pending.state !== log?.temporal_state ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-500/20' : 'border-slate-200 dark:border-slate-700'} rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-full max-w-[140px] font-semibold flex-1 ${isCompleted ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'} disabled:opacity-50`}
                               >
                                  <option value="none">Not Started</option>
                                  <option value="planned">Planned</option>
@@ -1069,28 +1116,29 @@ export default function SettingsMenu({
                           <td className="px-4 py-2">
                             <input 
                               type="date"
-                              disabled={!isAssigned}
-                              value={log?.planned_start_date || ''}
-                              onChange={(e) => handleDateUpdate('start', e.target.value)}
-                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium disabled:opacity-50"
+                              disabled={!isAssigned || isApplyingSchedule}
+                              value={displayLog?.planned_start_date || ''}
+                              onChange={(e) => stageScheduleUpdate(unit, log || {}, targetMilestone, { startDate: e.target.value || null })}
+                              className={`bg-transparent border ${pending?.startDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-500' : 'border-slate-200 dark:border-slate-700'} rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium disabled:opacity-50`}
                             />
                           </td>
                           <td className="px-4 py-2">
                              <input 
                               type="date"
-                              disabled={!isAssigned}
-                              value={log?.planned_end_date || ''}
-                              onChange={(e) => handleDateUpdate('end', e.target.value)}
-                              className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium disabled:opacity-50"
+                              disabled={!isAssigned || isApplyingSchedule}
+                              value={displayLog?.planned_end_date || ''}
+                              onChange={(e) => stageScheduleUpdate(unit, log || {}, targetMilestone, { endDate: e.target.value || null })}
+                              className={`bg-transparent border ${pending?.endDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-500' : 'border-slate-200 dark:border-slate-700'} rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium disabled:opacity-50`}
                             />
                           </td>
                           <td className="px-4 py-2 text-right text-xs text-slate-500 font-medium">
                             {isCompleted ? (
                               <input 
                                 type="date"
-                                value={log?.logged_date || ''}
-                                onChange={(e) => handleDateUpdate('actual', e.target.value)}
-                                className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium"
+                                disabled={isApplyingSchedule}
+                                value={displayLog?.logged_date || ''}
+                                onChange={(e) => stageScheduleUpdate(unit, log || {}, targetMilestone, { loggedDate: e.target.value || null })}
+                                className={`bg-transparent border ${pending?.loggedDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-500' : 'border-slate-200 dark:border-slate-700'} rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium disabled:opacity-50`}
                               />
                             ) : (
                               '—'

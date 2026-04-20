@@ -887,15 +887,43 @@ const FloorplanCanvas = forwardRef(({
             >
               <div className="font-bold text-base mb-1">{u?.unit_number || 'Unknown Location'}</div>
               {s ? (
-                <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-slate-700/50 dark:border-black/10">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: s.status_color }} />
-                    <span className="font-semibold">{s.milestone}</span>
+                <div className="flex flex-col gap-3 mt-2 pt-2 border-t border-slate-700/50 dark:border-black/10">
+                  {/* Primary Constraint Block */}
+                  <div>
+                    {s.outOfSequence && s.outOfSequence.length > 0 && (
+                      <div className="text-[10px] uppercase font-bold text-amber-500 tracking-wider mb-1">Bottleneck</div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: s.status_color }} />
+                      <span className="font-semibold text-white dark:text-slate-900">{s.milestone}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                      <span className="capitalize font-medium">{s.temporal_state || 'Completed'}</span>
+                      {s.created_at && <span>{new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>}
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                    <span className="capitalize">{s.temporal_state || 'Completed'}</span>
-                    <span>{new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                  </div>
+
+                  {/* Out of Sequence Hatch Payload */}
+                  {s.outOfSequence && s.outOfSequence.length > 0 && (
+                     <div className="pt-2 border-t border-slate-700/30 dark:border-black/5">
+                       <div className="text-[10px] uppercase font-bold text-emerald-400 dark:text-emerald-600 tracking-wider mb-1.5 flex items-center gap-1.5">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                          Completed Out-of-Sequence
+                       </div>
+                       <div className="flex flex-col gap-1.5">
+                         {s.outOfSequence.map(seq => (
+                           <div key={seq.id} className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-sm flex-shrink-0 relative overflow-hidden ring-1 ring-white/10" style={{ backgroundColor: seq.status_color }}>
+                                 <svg className="absolute inset-0 opacity-50 block w-full h-full text-black/40" viewBox="0 0 10 10">
+                                   <line x1="0" y1="10" x2="10" y2="0" stroke="currentColor" strokeWidth="2.5" />
+                                 </svg>
+                              </div>
+                              <span className="text-xs text-slate-300 dark:text-slate-600 truncate">{seq.milestone}</span>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                  )}
                 </div>
               ) : (
                 <div className="mt-2 pt-2 border-t border-slate-700/50 dark:border-black/10 text-xs text-slate-400 dark:text-slate-500 italic">

@@ -27,7 +27,7 @@ export default function FieldStatusTable({
   savingUnitId,
   onChooseStatus,
   defaultView = 'table',
-  onUpdateTemporalState,
+  onApplyPendingChanges,
 }) {
   const activeSheetId = useMapStore(s => s.activeSheetId);
   const selectedUnitIds = useMapStore(s => s.selectedUnitIds);
@@ -49,6 +49,32 @@ export default function FieldStatusTable({
   const { data: units = [] } = useUnits(activeSheetId);
 
   const [viewStyle, setViewStyle] = useState(defaultView);
+  const [pendingChanges, setPendingChanges] = useState({});
+  const [isApplying, setIsApplying] = useState(false);
+
+  const handleLocalUpdate = (unit, baseLog, state, extraProps = {}) => {
+    setPendingChanges(prev => {
+      const existing = prev[unit.id] || { log: baseLog || {}, state: baseLog?.temporal_state || 'none', extraProps: {} };
+      return {
+        ...prev,
+        [unit.id]: {
+          unit,
+          log: baseLog,
+          state,
+          extraProps: { ...existing.extraProps, ...extraProps }
+        }
+      };
+    });
+  };
+
+  const handleApplyAll = async () => {
+    const changesArray = Object.values(pendingChanges);
+    if (changesArray.length === 0) return;
+    setIsApplying(true);
+    await onApplyPendingChanges?.(changesArray);
+    setPendingChanges({});
+    setIsApplying(false);
+  };
 
   useEffect(() => {
     setViewStyle(defaultView);
@@ -104,38 +130,53 @@ export default function FieldStatusTable({
     );
   }
 
-  const renderStatusTrigger = (unit, currentMilestone, log, large) => (
-    <div className="flex flex-col sm:flex-row gap-2 w-full">
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onChooseStatus(unit); }}
-        disabled={savingUnitId === unit.id}
-        className={`w-full sm:flex-1 text-left rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm transition hover:bg-white/70 dark:hover:bg-black/25 disabled:opacity-50 ${large ? 'py-3 text-base' : ''}`}
-      >
-        {currentMilestone || 'Choose status…'}
-      </button>
-      {currentMilestone && (
-        <select
-          value={log?.temporal_state || 'completed'}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation();
-            onUpdateTemporalState?.(unit, log, e.target.value);
-          }}
-          disabled={savingUnitId === unit.id}
-          className={`w-full sm:w-auto rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/60 dark:bg-black/25 px-2 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 ${large ? 'py-3 text-base' : ''}`}
-        >
-          <option value="none">No status (Choose status)</option>
-          <option value="planned">Planned</option>
-          <option value="ongoing">Ongoing</option>
-          <option value="completed">Completed</option>
-        </select>
-      )}
-    </div>
-  );
+  const renderStatusTrigger = (unit, baseLog, large) => {
+    const pending = pendingChanges[unit.id];
+    const log = pending ? { ...baseLog, temporal_state: pending.state } : baseLog;
+    const currentMilestone = pending?.extraProps?.milestoneObj?.name || log?.milestone || '';
 
-  const renderDatesInline = (unit, log) => {
-    if (!log) return null;
+    return (
+      <div className="flex flex-col sm:flex-row gap-2 w-full">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onChooseStatus?.(unit, (m) => handleLocalUpdate(unit, baseLog, pending?.state || log?.temporal_state || 'completed', { milestoneObj: m })); }}
+          disabled={savingUnitId === unit.id || isApplying}
+          className={`w-full sm:flex-1 text-left rounded-xl border ${pending?.extraProps?.milestoneObj ? 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200/80 dark:border-white/10'} bg-white/40 dark:bg-black/15 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm transition hover:bg-white/70 dark:hover:bg-black/25 disabled:opacity-50 ${large ? 'py-3 text-base' : ''}`}
+        >
+          {currentMilestone || 'Choose status…'}
+        </button>
+        {currentMilestone && (
+          <select
+            value={log?.temporal_state || 'completed'}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation();
+              handleLocalUpdate(unit, baseLog, e.target.value);
+            }}
+            disabled={savingUnitId === unit.id || isApplying}
+            className={`w-full sm:w-auto rounded-xl border ${pending?.state && pending.state !== baseLog?.temporal_state ? 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200/80 dark:border-white/10'} bg-white/60 dark:bg-black/25 px-2 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 ${large ? 'py-3 text-base' : ''}`}
+          >
+            <option value="none">No status (Choose status)</option>
+            <option value="planned">Planned</option>
+            <option value="ongoing">Ongoing</option>
+            <option value="completed">Completed</option>
+          </select>
+        )}
+      </div>
+    );
+  };
+
+  const renderDatesInline = (unit, baseLog) => {
+    if (!baseLog) return null;
+    const pending = pendingChanges[unit.id];
+    const log = pending ? { 
+        ...baseLog, 
+        planned_start_date: pending.extraProps.startDate !== undefined ? pending.extraProps.startDate : baseLog.planned_start_date,
+        planned_end_date: pending.extraProps.endDate !== undefined ? pending.extraProps.endDate : baseLog.planned_end_date,
+        logged_date: pending.extraProps.loggedDate !== undefined ? pending.extraProps.loggedDate : baseLog.logged_date,
+        temporal_state: pending.state || baseLog.temporal_state
+    } : baseLog;
+
     return (
       <div className="flex flex-row flex-wrap items-center gap-2 mt-2 pt-2 border-t border-slate-200/50 dark:border-white/5">
         <label className="flex flex-col flex-1 min-w-[120px]">
@@ -144,8 +185,9 @@ export default function FieldStatusTable({
             type="date"
             value={log.planned_start_date || ''}
             onClick={(e) => e.stopPropagation()}
-            onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: e.target.value, endDate: log.planned_end_date })}
-            className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+            onChange={(e) => handleLocalUpdate(unit, baseLog, pending?.state || log.temporal_state, { startDate: e.target.value, endDate: log.planned_end_date })}
+            disabled={isApplying}
+            className={`bg-transparent border ${pending?.extraProps?.startDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
           />
         </label>
         <label className="flex flex-col flex-1 min-w-[120px]">
@@ -154,8 +196,9 @@ export default function FieldStatusTable({
             type="date"
             value={log.planned_end_date || ''}
             onClick={(e) => e.stopPropagation()}
-            onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: log.planned_start_date, endDate: e.target.value })}
-            className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+            onChange={(e) => handleLocalUpdate(unit, baseLog, pending?.state || log.temporal_state, { startDate: log.planned_start_date, endDate: e.target.value })}
+            disabled={isApplying}
+            className={`bg-transparent border ${pending?.extraProps?.endDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
           />
         </label>
         {log.temporal_state === 'completed' && (
@@ -165,8 +208,9 @@ export default function FieldStatusTable({
               type="date"
               value={log.logged_date || ''}
               onClick={(e) => e.stopPropagation()}
-              onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: e.target.value })}
-              className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+              onChange={(e) => handleLocalUpdate(unit, baseLog, pending?.state || log.temporal_state, { startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: e.target.value })}
+              disabled={isApplying}
+              className={`bg-transparent border ${pending?.extraProps?.loggedDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1 text-xs font-bold ${!pending?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''} outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
             />
           </div>
         )}
@@ -216,8 +260,31 @@ export default function FieldStatusTable({
 
   return (
     <div className="w-full pb-6">
-      <div className="flex justify-end mb-4">
-        <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex-1">
+          {Object.keys(pendingChanges).length > 0 && (
+            <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-4 py-2 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+              <span className="text-sm font-semibold text-amber-800 dark:text-amber-400">
+                {Object.keys(pendingChanges).length} pending {Object.keys(pendingChanges).length === 1 ? 'change' : 'changes'}
+              </span>
+              <button
+                onClick={handleApplyAll}
+                disabled={isApplying}
+                className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold ml-auto transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
+              >
+                {isApplying ? <UpdatingRing /> : 'Apply Changes'}
+              </button>
+              <button
+                onClick={() => setPendingChanges({})}
+                disabled={isApplying}
+                className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 text-xs font-semibold px-2 py-1.5 transition-colors"
+               >
+                Discard
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm ml-4">
           <button
             type="button"
             onClick={() => setViewStyle('table')}
@@ -403,15 +470,20 @@ export default function FieldStatusTable({
                     </div>
                   </td>
                   <td className="px-5 py-2 align-middle">
-                    {renderStatusTrigger(unit, log?.milestone ?? '', log, false)}
+                    {(() => {
+                      const pending = pendingChanges[unit.id];
+                      const dLog = pending ? { ...log, temporal_state: pending.state } : log;
+                      return renderStatusTrigger(unit, dLog, false);
+                    })()}
                   </td>
                   <td className="px-5 py-2 align-middle">
                     {log ? (
                        <input 
                          type="date"
-                         value={log?.planned_start_date || ''}
-                         onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: e.target.value, endDate: log.planned_end_date })}
-                         className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+                         value={pendingChanges[unit.id]?.extraProps?.startDate !== undefined ? pendingChanges[unit.id].extraProps.startDate : (log?.planned_start_date || '')}
+                         onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: e.target.value, endDate: log.planned_end_date })}
+                         disabled={isApplying}
+                         className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.startDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
                        />
                     ) : <span className="text-slate-400 text-xs italic">—</span>}
                   </td>
@@ -419,20 +491,22 @@ export default function FieldStatusTable({
                     {log ? (
                        <input 
                          type="date"
-                         value={log?.planned_end_date || ''}
-                         onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: log.planned_start_date, endDate: e.target.value })}
-                         className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+                         value={pendingChanges[unit.id]?.extraProps?.endDate !== undefined ? pendingChanges[unit.id].extraProps.endDate : (log?.planned_end_date || '')}
+                         onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: log.planned_start_date, endDate: e.target.value })}
+                         disabled={isApplying}
+                         className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.endDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
                        />
                     ) : <span className="text-slate-400 text-xs italic">—</span>}
                   </td>
                   <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
-                    {log?.temporal_state === 'completed' ? (
+                    {(pendingChanges[unit.id]?.state || log?.temporal_state) === 'completed' ? (
                        <input 
                          type="date"
-                         value={log?.logged_date || ''}
+                         value={pendingChanges[unit.id]?.extraProps?.loggedDate !== undefined ? pendingChanges[unit.id].extraProps.loggedDate : (log?.logged_date || '')}
                          onClick={(e) => e.stopPropagation()}
-                         onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: e.target.value })}
-                         className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800 text-emerald-600 dark:text-emerald-400 transition"
+                         onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: e.target.value })}
+                         disabled={isApplying}
+                         className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.loggedDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800 ${!pendingChanges[unit.id]?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''} transition`}
                        />
                     ) : <span className="text-slate-400 text-xs italic">—</span>}
                   </td>

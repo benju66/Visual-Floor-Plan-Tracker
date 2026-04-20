@@ -119,33 +119,24 @@ function App() {
       const unitStatuses = activeStatuses.filter(s => s.unit_id === unit.id && s.track === trackingMode);
       if (unitStatuses.length === 0) return null;
 
-      // 1. Evaluate against the Master Milestone Sequence to ensure we don't break on missing database logs
+      let primaryMasterIdx = currentTrackMilestones.length - 1; // Default to end
       let masterFurthestCompletedIdx = -1;
-      let masterFirstOngoingIdx = -1;
 
-      currentTrackMilestones.forEach((m, idx) => {
+      // 1. Find the FIRST milestone in the sequence that is NOT completed
+      for (let i = 0; i < currentTrackMilestones.length; i++) {
+         const m = currentTrackMilestones[i];
          const log = unitStatuses.find(s => s.milestone === m.name);
-         if (log) {
-             if (log.temporal_state === 'completed') {
-                 masterFurthestCompletedIdx = Math.max(masterFurthestCompletedIdx, idx);
-             }
-             if (log.temporal_state === 'ongoing' && masterFirstOngoingIdx === -1) {
-                 masterFirstOngoingIdx = idx;
-             }
+         
+         if (log && log.temporal_state === 'completed') {
+             masterFurthestCompletedIdx = Math.max(masterFurthestCompletedIdx, i);
+         } else {
+             // This is the bottleneck (planned, ongoing, or missing)
+             primaryMasterIdx = i;
+             break; 
          }
-      });
-
-      let primaryMasterIdx = 0;
-      
-      if (masterFirstOngoingIdx !== -1) {
-         // Active blockade overrides everything
-         primaryMasterIdx = masterFirstOngoingIdx;
-      } else if (masterFurthestCompletedIdx !== -1) {
-         // Advance sequence to the immediate next scheduled step, cap at the final milestone
-         primaryMasterIdx = Math.min(masterFurthestCompletedIdx + 1, currentTrackMilestones.length - 1);
       }
 
-      // Reconstruct the structural active status block for the renderer
+      // 2. Reconstruct the structural active status block for the renderer
       const primaryMilestone = currentTrackMilestones[primaryMasterIdx];
       const existingLog = unitStatuses.find(s => s.milestone === primaryMilestone.name);
       
@@ -153,7 +144,7 @@ function App() {
          unit_id: unit.id,
          milestone: primaryMilestone.name,
          status_color: primaryMilestone.color,
-         temporal_state: primaryMasterIdx <= masterFurthestCompletedIdx ? 'completed' : 'planned',
+         temporal_state: (primaryMasterIdx === masterFurthestCompletedIdx && existingLog?.temporal_state === 'completed') ? 'completed' : 'planned',
          track: trackingMode
       };
       
@@ -382,7 +373,11 @@ function App() {
     if (milestoneMenu?.mode === 'filter') {
       setFilterMilestone(m.name);
     } else if (milestoneMenu?.mode === 'unit') {
-      void commitUnitMilestone(milestoneMenu.unit, m);
+      if (milestoneMenu.onSelect) {
+        milestoneMenu.onSelect(m);
+      } else {
+        void commitUnitMilestone(milestoneMenu.unit, m);
+      }
     }
     setMilestoneMenu(null);
   };
@@ -442,9 +437,11 @@ function App() {
             <FieldStatusTable
               activeStatuses={mapDisplayStatuses}
               savingUnitId={savingUnitId}
-              onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
-              onUpdateTemporalState={(unit, log, state, extraProps = {}) => {
-                 void commitUnitMilestone(unit, { name: log.milestone, color: log.status_color, track: log.track }, state, false, extraProps);
+              onChooseStatus={(unit, onSelect) => setMilestoneMenu({ mode: 'unit', unit, onSelect })}
+              onApplyPendingChanges={async (changesArray) => {
+                 for (const c of changesArray) {
+                    await commitUnitMilestone(c.unit, c.extraProps?.milestoneObj || { name: c.log?.milestone, color: c.log?.status_color, track: trackingMode }, c.state, false, c.extraProps);
+                 }
               }}
               defaultView={settings.defaultFieldView || 'table'}
             />
@@ -561,7 +558,10 @@ function App() {
         selectedUnitIds={selectedUnitIds}
         onClearSelection={clearSelectedUnits}
         milestones={milestones}
-        onApplyBulkStatus={handleApplyBulkStatus}
+        onApplyBulkStatus={(params) => {
+          const bottlenecks = selectedUnitIds.map(id => mapDisplayStatuses.find(s => s.unit_id === id && s.track === trackingMode)).filter(Boolean);
+          handleApplyBulkStatus({ ...params, bottlenecks });
+        }}
         isPending={isPendingBulk}
       />
 
@@ -592,7 +592,13 @@ function App() {
             ? (mapDisplayStatuses.find(s => s.unit_id === quickStatusUnitId && s.track === trackingMode)?.temporal_state || 'none')
             : 'none'
         }
-        onCommit={handleQuickUpdate}
+        onCommit={(unitId, type, val, extraProps = {}) => {
+          const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
+          if (bottleneck) {
+             extraProps.milestoneObj = { name: bottleneck.milestone, color: bottleneck.status_color, track: trackingMode };
+          }
+          handleQuickUpdate(unitId, type, val, extraProps);
+        }}
       />
 
       <QuickMilestoneModal
@@ -605,7 +611,13 @@ function App() {
             : null
         }
         milestones={milestones.filter(m => m.track === trackingMode)}
-        onCommit={handleQuickUpdate}
+        onCommit={(unitId, type, val, extraProps = {}) => {
+          const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
+          if (bottleneck) {
+             extraProps.temporal_state = bottleneck.temporal_state;
+          }
+          handleQuickUpdate(unitId, type, val, extraProps);
+        }}
       />
 
       <UnitHistoryModal

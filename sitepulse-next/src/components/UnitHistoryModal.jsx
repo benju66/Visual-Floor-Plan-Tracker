@@ -1,16 +1,36 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { X, Clock, HelpCircle } from 'lucide-react';
 import { useUnitHistory } from '@/hooks/useProjectQueries';
 
 export default function UnitHistoryModal({ isOpen, onClose, unitId, unitNumber }) {
-  const { data: logs, isPending } = useUnitHistory(unitId);
+  const { data: rawLogs, isPending } = useUnitHistory(unitId);
+
+  const logs = useMemo(() => {
+    if (!rawLogs) return [];
+    
+    const deduped = [];
+    rawLogs.forEach((log, index) => {
+      const prevLog = rawLogs[index + 1];
+      if (prevLog && 
+          log.temporal_state === prevLog.temporal_state && 
+          log.milestone === prevLog.milestone &&
+          log.track === prevLog.track &&
+          log.planned_start_date === prevLog.planned_start_date &&
+          log.planned_end_date === prevLog.planned_end_date &&
+          log.logged_date === prevLog.logged_date) {
+         return; // Skip identical consecutive entries to prevent garbage buildup
+      }
+      deduped.push(log);
+    });
+    return deduped;
+  }, [rawLogs]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
       <div 
-        className="w-full max-w-md flex flex-col max-h-[85vh] rounded-2xl border shadow-2xl relative"
+        className="w-full max-w-4xl flex flex-col max-h-[85vh] rounded-2xl border shadow-2xl relative"
         style={{
           background: 'var(--glass-bg, rgba(255, 255, 255, 0.9))',
           borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.8))',
@@ -55,6 +75,9 @@ export default function UnitHistoryModal({ isOpen, onClose, unitId, unitNumber }
                   <tr>
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Milestone</th>
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Status</th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Planned Start</th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Planned Finish</th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Actual Completion</th>
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300 text-right">Date Logged</th>
                   </tr>
                 </thead>
@@ -67,7 +90,7 @@ export default function UnitHistoryModal({ isOpen, onClose, unitId, unitNumber }
                       <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                         <td className="px-4 py-3 font-medium flex items-center gap-2 text-slate-800 dark:text-slate-200">
                           <span className="w-3 h-3 rounded-full shadow-sm shrink-0" style={{ backgroundColor: log.status_color || '#cbd5e1' }} />
-                          {log.milestone || 'Unknown'}
+                          {log.milestone || 'Unknown'} {log.track && <span className="text-[10px] text-slate-400 font-normal">({log.track})</span>}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider
@@ -77,6 +100,15 @@ export default function UnitHistoryModal({ isOpen, onClose, unitId, unitNumber }
                           >
                             {log.temporal_state}
                           </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                          {log.planned_start_date ? new Date(log.planned_start_date + 'T12:00:00Z').toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                          {log.planned_end_date ? new Date(log.planned_end_date + 'T12:00:00Z').toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                          {log.logged_date ? new Date(log.logged_date + 'T12:00:00Z').toLocaleDateString() : '—'}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-400 font-medium">
                           {date.toLocaleDateString()} <span className="text-xs ml-1 opacity-60">{date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
