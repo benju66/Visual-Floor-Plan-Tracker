@@ -507,21 +507,39 @@ const FloorplanCanvas = forwardRef(({
     const unit = units.find(u => u.id === targetId);
     if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length === 0) return;
 
+    const { drawW, drawH } = layout;
+    if (drawW <= 0 || drawH <= 0) return;
+    const aspect = drawW / drawH;
+
     const pts = unit.polygon_coordinates;
     const centroid = getCentroid(pts);
     const cx = centroid.pctX || 0;
     const cy = centroid.pctY || 0;
 
     const newPoints = pts.map(p => {
-      let newX, newY;
-      if (direction === 'left') {
-        newX = cx + (p.pctY - cy);
-        newY = cy - (p.pctX - cx);
-      } else {
-        newX = cx - (p.pctY - cy);
-        newY = cy + (p.pctX - cx);
+      // 1. Get relative offsets in percentage space
+      const dx = p.pctX - cx;
+      const dy = p.pctY - cy;
+
+      // 2. Convert to 'real' aspect-corrected space
+      const realX = dx * aspect;
+      const realY = dy;
+
+      // 3. Rotate 90 degrees around (0,0) in real space
+      let rotX, rotY;
+      if (direction === 'left') { // CCW
+        rotX = realY;
+        rotY = -realX;
+      } else { // CW
+        rotX = -realY;
+        rotY = realX;
       }
-      return { pctX: newX, pctY: newY };
+
+      // 4. Convert back to percentage space and re-add centroid
+      return { 
+        pctX: cx + (rotX / aspect), 
+        pctY: cy + rotY 
+      };
     });
 
     onUpdateUnitPolygon?.(unit.id, newPoints);
