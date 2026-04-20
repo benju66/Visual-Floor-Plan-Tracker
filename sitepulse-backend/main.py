@@ -17,9 +17,15 @@ app = FastAPI(title="SitePulse Backend API")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
+# Split by comma if the env var contains multiple domains, and natively support production
+allowed_origins = [url.strip() for url in FRONTEND_URL.split(",")]
+for default_url in ["http://localhost:3000", "https://sitepulse.build"]:
+    if default_url not in allowed_origins:
+        allowed_origins.append(default_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:3000"], 
+    allow_origins=allowed_origins, 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
