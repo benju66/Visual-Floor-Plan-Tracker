@@ -336,7 +336,10 @@ export function useUpdateStatus(sheetId) {
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+    }
   });
 }
 
@@ -363,7 +366,10 @@ export function useClearStatus(sheetId) {
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+    }
   });
 }
 
@@ -394,6 +400,7 @@ export function useUpdateMilestone(projectId, sheetId) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['milestones', projectId] });
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
     }
   });
 }
@@ -529,7 +536,10 @@ export function useBulkUpdateStatus(sheetId) {
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+    }
   });
 }
 
@@ -574,7 +584,10 @@ export function useBulkInsertStatusLogs(sheetId) {
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+    }
   });
 }
 

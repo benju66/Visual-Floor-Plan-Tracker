@@ -430,7 +430,7 @@ function App() {
           <div className="h-full overflow-hidden">
             <ProjectDashboard
               units={units}
-              activeStatuses={mapDisplayStatuses}
+              activeStatuses={activeStatuses}
               milestones={milestones}
               trackingMode={trackingMode}
               sheets={sheets}
