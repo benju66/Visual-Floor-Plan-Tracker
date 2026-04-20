@@ -3,7 +3,7 @@ import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, Gri
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useProjectMembers, useCurrentUserRole } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useBulkInsertStatusLogs, useProjectMembers, useCurrentUserRole } from '@/hooks/useProjectQueries';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 
@@ -111,6 +111,7 @@ export default function SettingsMenu({
   const updateSheetScheduleMutation = useUpdateSheetSchedule(projectId);
   const updateUnitFieldsMutation = useUpdateUnitFields(null);
   const updateStatusMutation = useUpdateStatus(scheduleLevelId);
+  const bulkInsertLogsMutation = useBulkInsertStatusLogs(scheduleLevelId);
 
   const { data: project } = useProject(projectId);
   const updateProjectMutation = useUpdateProject(projectId);
@@ -871,9 +872,10 @@ export default function SettingsMenu({
                               const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                               if (!targetMilestone) return;
                               
+                              const logsToInsert = [];
                               scheduleUnits.forEach(unit => {
                                 const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
-                                updateStatusMutation.mutate({
+                                logsToInsert.push({
                                    unit_id: unit.id,
                                    milestone: targetMilestone.name,
                                    status_color: targetMilestone.color,
@@ -884,6 +886,9 @@ export default function SettingsMenu({
                                    logged_date: log?.logged_date || null
                                 });
                               });
+                              if (logsToInsert.length > 0) {
+                                bulkInsertLogsMutation.mutate(logsToInsert);
+                              }
                               e.target.value = ''; // Reset select
                             }}
                             className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-full max-w-[140px] font-medium"
@@ -907,9 +912,10 @@ export default function SettingsMenu({
                               const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                               if (!targetMilestone) return;
                               
+                              const logsToInsert = [];
                               scheduleUnits.forEach(unit => {
                                 const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
-                                updateStatusMutation.mutate({
+                                logsToInsert.push({
                                    unit_id: unit.id,
                                    milestone: targetMilestone.name,
                                    status_color: targetMilestone.color,
@@ -920,6 +926,9 @@ export default function SettingsMenu({
                                    logged_date: log?.logged_date || null
                                 });
                               });
+                              if (logsToInsert.length > 0) {
+                                bulkInsertLogsMutation.mutate(logsToInsert);
+                              }
                             }}
                             className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
                           />
@@ -936,9 +945,10 @@ export default function SettingsMenu({
                               const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                               if (!targetMilestone) return;
                               
+                              const logsToInsert = [];
                               scheduleUnits.forEach(unit => {
                                 const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
-                                updateStatusMutation.mutate({
+                                logsToInsert.push({
                                    unit_id: unit.id,
                                    milestone: targetMilestone.name,
                                    status_color: targetMilestone.color,
@@ -949,6 +959,9 @@ export default function SettingsMenu({
                                    logged_date: log?.logged_date || null
                                 });
                               });
+                              if (logsToInsert.length > 0) {
+                                bulkInsertLogsMutation.mutate(logsToInsert);
+                              }
                             }}
                             className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
                           />
@@ -964,11 +977,11 @@ export default function SettingsMenu({
                               const val = e.target.value;
                               const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
                               if (!targetMilestone) return;
-                              
+                              const logsToInsert = [];
                               scheduleUnits.forEach(unit => {
                                 const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
                                 if (log?.temporal_state === 'completed') {
-                                   updateStatusMutation.mutate({
+                                   logsToInsert.push({
                                      unit_id: unit.id,
                                      milestone: targetMilestone.name,
                                      status_color: targetMilestone.color,
@@ -980,6 +993,9 @@ export default function SettingsMenu({
                                    });
                                 }
                               });
+                              if (logsToInsert.length > 0) {
+                                bulkInsertLogsMutation.mutate(logsToInsert);
+                              }
                             }}
                             className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
                           />

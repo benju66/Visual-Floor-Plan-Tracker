@@ -307,8 +307,14 @@ export function useUpdateStatus(sheetId) {
   return useMutation({
     mutationFn: async (newLogData) => {
       // NOTE: Removed destructive .delete() to preserve event sourcing history.
-      const { data, error } = await supabase.from('status_logs').insert([newLogData]).select().single();
-      if (error) throw error;
+      const safeData = { ...newLogData };
+      if (safeData.logged_date === null) delete safeData.logged_date;
+
+      const { data, error } = await supabase.from('status_logs').insert([safeData]).select().single();
+      if (error) {
+        console.error("Status Update Failed!", error);
+        throw error;
+      }
       return data;
     },
     onMutate: async (newLogData) => {
@@ -317,7 +323,7 @@ export function useUpdateStatus(sheetId) {
       queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
         const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track && s.milestone === newLogData.milestone));
-        return [...filtered, { ...newLogData, id: `temp_${Date.now()}` }];
+        return [...filtered, { ...newLogData, id: `temp_${Date.now()}`, created_at: new Date().toISOString() }];
       });
       return {};
     },
@@ -433,7 +439,12 @@ export function useBulkUpdateStatus(sheetId) {
               }
             }
             if (newLogs.length > 0) {
-              const { error: insertError } = await supabase.from('status_logs').insert(newLogs);
+              const safeNewLogs = newLogs.map(l => {
+                const copy = { ...l };
+                if (copy.logged_date === null) delete copy.logged_date;
+                return copy;
+              });
+              const { error: insertError } = await supabase.from('status_logs').insert(safeNewLogs);
               if (insertError) throw insertError;
             }
           }
@@ -441,16 +452,20 @@ export function useBulkUpdateStatus(sheetId) {
           // NOTE: Removed destructive .delete() to preserve event sourcing history.
           if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
             const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
-            const newLogs = chunkIds.map(id => ({
-              unit_id: id,
-              milestone,
-              status_color: color,
-              temporal_state,
-              track,
-              planned_start_date: planned_start_date || null,
-              planned_end_date: planned_end_date || null,
-              logged_date: finalLoggedDate
-            }));
+            const newLogs = chunkIds.map(id => {
+              const baseLog = {
+                unit_id: id,
+                milestone,
+                status_color: color,
+                temporal_state,
+                track,
+                planned_start_date: planned_start_date || null,
+                planned_end_date: planned_end_date || null,
+                logged_date: finalLoggedDate
+              };
+              if (baseLog.logged_date === null) delete baseLog.logged_date;
+              return baseLog;
+            });
             
             const { error: insertError } = await supabase.from('status_logs').insert(newLogs);
             if (insertError) throw insertError;
@@ -497,6 +512,50 @@ export function useBulkUpdateStatus(sheetId) {
           planned_start_date: planned_start_date || null,
           planned_end_date: planned_end_date || null,
           logged_date: finalLoggedDate,
+          created_at: new Date().toISOString()
+        }));
+        return [...filtered, ...optimisticLogs];
+      });
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] })
+  });
+}
+
+export function useBulkInsertStatusLogs(sheetId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (logsArray) => {
+      const safeLogs = logsArray.map(log => {
+        const copy = { ...log };
+        if (copy.logged_date === null) {
+          delete copy.logged_date;
+        }
+        return copy;
+      });
+
+      const CHUNK_SIZE = 800;
+      for (let i = 0; i < safeLogs.length; i += CHUNK_SIZE) {
+        const chunk = safeLogs.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabase.from('status_logs').insert(chunk);
+        if (error) {
+          console.error("Bulk insert failed:", error);
+          throw error;
+        }
+      }
+    },
+    onMutate: async (logsArray) => {
+      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
+      queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
+        if (!old) return old;
+        
+        const keysToRemove = new Set(logsArray.map(l => `${l.unit_id}_${l.track}_${l.milestone}`));
+        const filtered = old.filter(s => !keysToRemove.has(`${s.unit_id}_${s.track}_${s.milestone}`));
+        
+        const optimisticLogs = logsArray.map((l, idx) => ({
+          ...l,
+          id: `temp_${Date.now()}_${idx}`,
           created_at: new Date().toISOString()
         }));
         return [...filtered, ...optimisticLogs];
