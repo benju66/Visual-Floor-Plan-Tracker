@@ -29,14 +29,26 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
     let notStartedCount = 0;
 
     displayUnits.forEach(unit => {
-      const status = currentTrackStatuses.find(s => s.unit_id === unit.id);
-      if (!status || status.temporal_state === 'none') {
+      const unitStatuses = currentTrackStatuses.filter(s => s.unit_id === unit.id);
+      if (unitStatuses.length === 0) {
         notStartedCount++;
-      } else if (status.temporal_state === 'completed') {
-        completedCount++;
-      } else if (status.temporal_state === 'ongoing' || status.temporal_state === 'planned') {
-        // Assume 'planned' and 'ongoing' represent active locations
-        ongoingCount++;
+      } else {
+        const sortedUnitStatuses = unitStatuses.sort((a, b) => {
+          const indexA = currentTrackMilestones.findIndex(m => m.name === a.milestone);
+          const indexB = currentTrackMilestones.findIndex(m => m.name === b.milestone);
+          return indexA - indexB;
+        });
+        const bottleneck = sortedUnitStatuses.find(s => s.temporal_state !== 'completed');
+        const status = bottleneck || sortedUnitStatuses[sortedUnitStatuses.length - 1];
+
+        if (!status || status.temporal_state === 'none') {
+          notStartedCount++;
+        } else if (status.temporal_state === 'completed') {
+          completedCount++;
+        } else if (status.temporal_state === 'ongoing' || status.temporal_state === 'planned') {
+          // Assume 'planned' and 'ongoing' represent active locations
+          ongoingCount++;
+        }
       }
     });
 
@@ -49,13 +61,15 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
       let tNotStarted = 0;
 
       displayUnits.forEach(unit => {
-        const status = currentTrackStatuses.find(s => s.unit_id === unit.id);
-        if (status && status.milestone === milestone.name) {
-          if (status.temporal_state === 'completed') tCompleted++;
-          else if (status.temporal_state === 'ongoing' || status.temporal_state === 'planned') tOngoing++;
-          else tNotStarted++;
-        } else {
+        const status = currentTrackStatuses.find(s => s.unit_id === unit.id && s.milestone === milestone.name);
+        
+        if (!status || status.temporal_state === 'none') {
           tNotStarted++;
+        } else if (status.temporal_state === 'completed') {
+          tCompleted++;
+        } else {
+          // Captures 'ongoing' and 'planned'
+          tOngoing++;
         }
       });
 

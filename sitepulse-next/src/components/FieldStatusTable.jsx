@@ -4,7 +4,7 @@ import { ArrowUp, ArrowDown, History } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
+import { useProject, useUnits, useMilestones } from '@/hooks/useProjectQueries';
 import { useParams } from 'next/navigation';
 
 function UpdatingRing() {
@@ -23,6 +23,7 @@ function UpdatingRing() {
 }
 
 export default function FieldStatusTable({
+  activeStatuses = [],
   savingUnitId,
   onChooseStatus,
   defaultView = 'table',
@@ -46,8 +47,6 @@ export default function FieldStatusTable({
   const { data: project } = useProject(projectId);
   const { data: allMilestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
-  const { data: statuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), allMilestones);
-  const activeStatuses = statuses.filter(s => s.track === trackingMode);
 
   const [viewStyle, setViewStyle] = useState(defaultView);
 
@@ -75,8 +74,8 @@ export default function FieldStatusTable({
             cmp = sa.localeCompare(sb);
           }
         } else if (sortColumn === 'updated') {
-          const ta = a.log?.created_at ? new Date(a.log.created_at).getTime() : 0;
-          const tb = b.log?.created_at ? new Date(b.log.created_at).getTime() : 0;
+          const ta = a.log?.logged_date ? new Date(a.log.logged_date).getTime() : (a.log?.created_at ? new Date(a.log.created_at).getTime() : 0);
+          const tb = b.log?.logged_date ? new Date(b.log.logged_date).getTime() : (b.log?.created_at ? new Date(b.log.created_at).getTime() : 0);
           cmp = ta - tb;
         }
 
@@ -159,12 +158,16 @@ export default function FieldStatusTable({
             className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
           />
         </label>
-        {log.temporal_state === 'completed' && log.created_at && (
+        {log.temporal_state === 'completed' && (
           <div className="flex flex-col flex-1 min-w-[120px]">
             <span className="text-[10px] text-slate-500 font-semibold uppercase mb-0.5">Actual Complete</span>
-            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 py-1">
-              {new Date(log.created_at).toLocaleDateString()}
-            </span>
+            <input 
+              type="date"
+              value={log.logged_date || ''}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: e.target.value })}
+              className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 outline-none hover:bg-slate-50 dark:hover:bg-slate-800"
+            />
           </div>
         )}
       </div>
@@ -376,7 +379,7 @@ export default function FieldStatusTable({
                   className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
                 >
                   <div className="flex justify-end items-center gap-1">
-                    Last Updated {renderSortIcon('updated')}
+                    Actual Completed {renderSortIcon('updated')}
                   </div>
                 </th>
                 <th className="px-5 py-3 w-10"></th>
@@ -423,7 +426,15 @@ export default function FieldStatusTable({
                     ) : <span className="text-slate-400 text-xs italic">—</span>}
                   </td>
                   <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
-                    {log?.temporal_state === 'completed' && log?.created_at ? new Date(log.created_at).toLocaleDateString() : '—'}
+                    {log?.temporal_state === 'completed' ? (
+                       <input 
+                         type="date"
+                         value={log?.logged_date || ''}
+                         onClick={(e) => e.stopPropagation()}
+                         onChange={(e) => onUpdateTemporalState?.(unit, log, log.temporal_state, { startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: e.target.value })}
+                         className="bg-transparent border border-slate-200/80 dark:border-white/10 rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800 text-emerald-600 dark:text-emerald-400 transition"
+                       />
+                    ) : <span className="text-slate-400 text-xs italic">—</span>}
                   </td>
                   <td className="px-5 py-3 align-middle text-right">
                     <button

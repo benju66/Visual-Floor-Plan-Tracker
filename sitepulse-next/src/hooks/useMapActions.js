@@ -285,7 +285,8 @@ export function useMapActions(project) {
         temporal_state: currentTemporalState,
         track: milestone.track,
         planned_start_date: extraProps.startDate || sheetSchedule.start_date || null,
-        planned_end_date: extraProps.endDate || sheetSchedule.end_date || null
+        planned_end_date: extraProps.endDate || sheetSchedule.end_date || null,
+        logged_date: extraProps.loggedDate !== undefined ? (extraProps.loggedDate || null) : (currentTemporalState === 'completed' ? new Date().toISOString().split('T')[0] : null)
       };
       const newLog = await updateStatusMutation.mutateAsync(newLogData);
       
@@ -358,14 +359,14 @@ export function useMapActions(project) {
     }
   };
 
-  const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date }, isUndoRedo = false) => {
+  const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }, isUndoRedo = false) => {
     const activeStatuses = queryClient.getQueryData(['statuses', activeSheetId]) || [];
     
     // Save old state for undo
     const oldLogs = activeStatuses.filter(s => unitIds.includes(s.unit_id) && s.track === track);
 
     try {
-      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date });
+      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date });
       
       const autoAdvanceEnabled = settings.auto_advance_enabled !== false;
       let usedTemporalState = temporal_state;

@@ -13,7 +13,7 @@ export const useSettingsStore = create(
       setFilterMilestone: (ml) => set((state) => ({ filterMilestone: typeof ml === 'function' ? ml(state.filterMilestone) : ml })),
 
       // Settings / Local State (Persisted)
-      settings: { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list', show_delay_indicators: true },
+      settings: { enableToasts: true, showHistoryHover: false, defaultViewMode: 'dashboard', show_delay_indicators: true },
       setSettings: (settingsFn) => set((state) => ({ 
         settings: typeof settingsFn === 'function' ? settingsFn(state.settings) : { ...state.settings, ...settingsFn } 
       })),
@@ -28,7 +28,7 @@ export const useSettingsStore = create(
         legendPosition: typeof posFn === 'function' ? posFn(state.legendPosition) : { ...state.legendPosition, ...posFn } 
       })),
 
-      colorMode: 'system',
+      colorMode: 'dark',
       setColorMode: (modeFn) => set((state) => ({
         colorMode: typeof modeFn === 'function' ? modeFn(state.colorMode) : modeFn
       })),

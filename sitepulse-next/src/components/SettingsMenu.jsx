@@ -110,7 +110,7 @@ export default function SettingsMenu({
   const updateSheetScaleMutation = useUpdateSheetScale(projectId);
   const updateSheetScheduleMutation = useUpdateSheetSchedule(projectId);
   const updateUnitFieldsMutation = useUpdateUnitFields(null);
-  const updateStatusMutation = useUpdateStatus();
+  const updateStatusMutation = useUpdateStatus(scheduleLevelId);
 
   const { data: project } = useProject(projectId);
   const updateProjectMutation = useUpdateProject(projectId);
@@ -149,7 +149,7 @@ export default function SettingsMenu({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-4xl rounded-2xl border p-6 shadow-2xl glass-panel animate-in fade-in zoom-in-95 duration-200"
+        className="w-full max-w-6xl rounded-2xl border p-6 shadow-2xl glass-panel animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-6">
@@ -275,10 +275,11 @@ export default function SettingsMenu({
                   <span className="text-xs text-slate-500 dark:text-slate-400">Launch directly into list or map</span>
                 </div>
                 <select
-                  value={settings.defaultViewMode || 'list'}
+                  value={settings.defaultViewMode || 'dashboard'}
                   onChange={(e) => onUpdateSettings({ ...settings, defaultViewMode: e.target.value })}
                   className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-white/10 rounded-lg p-1.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-sky-500"
                 >
+                  <option value="dashboard">Dashboard</option>
                   <option value="list">Field List</option>
                   <option value="map">Interactive Map</option>
                 </select>
@@ -862,7 +863,37 @@ export default function SettingsMenu({
                       <th className="px-4 py-2 font-semibold w-1/4">Temporal Status</th>
                       <th className="px-4 py-2 font-semibold w-1/4">Planned Start</th>
                       <th className="px-4 py-2 font-semibold w-1/4">Planned Finish</th>
-                      <th className="px-4 py-2 font-semibold text-slate-500 text-xs text-right">Actual Completed</th>
+                      <th className="px-4 py-2 font-semibold text-slate-500 text-xs text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          <span>Actual Completed</span>
+                          <input
+                            type="date"
+                            title="Apply actual completed date to all currently displayed units"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const targetMilestone = milestones.find(m => m.name === scheduleMilestoneId);
+                              if (!targetMilestone) return;
+                              
+                              scheduleUnits.forEach(unit => {
+                                const log = scheduleStatuses.find(s => s.unit_id === unit.id && s.milestone === scheduleMilestoneId && s.track === targetMilestone?.track);
+                                if (log?.temporal_state === 'completed') {
+                                   updateStatusMutation.mutate({
+                                     unit_id: unit.id,
+                                     milestone: targetMilestone.name,
+                                     status_color: targetMilestone.color,
+                                     temporal_state: 'completed',
+                                     track: targetMilestone.track,
+                                     planned_start_date: log.planned_start_date || null,
+                                     planned_end_date: log.planned_end_date || null,
+                                     logged_date: val || null
+                                   });
+                                }
+                              });
+                            }}
+                            className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] w-[110px] font-medium"
+                          />
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900/50">
@@ -878,7 +909,7 @@ export default function SettingsMenu({
                         const isAssigned = !!targetMilestone;
                         const isCompleted = log?.temporal_state === 'completed';
                       
-                      const handleDateUpdate = (type, val) => {
+                       const handleDateUpdate = (type, val) => {
                          if (!targetMilestone) return;
                          updateStatusMutation.mutate({
                            unit_id: unit.id,
@@ -888,6 +919,7 @@ export default function SettingsMenu({
                            track: targetMilestone.track,
                            planned_start_date: type === 'start' ? (val || null) : (log?.planned_start_date || null),
                            planned_end_date: type === 'end' ? (val || null) : (log?.planned_end_date || null),
+                           logged_date: type === 'actual' ? (val || null) : (log?.logged_date || null)
                          });
                       };
                       
@@ -940,7 +972,16 @@ export default function SettingsMenu({
                             />
                           </td>
                           <td className="px-4 py-2 text-right text-xs text-slate-500 font-medium">
-                            {isCompleted && log?.created_at ? new Date(log.created_at).toLocaleDateString() : '—'}
+                            {isCompleted ? (
+                              <input 
+                                type="date"
+                                value={log?.logged_date || ''}
+                                onChange={(e) => handleDateUpdate('actual', e.target.value)}
+                                className="bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-0.5 outline-none hover:bg-slate-100 dark:hover:bg-slate-800 text-xs w-[130px] font-medium"
+                              />
+                            ) : (
+                              '—'
+                            )}
                           </td>
                         </tr>
                       );

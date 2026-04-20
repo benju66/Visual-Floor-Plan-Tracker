@@ -164,7 +164,7 @@ export function useStatuses(sheetId, unitIds, milestones) {
       
       const latestStatusMap = {};
       data.forEach(log => {
-        const key = `${log.unit_id}_${log.track}`;
+        const key = `${log.unit_id}_${log.track}_${log.milestone}`;
         if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
           latestStatusMap[key] = log;
         }
@@ -201,7 +201,7 @@ export function useAllProjectStatuses(unitIds) {
       
       const latestStatusMap = {};
       data.forEach(log => {
-        const key = `${log.unit_id}_${log.track}`;
+        const key = `${log.unit_id}_${log.track}_${log.milestone}`;
         if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
           latestStatusMap[key] = log;
         }
@@ -316,7 +316,7 @@ export function useUpdateStatus(sheetId) {
       
       queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
-        const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track));
+        const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track && s.milestone === newLogData.milestone));
         return [...filtered, { ...newLogData, id: `temp_${Date.now()}` }];
       });
       return {};
@@ -329,15 +329,22 @@ export function useUpdateStatus(sheetId) {
 export function useClearStatus(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitId, track }) => {
-      const { error } = await supabase.from('status_logs').delete().eq('unit_id', unitId).eq('track', track);
+    mutationFn: async ({ unitId, track, milestone }) => {
+      const newLog = {
+          unit_id: unitId,
+          track: track,
+          milestone: milestone,
+          temporal_state: 'none'
+      };
+      const { error } = await supabase.from('status_logs').insert([newLog]);
       if (error) throw error;
     },
-    onMutate: async ({ unitId, track }) => {
+    onMutate: async ({ unitId, track, milestone }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
       queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
-        return old.filter(s => !(s.unit_id === unitId && s.track === track));
+        const filtered = old.filter(s => !(s.unit_id === unitId && s.track === track && s.milestone === milestone));
+        return [...filtered, { unit_id: unitId, track, milestone, temporal_state: 'none', id: `temp_clear_${Date.now()}`, created_at: new Date().toISOString() }];
       });
       return {};
     },
@@ -380,7 +387,7 @@ export function useUpdateMilestone(projectId, sheetId) {
 export function useBulkUpdateStatus(sheetId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date }) => {
+    mutationFn: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
       const CHUNK_SIZE = 800;
       
       for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
@@ -401,7 +408,7 @@ export function useBulkUpdateStatus(sheetId) {
             // Map to unit_id logic: get latest log for each unit
             const latestStatusMap = {};
             latestLogs.forEach(log => {
-              const key = log.unit_id;
+              const key = `${log.unit_id}_${log.track}_${log.milestone}`;
               if (!latestStatusMap[key] || new Date(log.created_at) > new Date(latestStatusMap[key].created_at)) {
                 latestStatusMap[key] = log;
               }
@@ -409,17 +416,20 @@ export function useBulkUpdateStatus(sheetId) {
             
             const newLogs = [];
             for (const id of chunkIds) {
-              const existing = latestStatusMap[id];
-              if (existing) {
-                newLogs.push({
-                   unit_id: id,
-                   milestone: existing.milestone,
-                   status_color: existing.status_color,
-                   temporal_state,
-                   track,
-                   planned_start_date: planned_start_date !== undefined ? planned_start_date : existing.planned_start_date,
-                   planned_end_date: planned_end_date !== undefined ? planned_end_date : existing.planned_end_date
-                });
+              const existingArray = Object.values(latestStatusMap).filter(s => s.unit_id === id);
+              // It's possible there are multiple milestones for this unit. We'd have to update them all or find the bottleneck.
+              // For bulk updates with __KEEP_EXISTING__, typically we'd update whatever is current. Let's update all their current states for this track.
+              for (const existing of existingArray) {
+                  newLogs.push({
+                     unit_id: id,
+                     milestone: existing.milestone,
+                     status_color: existing.status_color,
+                     temporal_state,
+                     track,
+                     planned_start_date: planned_start_date !== undefined ? planned_start_date : existing.planned_start_date,
+                     planned_end_date: planned_end_date !== undefined ? planned_end_date : existing.planned_end_date,
+                     logged_date: logged_date !== undefined ? logged_date : existing.logged_date
+                  });
               }
             }
             if (newLogs.length > 0) {
@@ -430,6 +440,7 @@ export function useBulkUpdateStatus(sheetId) {
         } else {
           // NOTE: Removed destructive .delete() to preserve event sourcing history.
           if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
+            const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
             const newLogs = chunkIds.map(id => ({
               unit_id: id,
               milestone,
@@ -437,7 +448,8 @@ export function useBulkUpdateStatus(sheetId) {
               temporal_state,
               track,
               planned_start_date: planned_start_date || null,
-              planned_end_date: planned_end_date || null
+              planned_end_date: planned_end_date || null,
+              logged_date: finalLoggedDate
             }));
             
             const { error: insertError } = await supabase.from('status_logs').insert(newLogs);
@@ -446,7 +458,7 @@ export function useBulkUpdateStatus(sheetId) {
         }
       }
     },
-    onMutate: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date }) => {
+    onMutate: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
       
       queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
@@ -460,19 +472,21 @@ export function useBulkUpdateStatus(sheetId) {
                   ...s, 
                   temporal_state,
                   planned_start_date: planned_start_date !== undefined ? planned_start_date : s.planned_start_date,
-                  planned_end_date: planned_end_date !== undefined ? planned_end_date : s.planned_end_date
+                  planned_end_date: planned_end_date !== undefined ? planned_end_date : s.planned_end_date,
+                  logged_date: logged_date !== undefined ? logged_date : s.logged_date
               };
             }
             return s;
           });
         }
         
-        const filtered = old.filter(s => !(unitIds.includes(s.unit_id) && s.track === track));
+        const filtered = old.filter(s => !(unitIds.includes(s.unit_id) && s.track === track && s.milestone === milestone));
         
         if (milestone === null || temporal_state === 'none' || temporal_state === '__KEEP_EXISTING__') {
           return filtered;
         }
         
+        const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
         const optimisticLogs = unitIds.map(id => ({
           id: `temp_${id}_${Date.now()}`,
           unit_id: id,
@@ -482,6 +496,7 @@ export function useBulkUpdateStatus(sheetId) {
           track,
           planned_start_date: planned_start_date || null,
           planned_end_date: planned_end_date || null,
+          logged_date: finalLoggedDate,
           created_at: new Date().toISOString()
         }));
         return [...filtered, ...optimisticLogs];

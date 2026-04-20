@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Settings, FolderEdit, Trash2, Pencil } from 'lucide-react';
 import FloorplanCanvas from '@/components/FloorplanCanvas';
 import FieldStatusTable from '@/components/FieldStatusTable';
@@ -106,6 +106,26 @@ function App() {
   const { data: milestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
   const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), milestones);
+
+  const mapDisplayStatuses = useMemo(() => {
+    const currentTrackMilestones = milestones
+      .filter(m => m.track === trackingMode)
+      .sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
+    
+    return units.map(unit => {
+      const unitStatuses = activeStatuses.filter(s => s.unit_id === unit.id && s.track === trackingMode);
+      if (unitStatuses.length === 0) return null;
+
+      const sortedUnitStatuses = unitStatuses.sort((a, b) => {
+        const indexA = currentTrackMilestones.findIndex(m => m.name === a.milestone);
+        const indexB = currentTrackMilestones.findIndex(m => m.name === b.milestone);
+        return indexA - indexB;
+      });
+
+      const bottleneck = sortedUnitStatuses.find(s => s.temporal_state !== 'completed');
+      return bottleneck || sortedUnitStatuses[sortedUnitStatuses.length - 1];
+    }).filter(Boolean);
+  }, [units, activeStatuses, milestones, trackingMode]);
 
   // Auto-select first available sheet to prevent invalid UI mounting or empty cache fallbacks
   useEffect(() => {
@@ -375,6 +395,7 @@ function App() {
         ) : viewMode === 'list' ? (
           <div className="h-full overflow-auto">
             <FieldStatusTable
+              activeStatuses={mapDisplayStatuses}
               savingUnitId={savingUnitId}
               onChooseStatus={(unit) => setMilestoneMenu({ mode: 'unit', unit })}
               onUpdateTemporalState={(unit, log, state, extraProps = {}) => {
@@ -402,6 +423,7 @@ function App() {
                   />
                   <FloorplanCanvas
                     ref={floorplanRef}
+                  activeStatuses={mapDisplayStatuses}
                   imageUrl={activeSheet.base_image_url}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
                   onUpdateUnitIconOffset={handleUpdateUnitIconOffset}
