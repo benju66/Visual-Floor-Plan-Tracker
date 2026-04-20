@@ -105,7 +105,7 @@ export default function SettingsMenu({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border p-6 shadow-2xl glass-panel animate-in fade-in zoom-in-95 duration-200"
+        className="w-full max-w-2xl rounded-2xl border p-6 shadow-2xl glass-panel animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-6">
