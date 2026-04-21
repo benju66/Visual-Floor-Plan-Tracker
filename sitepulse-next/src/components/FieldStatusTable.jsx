@@ -1,5 +1,6 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
+import { motion, useMotionValue, useTransform } from 'framer-motion';
 import { ArrowUp, ArrowDown, History } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -47,6 +48,85 @@ const BottleneckIndicator = ({ outOfSequence }) => {
   );
 };
 
+const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onEscape }) => {
+  const x = useMotionValue(0);
+  const rotate = useTransform(x, [-200, 200], [-10, 10]);
+  const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
+  
+  const handleDragEnd = (event, info) => {
+    if (info.offset.x > 100) {
+      onSwipeRight();
+    } else if (info.offset.x < -100) {
+      onSwipeLeft();
+    }
+  };
+
+  const pendingState = log?.temporal_state || 'none';
+  const getBadgeColor = (state) => {
+    switch (state) {
+      case 'planned': return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400';
+      case 'ongoing': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+      case 'completed': return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400';
+      default: return 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-400';
+    }
+  };
+
+  return (
+    <motion.div
+      style={{
+        x,
+        rotate,
+        opacity: isTop ? opacity : 1 - depth * 0.1,
+        zIndex: 10 - depth,
+        scale: isTop ? 1 : 1 - depth * 0.05,
+        y: isTop ? 0 : depth * 12,
+      }}
+      drag={isTop ? "x" : false}
+      dragConstraints={{ left: 0, right: 0 }}
+      onDragEnd={handleDragEnd}
+      className={`absolute w-[90%] max-w-sm h-full max-h-[380px] flex flex-col justify-between ${isTop ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'}`}
+      initial={{ scale: 0.8, opacity: 0 }}
+      animate={{ scale: 1 - depth * 0.05, opacity: isTop ? 1 : 1 - depth * 0.1, y: depth * 12 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+    >
+      <div className="flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] border-slate-200/80 dark:border-white/10 shadow-2xl overflow-hidden relative">
+         <div className="p-8 pb-4 flex-1 flex flex-col items-center justify-center text-center relative z-10">
+             <div className="flex items-center justify-center gap-2 mb-2">
+                 <h2 className="text-7xl font-black text-slate-900 dark:text-white tracking-tighter">{unit.unit_number}</h2>
+                 <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+             </div>
+             
+             <div className="mt-4">
+                 <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Current Milestone</p>
+                 <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                    {log?.milestone || 'Unassigned'}
+                 </p>
+             </div>
+             <div className="mt-8 border-t border-slate-100 dark:border-white/5 w-full pt-6">
+                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Status</p>
+                 <span className={`px-4 py-2 rounded-full text-base font-black uppercase tracking-widest ${getBadgeColor(pendingState)} inline-block`}>
+                     {pendingState}
+                 </span>
+             </div>
+         </div>
+         
+         <div className="p-4 border-t border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-slate-800 z-10 relative">
+             <button
+                 type="button"
+                 onClick={(e) => { 
+                     e.stopPropagation(); 
+                     if(isTop) onEscape(); 
+                 }}
+                 className="w-full py-4 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-slate-200 font-bold transition-colors active:scale-[0.98]"
+             >
+                 Log Out of Sequence
+             </button>
+         </div>
+      </div>
+    </motion.div>
+  );
+};
+
 export default function FieldStatusTable({
   activeStatuses = [],
   savingUnitId,
@@ -76,6 +156,7 @@ export default function FieldStatusTable({
   const [viewStyle, setViewStyle] = useState(defaultView);
   const [pendingChanges, setPendingChanges] = useState({});
   const [isApplying, setIsApplying] = useState(false);
+  const [swipedDeckIds, setSwipedDeckIds] = useState(new Set());
 
   const handleLocalUpdate = (unit, baseLog, state, extraProps = {}) => {
     setPendingChanges(prev => {
@@ -337,49 +418,49 @@ export default function FieldStatusTable({
 
       {viewStyle === 'card' ? (
         <>
-          <div className="grid grid-cols-1 gap-3 md:hidden">
-            {visible.map(({ unit, log }, index) => {
-              const currentMilestone = log?.milestone ?? '';
-              const featured = index === 0 && log?.created_at;
-              return (
-                <div
-                  key={unit.id}
-                  onClick={(e) => handleRowClick(e, unit.id, index)}
-                  className={`rounded-2xl border p-4 shadow-lg backdrop-blur-md flex flex-col gap-3 transition-transform cursor-pointer hover:border-blue-500/50 ${featured ? 'ring-2 ring-blue-400/40' : ''} ${selectedUnitIds.includes(unit.id) ? 'ring-2 ring-purple-500 bg-purple-50/50 dark:bg-purple-900/20' : ''}`}
-                  style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <input 
-                        type="checkbox" 
-                        checked={selectedUnitIds.includes(unit.id)} 
-                        readOnly 
-                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
-                      />
-                      <div className={`font-bold text-slate-900 dark:text-slate-100 ${featured ? 'text-xl' : 'text-lg'}`}>
-                        Location {unit.unit_number}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       <button
-                         type="button"
-                         onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unit.id); }}
-                         className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors cursor-pointer"
-                         title="View History"
-                       >
-                         <History size={18} />
-                       </button>
-                       {savingUnitId === unit.id && <UpdatingRing />}
-                    </div>
-                  </div>
-                  {renderStatusTrigger(unit, currentMilestone, log, featured)}
-                  {renderDatesInline(unit, log)}
-                </div>
-              );
-            })}
+          <div className="relative h-[65vh] min-h-[450px] w-full md:hidden flex justify-center items-center overflow-hidden bg-slate-100 dark:bg-black/30 rounded-3xl border border-slate-200/50 dark:border-white/5 shadow-inner -mt-2">
+            {visible.filter(r => !swipedDeckIds.has(r.unit.id)).length === 0 ? (
+               <div className="text-slate-400 font-semibold text-lg flex flex-col items-center">
+                  <div className="text-5xl mb-4">🙌</div>
+                  All locations verified!
+               </div>
+            ) : (
+               visible.filter(r => !swipedDeckIds.has(r.unit.id)).slice(0, 5).reverse().map(({ unit, log }, index, arr) => {
+                 const isTop = index === arr.length - 1;
+                 const depth = arr.length - 1 - index;
+                 
+                 return <SwipeCard 
+                            key={unit.id} 
+                            unit={unit} 
+                            log={pendingChanges[unit.id] ? { ...log, temporal_state: pendingChanges[unit.id].state } : log} 
+                            isTop={isTop}
+                            depth={depth}
+                            onSwipeLeft={() => {
+                                setSwipedDeckIds(prev => new Set([...prev, unit.id]));
+                            }}
+                            onSwipeRight={() => {
+                                const pending = pendingChanges[unit.id]?.state;
+                                const current = pending || log?.temporal_state || 'none';
+                                let nextState = 'planned';
+                                if (current === 'planned') nextState = 'ongoing';
+                                else if (current === 'ongoing') nextState = 'completed';
+                                else if (current === 'none') nextState = 'completed';
+                                
+                                handleLocalUpdate(unit, log || {}, nextState);
+                                setSwipedDeckIds(prev => new Set([...prev, unit.id]));
+                            }}
+                            onEscape={() => {
+                                onChooseStatus?.(unit, (m) => {
+                                    handleLocalUpdate(unit, log || {}, log?.temporal_state || 'completed', { milestoneObj: m });
+                                    setSwipedDeckIds(prev => new Set([...prev, unit.id]));
+                                });
+                            }}
+                        />;
+               })
+            )}
           </div>
 
-          <div className="hidden md:grid md:grid-cols-4 md:gap-3">
+          <div className="hidden md:grid md:grid-cols-4 md:gap-3 mt-4 md:mt-0">
             {visible.map(({ unit, log }, index) => {
               const currentMilestone = log?.milestone ?? '';
               const recent = log?.created_at && Date.now() - new Date(log.created_at).getTime() < 1000 * 60 * 60 * 24 * 30;

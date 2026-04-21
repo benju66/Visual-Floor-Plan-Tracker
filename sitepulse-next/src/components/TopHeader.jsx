@@ -116,7 +116,7 @@ function TopHeader({
             type="button"
             title="Dashboard View"
             onClick={() => { setViewMode('dashboard'); setToolMode('pan'); }}
-            className={`px-3 py-1.5 cursor-pointer transition-colors ${
+            className={`hidden md:flex px-3 py-1.5 cursor-pointer transition-colors ${
               viewMode === 'dashboard' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
             }`}
           >
@@ -126,7 +126,7 @@ function TopHeader({
             type="button"
             title="Field List View"
             onClick={() => { setViewMode('list'); setToolMode('pan'); }}
-            className={`px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
+            className={`px-3 py-1.5 cursor-pointer md:border-l border-slate-300/80 dark:border-white/10 transition-colors ${
               viewMode === 'list' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
             }`}
           >
@@ -136,7 +136,7 @@ function TopHeader({
             type="button"
             title="Interactive Map View"
             onClick={() => setViewMode('map')}
-            className={`px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
+            className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
               viewMode === 'map' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
             }`}
           >
