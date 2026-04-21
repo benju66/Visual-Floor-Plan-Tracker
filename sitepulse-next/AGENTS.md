@@ -11,7 +11,7 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 ## 1. Core Architecture
 - **Framework:** Next.js (App Router)
 - **Styling:** Tailwind CSS v4, Lucide React for icons
-- **State Management:** Zustand (for Global UI / Persisted Settings)
+- **State Management:** Zustand (for Global UI / Persisted Settings — modularized into `useMapStore`, `useUIStore`, and `useSettingsStore`)
 - **Data Fetching:** TanStack React Query (for Server State, Data Syncing, and Caching)
 - **Database / Backend:** Supabase
 - **Canvas Rendering:** Konva / React-Konva
@@ -19,8 +19,8 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 ## 2. State Management & Data Fetching (CRITICAL)
 - **NEVER** use `useState` or `useEffect` for fetching database data or managing global UI state.
 - **Data Fetching:** Always use/extend the established TanStack Query custom hooks (`src/hooks/useProjectQueries.js`, `src/hooks/useMapActions.js`, `src/hooks/useProjectActions.js`). 
-- **Global State:** All floating UI state (modals, active tools, selected units, filters) MUST be managed in the Zustand store (`src/store/useAppStore.js`).
-- **Persisted State:** When accessing persisted Zustand properties (like `settings`, `mapSettings`, `legendPosition`), you MUST use the `useHydratedStore` custom hook to prevent React hydration mismatch errors.
+- **Global State:** All floating UI state (modals, active tools, selected units, filters) MUST be managed in the appropriate Zustand store (`src/store/useMapStore.js`, `src/store/useUIStore.js`, or `src/store/useSettingsStore.js`).
+- **Persisted State:** When accessing persisted Zustand properties (like `settings`, `mapSettings`, `legendPosition`), you MUST use the `useHydratedStore` custom hook (exported from `src/store/useSettingsStore.js`) to prevent React hydration mismatch errors.
 
 ## 3. Map & Canvas Engine (React-Konva)
 - The interactive floorplan map is rendered via `<FloorplanCanvas />`. Operations rely heavily on Konva's drawing lifecycle.

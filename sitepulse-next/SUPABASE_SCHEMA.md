@@ -6,6 +6,7 @@
 - `id` (UUID, Primary Key)
 - `name` (TEXT, Not Null)
 - `unit_types` (JSONB, Default '["Apartment Unit", "Common Area", "Back of House", "Commercial Space", "Other"]') 
+- `procore_project_id` (TEXT) -- Linked Procore Project ID for SSO deep-linking
 - `created_at` (TIMESTAMPTZ)
 
 ## 2. sheets
@@ -46,7 +47,7 @@
 - `unit_id` (UUID, Foreign Key -> units.id)
 - `milestone` (TEXT, Not Null)
 - `status_color` (TEXT, Not Null)
-- `temporal_state` (TEXT, Not Null, Default 'completed') -- Enum: 'planned', 'ongoing', 'completed'
+- `temporal_state` (TEXT, Not Null, Default 'completed') -- Enum: 'planned', 'ongoing', 'completed', 'none'
 - `track` (TEXT, Not Null, Default 'Production')
 - `planned_start_date` (DATE)
 - `planned_end_date` (DATE)
@@ -63,5 +64,5 @@
 - `id` (UUID, Primary Key)
 - `project_id` (UUID, Foreign Key -> projects.id)
 - `user_id` (UUID, Foreign Key -> auth.users.id / profiles.id)
-- `role` (TEXT, Not Null) -- Enum: 'admin', 'pm', 'superintendent'
+- `role` (TEXT, Not Null) -- Enum: 'admin', 'pm', 'superintendent', 'viewer'
 - `created_at` (TIMESTAMPTZ)

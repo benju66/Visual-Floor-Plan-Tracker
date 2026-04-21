@@ -174,7 +174,10 @@ export default function FieldStatusTable({
   const { data: allMilestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
 
-  const [viewStyle, setViewStyle] = useState(defaultView);
+  const [viewStyle, setViewStyle] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) return 'card';
+    return defaultView;
+  });
   const [pendingChanges, setPendingChanges] = useState({});
   const [isApplying, setIsApplying] = useState(false);
   const [swipedDeckIds, setSwipedDeckIds] = useState(new Set());
@@ -204,7 +207,11 @@ export default function FieldStatusTable({
   };
 
   useEffect(() => {
-    setViewStyle(defaultView);
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setViewStyle('card');
+    } else {
+      setViewStyle(defaultView);
+    }
   }, [defaultView]);
 
   const ranked = useMemo(() => {

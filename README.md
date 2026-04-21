@@ -25,6 +25,8 @@ SitePulse is an enterprise-grade construction project management platform focuse
 * **Enterprise State Integrity:** Built to prevent data races. Tracks *Planned*, *Ongoing*, and *Completed* stages with precise sequence enforcement and downstream bottleneck detection.
 * **Architectural PDF Exports:** Unlike standard dashboard tools that just take a screen capture, SitePulse calculates the exact matrix de-rotation of your original PDF to programmatically inject visual statuses (hatching, opacity, lines) back into the source PDF file as Bluebeam-compatible annotations.
 * **Centralized Scheduling:** Transition effortlessly between the visual canvas and a spreadsheet-like data grid to manage start/completion dates automatically linked to visually mapped units.
+* **Procore SSO Integration:** Native deep-linking from the Procore App Marketplace directly into project canvases, with automated domain-restricted user provisioning and project auto-enrollment.
+* **Mobile Field Experience (Swipe Deck):** A high-speed, gesture-driven "Swipe Deck" for field teams to rapid-fire advance unit statuses on mobile devices, optimized for low-latency field updates.
 * **Enterprise RBAC Wrapper:** Multi-tenant project data access ensuring subcontractors, managers, and admins only see what they are authorized to manage.
 
 ## 🛠️ Local Development Setup
