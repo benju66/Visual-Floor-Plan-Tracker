@@ -24,11 +24,21 @@ function UpdatingRing() {
 }
 
 const BottleneckIndicator = ({ outOfSequence }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
   if (!outOfSequence || outOfSequence.length === 0) return null;
+
   return (
-    <div className="relative group/bottleneck flex items-center ml-1">
-      <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-help ring-2 ring-red-500/20" />
-      <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover/bottleneck:block w-56 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-xl p-3 shadow-2xl z-50 pointer-events-none before:content-[''] before:absolute before:-left-1 before:top-1/2 before:-translate-y-1/2 before:w-2 before:h-2 before:bg-slate-900 dark:before:bg-slate-100 before:rotate-45">
+    <div 
+      className="relative group/bottleneck flex items-center ml-1"
+      onClick={(e) => {
+        e.stopPropagation();
+        setIsOpen(!isOpen);
+      }}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-pointer ring-2 ring-red-500/20" />
+      <div className={`absolute left-full ml-3 top-1/2 -translate-y-1/2 w-56 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-xl p-3 shadow-2xl z-50 pointer-events-none before:content-[''] before:absolute before:-left-1 before:top-1/2 before:-translate-y-1/2 before:w-2 before:h-2 before:bg-slate-900 dark:before:bg-slate-100 before:rotate-45 ${isOpen ? 'block' : 'hidden group-hover/bottleneck:block'}`}>
         <div className="font-bold text-red-500 dark:text-red-600 mb-1 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
           Sequence Blocked
