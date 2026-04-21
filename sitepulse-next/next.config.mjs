@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  /* config options here */
+  allowedDevOrigins: ['astonish-refusal-hug.ngrok-free.dev'],
 };
 
 export default nextConfig;

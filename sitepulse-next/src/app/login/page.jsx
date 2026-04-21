@@ -108,6 +108,36 @@ export default function LoginPage() {
                 )}
               </button>
             </form>
+
+            {/* NEW: Procore SSO Section */}
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-700/50"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-3 bg-slate-900/60 text-slate-400 backdrop-blur-xl">Or continue with</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const clientId = process.env.NEXT_PUBLIC_PROCORE_CLIENT_ID;
+                const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/procore/callback`);
+
+                // Use login-sandbox for development/testing
+                const procoreAuthUrl = `https://login.procore.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}`;
+
+                // MAGIC FIX: Open in a new tab instead of the current iframe to bypass X-Frame-Options
+                window.open(procoreAuthUrl, '_blank');
+              }}
+              className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#E54B2B] hover:bg-[#c93c20] text-white rounded-xl font-medium transition-all shadow-[0_0_15px_rgba(229,75,43,0.2)]"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-5l4.5 2.5-4.5 2.5z" />
+              </svg>
+              Log in with Procore
+            </button>
           </div>
         </div>
       </div>

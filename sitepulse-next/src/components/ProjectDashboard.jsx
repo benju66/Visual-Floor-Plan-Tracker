@@ -84,12 +84,13 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
 
     const totalPossibleTasks = totalDisplayUnits * currentTrackMilestones.length;
     const totalCompletedTasks = stats.reduce((sum, stat) => sum + stat.completed, 0);
+    const totalNotStartedTasks = stats.reduce((sum, stat) => sum + stat.notStarted, 0);
     const progress = totalPossibleTasks > 0 ? Math.round((totalCompletedTasks / totalPossibleTasks) * 100) : 0;
 
     return {
       overallProgress: progress,
       activeLocations: ongoingCount,
-      notStarted: notStartedCount,
+      notStarted: totalNotStartedTasks,
       milestoneStats: stats,
       totalUnits: totalDisplayUnits
     };
@@ -184,13 +185,13 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
           </div>
           <div>
             <div className="flex items-center gap-1.5 cursor-help">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Not Started</h3>
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Not Started Tasks</h3>
               <Info size={14} className="text-slate-400" />
             </div>
             <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 mt-1">{notStarted}</p>
           </div>
           <div className="absolute left-6 bottom-full mb-3 hidden group-hover:block w-64 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20 z-50">
-            Locations without an assigned status or marked intentionally as "No Status".
+            Total number of milestone tasks across all locations that remain unstarted.
           </div>
         </div>
       </div>
