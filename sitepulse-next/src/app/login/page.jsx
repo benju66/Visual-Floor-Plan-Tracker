@@ -124,11 +124,15 @@ export default function LoginPage() {
               onClick={() => {
                 const clientId = process.env.NEXT_PUBLIC_PROCORE_CLIENT_ID;
                 const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/procore/callback`);
-
-                // Use login-sandbox for development/testing
-                const procoreAuthUrl = `https://login.procore.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}`;
-
-                // MAGIC FIX: Open in a new tab instead of the current iframe to bypass X-Frame-Options
+                
+                // Grab the return destination we saved in the AuthProvider
+                const searchParams = new URLSearchParams(window.location.search);
+                const returnTo = searchParams.get('returnTo') || '/dashboard';
+                const stateParam = encodeURIComponent(returnTo);
+                
+                // Add &state=... to the URL
+                const procoreAuthUrl = `https://login.procore.com/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${stateParam}`;
+                
                 window.open(procoreAuthUrl, '_blank');
               }}
               className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#E54B2B] hover:bg-[#c93c20] text-white rounded-xl font-medium transition-all shadow-[0_0_15px_rgba(229,75,43,0.2)]"

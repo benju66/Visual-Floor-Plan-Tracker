@@ -44,10 +44,19 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!loading) {
       if (!session && pathname !== '/login') {
-        router.push('/login');
+        // Save the full URL (including query parameters like ?link_procore_project=...)
+        const currentUrl = encodeURIComponent(pathname + (window.location.search || ''));
+        router.push(`/login?returnTo=${currentUrl}`);
       }
     }
   }, [session, loading, pathname, router]);
+
+  // NEW: Clean up the giant Supabase token hash from the URL after login
+  useEffect(() => {
+    if (session && typeof window !== 'undefined' && window.location.hash.includes('access_token=')) {
+      router.replace(pathname + (window.location.search || ''));
+    }
+  }, [session, pathname, router]);
 
   if (loading) {
     return (

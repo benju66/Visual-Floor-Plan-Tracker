@@ -4,6 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
+  
+  // NEW: Grab the state parameter (where they wanted to go)
+  const state = searchParams.get('state');
+  const redirectPath = state ? decodeURIComponent(state) : '/dashboard';
 
   const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
   const proto = request.headers.get('x-forwarded-proto') || 'http';
@@ -72,7 +76,7 @@ export async function GET(request) {
       type: 'magiclink',
       email: email,
       options: {
-        redirectTo: `${baseUrl}/dashboard`
+        redirectTo: `${baseUrl}${redirectPath}` // <-- Now dynamically redirects to the correct project or linking page!
       }
     });
 

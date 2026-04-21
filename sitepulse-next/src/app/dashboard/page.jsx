@@ -4,13 +4,24 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/providers/AuthProvider';
-import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X } from 'lucide-react';
+import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X, Info } from 'lucide-react';
 
 export default function DashboardPage() {
   const { session } = useAuth();
   const router = useRouter();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // NEW: Read link_procore_project parameter
+  const [linkProcoreProject, setLinkProcoreProject] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const linkId = searchParams.get('link_procore_project');
+      if (linkId) setLinkProcoreProject(linkId);
+    }
+  }, []);
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -47,10 +58,15 @@ export default function DashboardPage() {
     
     setCreating(true);
     try {
-      // 1. Create project
+      // 1. Create project (WITH PROCORE ID)
+      const insertData = { name: newProjectName.trim() };
+      if (linkProcoreProject) {
+        insertData.procore_project_id = linkProcoreProject;
+      }
+
       const { data: projectRecord, error: projectError } = await supabase
         .from('projects')
-        .insert([{ name: newProjectName.trim() }])
+        .insert([insertData])
         .select()
         .single();
         
@@ -178,6 +194,15 @@ export default function DashboardPage() {
             </div>
             
             <form onSubmit={handleCreateProject} className="p-5">
+              
+              {/* NEW: Show linking indicator */}
+              {linkProcoreProject && (
+                <div className="mb-5 p-3 bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-xl text-sm font-medium text-sky-700 dark:text-sky-300 flex items-center gap-2">
+                  <Info size={16} className="shrink-0" />
+                  This new tracker will be automatically linked to your active Procore project.
+                </div>
+              )}
+
               <div className="mb-6">
                 <label htmlFor="projectName" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
                   Project Name
