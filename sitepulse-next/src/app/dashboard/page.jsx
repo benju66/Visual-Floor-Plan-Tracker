@@ -64,13 +64,10 @@ export default function DashboardPage() {
       // 1. Create project (WITH PROCORE ID)
       const insertData = { name: newProjectName.trim() };
       
-      // Grab it directly from the URL to avoid any React state dropping it
-      const currentSearchParams = new URLSearchParams(window.location.search);
-      const urlLinkId = currentSearchParams.get('link_procore_project');
-      
-      if (urlLinkId) {
-        // Cast it to an integer so Postgres accepts it flawlessly
-        insertData.procore_project_id = parseInt(urlLinkId, 10);
+      // Use the persisted React state variable
+      if (linkProcoreProject) {
+        // Pass the string directly to match your varchar column in Supabase
+        insertData.procore_project_id = linkProcoreProject;
       }
 
       const { data: projectRecord, error: projectError } = await supabase

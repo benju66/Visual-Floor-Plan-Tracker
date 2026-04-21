@@ -16,7 +16,9 @@ export default function LoginPage() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        router.push('/');
+        const searchParams = new URLSearchParams(window.location.search);
+        const returnTo = searchParams.get('returnTo') || '/dashboard';
+        router.push(returnTo);
       }
     });
   }, [router]);
@@ -35,7 +37,9 @@ export default function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
-      router.push('/');
+      const searchParams = new URLSearchParams(window.location.search);
+      const returnTo = searchParams.get('returnTo') || '/dashboard';
+      router.push(returnTo);
     }
   };
 

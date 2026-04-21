@@ -4,11 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   
-  // Look for both the custom parameters AND the default Procore parameters
-  const procoreProjectId = searchParams.get('procore_project_id') || searchParams.get('project_id');
-  const procoreCompanyId = searchParams.get('procore_company_id') || searchParams.get('company_id');
+  // Look for the exact parameters Procore passes
+  const procoreProjectId = searchParams.get('project_id');
+  const procoreCompanyId = searchParams.get('company_id');
 
-  // MAGIC FIX: Dynamically grab the ngrok URL from the request headers
   const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
   const proto = request.headers.get('x-forwarded-proto') || 'http';
   const baseUrl = `${proto}://${host}`;
@@ -23,7 +22,7 @@ export async function GET(request) {
       .from('projects')
       .select('id')
       .eq('procore_project_id', procoreProjectId)
-      .single();
+      .maybeSingle(); // Prevents a hard 500 error if no rows or duplicate rows are found
 
     if (project) {
       return NextResponse.redirect(`${baseUrl}/project/${project.id}`);
