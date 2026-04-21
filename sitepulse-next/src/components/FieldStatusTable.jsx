@@ -444,7 +444,6 @@ export default function FieldStatusTable({
                                 let nextState = 'planned';
                                 if (current === 'planned') nextState = 'ongoing';
                                 else if (current === 'ongoing') nextState = 'completed';
-                                else if (current === 'none') nextState = 'completed';
                                 
                                 handleLocalUpdate(unit, log || {}, nextState);
                                 setSwipedDeckIds(prev => new Set([...prev, unit.id]));
