@@ -17,9 +17,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const searchParams = new URLSearchParams(window.location.search);
-      const linkId = searchParams.get('link_procore_project');
-      if (linkId) setLinkProcoreProject(linkId);
+      // Delay slightly to let Next.js router settle after AuthProvider cleans the hash
+      setTimeout(() => {
+        const searchParams = new URLSearchParams(window.location.search);
+        const linkId = searchParams.get('link_procore_project');
+        if (linkId) setLinkProcoreProject(linkId);
+      }, 100);
     }
   }, []);
   
@@ -60,8 +63,14 @@ export default function DashboardPage() {
     try {
       // 1. Create project (WITH PROCORE ID)
       const insertData = { name: newProjectName.trim() };
-      if (linkProcoreProject) {
-        insertData.procore_project_id = linkProcoreProject;
+      
+      // Grab it directly from the URL to avoid any React state dropping it
+      const currentSearchParams = new URLSearchParams(window.location.search);
+      const urlLinkId = currentSearchParams.get('link_procore_project');
+      
+      if (urlLinkId) {
+        // Cast it to an integer so Postgres accepts it flawlessly
+        insertData.procore_project_id = parseInt(urlLinkId, 10);
       }
 
       const { data: projectRecord, error: projectError } = await supabase
