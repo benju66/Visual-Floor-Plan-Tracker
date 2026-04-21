@@ -48,7 +48,8 @@ const BottleneckIndicator = ({ outOfSequence }) => {
   );
 };
 
-const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onEscape }) => {
+const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChooseStatus, onCommitEscape }) => {
+  const [pendingEscapeMilestone, setPendingEscapeMilestone] = useState(null);
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-10, 10]);
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
@@ -81,51 +82,71 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onEscap
         scale: isTop ? 1 : 1 - depth * 0.05,
         y: isTop ? 0 : depth * 12,
       }}
-      drag={isTop ? "x" : false}
+      drag={isTop && !pendingEscapeMilestone ? "x" : false}
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={handleDragEnd}
-      className={`absolute w-[90%] max-w-sm h-full max-h-[380px] flex flex-col justify-between ${isTop ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'}`}
+      className={`absolute w-[90%] max-w-sm h-full max-h-[380px] flex flex-col justify-between ${isTop && !pendingEscapeMilestone ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'}`}
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1 - depth * 0.05, opacity: isTop ? 1 : 1 - depth * 0.1, y: depth * 12 }}
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
     >
-      <div className="flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] border-slate-200/80 dark:border-white/10 shadow-2xl overflow-hidden relative">
-         <div className="p-8 pb-4 flex-1 flex flex-col items-center justify-center text-center relative z-10">
-             <div className="flex items-center justify-center gap-2 mb-2">
-                 <h2 className="text-7xl font-black text-slate-900 dark:text-white tracking-tighter">{unit.unit_number}</h2>
-                 <BottleneckIndicator outOfSequence={log?.outOfSequence} />
-             </div>
-             
-             <div className="mt-4">
-                 <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Current Milestone</p>
-                 <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                    {log?.milestone || 'Unassigned'}
-                 </p>
-             </div>
-             <div className="mt-8 border-t border-slate-100 dark:border-white/5 w-full pt-6">
-                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Status</p>
-                 <span className={`px-4 py-2 rounded-full text-base font-black uppercase tracking-widest ${getBadgeColor(pendingState)} inline-block`}>
-                     {pendingState}
-                 </span>
-             </div>
+      <div className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] shadow-2xl overflow-hidden relative ${isTop && pendingEscapeMilestone ? 'border-sky-400/50 dark:border-sky-500/50 pointer-events-auto' : 'border-slate-200/80 dark:border-white/10'}`}>
+         <div className="p-8 pb-4 flex-1 flex flex-col items-center justify-center text-center relative z-10 w-full">
+             {pendingEscapeMilestone ? (
+                <div className="flex flex-col w-full h-full animate-in fade-in zoom-in-95 duration-200">
+                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Set Status For</h3>
+                   <p className="text-xl font-black text-slate-800 dark:text-slate-100 mb-6 leading-tight">{pendingEscapeMilestone.name}</p>
+                   
+                   <div className="flex flex-col gap-3 w-full flex-1 justify-center">
+                       <button onClick={() => { onCommitEscape('planned', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-amber-800 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Planned</button>
+                       <button onClick={() => { onCommitEscape('ongoing', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-blue-800 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Ongoing</button>
+                       <button onClick={() => { onCommitEscape('completed', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Completed</button>
+                   </div>
+                   
+                   <button onClick={() => setPendingEscapeMilestone(null)} className="mt-6 text-xs font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 transition">Cancel</button>
+                </div>
+             ) : (
+                <>
+                   <div className="flex items-center justify-center gap-2 mb-2">
+                       <h2 className="text-7xl font-black text-slate-900 dark:text-white tracking-tighter">{unit.unit_number}</h2>
+                       <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+                   </div>
+                   
+                   <div className="mt-4">
+                       <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Current Milestone</p>
+                       <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                          {log?.milestone || 'Unassigned'}
+                       </p>
+                   </div>
+                   <div className="mt-8 border-t border-slate-100 dark:border-white/5 w-full pt-6">
+                       <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Status</p>
+                       <span className={`px-4 py-2 rounded-full text-base font-black uppercase tracking-widest ${getBadgeColor(pendingState)} inline-block`}>
+                           {pendingState}
+                       </span>
+                   </div>
+                </>
+             )}
          </div>
          
-         <div className="p-4 border-t border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-slate-800 z-10 relative">
-             <button
-                 type="button"
-                 onClick={(e) => { 
-                     e.stopPropagation(); 
-                     if(isTop) onEscape(); 
-                 }}
-                 className="w-full py-4 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-slate-200 font-bold transition-colors active:scale-[0.98]"
-             >
-                 Log Out of Sequence
-             </button>
-         </div>
+         {!pendingEscapeMilestone && (
+            <div className="p-4 border-t border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-slate-800 z-10 relative pointer-events-auto">
+                <button
+                    type="button"
+                    onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if(isTop) onChooseStatus?.(unit, (m) => setPendingEscapeMilestone(m)); 
+                    }}
+                    className="w-full py-4 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-slate-200 font-bold transition-colors active:scale-[0.98]"
+                >
+                    Log Out of Sequence
+                </button>
+            </div>
+         )}
       </div>
     </motion.div>
   );
 };
+
 
 export default function FieldStatusTable({
   activeStatuses = [],
@@ -448,11 +469,10 @@ export default function FieldStatusTable({
                                 handleLocalUpdate(unit, log || {}, nextState);
                                 setSwipedDeckIds(prev => new Set([...prev, unit.id]));
                             }}
-                            onEscape={() => {
-                                onChooseStatus?.(unit, (m) => {
-                                    handleLocalUpdate(unit, log || {}, log?.temporal_state || 'completed', { milestoneObj: m });
-                                    setSwipedDeckIds(prev => new Set([...prev, unit.id]));
-                                });
+                            onChooseStatus={onChooseStatus}
+                            onCommitEscape={(state, m) => {
+                                handleLocalUpdate(unit, log || {}, state, { milestoneObj: m });
+                                setSwipedDeckIds(prev => new Set([...prev, unit.id]));
                             }}
                         />;
                })
