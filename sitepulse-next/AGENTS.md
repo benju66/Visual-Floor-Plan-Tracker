@@ -18,7 +18,7 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 
 ## 2. State Management & Data Fetching (CRITICAL)
 - **NEVER** use `useState` or `useEffect` for fetching database data or managing global UI state.
-- **Data Fetching:** Always use/extend the established TanStack Query custom hooks (`src/hooks/useProjectQueries.js`, `src/hooks/useMapActions.js`, `src/hooks/useProjectActions.js`). 
+- **Data Fetching:** Always use/extend the established TanStack Query custom hooks (`src/hooks/useProjectQueries.js`, `src/hooks/useMapActions.js`, `src/hooks/useProjectActions.js`). Server state handles an **Offline-First** setup utilizing `@tanstack/react-query-persist-client` writing to `IndexedDB` for durable disconnected mutations. Do not break this mutation queue or the WebSocket cache injections that resolve Thundering Herds.
 - **Global State:** All floating UI state (modals, active tools, selected units, filters) MUST be managed in the appropriate Zustand store (`src/store/useMapStore.js`, `src/store/useUIStore.js`, or `src/store/useSettingsStore.js`).
 - **Persisted State:** When accessing persisted Zustand properties (like `settings`, `mapSettings`, `legendPosition`), you MUST use the `useHydratedStore` custom hook (exported from `src/store/useSettingsStore.js`) to prevent React hydration mismatch errors.
 

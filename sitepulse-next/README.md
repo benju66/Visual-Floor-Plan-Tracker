@@ -6,7 +6,7 @@ This is the primary user interface for the SitePulse Visual Floor-Plan Tracker.
 - **Framework:** Next.js 16 (App Router)
 - **Engine:** React 19 / Konva / React-Konva
 - **State:** Zustand (Modularized: `useMapStore`, `useUIStore`, `useSettingsStore`)
-- **Query:** TanStack React Query v5
+- **Query:** TanStack React Query v5 (w/ Offline-First IndexedDB Persistence & WebSocket Injection)
 - **Icons:** Lucide React
 - **Styling:** Tailwind CSS v4
 

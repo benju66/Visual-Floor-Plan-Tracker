@@ -318,6 +318,10 @@ export function useUpdateStatus(sheetId) {
       const safeData = { ...newLogData };
       if (safeData.logged_date === null) delete safeData.logged_date;
 
+      delete safeData.created_at;
+      delete safeData.id;
+      safeData.client_timestamp = new Date().toISOString();
+
       const { data, error } = await supabase.from('status_logs').insert([safeData]).select().single();
       if (error) {
         console.error("Status Update Failed!", error);
@@ -327,12 +331,26 @@ export function useUpdateStatus(sheetId) {
     },
     onMutate: async (newLogData) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
+      await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
       
+      const optimisticLog = { 
+        ...newLogData, 
+        id: `temp_${Date.now()}`, 
+        created_at: new Date().toISOString() 
+      };
+
       queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
         const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track && s.milestone === newLogData.milestone));
-        return [...filtered, { ...newLogData, id: `temp_${Date.now()}`, created_at: new Date().toISOString() }];
+        return [...filtered, optimisticLog];
       });
+
+      queryClient.setQueriesData({ queryKey: ['all_project_statuses'] }, old => {
+        if (!old) return old;
+        const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track && s.milestone === newLogData.milestone));
+        return [...filtered, optimisticLog];
+      });
+
       return {};
     },
     onError: () => {},
@@ -351,18 +369,37 @@ export function useClearStatus(sheetId) {
           unit_id: unitId,
           track: track,
           milestone: milestone,
-          temporal_state: 'none'
+          temporal_state: 'none',
+          client_timestamp: new Date().toISOString()
       };
       const { error } = await supabase.from('status_logs').insert([newLog]);
       if (error) throw error;
     },
     onMutate: async ({ unitId, track, milestone }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
+      await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
+      
+      const optimisticLog = { 
+        unit_id: unitId, 
+        track, 
+        milestone, 
+        temporal_state: 'none', 
+        id: `temp_clear_${Date.now()}`, 
+        created_at: new Date().toISOString() 
+      };
+
       queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
         const filtered = old.filter(s => !(s.unit_id === unitId && s.track === track && s.milestone === milestone));
-        return [...filtered, { unit_id: unitId, track, milestone, temporal_state: 'none', id: `temp_clear_${Date.now()}`, created_at: new Date().toISOString() }];
+        return [...filtered, optimisticLog];
       });
+      
+      queryClient.setQueriesData({ queryKey: ['all_project_statuses'] }, old => {
+        if (!old) return old;
+        const filtered = old.filter(s => !(s.unit_id === unitId && s.track === track && s.milestone === milestone));
+        return [...filtered, optimisticLog];
+      });
+
       return {};
     },
     onError: () => {},
@@ -471,9 +508,13 @@ export function useBulkUpdateStatus(sheetId) {
 
             if (newLogs.length > 0) {
               const today = new Date().toISOString().split('T')[0];
+              const clientTimestamp = new Date().toISOString();
               const safeNewLogs = newLogs.map(l => {
                 const copy = { ...l };
                 if (copy.logged_date === null) copy.logged_date = today;
+                delete copy.created_at;
+                delete copy.id;
+                copy.client_timestamp = clientTimestamp;
                 return copy;
               });
               const { error: insertError } = await supabase.from('status_logs').insert(safeNewLogs);
@@ -484,6 +525,7 @@ export function useBulkUpdateStatus(sheetId) {
           // NOTE: Removed destructive .delete() to preserve event sourcing history.
           if (milestone !== null && temporal_state !== '__KEEP_EXISTING__') {
             const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
+            const clientTimestamp = new Date().toISOString();
             const newLogs = chunkIds.map(id => {
               const baseLog = {
                 unit_id: id,
@@ -493,7 +535,8 @@ export function useBulkUpdateStatus(sheetId) {
                 track,
                 planned_start_date: planned_start_date || null,
                 planned_end_date: planned_end_date || null,
-                logged_date: finalLoggedDate
+                logged_date: finalLoggedDate,
+                client_timestamp: clientTimestamp
               };
               const today = new Date().toISOString().split('T')[0];
               if (baseLog.logged_date === null) baseLog.logged_date = today;
@@ -508,8 +551,9 @@ export function useBulkUpdateStatus(sheetId) {
     },
     onMutate: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
+      await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
       
-      queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
+      const updateCache = (old) => {
         if (!old) return old;
         
         if (milestone === '__KEEP_EXISTING__') {
@@ -535,6 +579,7 @@ export function useBulkUpdateStatus(sheetId) {
         }
         
         const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
+        const now = new Date().toISOString();
         const optimisticLogs = unitIds.map(id => ({
           id: `temp_${id}_${Date.now()}`,
           unit_id: id,
@@ -545,10 +590,14 @@ export function useBulkUpdateStatus(sheetId) {
           planned_start_date: planned_start_date || null,
           planned_end_date: planned_end_date || null,
           logged_date: finalLoggedDate,
-          created_at: new Date().toISOString()
+          created_at: now
         }));
         return [...filtered, ...optimisticLogs];
-      });
+      };
+
+      queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, updateCache);
+      queryClient.setQueriesData({ queryKey: ['all_project_statuses'] }, updateCache);
+
       return {};
     },
     onError: () => {},
@@ -564,11 +613,15 @@ export function useBulkInsertStatusLogs(sheetId) {
   return useMutation({
     mutationFn: async (logsArray) => {
       const today = new Date().toISOString().split('T')[0];
+      const clientTimestamp = new Date().toISOString();
       const safeLogs = logsArray.map(log => {
         const copy = { ...log };
         if (copy.logged_date === null) {
           copy.logged_date = today;
         }
+        delete copy.created_at;
+        delete copy.id;
+        copy.client_timestamp = clientTimestamp;
         return copy;
       });
 
@@ -584,7 +637,9 @@ export function useBulkInsertStatusLogs(sheetId) {
     },
     onMutate: async (logsArray) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
-      queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, old => {
+      await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
+      
+      const updateCache = (old) => {
         if (!old) return old;
         
         const keysToRemove = new Set(logsArray.map(l => `${l.unit_id}_${l.track}_${l.milestone}`));
@@ -596,7 +651,10 @@ export function useBulkInsertStatusLogs(sheetId) {
           created_at: new Date().toISOString()
         }));
         return [...filtered, ...optimisticLogs];
-      });
+      };
+
+      queryClient.setQueriesData({ queryKey: ['statuses', sheetId] }, updateCache);
+      queryClient.setQueriesData({ queryKey: ['all_project_statuses'] }, updateCache);
       return {};
     },
     onError: () => {},

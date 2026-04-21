@@ -52,6 +52,7 @@
 - `planned_start_date` (DATE)
 - `planned_end_date` (DATE)
 - `logged_date` (DATE, Not Null, Default CURRENT_DATE)
+- `client_timestamp` (TIMESTAMPTZ) -- Represents the exact moment the offline/online worker committed the change in their UI
 - `created_at` (TIMESTAMPTZ)
 
 ## 6. profiles

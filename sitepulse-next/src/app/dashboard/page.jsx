@@ -187,7 +187,7 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-white/5">
-              <h2 className="text-xl font-bold flex items-center gap-2">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
                 <Folder size={20} className="text-sky-500" />
                 New Project
               </h2>
@@ -219,7 +219,7 @@ export default function DashboardPage() {
                   autoFocus
                   required
                   disabled={creating}
-                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-50"
+                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-50"
                   placeholder="e.g. Oakhaven Residential Tower"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
