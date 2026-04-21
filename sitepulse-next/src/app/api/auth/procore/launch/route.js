@@ -3,8 +3,10 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const procoreProjectId = searchParams.get('procore_project_id');
-  const procoreCompanyId = searchParams.get('procore_company_id');
+  
+  // Look for both the custom parameters AND the default Procore parameters
+  const procoreProjectId = searchParams.get('procore_project_id') || searchParams.get('project_id');
+  const procoreCompanyId = searchParams.get('procore_company_id') || searchParams.get('company_id');
 
   // MAGIC FIX: Dynamically grab the ngrok URL from the request headers
   const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
