@@ -13,7 +13,7 @@ import { supabase } from '@/supabaseClient';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
-import { useProject, useSheets, useMilestones, useUnits, useStatuses } from '@/hooks/useProjectQueries';
+import { useProject, useSheets, useMilestones, useUnits, useStatuses, useCurrentUserRole } from '@/hooks/useProjectQueries';
 import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
@@ -105,6 +105,28 @@ function App() {
 
   const queryClient = useQueryClient();
   const { data: project } = useProject(projectId);
+  const { data: currentUserRole, isSuccess: roleLoaded } = useCurrentUserRole(projectId);
+
+  // Auto-Enroll verified employees as Viewers when they access a new project
+  useEffect(() => {
+    async function autoEnrollUser() {
+      if (roleLoaded && currentUserRole === null) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await supabase.from('project_members').insert([{
+            project_id: projectId,
+            user_id: session.user.id,
+            role: 'viewer' 
+          }]);
+          // Refresh the user's role and the team list
+          queryClient.invalidateQueries({ queryKey: ['current_user_role', projectId] });
+          queryClient.invalidateQueries({ queryKey: ['project_members', projectId] });
+        }
+      }
+    }
+    autoEnrollUser();
+  }, [roleLoaded, currentUserRole, projectId, queryClient]);
+
   const { data: sheets = [] } = useSheets(projectId);
   const { data: milestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);

@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useBulkInsertStatusLogs, useProjectMembers, useCurrentUserRole } from '@/hooks/useProjectQueries';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
+import { useQueryClient } from '@tanstack/react-query';
 
 function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEditMilestoneName, editMilestoneColor, setEditMilestoneColor, setEditingMilestoneId, onUpdateMilestone, onDeleteMilestone }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: m.id });
@@ -63,6 +64,7 @@ export default function SettingsMenu({
   projectId
 }) {
   const { session } = useAuth();
+  const queryClient = useQueryClient();
   const { data: currentUserRole } = useCurrentUserRole(projectId);
   const { data: projectMembers = [] } = useProjectMembers(projectId);
 
@@ -1227,6 +1229,8 @@ export default function SettingsMenu({
                                 alert("Failed to add member.");
                               } else {
                                 setNewMemberEmail('');
+                                // Refresh the team list instantly
+                                queryClient.invalidateQueries({ queryKey: ['project_members', projectId] });
                               }
                            }
                         } catch (err) {
@@ -1259,10 +1263,24 @@ export default function SettingsMenu({
                                <div className="font-medium text-slate-800 dark:text-slate-200">{member.profiles?.display_name || 'Unknown User'}</div>
                                <div className="text-xs text-slate-500">{member.profiles?.email}</div>
                             </td>
-                            <td className="px-4 py-2">
+                            <td className="px-4 py-2 flex items-center justify-between">
                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${member.role === 'admin' ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30' : member.role === 'pm' ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30'}`}>
                                  {member.role}
                                </span>
+                               
+                               {/* NEW: Remove Member Button */}
+                               <button 
+                                 onClick={async () => {
+                                   if(confirm(`Remove ${member.profiles?.display_name || 'user'} from this project?`)) {
+                                     await supabase.from('project_members').delete().eq('id', member.id);
+                                     queryClient.invalidateQueries({ queryKey: ['project_members', projectId] });
+                                   }
+                                 }}
+                                 className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                                 title="Remove User"
+                               >
+                                 <Trash2 size={14} />
+                               </button>
                             </td>
                           </tr>
                        ))}
