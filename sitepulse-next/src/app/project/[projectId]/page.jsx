@@ -137,6 +137,9 @@ function App() {
       .filter(m => m.track === trackingMode)
       .sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
     
+    // FIX 1: Return early if there are no milestones for this track
+    if (currentTrackMilestones.length === 0) return []; 
+
     return units.map(unit => {
       const unitStatuses = activeStatuses.filter(s => s.unit_id === unit.id && s.track === trackingMode);
       if (unitStatuses.length === 0) return null;
@@ -160,6 +163,10 @@ function App() {
 
       // 2. Reconstruct the structural active status block for the renderer
       const primaryMilestone = currentTrackMilestones[primaryMasterIdx];
+      
+      // FIX 2: Safeguard against undefined array indexes
+      if (!primaryMilestone) return null; 
+
       const existingLog = unitStatuses.find(s => s.milestone === primaryMilestone.name);
       
       const primaryStatus = existingLog || {
@@ -187,8 +194,13 @@ function App() {
 
   // Auto-select first available sheet to prevent invalid UI mounting or empty cache fallbacks
   useEffect(() => {
-    if (sheets.length > 0 && (!activeSheetId || !sheets.find(s => s.id === activeSheetId))) {
-      setActiveSheetId(sheets[0].id);
+    // If sheets have loaded, but the activeSheetId doesn't belong to this project's sheets
+    if (sheets && !sheets.find(s => s.id === activeSheetId)) {
+      // If the project has sheets, pick the first one. If it's a new project with 0 sheets, clear it.
+      const fallbackId = sheets.length > 0 ? sheets[0].id : '';
+      if (activeSheetId !== fallbackId) {
+        setActiveSheetId(fallbackId);
+      }
     }
   }, [sheets, activeSheetId, setActiveSheetId]);
 
