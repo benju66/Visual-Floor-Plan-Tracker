@@ -22,6 +22,7 @@ SitePulse is an enterprise-grade construction project management platform focuse
 ## 🚀 Core Features
 
 * **Interactive Floorplan Canvas:** Easily trace architectural spaces (units, rooms) over uploaded blueprints.
+* **Hybrid Vector-Snapping Engine:** A high-precision, invisible R-Tree spatial index that extracts architectural lines from source CAD/PDFs. It allows users to trace perfectly straight, pixel-accurate walls by mathematically locking the drawing cursor and nodes to the original structural geometries (with gravity corner-snapping).
 * **Enterprise State Integrity:** Built to prevent data races. Tracks *Planned*, *Ongoing*, and *Completed* stages with precise sequence enforcement and downstream bottleneck detection.
 * **Architectural PDF Exports:** Unlike standard dashboard tools that just take a screen capture, SitePulse calculates the exact matrix de-rotation of your original PDF to programmatically inject visual statuses (hatching, opacity, lines) back into the source PDF file as Bluebeam-compatible annotations.
 * **Enterprise Synchronization Engine:** Features a zero data-loss offline mutation queue via IndexedDB for field workers in connectivity dead-zones, paired with real-time surgical WebSocket cache injections for instantly responsive, thundering-herd-proof dashboards.

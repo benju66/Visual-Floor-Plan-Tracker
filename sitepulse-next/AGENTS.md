@@ -31,3 +31,9 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 - Components needing client hooks must start with `"use client"`.
 - If modifying database schemas, immediately reflect changes in the Supabase query definitions located in the hook files.
 - Stick to Tailwind utilities for new implementations; do not introduce custom CSS files unless fundamentally required for Konva DOM overlays.
+
+## 5. Hybrid Vector-Snapping Engine
+- The backend parses CAD/PDF files via PyMuPDF into percentage-normalized line data.
+- The frontend loads this array via `useSnappingVectors()` and instantiates a localized `RBush` spatial tree inside the canvas components.
+- **CRITICAL:** Do NOT attempt to persist instantiated `RBush` class objects into TanStack Query state, as this will crash the `@tanstack/react-query-persist-client` IndexedDB serialization. Always return raw JSON arrays from the hook, and instantiate `RBush` inside `useMemo` blocks within the rendering components.
+- Rely on `getSnappedCoordinate()` in `src/utils/geometry.js` for aspect-ratio aware mathematical snapping and "Gravity" corner-snapping.
