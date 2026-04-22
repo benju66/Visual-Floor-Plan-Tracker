@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2 } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 
 export default function MapHorizontalToolbar({
@@ -10,7 +10,8 @@ export default function MapHorizontalToolbar({
   redoStack,
   legendIsVisible,
   onToggleLegend,
-  onUpdateMapSettings
+  onUpdateMapSettings,
+  isSnappingLoading
 }) {
   const toolMode = useMapStore(s => s.toolMode);
   const onToolModeChange = useMapStore(s => s.setToolMode);
@@ -107,6 +108,25 @@ export default function MapHorizontalToolbar({
       })}
 
       <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
+
+      {isSnappingLoading ? (
+        <div className="p-2 rounded-full flex items-center justify-center text-blue-500 animate-spin" title="Building Smart Grid...">
+          <Loader2 size={18} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onUpdateMapSettings?.({ ...mapSettings, enableSnapping: !mapSettings?.enableSnapping })}
+          className={`p-2 rounded-full flex items-center justify-center transition-all ${
+            mapSettings?.enableSnapping
+              ? 'bg-blue-500 text-white shadow-sm scale-110'
+              : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+          }`}
+          title={`${mapSettings?.enableSnapping ? 'Disable' : 'Enable'} Magnetic Snapping`}
+        >
+          <Magnet size={18} />
+        </button>
+      )}
 
       <button
         type="button"

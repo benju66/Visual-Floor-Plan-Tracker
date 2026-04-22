@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Group, Line, Circle, Path } from 'react-konva';
-import { getCentroid } from '@/utils/geometry';
+import { getCentroid, getSnappedCoordinate } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 
 const stripeCache = {};
@@ -32,6 +32,10 @@ export const MappedUnitComponent = ({
   toolMode,
   layout,
   stageScale,
+  vectorTree,
+  aspect,
+  enableSnapping,
+  snappingStrength,
   settings,
   activeDragNode,
   activeDragPolygon,
@@ -302,20 +306,38 @@ export const MappedUnitComponent = ({
            strokeWidth={2 / stageScale}
            draggable={['select', 'add_node'].includes(toolMode)}
            dragBoundFunc={(pos) => {
-             if (!isShiftDown) return pos;
-             const origX = layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0)) * layout.drawW;
-             const origY = layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0)) * layout.drawH;
-             if (Math.abs(pos.x - origX) > Math.abs(pos.y - origY)) {
-               return { x: pos.x, y: origY };
-             } else {
-               return { x: origX, y: pos.y };
+             if (isShiftDown) {
+               const origX = layout.offsetX + (pt.pctX + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0)) * layout.drawW;
+               const origY = layout.offsetY + (pt.pctY + (activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0)) * layout.drawH;
+               if (Math.abs(pos.x - origX) > Math.abs(pos.y - origY)) {
+                 return { x: pos.x, y: origY };
+               } else {
+                 return { x: origX, y: pos.y };
+               }
              }
+             if (enableSnapping) {
+               let pctX = (pos.x - layout.offsetX) / layout.drawW;
+               let pctY = (pos.y - layout.offsetY) / layout.drawH;
+               const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, snappingStrength || 15);
+               if (snap.snapped) {
+                 return {
+                   x: layout.offsetX + snap.pctX * layout.drawW,
+                   y: layout.offsetY + snap.pctY * layout.drawH
+                 };
+               }
+             }
+             return pos;
            }}
            onDragMove={(e) => {
              const node = e.target;
              let pctX = (node.x() - layout.offsetX) / layout.drawW;
              let pctY = (node.y() - layout.offsetY) / layout.drawH;
-             setActiveDragNode({ unitId: unit.id, index: i, pctX, pctY });
+             let isSnapped = false;
+             if (enableSnapping && !isShiftDown) {
+               const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, snappingStrength || 15);
+               isSnapped = snap.snapped;
+             }
+             setActiveDragNode({ unitId: unit.id, index: i, pctX, pctY, isSnapped });
            }}
            onDragEnd={(e) => {
              const node = e.target;
@@ -334,6 +356,18 @@ export const MappedUnitComponent = ({
            onMouseLeave={() => setIsHoveringAnchor(false)}
          />
       ))}
+      
+      {isSelected && activeDragNode?.unitId === unit.id && activeDragNode?.isSnapped && (
+         <Circle
+           x={layout.offsetX + activeDragNode.pctX * layout.drawW}
+           y={layout.offsetY + activeDragNode.pctY * layout.drawH}
+           radius={8 / stageScale}
+           stroke="#ec4899"
+           strokeWidth={2 / stageScale}
+           fill="transparent"
+           listening={false}
+         />
+      )}
     </React.Fragment>
   );
 };
@@ -349,7 +383,8 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
     (prevProps.activeDragNode?.unitId !== prevProps.unit.id ? true :
       prevProps.activeDragNode?.index === nextProps.activeDragNode?.index &&
       prevProps.activeDragNode?.pctX === nextProps.activeDragNode?.pctX &&
-      prevProps.activeDragNode?.pctY === nextProps.activeDragNode?.pctY) &&
+      prevProps.activeDragNode?.pctY === nextProps.activeDragNode?.pctY &&
+      prevProps.activeDragNode?.isSnapped === nextProps.activeDragNode?.isSnapped) &&
     prevProps.activeDragPolygon?.unitId === nextProps.activeDragPolygon?.unitId &&
     (prevProps.activeDragPolygon?.unitId !== prevProps.unit.id ? true :
       prevProps.activeDragPolygon?.dx === nextProps.activeDragPolygon?.dx &&

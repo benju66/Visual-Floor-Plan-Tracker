@@ -761,7 +761,7 @@ export default function SettingsMenu({
 
           {activeTab === 'drawing' && (
             <>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 mb-8">
                 <div className="flex justify-between items-center">
                   <div>
                     <span className="font-semibold block text-sm">Markup Border Thickness</span>
@@ -779,6 +779,27 @@ export default function SettingsMenu({
                   value={settings.markupThickness || 1}
                   onChange={(e) => onUpdateSettings({ ...settings, markupThickness: parseFloat(e.target.value) })}
                   className="w-full accent-sky-500 mt-2"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span className="font-semibold block text-sm">Magnetic Snap Strength</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Adjust the pull radius of the structural vector grid</span>
+                  </div>
+                  <span className="text-sm font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                    {mapSettings?.snappingStrength || 15}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="50"
+                  step="1"
+                  value={mapSettings?.snappingStrength || 15}
+                  onChange={(e) => onUpdateMapSettings?.({ ...mapSettings, snappingStrength: parseInt(e.target.value) })}
+                  className="w-full accent-pink-500 mt-2"
                 />
               </div>
             </>

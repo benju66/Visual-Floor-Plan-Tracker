@@ -18,7 +18,7 @@ export const useSettingsStore = create(
         settings: typeof settingsFn === 'function' ? settingsFn(state.settings) : { ...state.settings, ...settingsFn } 
       })),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? settingsFn(state.mapSettings) : { ...state.mapSettings, ...settingsFn } 
       })),

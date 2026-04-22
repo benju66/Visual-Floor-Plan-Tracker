@@ -7,6 +7,7 @@ from typing import List, Optional, Dict
 import os
 import io
 import fitz  # PyMuPDF for fast PDF to Image conversion
+import math
 from jose import jwt, JWTError, ExpiredSignatureError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -132,11 +133,15 @@ async def upload_and_convert_floorplan(
             file_options={"content-type": "image/png"},
         )
 
+        single_page_doc = fitz.open()
+        single_page_doc.insert_pdf(doc, from_page=page_number - 1, to_page=page_number - 1)
+        single_page_pdf_bytes = single_page_doc.write()
+
         pdf_path = f"originals/{sheet_id}.pdf"
         supabase.storage.from_("floorplans").remove([pdf_path])
         supabase.storage.from_("floorplans").upload(
             path=pdf_path,
-            file=pdf_bytes,
+            file=single_page_pdf_bytes,
             file_options={"content-type": "application/pdf"},
         )
 
@@ -173,6 +178,74 @@ async def attach_original_pdf(
     except Exception as e:
         print(f"Error attaching pdf: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/extract-vectors/{sheet_id}")
+async def extract_snapping_vectors(sheet_id: str, user: dict = Depends(get_current_user)):
+    try:
+        # IDOR Protection
+        sheet_res = supabase.table("sheets").select("project_id").eq("id", sheet_id).execute()
+        if not sheet_res.data or len(sheet_res.data) == 0:
+             raise HTTPException(status_code=404, detail="Sheet not found")
+        project_id = sheet_res.data[0]["project_id"]
+        
+        member_res = supabase.table("project_members").select("id").eq("project_id", project_id).eq("user_id", user["sub"]).execute()
+        if not member_res.data or len(member_res.data) == 0:
+             raise HTTPException(status_code=403, detail="Not authorized to access this project")
+
+        # Download original PDF directly from Storage
+        pdf_path = f"originals/{sheet_id}.pdf"
+        res = supabase.storage.from_("floorplans").download(pdf_path)
+        doc = fitz.open(stream=res, filetype="pdf")
+        page = doc[0]
+        
+        width = page.rect.width
+        height = page.rect.height
+        
+        # Inverse the derotation matrix to map PDF coordinates back to the map percentages
+        inv_derot = ~page.derotation_matrix
+        tl = page.cropbox.tl
+        
+        drawings = page.get_drawings()
+        clean_lines = []
+
+        def map_point(p):
+            p_mapped = (p - tl) * inv_derot
+            return {"pctX": p_mapped.x / width, "pctY": p_mapped.y / height}
+
+        for path in drawings:
+            # FILTER 1: Reject curves (doors, toilets, fixtures)
+            if any(item[0] in ('c', 'v', 'y') for item in path["items"]):
+                continue
+                
+            # FILTER 2: Reject microscopic lineweights (hatching, shading)
+            path_width = path.get("width")
+            if path_width is not None and path_width < 0.2:
+                continue
+
+            for item in path["items"]:
+                if item[0] == 'l':
+                    p1, p2 = item[1], item[2]
+                    clean_lines.append({"start": map_point(p1), "end": map_point(p2)})
+                
+                elif item[0] == 're':
+                    rect = item[1]
+                    p1, p2, p3, p4 = rect.tl, rect.tr, rect.br, rect.bl
+                    clean_lines.append({"start": map_point(p1), "end": map_point(p2)})
+                    clean_lines.append({"start": map_point(p2), "end": map_point(p3)})
+                    clean_lines.append({"start": map_point(p3), "end": map_point(p4)})
+                    clean_lines.append({"start": map_point(p4), "end": map_point(p1)})
+
+        doc.close()
+        return {"status": "success", "vectors": clean_lines}
+        
+    except fitz.FileDataError:
+        raise HTTPException(status_code=404, detail="Original PDF not found for vector extraction.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error extracting vectors: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/export-pdf/{sheet_id}")
 async def export_status_pdf(

@@ -11,12 +11,13 @@ import DraftPolygon from '@/components/canvas/DraftPolygon';
 import StampPreview from '@/components/canvas/StampPreview';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import MapLegend from '@/components/canvas/MapLegend';
-import { distToSegment, getCentroid } from '@/utils/geometry';
+import { distToSegment, getCentroid, getSnappedCoordinate } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
-import { useProject, useUnits, useStatuses, useMilestones } from '@/hooks/useProjectQueries';
+import RBush from 'rbush';
+import { useProject, useUnits, useStatuses, useMilestones, useSnappingVectors } from '@/hooks/useProjectQueries';
 import { useParams } from 'next/navigation';
 
 const FloorplanCanvas = forwardRef(({
@@ -62,6 +63,13 @@ const FloorplanCanvas = forwardRef(({
   const { data: allMilestones = [] } = useMilestones(projectId);
   const milestones = allMilestones.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
+  const { data: rawVectors = [] } = useSnappingVectors(activeSheetId);
+  const vectorTree = useMemo(() => {
+    if (!rawVectors || rawVectors.length === 0) return null;
+    const tree = new RBush();
+    tree.load(rawVectors);
+    return tree;
+  }, [rawVectors]);
   const unitIds = units.map(u => u.id);
   
   // activeStatuses is now provided by props and bottleneck resolution
@@ -98,6 +106,8 @@ const FloorplanCanvas = forwardRef(({
 
   const [isShiftDown, setIsShiftDown] = useState(false);
   const [boxOrigin, setBoxOrigin] = useState(null);
+
+  const aspect = layoutRef.current.drawW / Math.max(1, layoutRef.current.drawH);
   const lastBoxEndRef = useRef(0);
 
   const [stageScale, setStageScale] = useState(1);
@@ -406,6 +416,12 @@ const FloorplanCanvas = forwardRef(({
         const dy = Math.abs(pctY - lastPoint.pctY);
         if (dx > dy) pctY = lastPoint.pctY;
         else pctX = lastPoint.pctX;
+      } else if (mapSettings?.enableSnapping) {
+        const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, stageScale, mapSettings?.snappingStrength || 15);
+        if (snap.snapped) {
+          pctX = snap.pctX;
+          pctY = snap.pctY;
+        }
       }
       setDraftPoints([...draftPoints, { pctX, pctY }]);
     } else if (['select', 'multi_select', 'add_node', 'delete_node'].includes(toolMode)) {
@@ -799,6 +815,10 @@ const FloorplanCanvas = forwardRef(({
                   toolMode={toolMode}
                   layout={layout}
                   stageScale={stageScale}
+                  vectorTree={vectorTree}
+                  aspect={aspect}
+                  enableSnapping={mapSettings?.enableSnapping}
+                  snappingStrength={mapSettings?.snappingStrength || 15}
                   isZoomedOut={isZoomedOut}
                   settings={settings}
                   activeDragNode={activeDragNode}
@@ -830,6 +850,10 @@ const FloorplanCanvas = forwardRef(({
               stagePosition={stagePosition}
               stageScale={stageScale}
               layout={layout}
+              vectorTree={vectorTree}
+              aspect={aspect}
+              enableSnapping={mapSettings?.enableSnapping}
+              snappingStrength={mapSettings?.snappingStrength || 15}
               isShiftDown={isShiftDown}
               toPixels={toPixels}
             />

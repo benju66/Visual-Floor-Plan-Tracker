@@ -69,3 +69,19 @@ export async function attachOriginalService(activeSheetId, file, token) {
   
   return response.json();
 }
+
+export async function extractVectorsService(sheetId, token) {
+  const response = await fetch(`${API_BASE_URL}/extract-vectors/${sheetId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to extract vectors');
+  }
+
+  return response.json();
+}

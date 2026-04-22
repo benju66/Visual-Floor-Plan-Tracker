@@ -13,7 +13,7 @@ import { supabase } from '@/supabaseClient';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
-import { useProject, useSheets, useMilestones, useUnits, useStatuses, useCurrentUserRole } from '@/hooks/useProjectQueries';
+import { useProject, useSheets, useMilestones, useUnits, useStatuses, useCurrentUserRole, useSnappingVectors } from '@/hooks/useProjectQueries';
 import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
@@ -134,6 +134,7 @@ function App() {
   const { data: milestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
   const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), milestones);
+  const { isFetching: isSnappingLoading } = useSnappingVectors(activeSheetId);
 
   const mapDisplayStatuses = useMemo(() => {
     const currentTrackMilestones = milestones
@@ -504,6 +505,7 @@ function App() {
                     legendIsVisible={legendPosition.isVisible}
                     onToggleLegend={() => setLegendPosition(prev => ({ ...prev, isVisible: !prev.isVisible }))}
                     onUpdateMapSettings={setMapSettings}
+                    isSnappingLoading={isSnappingLoading}
                   />
                   <FloorplanCanvas
                     ref={floorplanRef}

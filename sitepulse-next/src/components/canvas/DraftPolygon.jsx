@@ -1,5 +1,6 @@
 import React from 'react';
 import { Line, Circle } from 'react-konva';
+import { getSnappedCoordinate } from '@/utils/geometry';
 
 export default function DraftPolygon({
   toolMode,
@@ -9,6 +10,10 @@ export default function DraftPolygon({
   stagePosition,
   stageScale,
   layout,
+  vectorTree,
+  aspect,
+  enableSnapping,
+  snappingStrength,
   isShiftDown,
   toPixels
 }) {
@@ -16,30 +21,53 @@ export default function DraftPolygon({
 
   return (
     <React.Fragment>
-      {/* Dashed line following the cursor */}
-      {draftPoints.length > 0 && pointerPos && !boxOrigin && (() => {
+      {/* Snap Preview & Ghost Node (Active even before first point is placed) */}
+      {pointerPos && !boxOrigin && (() => {
         let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
         let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
         let pctX = (logicalX - layout.offsetX) / layout.drawW;
         let pctY = (logicalY - layout.offsetY) / layout.drawH;
+        let isSnapped = false;
         
-        if (isShiftDown) {
+        if (isShiftDown && draftPoints.length > 0) {
           const last = draftPoints[draftPoints.length - 1];
           const dx = Math.abs(pctX - last.pctX);
           const dy = Math.abs(pctY - last.pctY);
           if (dx > dy) pctY = last.pctY;
           else pctX = last.pctX;
+        } else if (enableSnapping) {
+          const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, snappingStrength || 15);
+          if (snap.snapped) {
+            pctX = snap.pctX;
+            pctY = snap.pctY;
+            isSnapped = true;
+          }
         }
         
         return (
-          <Line
-            points={toPixels([...draftPoints, {pctX, pctY}])}
-            stroke="rgba(59, 130, 246, 0.4)"
-            strokeWidth={2 / stageScale}
-            dash={[6 / stageScale, 6 / stageScale]}
-            closed={false}
-            listening={false}
-          />
+          <React.Fragment>
+            {draftPoints.length > 0 && (
+              <Line
+                points={toPixels([...draftPoints, {pctX, pctY}])}
+                stroke="rgba(59, 130, 246, 0.4)"
+                strokeWidth={2 / stageScale}
+                dash={[6 / stageScale, 6 / stageScale]}
+                closed={false}
+                listening={false}
+              />
+            )}
+            {isSnapped && (
+              <Circle
+                x={layout.offsetX + pctX * layout.drawW}
+                y={layout.offsetY + pctY * layout.drawH}
+                radius={6 / stageScale}
+                stroke="#ec4899"
+                strokeWidth={2 / stageScale}
+                fill="transparent"
+                listening={false}
+              />
+            )}
+          </React.Fragment>
         );
       })()}
 
