@@ -64,11 +64,20 @@ const FloorplanCanvas = forwardRef(({
   const milestones = allMilestones.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
   const { data: rawVectors = [] } = useSnappingVectors(activeSheetId);
-  const vectorTree = useMemo(() => {
-    if (!rawVectors || rawVectors.length === 0) return null;
-    const tree = new RBush();
-    tree.load(rawVectors);
-    return tree;
+  
+  const [vectorTree, setVectorTree] = useState(null);
+  useEffect(() => {
+    if (!rawVectors || rawVectors.length === 0) {
+      setVectorTree(null);
+      return;
+    }
+    // Defer the heavy spatial indexing calculation to prevent blocking the React render cycle
+    const timeoutId = setTimeout(() => {
+      const tree = new RBush();
+      tree.load(rawVectors);
+      setVectorTree(tree);
+    }, 10);
+    return () => clearTimeout(timeoutId);
   }, [rawVectors]);
   const unitIds = units.map(u => u.id);
   
