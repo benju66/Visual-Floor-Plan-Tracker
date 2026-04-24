@@ -70,7 +70,7 @@ export const MappedUnitComponent = ({
     !legendFilter || (activeStatus && activeStatus.milestone === legendFilter);
   const dim = legendFilter && !matchesLegend;
   
-  const highlight = isSelected || isHovered;
+  const highlight = (isSelected || isHovered) && toolMode !== 'route';
   const isFilteredOut = activeStatus && temporalFilters && !temporalFilters.includes(tState);
 
   let strokeDash = [];
@@ -130,19 +130,19 @@ export const MappedUnitComponent = ({
         onClick={(e) => handlePolygonClick(e, unit)}
         onTap={(e) => handlePolygonClick(e, unit)}
         onDblClick={(e) => {
-          if (['draw', 'stamp'].includes(toolMode)) return;
+          if (['draw', 'stamp', 'route'].includes(toolMode)) return;
           e.cancelBubble = true;
           onSelectUnit?.(unit.id);
           onToolModeChange?.('select');
         }}
         onDblTap={(e) => {
-          if (['draw', 'stamp'].includes(toolMode)) return;
+          if (['draw', 'stamp', 'route'].includes(toolMode)) return;
           e.cancelBubble = true;
           onSelectUnit?.(unit.id);
           onToolModeChange?.('select');
         }}
         onContextMenu={(e) => {
-          if (['draw'].includes(toolMode)) return;
+          if (['draw', 'route'].includes(toolMode)) return;
           e.cancelBubble = true;
           e.evt.preventDefault();
           onSelectUnit?.(unit.id);

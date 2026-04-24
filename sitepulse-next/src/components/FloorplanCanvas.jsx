@@ -108,6 +108,7 @@ const FloorplanCanvas = forwardRef(({
   const layoutRef = useRef({ drawW: 0, drawH: 0 });
   
   const [hoveredUnit, setHoveredUnit] = useState(null);
+  const [hoveredRouteNode, setHoveredRouteNode] = useState(null);
   const [isHoveringAnchor, setIsHoveringAnchor] = useState(false);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [activeDragNode, setActiveDragNode] = useState(null);
@@ -682,6 +683,14 @@ const FloorplanCanvas = forwardRef(({
     computedCursor = 'copy';
   } else if (toolMode === 'add_node') {
     computedCursor = isHoveringAnchor ? 'grab' : addNodeCursor;
+  } else if (toolMode === 'route') {
+    if (routeSubMode === 'add') {
+      computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? 'not-allowed' : 'cell';
+    } else if (routeSubMode === 'remove') {
+      computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? deleteNodeCursor : 'default';
+    } else {
+      computedCursor = 'default';
+    }
   } else if (['select', 'multi_select'].includes(toolMode)) {
     if (isHoveringAnchor) computedCursor = 'pointer';
     else if (hoveredUnit) computedCursor = selectedUnitIds?.includes(hoveredUnit) ? 'grab' : 'pointer';
@@ -977,10 +986,12 @@ const FloorplanCanvas = forwardRef(({
                     lineCap="round"
                     lineJoin="round"
                     opacity={lineOpacity}
+                    listening={false}
                   />
                   {routePoints.map((p, idx) => {
                     const x = layout.offsetX + p.pctX * layout.drawW;
                     const y = layout.offsetY + p.pctY * layout.drawH;
+                    const isHoveredNode = hoveredRouteNode === p.id;
                     return (
                       <Group 
                         key={`route-${p.id}`} 
@@ -988,10 +999,31 @@ const FloorplanCanvas = forwardRef(({
                         y={y} 
                         opacity={dotOpacity}
                         draggable={toolMode === 'route' && routeSubMode === 'move'}
+                        listening={toolMode === 'route'}
+                        onClick={(e) => {
+                          if (toolMode === 'route' && routeSubMode === 'remove') {
+                            e.cancelBubble = true;
+                            setHoveredRouteNode(null);
+                            setPendingRoute(prev => prev.filter(id => id !== p.id));
+                          }
+                        }}
+                        onTap={(e) => {
+                          if (toolMode === 'route' && routeSubMode === 'remove') {
+                            e.cancelBubble = true;
+                            setHoveredRouteNode(null);
+                            setPendingRoute(prev => prev.filter(id => id !== p.id));
+                          }
+                        }}
                         onMouseEnter={(e) => {
-                          if (toolMode === 'route' && routeSubMode === 'move') e.target.getStage().container().style.cursor = 'grab';
+                          setHoveredRouteNode(p.id);
+                          if (toolMode === 'route') {
+                            if (routeSubMode === 'move') e.target.getStage().container().style.cursor = 'grab';
+                            else if (routeSubMode === 'remove') e.target.getStage().container().style.cursor = deleteNodeCursor;
+                            else if (routeSubMode === 'add') e.target.getStage().container().style.cursor = 'not-allowed';
+                          }
                         }}
                         onMouseLeave={(e) => {
+                          setHoveredRouteNode(null);
                           e.target.getStage().container().style.cursor = computedCursor;
                         }}
                         onDragStart={(e) => {
@@ -1020,6 +1052,7 @@ const FloorplanCanvas = forwardRef(({
                           let closestId = null;
                           let minDist = Infinity;
 
+                          // 1. Check for Node Replacement (Dropping on another circle)
                           routePoints.forEach(target => {
                             const targetX = layout.offsetX + target.pctX * layout.drawW;
                             const targetY = layout.offsetY + target.pctY * layout.drawH;
@@ -1032,7 +1065,32 @@ const FloorplanCanvas = forwardRef(({
                             }
                           });
 
+                          // 2. Check for Line Segment Insertion (Dropping on the dotted line)
+                          let insertIndex = -1;
+                          if (!closestId) {
+                            let minLineDist = Infinity;
+                            for (let i = 0; i < routePoints.length - 1; i++) {
+                              const p1 = { x: layout.offsetX + routePoints[i].pctX * layout.drawW, y: layout.offsetY + routePoints[i].pctY * layout.drawH };
+                              const p2 = { x: layout.offsetX + routePoints[i+1].pctX * layout.drawW, y: layout.offsetY + routePoints[i+1].pctY * layout.drawH };
+                              
+                              const l2 = Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2);
+                              let t = l2 === 0 ? 0 : ((dropX - p1.x) * (p2.x - p1.x) + (dropY - p1.y) * (p2.y - p1.y)) / l2;
+                              t = Math.max(0, Math.min(1, t));
+                              
+                              const proj = { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
+                              const d = Math.sqrt(Math.pow(dropX - proj.x, 2) + Math.pow(dropY - proj.y, 2));
+
+                              // 30 pixel snap radius to the line
+                              if (d < (30 / stageScale) && d < minLineDist) {
+                                minLineDist = d;
+                                insertIndex = i + 1; // Insert after the first node of the segment
+                              }
+                            }
+                          }
+
+                          // 3. Apply Array Mutations
                           if (closestId && closestId !== p.id) {
+                            // NODE SHIFT LOGIC (Existing)
                             const newRoute = [...pendingRoute];
                             const dragIndex = newRoute.indexOf(p.id);
                             const dropIndex = newRoute.indexOf(closestId);
@@ -1041,13 +1099,33 @@ const FloorplanCanvas = forwardRef(({
                             newRoute.splice(dropIndex, 0, draggedItem);
                             
                             setPendingRoute(newRoute);
+                          } else if (insertIndex !== -1) {
+                            // LINE INSERTION LOGIC (New)
+                            const newRoute = [...pendingRoute];
+                            const dragIndex = newRoute.indexOf(p.id);
+                            
+                            const [draggedItem] = newRoute.splice(dragIndex, 1);
+                            // Adjust insertion index if we removed an item from earlier in the array
+                            const adjustedInsertIndex = dragIndex < insertIndex ? insertIndex - 1 : insertIndex;
+                            newRoute.splice(adjustedInsertIndex, 0, draggedItem);
+                            
+                            setPendingRoute(newRoute);
                           }
 
                           e.target.x(x);
                           e.target.y(y);
                         }}
                       >
-                        <Circle radius={12 / stageScale} fill="#3b82f6" shadowColor="black" shadowBlur={4 / stageScale} shadowOpacity={0.3} shadowOffset={{x: 0, y: 2/stageScale}} />
+                        <Circle 
+                          radius={12 / stageScale} 
+                          fill={isHoveredNode ? "#2563eb" : "#3b82f6"} 
+                          stroke={isHoveredNode ? "#ffffff" : "transparent"} 
+                          strokeWidth={2 / stageScale}
+                          shadowColor="black" 
+                          shadowBlur={(isHoveredNode ? 8 : 4) / stageScale} 
+                          shadowOpacity={isHoveredNode ? 0.5 : 0.3} 
+                          shadowOffset={{x: 0, y: 2/stageScale}} 
+                        />
                         <Text text={(idx + 1).toString()} fontSize={14 / stageScale} fill="white" fontStyle="bold" align="center" verticalAlign="middle" width={24 / stageScale} height={24 / stageScale} offsetX={12 / stageScale} offsetY={12 / stageScale} />
                       </Group>
                     );
@@ -1084,7 +1162,7 @@ const FloorplanCanvas = forwardRef(({
         </div>
       )}
 
-      {settings?.showHistoryHover && hoveredUnit && pointerPos && !contextMenu && toolMode !== 'draw' && toolMode !== 'add_node' && (
+      {settings?.showHistoryHover && hoveredUnit && pointerPos && !contextMenu && !['draw', 'add_node', 'route'].includes(toolMode) && (
         (() => {
           const u = units.find(x => x.id === hoveredUnit);
           const s = activeStatuses.find(status => status.unit_id === hoveredUnit);
