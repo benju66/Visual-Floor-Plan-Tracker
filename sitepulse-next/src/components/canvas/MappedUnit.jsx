@@ -78,10 +78,7 @@ export const MappedUnitComponent = ({
   let currentFill = fillColor;
   let currentStroke = activeStatus ? activeStatus.status_color : (dim ? '#94a3b8' : '#475569');
 
-  if (isRouteDropTarget) {
-     currentFill = 'rgba(16, 185, 129, 0.4)';
-     currentStroke = '#10b981';
-  } else if (activeStatus && !highlight && !dim) {
+  if (activeStatus && !highlight && !dim) {
     if (tState === 'none') {
       currentFill = mixAlpha(activeStatus.status_color, 0.05); // Super faint hint
     } else if (tState === 'planned') {
@@ -95,6 +92,12 @@ export const MappedUnitComponent = ({
   if (dim && activeStatus) {
     currentFill = mixAlpha(activeStatus.status_color, 0.1);
     currentStroke = mixAlpha(activeStatus.status_color, 0.3);
+  }
+
+  // Final visual override for routing drop targeting
+  if (isRouteDropTarget) {
+     currentFill = 'rgba(16, 185, 129, 0.4)';
+     currentStroke = '#10b981';
   }
 
   const basePolygon = optimisticCoords || unit.polygon_coordinates;

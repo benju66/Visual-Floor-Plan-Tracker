@@ -802,12 +802,13 @@ const FloorplanCanvas = forwardRef(({
           onPointerUp={(e) => {
             setIsDraggingCanvas(false);
             
-            if (activeRouteDrag) {
+            // NEW: Handle Route Midpoint Drop
+            if (activeRouteDrag && activeRouteDrag.type === 'midpoint') {
               if (routeDropTarget) {
                 let newRoute = [...pendingRoute];
                 const existingIdx = newRoute.indexOf(routeDropTarget);
                 
-                // If it already exists in the route, remove it first
+                // If it already exists in the route, remove it first to prevent duplicates
                 if (existingIdx !== -1) {
                   newRoute.splice(existingIdx, 1);
                   // Adjust sourceIndex if the removed item was before it
@@ -821,8 +822,10 @@ const FloorplanCanvas = forwardRef(({
               }
               setActiveRouteDrag(null);
               setRouteDropTarget(null);
+              return;
             }
 
+            // Existing draw logic...
             if (toolMode === 'draw' && boxOrigin) {
               const stage = e.target.getStage();
               const pointer = stage.getPointerPosition() || pointerPos;
@@ -855,34 +858,32 @@ const FloorplanCanvas = forwardRef(({
           }}
           onMouseMove={(e) => {
             const stage = e.target.getStage();
-            if (stage) {
-              const pos = stage.getPointerPosition();
-              setPointerPos(pos);
+            const pos = stage.getPointerPosition();
+            if (stage) setPointerPos(pos);
+            
+            // NEW: Routing midpoint drag targeting
+            if (activeRouteDrag && pos) {
+              const dropX = (pos.x - stagePosition.x) / stageScale;
+              const dropY = (pos.y - stagePosition.y) / stageScale;
               
-              if (activeRouteDrag && pos) {
-                // Convert screen pointer to unscaled canvas coordinates
-                const dropX = (pos.x - stagePosition.x) / stageScale;
-                const dropY = (pos.y - stagePosition.y) / stageScale;
+              let closestId = null;
+              let minDist = Infinity;
+
+              units.forEach(u => {
+                if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) return;
+                const centroid = getCentroid(u.polygon_coordinates);
+                const targetX = layout.offsetX + centroid.pctX * layout.drawW;
+                const targetY = layout.offsetY + centroid.pctY * layout.drawH;
                 
-                let closestId = null;
-                let minDist = Infinity;
-
-                units.forEach(u => {
-                  if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) return;
-                  const centroid = getCentroid(u.polygon_coordinates);
-                  const targetX = layout.offsetX + centroid.pctX * layout.drawW;
-                  const targetY = layout.offsetY + centroid.pctY * layout.drawH;
-                  
-                  const d = Math.sqrt(Math.pow(targetX - dropX, 2) + Math.pow(targetY - dropY, 2));
-                  if (d < (40 / stageScale) && d < minDist) {
-                    minDist = d;
-                    closestId = u.id;
-                  }
-                });
-
-                if (closestId !== routeDropTarget) {
-                  setRouteDropTarget(closestId);
+                const d = Math.sqrt(Math.pow(targetX - dropX, 2) + Math.pow(targetY - dropY, 2));
+                if (d < (40 / stageScale) && d < minDist) {
+                  minDist = d;
+                  closestId = u.id;
                 }
+              });
+
+              if (closestId !== routeDropTarget) {
+                setRouteDropTarget(closestId);
               }
             }
           }}
@@ -1032,29 +1033,30 @@ const FloorplanCanvas = forwardRef(({
 
               return (
                 <Group>
+                  {/* Render segmented lines to allow individual midpoint insertion */}
                   {routePoints.slice(0, -1).map((p1, i) => {
                     const p2 = routePoints[i + 1];
+                    const startX = layout.offsetX + p1.pctX * layout.drawW;
+                    const startY = layout.offsetY + p1.pctY * layout.drawH;
+                    const endX = layout.offsetX + p2.pctX * layout.drawW;
+                    const endY = layout.offsetY + p2.pctY * layout.drawH;
+                    
                     return (
                       <Line
                         key={`route-segment-${i}`}
-                        points={[
-                          layout.offsetX + p1.pctX * layout.drawW,
-                          layout.offsetY + p1.pctY * layout.drawH,
-                          layout.offsetX + p2.pctX * layout.drawW,
-                          layout.offsetY + p2.pctY * layout.drawH
-                        ]}
+                        points={[startX, startY, endX, endY]}
                         stroke="#3b82f6"
                         strokeWidth={4 / stageScale}
                         dash={[10 / stageScale, 10 / stageScale]}
                         lineCap="round"
                         lineJoin="round"
                         opacity={lineOpacity}
-                        listening={toolMode === 'route'}
+                        listening={toolMode === 'route' && routeSubMode === 'add'}
                         onMouseEnter={(e) => {
-                          e.target.stroke("#2563eb");
+                          e.target.stroke("#10b981"); // Turn emerald on hover
                           e.target.strokeWidth(6 / stageScale);
                           e.target.getLayer().batchDraw();
-                          e.target.getStage().container().style.cursor = 'grab';
+                          e.target.getStage().container().style.cursor = addNodeCursor;
                         }}
                         onMouseLeave={(e) => {
                           e.target.stroke("#3b82f6");
@@ -1069,14 +1071,17 @@ const FloorplanCanvas = forwardRef(({
                       />
                     );
                   })}
-                  
-                  {activeRouteDrag && pointerPos && (() => {
+
+                  {/* Ghost Node for Midpoint Insertion */}
+                  {activeRouteDrag && activeRouteDrag.type === 'midpoint' && pointerPos && (() => {
                     const ghostX = (pointerPos.x - stagePosition.x) / stageScale;
                     const ghostY = (pointerPos.y - stagePosition.y) / stageScale;
                     
                     const p1 = routePoints[activeRouteDrag.sourceIndex];
                     const p2 = routePoints[activeRouteDrag.sourceIndex + 1];
                     
+                    if (!p1 || !p2) return null;
+
                     const startX = layout.offsetX + p1.pctX * layout.drawW;
                     const startY = layout.offsetY + p1.pctY * layout.drawH;
                     const endX = layout.offsetX + p2.pctX * layout.drawW;
@@ -1086,7 +1091,7 @@ const FloorplanCanvas = forwardRef(({
                       <Group listening={false}>
                         <Line
                           points={[startX, startY, ghostX, ghostY, endX, endY]}
-                          stroke="#2563eb"
+                          stroke="#10b981"
                           strokeWidth={4 / stageScale}
                           dash={[10 / stageScale, 10 / stageScale]}
                           opacity={0.8}
@@ -1095,7 +1100,7 @@ const FloorplanCanvas = forwardRef(({
                           x={ghostX}
                           y={ghostY}
                           radius={12 / stageScale}
-                          fill="#2563eb"
+                          fill="#10b981"
                           opacity={0.5}
                         />
                       </Group>

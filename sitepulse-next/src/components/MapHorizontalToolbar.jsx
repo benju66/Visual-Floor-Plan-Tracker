@@ -188,7 +188,7 @@ export default function MapHorizontalToolbar({
 
     {toolMode === 'route' && (
       <div 
-        className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-full shadow-lg z-20 animate-in slide-in-from-top-2 fade-in duration-200"
+        className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-1.5 p-1.5 rounded-full shadow-lg z-20 animate-in slide-in-from-top-2 fade-in duration-200"
         style={{
           background: 'var(--glass-bg, rgba(255, 255, 255, 0.7))',
           borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
@@ -198,31 +198,34 @@ export default function MapHorizontalToolbar({
       >
         <button
           type="button"
+          title="Move Node"
           onClick={() => setRouteSubMode('move')}
-          className={`p-2 rounded-full flex items-center gap-1.5 px-3 transition-all text-sm font-bold ${
-            routeSubMode === 'move' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          className={`p-2 rounded-full flex items-center justify-center transition-all ${
+            routeSubMode === 'move' ? 'bg-blue-500 text-white shadow-sm scale-110' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
           }`}
         >
-          <Move size={16} /> Move
+          <Move size={18} />
         </button>
-        <div className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
+        <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-0.5" />
         <button
           type="button"
+          title="Insert Node"
           onClick={() => setRouteSubMode('add')}
-          className={`p-2 rounded-full flex items-center gap-1.5 px-3 transition-all text-sm font-bold ${
-            routeSubMode === 'add' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          className={`p-2 rounded-full flex items-center justify-center transition-all ${
+            routeSubMode === 'add' ? 'bg-emerald-500 text-white shadow-sm scale-110' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
           }`}
         >
-          <Plus size={16} /> Add Node
+          <Plus size={18} />
         </button>
         <button
           type="button"
+          title="Remove Node"
           onClick={() => setRouteSubMode('remove')}
-          className={`p-2 rounded-full flex items-center gap-1.5 px-3 transition-all text-sm font-bold ${
-            routeSubMode === 'remove' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          className={`p-2 rounded-full flex items-center justify-center transition-all ${
+            routeSubMode === 'remove' ? 'bg-rose-500 text-white shadow-sm scale-110' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
           }`}
         >
-          <Minus size={16} /> Remove
+          <Minus size={18} />
         </button>
       </div>
     )}
