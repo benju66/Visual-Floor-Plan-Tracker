@@ -40,6 +40,9 @@ const FloorplanCanvas = forwardRef(({
   const activeSheetId = useMapStore(s => s.activeSheetId);
   const toolMode = useMapStore(s => s.toolMode);
   const onToolModeChange = useMapStore(s => s.setToolMode);
+  const pendingRoute = useMapStore(s => s.pendingRoute);
+  const setPendingRoute = useMapStore(s => s.setPendingRoute);
+  const routeSubMode = useMapStore(s => s.routeSubMode);
   const selectedUnitIds = useMapStore(s => s.selectedUnitIds);
   const onSelectUnit = useMapStore(s => s.toggleSelectedUnitId);
   const onClearSelection = useMapStore(s => s.clearSelectedUnits);
@@ -112,7 +115,6 @@ const FloorplanCanvas = forwardRef(({
   const [contextMenu, setContextMenu] = useState(null);
   const [pointerPos, setPointerPos] = useState(null);
   const [isLegendSelected, setIsLegendSelected] = useState(false);
-  const [pendingRoute, setPendingRoute] = useState([]);
   const routeMutation = useUpdateWalkSequence(activeSheetId);
 
   const [isShiftDown, setIsShiftDown] = useState(false);
@@ -472,9 +474,11 @@ const FloorplanCanvas = forwardRef(({
   const handlePolygonClick = (e, unit) => {
     if (toolMode === 'route') {
       e.cancelBubble = true;
-      setPendingRoute(prev => 
-        prev.includes(unit.id) ? prev.filter(id => id !== unit.id) : [...prev, unit.id]
-      );
+      if (routeSubMode === 'add' && !pendingRoute.includes(unit.id)) {
+        setPendingRoute(prev => [...prev, unit.id]);
+      } else if (routeSubMode === 'remove' && pendingRoute.includes(unit.id)) {
+        setPendingRoute(prev => prev.filter(id => id !== unit.id));
+      }
       return;
     }
     if (!['select', 'multi_select', 'add_node', 'delete_node'].includes(toolMode)) return;
@@ -978,7 +982,71 @@ const FloorplanCanvas = forwardRef(({
                     const x = layout.offsetX + p.pctX * layout.drawW;
                     const y = layout.offsetY + p.pctY * layout.drawH;
                     return (
-                      <Group key={`route-${p.id}`} x={x} y={y} opacity={dotOpacity}>
+                      <Group 
+                        key={`route-${p.id}`} 
+                        x={x} 
+                        y={y} 
+                        opacity={dotOpacity}
+                        draggable={toolMode === 'route' && routeSubMode === 'move'}
+                        onMouseEnter={(e) => {
+                          if (toolMode === 'route' && routeSubMode === 'move') e.target.getStage().container().style.cursor = 'grab';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.getStage().container().style.cursor = computedCursor;
+                        }}
+                        onDragStart={(e) => {
+                          e.cancelBubble = true;
+                          e.target.getStage().container().style.cursor = 'grabbing';
+                          e.target.scale({ x: 1.2, y: 1.2 });
+                          const circle = e.target.findOne('Circle');
+                          if (circle) {
+                            circle.shadowOpacity(0.6);
+                            circle.shadowBlur(8 / stageScale);
+                          }
+                        }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          e.target.getStage().container().style.cursor = 'grab';
+                          e.target.scale({ x: 1, y: 1 });
+                          const circle = e.target.findOne('Circle');
+                          if (circle) {
+                            circle.shadowOpacity(0.3);
+                            circle.shadowBlur(4 / stageScale);
+                          }
+                          
+                          const dropX = e.target.x();
+                          const dropY = e.target.y();
+
+                          let closestId = null;
+                          let minDist = Infinity;
+
+                          routePoints.forEach(target => {
+                            const targetX = layout.offsetX + target.pctX * layout.drawW;
+                            const targetY = layout.offsetY + target.pctY * layout.drawH;
+
+                            const d = Math.sqrt(Math.pow(targetX - dropX, 2) + Math.pow(targetY - dropY, 2));
+
+                            if (d < (40 / stageScale) && d < minDist) {
+                              minDist = d;
+                              closestId = target.id;
+                            }
+                          });
+
+                          if (closestId && closestId !== p.id) {
+                            const newRoute = [...pendingRoute];
+                            const dragIndex = newRoute.indexOf(p.id);
+                            const dropIndex = newRoute.indexOf(closestId);
+                            
+                            const [draggedItem] = newRoute.splice(dragIndex, 1);
+                            newRoute.splice(dropIndex, 0, draggedItem);
+                            
+                            setPendingRoute(newRoute);
+                          }
+
+                          e.target.x(x);
+                          e.target.y(y);
+                        }}
+                      >
                         <Circle radius={12 / stageScale} fill="#3b82f6" shadowColor="black" shadowBlur={4 / stageScale} shadowOpacity={0.3} shadowOffset={{x: 0, y: 2/stageScale}} />
                         <Text text={(idx + 1).toString()} fontSize={14 / stageScale} fill="white" fontStyle="bold" align="center" verticalAlign="middle" width={24 / stageScale} height={24 / stageScale} offsetX={12 / stageScale} offsetY={12 / stageScale} />
                       </Group>

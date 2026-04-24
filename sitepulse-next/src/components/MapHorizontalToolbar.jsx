@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 
 export default function MapHorizontalToolbar({
@@ -15,6 +15,8 @@ export default function MapHorizontalToolbar({
 }) {
   const toolMode = useMapStore(s => s.toolMode);
   const onToolModeChange = useMapStore(s => s.setToolMode);
+  const routeSubMode = useMapStore(s => s.routeSubMode);
+  const setRouteSubMode = useMapStore(s => s.setRouteSubMode);
   if (!mapSettings?.showHorizontalToolbar) return null;
 
   const toolIcons = {
@@ -46,15 +48,16 @@ export default function MapHorizontalToolbar({
   }
 
   return (
-    <div
-      className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 p-1.5 rounded-full shadow-lg z-20 transition-all duration-200"
-      style={{
-        background: 'var(--glass-bg, rgba(255, 255, 255, 0.7))',
-        borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
-        borderWidth: '1px',
-        backdropFilter: 'blur(12px)'
-      }}
-    >
+    <>
+      <div
+        className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 p-1.5 rounded-full shadow-lg z-20 transition-all duration-200"
+        style={{
+          background: 'var(--glass-bg, rgba(255, 255, 255, 0.7))',
+          borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
+          borderWidth: '1px',
+          backdropFilter: 'blur(12px)'
+        }}
+      >
       {toolsToRender.map((toolId, idx) => {
         const Icon = toolIcons[toolId];
         if (!Icon) return null;
@@ -182,5 +185,47 @@ export default function MapHorizontalToolbar({
         <List size={18} />
       </button>
     </div>
+
+    {toolMode === 'route' && (
+      <div 
+        className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-full shadow-lg z-20 animate-in slide-in-from-top-2 fade-in duration-200"
+        style={{
+          background: 'var(--glass-bg, rgba(255, 255, 255, 0.7))',
+          borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
+          borderWidth: '1px',
+          backdropFilter: 'blur(12px)'
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setRouteSubMode('move')}
+          className={`p-2 rounded-full flex items-center gap-1.5 px-3 transition-all text-sm font-bold ${
+            routeSubMode === 'move' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <Move size={16} /> Move
+        </button>
+        <div className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
+        <button
+          type="button"
+          onClick={() => setRouteSubMode('add')}
+          className={`p-2 rounded-full flex items-center gap-1.5 px-3 transition-all text-sm font-bold ${
+            routeSubMode === 'add' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <Plus size={16} /> Add Node
+        </button>
+        <button
+          type="button"
+          onClick={() => setRouteSubMode('remove')}
+          className={`p-2 rounded-full flex items-center gap-1.5 px-3 transition-all text-sm font-bold ${
+            routeSubMode === 'remove' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <Minus size={16} /> Remove
+        </button>
+      </div>
+    )}
+    </>
   );
 }

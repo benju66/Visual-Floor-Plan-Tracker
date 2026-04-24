@@ -11,6 +11,13 @@ export const useMapStore = create(
   trackingMode: 'Production',
   setTrackingMode: (mode) => set((state) => ({ trackingMode: typeof mode === 'function' ? mode(state.trackingMode) : mode })),
 
+  // Lifted Route State
+  pendingRoute: [],
+  setPendingRoute: (val) => set((state) => ({ pendingRoute: typeof val === 'function' ? val(state.pendingRoute) : val })),
+  
+  routeSubMode: 'move', // 'move', 'add', 'remove'
+  setRouteSubMode: (mode) => set({ routeSubMode: mode }),
+
   // Selection State
   selectedUnitIds: [],
   setSelectedUnitIds: (ids) => set((state) => ({ selectedUnitIds: typeof ids === 'function' ? ids(state.selectedUnitIds) : ids })),
