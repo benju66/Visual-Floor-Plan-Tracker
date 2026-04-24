@@ -117,9 +117,14 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
                 </div>
              ) : (
                 <>
-                   <div className="flex items-center justify-center gap-2 mb-2">
-                       <h2 className="text-7xl font-black text-slate-900 dark:text-white tracking-tighter">{unit.unit_number}</h2>
-                       <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+                   <div className="flex flex-col items-center justify-center mb-2">
+                       <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3 inline-block shadow-sm">
+                         {unit.unit_type || 'Unknown'}
+                       </span>
+                       <div className="flex items-center justify-center gap-2">
+                           <h2 className="text-7xl font-black text-slate-900 dark:text-white tracking-tighter">{unit.unit_number}</h2>
+                           <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+                       </div>
                    </div>
                    
                    <div className="mt-4">
@@ -176,11 +181,13 @@ export default function FieldStatusTable({
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [sortColumn, setSortColumn] = useState('unit'); // 'unit', 'status', 'updated'
   const [sortDirection, setSortDirection] = useState('asc'); // 'asc', 'desc'
+  const [typeFilter, setTypeFilter] = useState('All');
   
   const params = useParams();
   const projectId = params?.projectId;
   
   const { data: project } = useProject(projectId);
+  const projectUnitTypes = project?.unit_types || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
   const { data: allMilestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
 
@@ -243,6 +250,10 @@ export default function FieldStatusTable({
             const sb = b.log?.temporal_state || '';
             cmp = sa.localeCompare(sb);
           }
+        } else if (sortColumn === 'unit_type') {
+          const typeA = a.unit.unit_type || '';
+          const typeB = b.unit.unit_type || '';
+          cmp = typeA.localeCompare(typeB);
         } else if (sortColumn === 'updated') {
           const ta = a.log?.logged_date ? new Date(a.log.logged_date).getTime() : (a.log?.created_at ? new Date(a.log.created_at).getTime() : 0);
           const tb = b.log?.logged_date ? new Date(b.log.logged_date).getTime() : (b.log?.created_at ? new Date(b.log.created_at).getTime() : 0);
@@ -259,9 +270,18 @@ export default function FieldStatusTable({
   }, [units, activeStatuses, sortColumn, sortDirection]);
 
   const visible = useMemo(() => {
-    if (!statusFilter) return ranked;
-    return ranked.filter((row) => row.log?.milestone === statusFilter);
-  }, [ranked, statusFilter]);
+    let filtered = ranked;
+    
+    if (statusFilter) {
+      filtered = filtered.filter((row) => row.log?.milestone === statusFilter);
+    }
+    
+    if (typeFilter !== 'All') {
+      filtered = filtered.filter((row) => row.unit.unit_type === typeFilter);
+    }
+    
+    return filtered;
+  }, [ranked, statusFilter, typeFilter]);
 
   if (!units || units.length === 0) {
     return (
@@ -404,8 +424,8 @@ export default function FieldStatusTable({
 
   return (
     <div className="w-full pb-6">
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex-1">
+      <div className="flex flex-col md:flex-row justify-between md:items-center gap-3 mb-4">
+        <div className="flex-1 w-full md:w-auto">
           {Object.keys(pendingChanges).length > 0 && (
             <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-4 py-2 shadow-sm animate-in fade-in zoom-in-95 duration-200">
               <span className="text-sm font-semibold text-amber-800 dark:text-amber-400">
@@ -428,29 +448,53 @@ export default function FieldStatusTable({
             </div>
           )}
         </div>
-        <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm ml-4">
-          <button
-            type="button"
-            onClick={() => setViewStyle('table')}
-            className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
-              viewStyle === 'table'
-                ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
-          >
-            Table
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewStyle('card')}
-            className={`px-3 py-1.5 text-xs font-semibold border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-              viewStyle === 'card'
-                ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
-          >
-            Cards
-          </button>
+        
+        <div className="flex items-center justify-between md:justify-end w-full md:w-auto gap-3">
+          {/* Unit Type Filter */}
+          <div className="flex items-center gap-2 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-lg px-2 py-1 shadow-sm">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1 hidden sm:inline">
+              Filter:
+            </span>
+            <select
+              value={typeFilter}
+              onChange={e => {
+                setTypeFilter(e.target.value);
+                if (viewStyle === 'card') setSwipedDeckIds(new Set()); 
+              }}
+              className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer max-w-[160px] sm:max-w-xs truncate"
+            >
+              <option value="All">All Spaces</option>
+              {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <div className="flex items-center justify-center bg-slate-200/80 dark:bg-slate-700/80 text-[10px] font-bold text-slate-600 dark:text-slate-300 rounded-md px-1.5 min-w-[20px] h-5" title={`${visible.length} locations visible`}>
+              {visible.length}
+            </div>
+          </div>
+
+          <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm shrink-0">
+            <button
+              type="button"
+              onClick={() => setViewStyle('table')}
+              className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
+                viewStyle === 'table'
+                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
+            >
+              Table
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewStyle('card')}
+              className={`px-3 py-1.5 text-xs font-semibold border-l border-slate-300/80 dark:border-white/10 transition-colors ${
+                viewStyle === 'card'
+                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
+            >
+              Cards
+            </button>
+          </div>
         </div>
       </div>
 
@@ -519,16 +563,21 @@ export default function FieldStatusTable({
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-start gap-3">
                       <input 
                         type="checkbox" 
                         checked={selectedUnitIds.includes(unit.id)} 
                         readOnly 
-                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
+                        className="w-4 h-4 mt-1.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
                       />
-                      <div className={`font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 ${hero ? 'text-2xl' : 'text-lg'}`}>
-                        {unit.unit_number}
-                        <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">
+                          {unit.unit_type || 'Unknown'}
+                        </span>
+                        <div className={`font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 ${hero ? 'text-2xl' : 'text-lg'}`}>
+                          {unit.unit_number}
+                          <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -573,6 +622,12 @@ export default function FieldStatusTable({
                   Location {renderSortIcon('unit')}
                 </th>
                 <th 
+                  onClick={() => handleSort('unit_type')}
+                  className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+                >
+                  Space Type {renderSortIcon('unit_type')}
+                </th>
+                <th 
                   onClick={() => handleSort('status')}
                   className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[200px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
                 >
@@ -612,6 +667,11 @@ export default function FieldStatusTable({
                        <BottleneckIndicator outOfSequence={log?.outOfSequence} />
                        {savingUnitId === unit.id && <UpdatingRing />}
                     </div>
+                  </td>
+                  <td className="px-5 py-2 align-middle text-slate-600 dark:text-slate-400">
+                    <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
+                      {unit.unit_type || 'Unknown'}
+                    </span>
                   </td>
                   <td className="px-5 py-2 align-middle">
                     {(() => {
