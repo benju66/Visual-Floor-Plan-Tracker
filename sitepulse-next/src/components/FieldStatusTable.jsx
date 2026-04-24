@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion, useMotionValue, useTransform } from 'framer-motion';
-import { ArrowUp, ArrowDown, History } from 'lucide-react';
+import { ArrowUp, ArrowDown, History, AlertTriangle, X } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -30,30 +30,84 @@ const BottleneckIndicator = ({ outOfSequence }) => {
 
   return (
     <div 
-      className="relative group/bottleneck flex items-center ml-1"
-      onClick={(e) => {
-        e.stopPropagation();
-        setIsOpen(!isOpen);
-      }}
+      className="relative flex items-center ml-1 z-[100]"
+      onMouseEnter={() => setIsOpen(true)}
       onMouseLeave={() => setIsOpen(false)}
     >
-      <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-pointer ring-2 ring-red-500/20" />
-      <div className={`absolute left-full ml-3 top-1/2 -translate-y-1/2 w-56 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-xl p-3 shadow-2xl z-50 pointer-events-none before:content-[''] before:absolute before:-left-1 before:top-1/2 before:-translate-y-1/2 before:w-2 before:h-2 before:bg-slate-900 dark:before:bg-slate-100 before:rotate-45 ${isOpen ? 'block' : 'hidden group-hover/bottleneck:block'}`}>
-        <div className="font-bold text-red-500 dark:text-red-600 mb-1 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-          Sequence Blocked
-        </div>
-        <p className="opacity-80 mb-2 leading-tight text-slate-300 dark:text-slate-600">This baseline status is pending. Operations logged ahead in sequence:</p>
-        <div className="flex flex-col gap-1.5 border-t border-white/10 dark:border-black/5 pt-2">
-          {outOfSequence.map(seq => (
-            <div key={seq.id} className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: seq.status_color }} />
-              <span className="truncate font-medium">{seq.milestone}</span>
-              <span className="text-[9px] uppercase tracking-widest opacity-50 ml-auto pt-[1px]">{seq.temporal_state}</span>
+      <div 
+        className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-pointer ring-2 ring-red-500/20 group/indicator"
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+      />
+
+      {isOpen && (
+        <>
+          {/* Mobile Overlay */}
+          <div className="fixed inset-0 z-[100] md:hidden flex items-center justify-center p-4">
+             {/* Backdrop */}
+             <div className="absolute inset-0 bg-slate-900/60 dark:bg-black/60 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} />
+             
+             {/* Modal Content */}
+             <div 
+                className="w-full max-w-xs bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-3xl p-6 shadow-2xl relative z-10 pointer-events-auto border border-white/10 dark:border-black/10 animate-in zoom-in-95 fade-in duration-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} 
+                  className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white dark:text-slate-500 dark:hover:text-slate-800 bg-white/5 hover:bg-white/10 dark:bg-black/5 dark:hover:bg-black/10 rounded-full transition-colors z-10"
+                  title="Close"
+                >
+                    <X size={16} strokeWidth={2.5} />
+                </button>
+                <div className="font-bold text-red-500 dark:text-red-600 mb-3 flex items-center gap-2 uppercase tracking-wider text-[13px] relative z-10 pr-6">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                  Sequence Blocked
+                </div>
+                <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">This baseline status is pending. Operations logged ahead in sequence:</p>
+                <div className="flex flex-col gap-3 border-t border-white/10 dark:border-black/5 pt-4 relative z-10">
+                  {outOfSequence.map(seq => (
+                    <div key={seq.id} className="flex items-center gap-3">
+                      <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
+                      <span className="truncate font-bold text-[14px]">{seq.milestone}</span>
+                      <span className="text-[11px] font-bold uppercase tracking-widest opacity-60 ml-auto pt-[1px]">{seq.temporal_state}</span>
+                    </div>
+                  ))}
+                </div>
+             </div>
+          </div>
+          
+          {/* Desktop Tooltip */}
+          <div 
+            className="hidden md:block absolute left-full ml-4 top-1/2 -translate-y-1/2 w-72 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-2xl p-4 shadow-2xl z-[100] pointer-events-auto border border-white/10 dark:border-black/10 animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="absolute top-1/2 -left-2 -translate-y-1/2 w-4 h-4 bg-slate-900 dark:bg-slate-100 rotate-45 border-l border-b border-white/10 dark:border-black/10" />
+            <button 
+              onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} 
+              className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-white dark:text-slate-500 dark:hover:text-slate-800 bg-white/5 hover:bg-white/10 dark:bg-black/5 dark:hover:bg-black/10 rounded-full transition-colors z-10"
+              title="Close"
+            >
+                <X size={14} strokeWidth={2.5} />
+            </button>
+            <div className="font-bold text-red-500 dark:text-red-600 mb-2 flex items-center gap-1.5 uppercase tracking-wider text-[11px] relative z-10 pr-6">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              Sequence Blocked
             </div>
-          ))}
-        </div>
-      </div>
+            <p className="opacity-80 mb-3 leading-tight text-slate-300 dark:text-slate-600 relative z-10">This baseline status is pending. Operations logged ahead in sequence:</p>
+            <div className="flex flex-col gap-2 border-t border-white/10 dark:border-black/5 pt-3 relative z-10">
+              {outOfSequence.map(seq => (
+                <div key={seq.id} className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
+                  <span className="truncate font-medium text-[13px]">{seq.milestone}</span>
+                  <span className="text-[10px] uppercase tracking-widest opacity-50 ml-auto pt-[1px]">{seq.temporal_state}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -103,8 +157,14 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
       <div className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] shadow-2xl overflow-hidden relative ${isTop && pendingEscapeMilestone ? 'border-sky-400/50 dark:border-sky-500/50 pointer-events-auto' : 'border-slate-200/80 dark:border-white/10'}`}>
          <div className="p-8 pb-4 flex-1 flex flex-col items-center justify-center text-center relative z-10 w-full">
              {pendingEscapeMilestone ? (
-                <div className="flex flex-col w-full h-full animate-in fade-in zoom-in-95 duration-200">
-                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Set Status For</h3>
+                <div className="flex flex-col w-full h-full animate-in fade-in zoom-in-95 duration-200 relative">
+                   <button 
+                       onClick={(e) => { e.stopPropagation(); setPendingEscapeMilestone(null); }}
+                       className="absolute -top-4 -right-4 p-2 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors pointer-events-auto z-50 shadow-sm"
+                   >
+                       <X size={16} strokeWidth={3} />
+                   </button>
+                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1 mt-2">Set Status For</h3>
                    <p className="text-xl font-black text-slate-800 dark:text-slate-100 mb-6 leading-tight">{pendingEscapeMilestone.name}</p>
                    
                    <div className="flex flex-col gap-3 w-full flex-1 justify-center">
@@ -135,28 +195,28 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
                    </div>
                    <div className="mt-8 border-t border-slate-100 dark:border-white/5 w-full pt-6">
                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Status</p>
-                       <span className={`px-4 py-2 rounded-full text-base font-black uppercase tracking-widest ${getBadgeColor(pendingState)} inline-block`}>
-                           {pendingState}
-                       </span>
+                       <div className="flex items-center justify-center w-full relative h-10">
+                           {!pendingEscapeMilestone && (
+                               <button
+                                   type="button"
+                                   onClick={(e) => { 
+                                       e.stopPropagation(); 
+                                       if(isTop) onChooseStatus?.(unit, (m) => setPendingEscapeMilestone(m)); 
+                                   }}
+                                   title="Log Out of Sequence"
+                                   className="absolute left-0 w-10 h-10 rounded-full bg-red-100 text-red-500 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white flex items-center justify-center transition-colors active:scale-95 shadow-sm pointer-events-auto cursor-pointer"
+                               >
+                                   <AlertTriangle size={18} strokeWidth={2.5} />
+                               </button>
+                           )}
+                           <span className={`px-4 py-2 rounded-full text-base font-black uppercase tracking-widest ${getBadgeColor(pendingState)} inline-block`}>
+                               {pendingState}
+                           </span>
+                       </div>
                    </div>
                 </>
              )}
          </div>
-         
-         {!pendingEscapeMilestone && (
-            <div className="p-4 border-t border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-slate-800 z-10 relative pointer-events-auto">
-                <button
-                    type="button"
-                    onClick={(e) => { 
-                        e.stopPropagation(); 
-                        if(isTop) onChooseStatus?.(unit, (m) => setPendingEscapeMilestone(m)); 
-                    }}
-                    className="w-full py-4 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-slate-200 font-bold transition-colors active:scale-[0.98]"
-                >
-                    Log Out of Sequence
-                </button>
-            </div>
-         )}
       </div>
     </motion.div>
   );
