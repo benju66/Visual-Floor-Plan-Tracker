@@ -96,3 +96,4 @@ select option, select optgroup {
   background-color: var(--bg);
   color: var(--text-h);
 }
+:root.hide-header-elements .hide-in-swipe-view { display: none !important; }

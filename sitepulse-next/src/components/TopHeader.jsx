@@ -18,16 +18,16 @@ function TopHeader({
   // Custom scorllbar hiding utility class (if tailwind-scrollbar-hide is missing)
   // Usually added via global css, we just use arbitrary Tailwind for scrollbar hiding
   const hideScrollbar = "[&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']";
-  
+
   return (
     <header className="mb-4 flex-shrink-0 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3 rounded-xl border px-3 py-2 bg-white/30 dark:bg-black/10 backdrop-blur-md border-slate-200/60 dark:border-white/10 shadow-sm relative z-20">
-      
+
       {/* 1. LEFT SIDE: Title & Project Location Controls */}
       <div className="flex items-center gap-3 w-full xl:w-auto">
-        <Link href="/dashboard" className="p-2 mr-1 rounded-xl bg-slate-100/50 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-sky-500 transition-colors shadow-sm" title="Back to Dashboard">
+        <Link href="/dashboard" className="hide-in-swipe-view p-2 mr-1 rounded-xl bg-slate-100/50 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-sky-500 transition-colors shadow-sm" title="Back to Dashboard">
           <Home size={20} />
         </Link>
-        <div className="flex items-center gap-2 pr-1 xl:pr-3 xl:border-r border-slate-200 dark:border-white/10">
+        <div className="hide-in-swipe-view flex items-center gap-2 pr-1 xl:pr-3 xl:border-r border-slate-200 dark:border-white/10">
           <div className="flex items-center justify-center text-sky-500 bg-sky-100 dark:bg-sky-500/20 w-8 h-8 rounded-lg flex-shrink-0">
             <Folders size={18} />
           </div>
@@ -58,7 +58,7 @@ function TopHeader({
               <button
                 type="button"
                 onClick={() => setIsModalOpen(true)}
-                className="border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer text-slate-600 dark:text-slate-300 shadow-sm transition-colors flex-shrink-0"
+                className="hide-in-swipe-view border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer text-slate-600 dark:text-slate-300 shadow-sm transition-colors flex-shrink-0"
                 title="Add New Level"
               >
                 <Plus size={18} />
@@ -66,7 +66,7 @@ function TopHeader({
               <button
                 type="button"
                 onClick={() => setIsProjectMenuOpen(true)}
-                className="border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer shadow-sm transition-colors flex-shrink-0"
+                className="hide-in-swipe-view border border-slate-300/80 dark:border-white/15 p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer shadow-sm transition-colors flex-shrink-0"
                 title="Manage Levels"
               >
                 <FolderEdit size={18} />
@@ -78,7 +78,7 @@ function TopHeader({
 
       {/* 2. RIGHT SIDE: Tools, Scopes, and Settings */}
       <div className={`flex items-center gap-2 w-full xl:w-auto overflow-x-auto pb-1 xl:pb-0 ${hideScrollbar}`}>
-        
+
         {/* Milestones Button */}
         <button
           type="button"
@@ -87,7 +87,7 @@ function TopHeader({
         >
           Milestones (Ctrl+K)
         </button>
-        
+
         {/* Scope Tabs - Flex None to prevent squishing */}
         <div className="flex flex-shrink-0 flex-nowrap rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
           {activeSheet?.active_scopes && activeSheet.active_scopes.length > 0 ? (
@@ -96,11 +96,10 @@ function TopHeader({
                 key={scope}
                 type="button"
                 onClick={() => setTrackingMode(scope)}
-                className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${index > 0 ? 'border-l border-slate-300/80 dark:border-white/10' : ''} ${
-                  trackingMode === scope
+                className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${index > 0 ? 'border-l border-slate-300/80 dark:border-white/10' : ''} ${trackingMode === scope
                     ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
                     : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-                }`}
+                  }`}
               >
                 {scope}
               </button>
@@ -116,9 +115,8 @@ function TopHeader({
             type="button"
             title="Dashboard View"
             onClick={() => { setViewMode('dashboard'); setToolMode('pan'); }}
-            className={`hidden md:flex px-3 py-1.5 cursor-pointer transition-colors ${
-              viewMode === 'dashboard' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
+            className={`hidden md:flex px-3 py-1.5 cursor-pointer transition-colors ${viewMode === 'dashboard' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
           >
             <LayoutDashboard size={16} />
           </button>
@@ -126,9 +124,8 @@ function TopHeader({
             type="button"
             title="Field List View"
             onClick={() => { setViewMode('list'); setToolMode('pan'); }}
-            className={`px-3 py-1.5 cursor-pointer md:border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-              viewMode === 'list' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
+            className={`px-3 py-1.5 cursor-pointer md:border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'list' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
           >
             <List size={16} />
           </button>
@@ -136,9 +133,8 @@ function TopHeader({
             type="button"
             title="Interactive Map View"
             onClick={() => setViewMode('map')}
-            className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-              viewMode === 'map' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
+            className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'map' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
           >
             <MapIcon size={16} />
           </button>

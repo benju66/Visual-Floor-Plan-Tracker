@@ -25,16 +25,16 @@ function UpdatingRing() {
 
 const BottleneckIndicator = ({ outOfSequence }) => {
   const [isOpen, setIsOpen] = useState(false);
-  
+
   if (!outOfSequence || outOfSequence.length === 0) return null;
 
   return (
-    <div 
+    <div
       className="relative flex items-center ml-1 z-[100]"
       onMouseEnter={() => setIsOpen(true)}
       onMouseLeave={() => setIsOpen(false)}
     >
-      <div 
+      <div
         className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-pointer ring-2 ring-red-500/20 group/indicator"
         onClick={(e) => {
           e.stopPropagation();
@@ -46,50 +46,50 @@ const BottleneckIndicator = ({ outOfSequence }) => {
         <>
           {/* Mobile Overlay */}
           <div className="fixed inset-0 z-[100] md:hidden flex items-center justify-center p-4">
-             {/* Backdrop */}
-             <div className="absolute inset-0 bg-slate-900/60 dark:bg-black/60 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} />
-             
-             {/* Modal Content */}
-             <div 
-                className="w-full max-w-xs bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-3xl p-6 shadow-2xl relative z-10 pointer-events-auto border border-white/10 dark:border-black/10 animate-in zoom-in-95 fade-in duration-200"
-                onClick={(e) => e.stopPropagation()}
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-slate-900/60 dark:bg-black/60 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} />
+
+            {/* Modal Content */}
+            <div
+              className="w-full max-w-xs bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-3xl p-6 shadow-2xl relative z-10 pointer-events-auto border border-white/10 dark:border-black/10 animate-in zoom-in-95 fade-in duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white dark:text-slate-500 dark:hover:text-slate-800 bg-white/5 hover:bg-white/10 dark:bg-black/5 dark:hover:bg-black/10 rounded-full transition-colors z-10"
+                title="Close"
               >
-                <button 
-                  onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} 
-                  className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white dark:text-slate-500 dark:hover:text-slate-800 bg-white/5 hover:bg-white/10 dark:bg-black/5 dark:hover:bg-black/10 rounded-full transition-colors z-10"
-                  title="Close"
-                >
-                    <X size={16} strokeWidth={2.5} />
-                </button>
-                <div className="font-bold text-red-500 dark:text-red-600 mb-3 flex items-center gap-2 uppercase tracking-wider text-[13px] relative z-10 pr-6">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                  Sequence Blocked
-                </div>
-                <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">This baseline status is pending. Operations logged ahead in sequence:</p>
-                <div className="flex flex-col gap-3 border-t border-white/10 dark:border-black/5 pt-4 relative z-10">
-                  {outOfSequence.map(seq => (
-                    <div key={seq.id} className="flex items-center gap-3">
-                      <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
-                      <span className="truncate font-bold text-[14px]">{seq.milestone}</span>
-                      <span className="text-[11px] font-bold uppercase tracking-widest opacity-60 ml-auto pt-[1px]">{seq.temporal_state}</span>
-                    </div>
-                  ))}
-                </div>
-             </div>
+                <X size={16} strokeWidth={2.5} />
+              </button>
+              <div className="font-bold text-red-500 dark:text-red-600 mb-3 flex items-center gap-2 uppercase tracking-wider text-[13px] relative z-10 pr-6">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                Sequence Blocked
+              </div>
+              <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">This baseline status is pending. Operations logged ahead in sequence:</p>
+              <div className="flex flex-col gap-3 border-t border-white/10 dark:border-black/5 pt-4 relative z-10">
+                {outOfSequence.map(seq => (
+                  <div key={seq.id} className="flex items-center gap-3">
+                    <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
+                    <span className="truncate font-bold text-[14px]">{seq.milestone}</span>
+                    <span className="text-[11px] font-bold uppercase tracking-widest opacity-60 ml-auto pt-[1px]">{seq.temporal_state}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-          
+
           {/* Desktop Tooltip */}
-          <div 
+          <div
             className="hidden md:block absolute left-full ml-4 top-1/2 -translate-y-1/2 w-72 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-2xl p-4 shadow-2xl z-[100] pointer-events-auto border border-white/10 dark:border-black/10 animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="absolute top-1/2 -left-2 -translate-y-1/2 w-4 h-4 bg-slate-900 dark:bg-slate-100 rotate-45 border-l border-b border-white/10 dark:border-black/10" />
-            <button 
-              onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} 
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
               className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-white dark:text-slate-500 dark:hover:text-slate-800 bg-white/5 hover:bg-white/10 dark:bg-black/5 dark:hover:bg-black/10 rounded-full transition-colors z-10"
               title="Close"
             >
-                <X size={14} strokeWidth={2.5} />
+              <X size={14} strokeWidth={2.5} />
             </button>
             <div className="font-bold text-red-500 dark:text-red-600 mb-2 flex items-center gap-1.5 uppercase tracking-wider text-[11px] relative z-10 pr-6">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
@@ -137,7 +137,7 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
       "rgba(16, 185, 129, 1)"
     ]
   );
-  
+
   const handleDragEnd = (event, info) => {
     if (info.offset.x > 100) {
       onSwipeRight();
@@ -174,90 +174,90 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
       animate={{ scale: 1 - depth * 0.05, opacity: isTop ? 1 : 1 - depth * 0.1, y: depth * 12 }}
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
     >
-      <motion.div 
+      <motion.div
         className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] shadow-2xl overflow-hidden relative ${isTop && pendingEscapeMilestone ? 'border-sky-400/50 dark:border-sky-500/50 pointer-events-auto' : 'border-slate-200/80 dark:border-white/10'}`}
         style={{
           borderColor: isTop && !pendingEscapeMilestone ? borderGlow : undefined
         }}
       >
         {isTop && (
-          <motion.div 
-            className="absolute inset-0 pointer-events-none z-0" 
-            style={{ backgroundColor: backgroundGlow }} 
+          <motion.div
+            className="absolute inset-0 pointer-events-none z-0"
+            style={{ backgroundColor: backgroundGlow }}
           />
         )}
         {isTop && !pendingEscapeMilestone && (
           <>
             <motion.div style={{ opacity: useTransform(x, [0, 100], [0, 1]) }} className="absolute inset-y-0 right-4 flex items-center justify-center pointer-events-none z-0">
-               <div className="p-4 bg-emerald-500 text-white rounded-full"><Check size={32} /></div>
+              <div className="p-4 bg-emerald-500 text-white rounded-full"><Check size={32} /></div>
             </motion.div>
             <motion.div style={{ opacity: useTransform(x, [0, -100], [0, 1]) }} className="absolute inset-y-0 left-4 flex items-center justify-center pointer-events-none z-0">
-               <div className="p-4 bg-slate-500 text-white rounded-full"><ArrowRight size={32} className="rotate-180" /></div>
+              <div className="p-4 bg-slate-500 text-white rounded-full"><ArrowRight size={32} className="rotate-180" /></div>
             </motion.div>
           </>
         )}
-         <div className="p-8 pb-4 flex-1 flex flex-col items-center justify-center text-center relative z-10 w-full">
-             {pendingEscapeMilestone ? (
-                <div className="flex flex-col w-full h-full animate-in fade-in zoom-in-95 duration-200 relative">
-                   <button 
-                       onClick={(e) => { e.stopPropagation(); setPendingEscapeMilestone(null); }}
-                       className="absolute -top-4 -right-4 p-2 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors pointer-events-auto z-50 shadow-sm"
-                   >
-                       <X size={16} strokeWidth={3} />
-                   </button>
-                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1 mt-2">Set Status For</h3>
-                   <p className="text-xl font-black text-slate-800 dark:text-slate-100 mb-6 leading-tight">{pendingEscapeMilestone.name}</p>
-                   
-                   <div className="flex flex-col gap-3 w-full flex-1 justify-center">
-                       <button onClick={() => { onCommitEscape('planned', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-amber-800 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Planned</button>
-                       <button onClick={() => { onCommitEscape('ongoing', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-blue-800 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Ongoing</button>
-                       <button onClick={() => { onCommitEscape('completed', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Completed</button>
-                   </div>
-                   
-                   <button onClick={() => setPendingEscapeMilestone(null)} className="mt-6 text-xs font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 transition">Cancel</button>
+        <div className="p-8 pb-4 flex-1 flex flex-col items-center justify-center text-center relative z-10 w-full">
+          {pendingEscapeMilestone ? (
+            <div className="flex flex-col w-full h-full animate-in fade-in zoom-in-95 duration-200 relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setPendingEscapeMilestone(null); }}
+                className="absolute -top-4 -right-4 p-2 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors pointer-events-auto z-50 shadow-sm"
+              >
+                <X size={16} strokeWidth={3} />
+              </button>
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1 mt-2">Set Status For</h3>
+              <p className="text-xl font-black text-slate-800 dark:text-slate-100 mb-6 leading-tight">{pendingEscapeMilestone.name}</p>
+
+              <div className="flex flex-col gap-3 w-full flex-1 justify-center">
+                <button onClick={() => { onCommitEscape('planned', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-amber-800 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Planned</button>
+                <button onClick={() => { onCommitEscape('ongoing', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-blue-800 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Ongoing</button>
+                <button onClick={() => { onCommitEscape('completed', pendingEscapeMilestone); setPendingEscapeMilestone(null); }} className="w-full py-4 rounded-xl font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 shadow-sm hover:scale-[1.02] active:scale-95 transition-transform">Completed</button>
+              </div>
+
+              <button onClick={() => setPendingEscapeMilestone(null)} className="mt-6 text-xs font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 transition">Cancel</button>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col items-center justify-center mb-2">
+                <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3 inline-block shadow-sm">
+                  {unit.unit_type || 'Unknown'}
+                </span>
+                <div className="flex items-center justify-center gap-2">
+                  <h2 className="text-7xl font-black text-slate-900 dark:text-white tracking-tighter">{unit.unit_number}</h2>
+                  <BottleneckIndicator outOfSequence={log?.outOfSequence} />
                 </div>
-             ) : (
-                <>
-                   <div className="flex flex-col items-center justify-center mb-2">
-                       <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3 inline-block shadow-sm">
-                         {unit.unit_type || 'Unknown'}
-                       </span>
-                       <div className="flex items-center justify-center gap-2">
-                           <h2 className="text-7xl font-black text-slate-900 dark:text-white tracking-tighter">{unit.unit_number}</h2>
-                           <BottleneckIndicator outOfSequence={log?.outOfSequence} />
-                       </div>
-                   </div>
-                   
-                   <div className="mt-4">
-                       <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Current Milestone</p>
-                       <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                          {log?.milestone || 'Unassigned'}
-                       </p>
-                   </div>
-                   <div className="mt-8 border-t border-slate-100 dark:border-white/5 w-full pt-6">
-                       <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Status</p>
-                       <div className="flex items-center justify-center w-full relative h-10">
-                           {!pendingEscapeMilestone && (
-                               <button
-                                   type="button"
-                                   onClick={(e) => { 
-                                       e.stopPropagation(); 
-                                       if(isTop) onChooseStatus?.(unit, (m) => setPendingEscapeMilestone(m)); 
-                                   }}
-                                   title="Log Out of Sequence"
-                                   className="absolute left-0 w-10 h-10 rounded-full bg-red-100 text-red-500 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white flex items-center justify-center transition-colors active:scale-95 shadow-sm pointer-events-auto cursor-pointer"
-                               >
-                                   <AlertTriangle size={18} strokeWidth={2.5} />
-                               </button>
-                           )}
-                           <span className={`px-4 py-2 rounded-full text-base font-black uppercase tracking-widest ${getBadgeColor(pendingState)} inline-block`}>
-                               {pendingState}
-                           </span>
-                       </div>
-                   </div>
-                </>
-             )}
-         </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">Current Milestone</p>
+                <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                  {log?.milestone || 'Unassigned'}
+                </p>
+              </div>
+              <div className="mt-8 border-t border-slate-100 dark:border-white/5 w-full pt-6">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Status</p>
+                <div className="flex items-center justify-center w-full relative h-10">
+                  {!pendingEscapeMilestone && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isTop) onChooseStatus?.(unit, (m) => setPendingEscapeMilestone(m));
+                      }}
+                      title="Log Out of Sequence"
+                      className="absolute left-0 w-10 h-10 rounded-full bg-red-100 text-red-500 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white flex items-center justify-center transition-colors active:scale-95 shadow-sm pointer-events-auto cursor-pointer"
+                    >
+                      <AlertTriangle size={18} strokeWidth={2.5} />
+                    </button>
+                  )}
+                  <span className={`px-4 py-2 rounded-full text-base font-black uppercase tracking-widest ${getBadgeColor(pendingState)} inline-block`}>
+                    {pendingState}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -278,16 +278,16 @@ export default function FieldStatusTable({
   const trackingMode = useMapStore(s => s.trackingMode);
   const statusFilter = useSettingsStore(s => s.filterMilestone);
   const setHistoryModalUnitId = useUIStore(s => s.setHistoryModalUnitId);
-  
+
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [sortColumn, setSortColumn] = useState('unit'); // 'unit', 'status', 'updated'
   const [sortDirection, setSortDirection] = useState('asc'); // 'asc', 'desc'
   const [typeFilter, setTypeFilter] = useState('All');
   const [isSequenceModalOpen, setIsSequenceModalOpen] = useState(false);
-  
+
   const params = useParams();
   const projectId = params?.projectId;
-  
+
   const { data: project } = useProject(projectId);
   const projectUnitTypes = project?.unit_types || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
   const { data: allMilestones = [] } = useMilestones(projectId);
@@ -301,6 +301,17 @@ export default function FieldStatusTable({
   const [isApplying, setIsApplying] = useState(false);
   const [swipedHistory, setSwipedHistory] = useState([]);
   const [skippedToBack, setSkippedToBack] = useState([]);
+
+  useEffect(() => {
+    if (viewStyle === 'card') {
+      document.documentElement.classList.add('hide-header-elements');
+    } else {
+      document.documentElement.classList.remove('hide-header-elements');
+    }
+    return () => {
+      document.documentElement.classList.remove('hide-header-elements');
+    };
+  }, [viewStyle]);
 
   const handleLocalUpdate = (unit, baseLog, state, extraProps = {}) => {
     setPendingChanges(prev => {
@@ -373,24 +384,24 @@ export default function FieldStatusTable({
 
         // If comparison is equal, fallback to natural sort on unit_number
         if (cmp === 0 && sortColumn !== 'unit') {
-            cmp = a.unit.unit_number.localeCompare(b.unit.unit_number, undefined, { numeric: true, sensitivity: 'base' });
+          cmp = a.unit.unit_number.localeCompare(b.unit.unit_number, undefined, { numeric: true, sensitivity: 'base' });
         }
-        
+
         return sortDirection === 'asc' ? cmp : -cmp;
       });
   }, [units, activeStatuses, sortColumn, sortDirection]);
 
   const visible = useMemo(() => {
     let filtered = ranked;
-    
+
     if (statusFilter) {
       filtered = filtered.filter((row) => row.log?.milestone === statusFilter);
     }
-    
+
     if (typeFilter !== 'All') {
       filtered = filtered.filter((row) => row.unit.unit_type === typeFilter);
     }
-    
+
     return filtered;
   }, [ranked, statusFilter, typeFilter]);
 
@@ -451,19 +462,19 @@ export default function FieldStatusTable({
   const renderDatesInline = (unit, baseLog) => {
     if (!baseLog) return null;
     const pending = pendingChanges[unit.id];
-    const log = pending ? { 
-        ...baseLog, 
-        planned_start_date: pending.extraProps.startDate !== undefined ? pending.extraProps.startDate : baseLog.planned_start_date,
-        planned_end_date: pending.extraProps.endDate !== undefined ? pending.extraProps.endDate : baseLog.planned_end_date,
-        logged_date: pending.extraProps.loggedDate !== undefined ? pending.extraProps.loggedDate : baseLog.logged_date,
-        temporal_state: pending.state || baseLog.temporal_state
+    const log = pending ? {
+      ...baseLog,
+      planned_start_date: pending.extraProps.startDate !== undefined ? pending.extraProps.startDate : baseLog.planned_start_date,
+      planned_end_date: pending.extraProps.endDate !== undefined ? pending.extraProps.endDate : baseLog.planned_end_date,
+      logged_date: pending.extraProps.loggedDate !== undefined ? pending.extraProps.loggedDate : baseLog.logged_date,
+      temporal_state: pending.state || baseLog.temporal_state
     } : baseLog;
 
     return (
       <div className="flex flex-row flex-wrap items-center gap-2 mt-2 pt-2 border-t border-slate-200/50 dark:border-white/5">
         <label className="flex flex-col flex-1 min-w-[120px]">
           <span className="text-[10px] text-slate-500 font-semibold uppercase mb-0.5">Planned Start</span>
-          <input 
+          <input
             type="date"
             value={log.planned_start_date || ''}
             onClick={(e) => e.stopPropagation()}
@@ -474,7 +485,7 @@ export default function FieldStatusTable({
         </label>
         <label className="flex flex-col flex-1 min-w-[120px]">
           <span className="text-[10px] text-slate-500 font-semibold uppercase mb-0.5">Planned Finish</span>
-          <input 
+          <input
             type="date"
             value={log.planned_end_date || ''}
             onClick={(e) => e.stopPropagation()}
@@ -486,7 +497,7 @@ export default function FieldStatusTable({
         {log.temporal_state === 'completed' && (
           <div className="flex flex-col flex-1 min-w-[120px]">
             <span className="text-[10px] text-slate-500 font-semibold uppercase mb-0.5">Actual Complete</span>
-            <input 
+            <input
               type="date"
               value={log.logged_date || ''}
               onClick={(e) => e.stopPropagation()}
@@ -505,7 +516,7 @@ export default function FieldStatusTable({
       const start = Math.min(lastClickedIndex, index);
       const end = Math.max(lastClickedIndex, index);
       const idsToSelect = visible.slice(start, end + 1).map(r => r.unit.id);
-      
+
       const newSelected = new Set(selectedUnitIds);
       idsToSelect.forEach(id => newSelected.add(id));
       setSelectedUnitIds(Array.from(newSelected));
@@ -560,13 +571,13 @@ export default function FieldStatusTable({
                 onClick={() => setPendingChanges({})}
                 disabled={isApplying}
                 className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 text-xs font-semibold px-2 py-1.5 transition-colors"
-               >
+              >
                 Discard
               </button>
             </div>
           )}
         </div>
-        
+
         <div className="flex flex-wrap items-center justify-between w-full gap-3">
           {/* Left side: Filter */}
           <div className="flex items-center gap-2 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-lg px-2 py-1 shadow-sm flex-1 md:flex-none min-w-[140px]">
@@ -600,17 +611,21 @@ export default function FieldStatusTable({
                 type="button"
                 onClick={() => {
                   if (sortColumn === 'walk_sequence') {
-                    setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                    if (sortDirection === 'asc') {
+                      setSortDirection('desc');
+                    } else {
+                      setSortColumn('unit');
+                      setSortDirection('asc');
+                    }
                   } else {
                     setSortColumn('walk_sequence');
                     setSortDirection('asc');
                   }
                 }}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors shadow-sm flex items-center gap-1 ${
-                  sortColumn === 'walk_sequence'
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors shadow-sm flex items-center gap-1 ${sortColumn === 'walk_sequence'
                     ? 'bg-emerald-500 text-white border-emerald-600'
                     : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 border-slate-300/80 dark:border-white/15 hover:bg-slate-100 dark:hover:bg-white/10'
-                }`}
+                  }`}
               >
                 Route Sort
                 {sortColumn === 'walk_sequence' && (
@@ -628,29 +643,27 @@ export default function FieldStatusTable({
 
             {/* Table / Card Toggles */}
             <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm shrink-0">
-            <button
-              type="button"
-              onClick={() => setViewStyle('table')}
-              className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
-                viewStyle === 'table'
-                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-            >
-              Table
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewStyle('card')}
-              className={`px-3 py-1.5 text-xs font-semibold border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-                viewStyle === 'card'
-                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-            >
-              Cards
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => setViewStyle('table')}
+                className={`px-3 py-1.5 text-xs font-semibold transition-colors ${viewStyle === 'table'
+                    ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                    : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+                  }`}
+              >
+                Table
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewStyle('card')}
+                className={`px-3 py-1.5 text-xs font-semibold border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewStyle === 'card'
+                    ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                    : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+                  }`}
+              >
+                Cards
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -659,93 +672,93 @@ export default function FieldStatusTable({
         <div className="flex flex-col gap-4 w-full">
           <div className="relative h-[65vh] min-h-[450px] w-full md:hidden flex justify-center items-center overflow-hidden bg-slate-100 dark:bg-black/30 rounded-3xl border border-slate-200/50 dark:border-white/5 shadow-inner -mt-2">
             {orderedCards.length === 0 ? (
-               <div className="text-slate-400 font-semibold text-lg flex flex-col items-center">
-                  <div className="text-5xl mb-4">🙌</div>
-                  All locations verified!
-               </div>
+              <div className="text-slate-400 font-semibold text-lg flex flex-col items-center">
+                <div className="text-5xl mb-4">🙌</div>
+                All locations verified!
+              </div>
             ) : (
-               orderedCards.slice(0, 5).reverse().map(({ unit, log }, index, arr) => {
-                 const isTop = index === arr.length - 1;
-                 const depth = arr.length - 1 - index;
-                 
-                 return <SwipeCard 
-                            key={unit.id} 
-                            unit={unit} 
-                            log={pendingChanges[unit.id] ? { ...log, temporal_state: pendingChanges[unit.id].state } : log} 
-                            isTop={isTop}
-                            depth={depth}
-                            onSwipeLeft={() => {
-                                setSwipedHistory(prev => [...prev, unit.id]);
-                                setSkippedToBack(prev => [...prev, unit.id]);
-                            }}
-                            onSwipeRight={() => {
-                                const pending = pendingChanges[unit.id]?.state;
-                                const current = pending || log?.temporal_state || 'none';
-                                let nextState = 'planned';
-                                if (current === 'planned') nextState = 'ongoing';
-                                else if (current === 'ongoing') nextState = 'completed';
-                                
-                                handleLocalUpdate(unit, log || {}, nextState);
-                                setSwipedHistory(prev => [...prev, unit.id]);
-                            }}
-                            onChooseStatus={onChooseStatus}
-                            onCommitEscape={(state, m) => {
-                                handleLocalUpdate(unit, log || {}, state, { milestoneObj: m });
-                                setSwipedHistory(prev => [...prev, unit.id]);
-                            }}
-                        />;
-               })
+              orderedCards.slice(0, 5).reverse().map(({ unit, log }, index, arr) => {
+                const isTop = index === arr.length - 1;
+                const depth = arr.length - 1 - index;
+
+                return <SwipeCard
+                  key={unit.id}
+                  unit={unit}
+                  log={pendingChanges[unit.id] ? { ...log, temporal_state: pendingChanges[unit.id].state } : log}
+                  isTop={isTop}
+                  depth={depth}
+                  onSwipeLeft={() => {
+                    setSwipedHistory(prev => [...prev, unit.id]);
+                    setSkippedToBack(prev => [...prev, unit.id]);
+                  }}
+                  onSwipeRight={() => {
+                    const pending = pendingChanges[unit.id]?.state;
+                    const current = pending || log?.temporal_state || 'none';
+                    let nextState = 'planned';
+                    if (current === 'planned') nextState = 'ongoing';
+                    else if (current === 'ongoing') nextState = 'completed';
+
+                    handleLocalUpdate(unit, log || {}, nextState);
+                    setSwipedHistory(prev => [...prev, unit.id]);
+                  }}
+                  onChooseStatus={onChooseStatus}
+                  onCommitEscape={(state, m) => {
+                    handleLocalUpdate(unit, log || {}, state, { milestoneObj: m });
+                    setSwipedHistory(prev => [...prev, unit.id]);
+                  }}
+                />;
+              })
             )}
           </div>
 
           {/* Explicit Navigation Controls */}
           <div className="flex md:hidden w-full items-center justify-center gap-6 mt-2">
-             <button 
-               onClick={() => {
-                 setSwipedHistory(prev => {
-                   const newHist = [...prev];
-                   const popped = newHist.pop();
-                   setSkippedToBack(s => s.filter(id => id !== popped));
-                   return newHist;
-                 });
-               }}
-               disabled={swipedHistory.length === 0}
-               className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
-             >
-               <History size={24} />
-             </button>
-             <button 
-               onClick={() => {
-                  const topCard = orderedCards[0];
-                  if(topCard) {
-                    setSwipedHistory(prev => [...prev, topCard.unit.id]);
-                    setSkippedToBack(prev => [...prev, topCard.unit.id]);
-                  }
-               }}
-               disabled={orderedCards.length === 0}
-               className="w-16 h-16 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-400 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
-             >
-               <X size={28} strokeWidth={3} />
-             </button>
-             <button 
-               onClick={() => {
-                  const topCard = orderedCards[0];
-                  if(topCard) {
-                     const pending = pendingChanges[topCard.unit.id]?.state;
-                     const current = pending || topCard.log?.temporal_state || 'none';
-                     let nextState = 'planned';
-                     if (current === 'planned') nextState = 'ongoing';
-                     else if (current === 'ongoing') nextState = 'completed';
-                     
-                     handleLocalUpdate(topCard.unit, topCard.log || {}, nextState);
-                     setSwipedHistory(prev => [...prev, topCard.unit.id]);
-                  }
-               }}
-               disabled={orderedCards.length === 0}
-               className="w-16 h-16 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-emerald-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
-             >
-               <Check size={28} strokeWidth={3} />
-             </button>
+            <button
+              onClick={() => {
+                setSwipedHistory(prev => {
+                  const newHist = [...prev];
+                  const popped = newHist.pop();
+                  setSkippedToBack(s => s.filter(id => id !== popped));
+                  return newHist;
+                });
+              }}
+              disabled={swipedHistory.length === 0}
+              className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+            >
+              <History size={24} />
+            </button>
+            <button
+              onClick={() => {
+                const topCard = orderedCards[0];
+                if (topCard) {
+                  setSwipedHistory(prev => [...prev, topCard.unit.id]);
+                  setSkippedToBack(prev => [...prev, topCard.unit.id]);
+                }
+              }}
+              disabled={orderedCards.length === 0}
+              className="w-16 h-16 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-400 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+            >
+              <X size={28} strokeWidth={3} />
+            </button>
+            <button
+              onClick={() => {
+                const topCard = orderedCards[0];
+                if (topCard) {
+                  const pending = pendingChanges[topCard.unit.id]?.state;
+                  const current = pending || topCard.log?.temporal_state || 'none';
+                  let nextState = 'planned';
+                  if (current === 'planned') nextState = 'ongoing';
+                  else if (current === 'ongoing') nextState = 'completed';
+
+                  handleLocalUpdate(topCard.unit, topCard.log || {}, nextState);
+                  setSwipedHistory(prev => [...prev, topCard.unit.id]);
+                }
+              }}
+              disabled={orderedCards.length === 0}
+              className="w-16 h-16 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-emerald-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+            >
+              <Check size={28} strokeWidth={3} />
+            </button>
           </div>
 
           <div className="hidden md:grid md:grid-cols-4 md:gap-3 mt-4 md:mt-0">
@@ -772,11 +785,11 @@ export default function FieldStatusTable({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-3">
-                      <input 
-                        type="checkbox" 
-                        checked={selectedUnitIds.includes(unit.id)} 
-                        readOnly 
-                        className="w-4 h-4 mt-1.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
+                      <input
+                        type="checkbox"
+                        checked={selectedUnitIds.includes(unit.id)}
+                        readOnly
+                        className="w-4 h-4 mt-1.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                       />
                       <div className="flex flex-col">
                         <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">
@@ -789,15 +802,15 @@ export default function FieldStatusTable({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                       <button
-                         type="button"
-                         onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unit.id); }}
-                         className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors cursor-pointer"
-                         title="View History"
-                       >
-                         <History size={18} />
-                       </button>
-                       {savingUnitId === unit.id && <UpdatingRing />}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unit.id); }}
+                        className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors cursor-pointer"
+                        title="View History"
+                      >
+                        <History size={18} />
+                      </button>
+                      {savingUnitId === unit.id && <UpdatingRing />}
                     </div>
                   </div>
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Current status</p>
@@ -816,26 +829,26 @@ export default function FieldStatusTable({
             <thead className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-white/10">
               <tr>
                 <th className="px-5 py-3 w-10">
-                  <input 
-                    type="checkbox" 
-                    checked={allVisibleSelected} 
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
                     onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer" 
+                    className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
                   />
                 </th>
-                <th 
+                <th
                   onClick={() => handleSort('unit')}
                   className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
                 >
                   Location {renderSortIcon('unit')}
                 </th>
-                <th 
+                <th
                   onClick={() => handleSort('unit_type')}
                   className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
                 >
                   Space Type {renderSortIcon('unit_type')}
                 </th>
-                <th 
+                <th
                   onClick={() => handleSort('status')}
                   className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[200px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
                 >
@@ -847,7 +860,7 @@ export default function FieldStatusTable({
                 <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
                   Planned Completion
                 </th>
-                <th 
+                <th
                   onClick={() => handleSort('updated')}
                   className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
                 >
@@ -862,18 +875,18 @@ export default function FieldStatusTable({
               {visible.map(({ unit, log }, index) => (
                 <tr key={unit.id} onClick={(e) => handleRowClick(e, unit.id, index)} className={`border-b border-slate-200/50 dark:border-white/5 last:border-none hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer ${selectedUnitIds.includes(unit.id) ? 'bg-purple-50/40 dark:bg-purple-900/10' : ''}`}>
                   <td className="px-5 py-3 align-middle text-center">
-                    <input 
-                      type="checkbox" 
-                      checked={selectedUnitIds.includes(unit.id)} 
-                      readOnly 
-                      className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" 
+                    <input
+                      type="checkbox"
+                      checked={selectedUnitIds.includes(unit.id)}
+                      readOnly
+                      className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                     />
                   </td>
                   <td className="px-5 py-3 font-bold text-slate-900 dark:text-slate-100 align-middle">
                     <div className="flex items-center gap-2 relative">
-                       {unit.unit_number}
-                       <BottleneckIndicator outOfSequence={log?.outOfSequence} />
-                       {savingUnitId === unit.id && <UpdatingRing />}
+                      {unit.unit_number}
+                      <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+                      {savingUnitId === unit.id && <UpdatingRing />}
                     </div>
                   </td>
                   <td className="px-5 py-2 align-middle text-slate-600 dark:text-slate-400">
@@ -890,36 +903,36 @@ export default function FieldStatusTable({
                   </td>
                   <td className="px-5 py-2 align-middle">
                     {log ? (
-                       <input 
-                         type="date"
-                         value={pendingChanges[unit.id]?.extraProps?.startDate !== undefined ? pendingChanges[unit.id].extraProps.startDate : (log?.planned_start_date || '')}
-                         onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: e.target.value, endDate: log.planned_end_date })}
-                         disabled={isApplying}
-                         className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.startDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
-                       />
+                      <input
+                        type="date"
+                        value={pendingChanges[unit.id]?.extraProps?.startDate !== undefined ? pendingChanges[unit.id].extraProps.startDate : (log?.planned_start_date || '')}
+                        onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: e.target.value, endDate: log.planned_end_date })}
+                        disabled={isApplying}
+                        className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.startDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
+                      />
                     ) : <span className="text-slate-400 text-xs italic">—</span>}
                   </td>
                   <td className="px-5 py-2 align-middle">
                     {log ? (
-                       <input 
-                         type="date"
-                         value={pendingChanges[unit.id]?.extraProps?.endDate !== undefined ? pendingChanges[unit.id].extraProps.endDate : (log?.planned_end_date || '')}
-                         onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: log.planned_start_date, endDate: e.target.value })}
-                         disabled={isApplying}
-                         className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.endDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
-                       />
+                      <input
+                        type="date"
+                        value={pendingChanges[unit.id]?.extraProps?.endDate !== undefined ? pendingChanges[unit.id].extraProps.endDate : (log?.planned_end_date || '')}
+                        onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: log.planned_start_date, endDate: e.target.value })}
+                        disabled={isApplying}
+                        className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.endDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
+                      />
                     ) : <span className="text-slate-400 text-xs italic">—</span>}
                   </td>
                   <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
                     {(pendingChanges[unit.id]?.state || log?.temporal_state) === 'completed' ? (
-                       <input 
-                         type="date"
-                         value={pendingChanges[unit.id]?.extraProps?.loggedDate !== undefined ? pendingChanges[unit.id].extraProps.loggedDate : (log?.logged_date || '')}
-                         onClick={(e) => e.stopPropagation()}
-                         onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: e.target.value })}
-                         disabled={isApplying}
-                         className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.loggedDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800 ${!pendingChanges[unit.id]?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''} transition`}
-                       />
+                      <input
+                        type="date"
+                        value={pendingChanges[unit.id]?.extraProps?.loggedDate !== undefined ? pendingChanges[unit.id].extraProps.loggedDate : (log?.logged_date || '')}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => handleLocalUpdate(unit, log || {}, pendingChanges[unit.id]?.state || log.temporal_state || 'none', { startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: e.target.value })}
+                        disabled={isApplying}
+                        className={`bg-transparent border ${pendingChanges[unit.id]?.extraProps?.loggedDate !== undefined ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400' : 'border-slate-200/80 dark:border-white/10'} rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800 ${!pendingChanges[unit.id]?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''} transition`}
+                      />
                     ) : <span className="text-slate-400 text-xs italic">—</span>}
                   </td>
                   <td className="px-5 py-3 align-middle text-right">
