@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion, useMotionValue, useTransform } from 'framer-motion';
-import { ArrowUp, ArrowDown, History, AlertTriangle, X } from 'lucide-react';
+import { ArrowUp, ArrowDown, History, AlertTriangle, X, Check, ArrowRight } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -117,6 +117,26 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-10, 10]);
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
+
+  const backgroundGlow = useTransform(
+    x,
+    [-150, 0, 150],
+    [
+      "rgba(148, 163, 184, 0.2)",
+      "rgba(255, 255, 255, 0)",
+      "rgba(16, 185, 129, 0.2)"
+    ]
+  );
+
+  const borderGlow = useTransform(
+    x,
+    [-150, 0, 150],
+    [
+      "rgba(148, 163, 184, 1)",
+      "rgba(203, 213, 225, 0.5)",
+      "rgba(16, 185, 129, 1)"
+    ]
+  );
   
   const handleDragEnd = (event, info) => {
     if (info.offset.x > 100) {
@@ -149,12 +169,33 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
       drag={isTop && !pendingEscapeMilestone ? "x" : false}
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={handleDragEnd}
-      className={`absolute w-[90%] max-w-sm h-full max-h-[380px] flex flex-col justify-between ${isTop && !pendingEscapeMilestone ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'}`}
+      className={`absolute w-[90%] max-w-sm h-full max-h-[380px] flex flex-col justify-between touch-pan-y ${isTop && !pendingEscapeMilestone ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'}`}
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1 - depth * 0.05, opacity: isTop ? 1 : 1 - depth * 0.1, y: depth * 12 }}
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
     >
-      <div className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] shadow-2xl overflow-hidden relative ${isTop && pendingEscapeMilestone ? 'border-sky-400/50 dark:border-sky-500/50 pointer-events-auto' : 'border-slate-200/80 dark:border-white/10'}`}>
+      <motion.div 
+        className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] shadow-2xl overflow-hidden relative ${isTop && pendingEscapeMilestone ? 'border-sky-400/50 dark:border-sky-500/50 pointer-events-auto' : 'border-slate-200/80 dark:border-white/10'}`}
+        style={{
+          borderColor: isTop && !pendingEscapeMilestone ? borderGlow : undefined
+        }}
+      >
+        {isTop && (
+          <motion.div 
+            className="absolute inset-0 pointer-events-none z-0" 
+            style={{ backgroundColor: backgroundGlow }} 
+          />
+        )}
+        {isTop && !pendingEscapeMilestone && (
+          <>
+            <motion.div style={{ opacity: useTransform(x, [0, 100], [0, 1]) }} className="absolute inset-y-0 right-4 flex items-center justify-center pointer-events-none z-0">
+               <div className="p-4 bg-emerald-500 text-white rounded-full"><Check size={32} /></div>
+            </motion.div>
+            <motion.div style={{ opacity: useTransform(x, [0, -100], [0, 1]) }} className="absolute inset-y-0 left-4 flex items-center justify-center pointer-events-none z-0">
+               <div className="p-4 bg-slate-500 text-white rounded-full"><ArrowRight size={32} className="rotate-180" /></div>
+            </motion.div>
+          </>
+        )}
          <div className="p-8 pb-4 flex-1 flex flex-col items-center justify-center text-center relative z-10 w-full">
              {pendingEscapeMilestone ? (
                 <div className="flex flex-col w-full h-full animate-in fade-in zoom-in-95 duration-200 relative">
@@ -217,7 +258,7 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
                 </>
              )}
          </div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 };
@@ -258,7 +299,8 @@ export default function FieldStatusTable({
   });
   const [pendingChanges, setPendingChanges] = useState({});
   const [isApplying, setIsApplying] = useState(false);
-  const [swipedDeckIds, setSwipedDeckIds] = useState(new Set());
+  const [swipedHistory, setSwipedHistory] = useState([]);
+  const [skippedToBack, setSkippedToBack] = useState([]);
 
   const handleLocalUpdate = (unit, baseLog, state, extraProps = {}) => {
     setPendingChanges(prev => {
@@ -351,6 +393,13 @@ export default function FieldStatusTable({
     
     return filtered;
   }, [ranked, statusFilter, typeFilter]);
+
+  const orderedCards = useMemo(() => {
+    const visibleCards = visible.filter(r => !swipedHistory.includes(r.unit.id));
+    const main = visibleCards.filter(c => !skippedToBack.includes(c.unit.id));
+    const skipped = visibleCards.filter(c => skippedToBack.includes(c.unit.id));
+    return [...main, ...skipped];
+  }, [visible, swipedHistory, skippedToBack]);
 
   if (!units || units.length === 0) {
     return (
@@ -518,9 +567,9 @@ export default function FieldStatusTable({
           )}
         </div>
         
-        <div className="flex items-center justify-between md:justify-end w-full md:w-auto gap-3">
-          {/* Unit Type Filter */}
-          <div className="flex items-center gap-2 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-lg px-2 py-1 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between w-full gap-3">
+          {/* Left side: Filter */}
+          <div className="flex items-center gap-2 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-lg px-2 py-1 shadow-sm flex-1 md:flex-none min-w-[140px]">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1 hidden sm:inline">
               Filter:
             </span>
@@ -528,7 +577,10 @@ export default function FieldStatusTable({
               value={typeFilter}
               onChange={e => {
                 setTypeFilter(e.target.value);
-                if (viewStyle === 'card') setSwipedDeckIds(new Set()); 
+                if (viewStyle === 'card') {
+                  setSwipedHistory([]);
+                  setSkippedToBack([]);
+                }
               }}
               className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer max-w-[160px] sm:max-w-xs truncate"
             >
@@ -540,37 +592,42 @@ export default function FieldStatusTable({
             </div>
           </div>
 
-          {/* Walking Path Controls */}
-          <div className="flex items-center gap-2 mr-2 border-r border-slate-300/80 dark:border-white/10 pr-4">
-            <button
-              type="button"
-              onClick={() => {
-                if (sortColumn === 'walk_sequence') {
-                  setSortColumn('unit');
-                  setSortDirection('asc');
-                } else {
-                  setSortColumn('walk_sequence');
-                  setSortDirection('asc');
-                }
-              }}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors shadow-sm ${
-                sortColumn === 'walk_sequence'
-                  ? 'bg-emerald-500 text-white border-emerald-600'
-                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 border-slate-300/80 dark:border-white/15 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-            >
-              Route Sort {sortColumn === 'walk_sequence' && '✓'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsSequenceModalOpen(true)}
-              className="text-xs font-semibold text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 underline decoration-slate-300 dark:decoration-slate-700 underline-offset-4 transition-colors"
-            >
-              Edit Route
-            </button>
-          </div>
+          {/* Right side: Controls wrapped in a flex container */}
+          <div className="flex flex-wrap items-center gap-2 md:ml-auto">
+            {/* Walking Path Controls */}
+            <div className="flex items-center gap-2 pr-2 md:pr-4 border-r border-slate-300/80 dark:border-white/10">
+              <button
+                type="button"
+                onClick={() => {
+                  if (sortColumn === 'walk_sequence') {
+                    setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                  } else {
+                    setSortColumn('walk_sequence');
+                    setSortDirection('asc');
+                  }
+                }}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors shadow-sm flex items-center gap-1 ${
+                  sortColumn === 'walk_sequence'
+                    ? 'bg-emerald-500 text-white border-emerald-600'
+                    : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 border-slate-300/80 dark:border-white/15 hover:bg-slate-100 dark:hover:bg-white/10'
+                }`}
+              >
+                Route Sort
+                {sortColumn === 'walk_sequence' && (
+                  sortDirection === 'asc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSequenceModalOpen(true)}
+                className="text-xs font-semibold text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 underline decoration-slate-300 dark:decoration-slate-700 underline-offset-4 transition-colors"
+              >
+                Edit Route
+              </button>
+            </div>
 
-          <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm shrink-0">
+            {/* Table / Card Toggles */}
+            <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm shrink-0">
             <button
               type="button"
               onClick={() => setViewStyle('table')}
@@ -594,19 +651,20 @@ export default function FieldStatusTable({
               Cards
             </button>
           </div>
+          </div>
         </div>
       </div>
 
       {viewStyle === 'card' ? (
-        <>
+        <div className="flex flex-col gap-4 w-full">
           <div className="relative h-[65vh] min-h-[450px] w-full md:hidden flex justify-center items-center overflow-hidden bg-slate-100 dark:bg-black/30 rounded-3xl border border-slate-200/50 dark:border-white/5 shadow-inner -mt-2">
-            {visible.filter(r => !swipedDeckIds.has(r.unit.id)).length === 0 ? (
+            {orderedCards.length === 0 ? (
                <div className="text-slate-400 font-semibold text-lg flex flex-col items-center">
                   <div className="text-5xl mb-4">🙌</div>
                   All locations verified!
                </div>
             ) : (
-               visible.filter(r => !swipedDeckIds.has(r.unit.id)).slice(0, 5).reverse().map(({ unit, log }, index, arr) => {
+               orderedCards.slice(0, 5).reverse().map(({ unit, log }, index, arr) => {
                  const isTop = index === arr.length - 1;
                  const depth = arr.length - 1 - index;
                  
@@ -617,7 +675,8 @@ export default function FieldStatusTable({
                             isTop={isTop}
                             depth={depth}
                             onSwipeLeft={() => {
-                                setSwipedDeckIds(prev => new Set([...prev, unit.id]));
+                                setSwipedHistory(prev => [...prev, unit.id]);
+                                setSkippedToBack(prev => [...prev, unit.id]);
                             }}
                             onSwipeRight={() => {
                                 const pending = pendingChanges[unit.id]?.state;
@@ -627,16 +686,66 @@ export default function FieldStatusTable({
                                 else if (current === 'ongoing') nextState = 'completed';
                                 
                                 handleLocalUpdate(unit, log || {}, nextState);
-                                setSwipedDeckIds(prev => new Set([...prev, unit.id]));
+                                setSwipedHistory(prev => [...prev, unit.id]);
                             }}
                             onChooseStatus={onChooseStatus}
                             onCommitEscape={(state, m) => {
                                 handleLocalUpdate(unit, log || {}, state, { milestoneObj: m });
-                                setSwipedDeckIds(prev => new Set([...prev, unit.id]));
+                                setSwipedHistory(prev => [...prev, unit.id]);
                             }}
                         />;
                })
             )}
+          </div>
+
+          {/* Explicit Navigation Controls */}
+          <div className="flex md:hidden w-full items-center justify-center gap-6 mt-2">
+             <button 
+               onClick={() => {
+                 setSwipedHistory(prev => {
+                   const newHist = [...prev];
+                   const popped = newHist.pop();
+                   setSkippedToBack(s => s.filter(id => id !== popped));
+                   return newHist;
+                 });
+               }}
+               disabled={swipedHistory.length === 0}
+               className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+             >
+               <History size={24} />
+             </button>
+             <button 
+               onClick={() => {
+                  const topCard = orderedCards[0];
+                  if(topCard) {
+                    setSwipedHistory(prev => [...prev, topCard.unit.id]);
+                    setSkippedToBack(prev => [...prev, topCard.unit.id]);
+                  }
+               }}
+               disabled={orderedCards.length === 0}
+               className="w-16 h-16 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-400 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+             >
+               <X size={28} strokeWidth={3} />
+             </button>
+             <button 
+               onClick={() => {
+                  const topCard = orderedCards[0];
+                  if(topCard) {
+                     const pending = pendingChanges[topCard.unit.id]?.state;
+                     const current = pending || topCard.log?.temporal_state || 'none';
+                     let nextState = 'planned';
+                     if (current === 'planned') nextState = 'ongoing';
+                     else if (current === 'ongoing') nextState = 'completed';
+                     
+                     handleLocalUpdate(topCard.unit, topCard.log || {}, nextState);
+                     setSwipedHistory(prev => [...prev, topCard.unit.id]);
+                  }
+               }}
+               disabled={orderedCards.length === 0}
+               className="w-16 h-16 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-emerald-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+             >
+               <Check size={28} strokeWidth={3} />
+             </button>
           </div>
 
           <div className="hidden md:grid md:grid-cols-4 md:gap-3 mt-4 md:mt-0">
@@ -700,7 +809,7 @@ export default function FieldStatusTable({
               );
             })}
           </div>
-        </>
+        </div>
       ) : (
         <div className="w-full overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 shadow-sm backdrop-blur-md">
           <table className="w-full text-left border-collapse text-sm text-slate-800 dark:text-slate-200">
