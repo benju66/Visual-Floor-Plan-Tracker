@@ -671,8 +671,11 @@ const FloorplanCanvas = forwardRef(({
     setStagePosition({ x: 0, y: 0 });
   };
 
-  const addNodeCursor = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M2,2 L10,24 L14,15 L24,10 Z' fill='black' stroke='white' stroke-width='1.5'/><circle cx='20' cy='20' r='6' fill='%2310b981' stroke='white' stroke-width='1'/><path d='M20,16.5 v7 M16.5,20 h7' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>") 2 2, crosshair`;
-  const deleteNodeCursor = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M2,2 L10,24 L14,15 L24,10 Z' fill='black' stroke='white' stroke-width='1.5'/><circle cx='20' cy='20' r='6' fill='%23ef4444' stroke='white' stroke-width='1'/><path d='M16.5,20 h7' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>") 2 2, pointer`;
+  const addSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#10b981' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='8' x2='12' y2='16'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
+  const removeSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
+
+  const addNodeCursor = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(addSvg)}") 12 12, crosshair`;
+  const removeNodeCursor = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(removeSvg)}") 12 12, crosshair`;
 
   let computedCursor = 'grab';
   if (isDraggingCanvas) {
@@ -689,7 +692,7 @@ const FloorplanCanvas = forwardRef(({
     if (routeSubMode === 'add') {
       computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? 'not-allowed' : addNodeCursor;
     } else if (routeSubMode === 'remove') {
-      computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? deleteNodeCursor : 'default';
+      computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? removeNodeCursor : 'default';
     } else {
       computedCursor = 'default';
     }
@@ -698,7 +701,7 @@ const FloorplanCanvas = forwardRef(({
     else if (hoveredUnit) computedCursor = selectedUnitIds?.includes(hoveredUnit) ? 'grab' : 'pointer';
     else computedCursor = 'default';
   } else if (toolMode === 'delete_node') {
-    computedCursor = isHoveringAnchor ? deleteNodeCursor : 'default';
+    computedCursor = isHoveringAnchor ? removeNodeCursor : 'default';
   }
 
   const isZoomedOut = stageScale < 1.5;
@@ -922,7 +925,7 @@ const FloorplanCanvas = forwardRef(({
                 <MappedUnit
                   key={unit.id}
                   unit={unit}
-                  isRouteDropTarget={routeDropTarget === unit.id}
+                  isRouteDropTarget={routeDropTarget === unit.id || (toolMode === 'route' && routeSubMode === 'add' && hoveredUnit === unit.id && !pendingRoute.includes(unit.id))}
                   activeStatuses={activeStatuses}
                   legendFilter={legendFilter}
                   isSelected={selectedUnitIds?.includes(unit.id)}
@@ -1051,12 +1054,19 @@ const FloorplanCanvas = forwardRef(({
                         lineCap="round"
                         lineJoin="round"
                         opacity={lineOpacity}
-                        listening={toolMode === 'route' && routeSubMode === 'add'}
+                        // FIX: Listen for both add and remove modes
+                        listening={toolMode === 'route' && (routeSubMode === 'add' || routeSubMode === 'remove')}
                         onMouseEnter={(e) => {
-                          e.target.stroke("#10b981"); // Turn emerald on hover
+                          // FIX: Apply correct color and cursor based on mode
+                          if (routeSubMode === 'add') {
+                            e.target.stroke("#10b981"); // Emerald
+                            e.target.getStage().container().style.cursor = addNodeCursor;
+                          } else if (routeSubMode === 'remove') {
+                            e.target.stroke("#ef4444"); // Red
+                            e.target.getStage().container().style.cursor = removeNodeCursor;
+                          }
                           e.target.strokeWidth(6 / stageScale);
                           e.target.getLayer().batchDraw();
-                          e.target.getStage().container().style.cursor = addNodeCursor;
                         }}
                         onMouseLeave={(e) => {
                           e.target.stroke("#3b82f6");
@@ -1066,7 +1076,10 @@ const FloorplanCanvas = forwardRef(({
                         }}
                         onMouseDown={(e) => {
                           e.cancelBubble = true;
-                          setActiveRouteDrag({ type: 'midpoint', sourceIndex: i });
+                          // FIX: Only trigger midpoint drag in add mode
+                          if (routeSubMode === 'add') {
+                            setActiveRouteDrag({ type: 'midpoint', sourceIndex: i });
+                          }
                         }}
                       />
                     );
@@ -1119,10 +1132,12 @@ const FloorplanCanvas = forwardRef(({
                         draggable={toolMode === 'route' && routeSubMode === 'move'}
                         listening={toolMode === 'route'}
                         onClick={(e) => {
+                          e.cancelBubble = true;
                           if (toolMode === 'route' && routeSubMode === 'remove') {
-                            e.cancelBubble = true;
-                            setHoveredRouteNode(null);
-                            setPendingRoute(prev => prev.filter(id => id !== p.id));
+                            const newRoute = pendingRoute.filter(id => id !== p.id);
+                            setPendingRoute(newRoute);
+                            // FIX: Manually reset the cursor because the unmounted element cannot fire onMouseLeave
+                            e.target.getStage().container().style.cursor = 'default';
                           }
                         }}
                         onTap={(e) => {
@@ -1136,7 +1151,7 @@ const FloorplanCanvas = forwardRef(({
                           setHoveredRouteNode(p.id);
                           if (toolMode === 'route') {
                             if (routeSubMode === 'move') e.target.getStage().container().style.cursor = 'grab';
-                            else if (routeSubMode === 'remove') e.target.getStage().container().style.cursor = deleteNodeCursor;
+                            else if (routeSubMode === 'remove') e.target.getStage().container().style.cursor = removeNodeCursor;
                             else if (routeSubMode === 'add') e.target.getStage().container().style.cursor = 'not-allowed';
                           }
                         }}
