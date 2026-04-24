@@ -24,6 +24,7 @@ const createStripePattern = (color) => {
 
 export const MappedUnitComponent = ({
   unit,
+  isRouteDropTarget,
   activeStatuses,
   legendFilter,
   isSelected,
@@ -77,7 +78,10 @@ export const MappedUnitComponent = ({
   let currentFill = fillColor;
   let currentStroke = activeStatus ? activeStatus.status_color : (dim ? '#94a3b8' : '#475569');
 
-  if (activeStatus && !highlight && !dim) {
+  if (isRouteDropTarget) {
+     currentFill = 'rgba(16, 185, 129, 0.4)';
+     currentStroke = '#10b981';
+  } else if (activeStatus && !highlight && !dim) {
     if (tState === 'none') {
       currentFill = mixAlpha(activeStatus.status_color, 0.05); // Super faint hint
     } else if (tState === 'planned') {
@@ -166,13 +170,13 @@ export const MappedUnitComponent = ({
         {/* LAYER 2: Stroke Only (Standard rendering, sharp, vibrant) */}
         <Line
           points={currentPoints}
-          stroke={highlight ? (isSelected ? '#8b5cf6' : '#0ea5e9') : currentStroke}
-          strokeWidth={(dim ? 1.0 : (highlight ? 4.0 : 2.5)) * (settings?.markupThickness || 1)}
+          stroke={isRouteDropTarget ? '#10b981' : highlight ? (isSelected ? '#8b5cf6' : '#0ea5e9') : currentStroke}
+          strokeWidth={(isRouteDropTarget ? 4.0 : dim ? 1.0 : (highlight ? 4.0 : 2.5)) * (settings?.markupThickness || 1)}
           dash={strokeDash}
           closed={true}
-          shadowColor={highlight ? (isSelected ? 'rgba(139, 92, 246, 0.85)' : 'rgba(14, 165, 233, 0.85)') : 'transparent'}
-          shadowBlur={highlight ? 18 : 0}
-          shadowOpacity={highlight ? 0.9 : 0}
+          shadowColor={isRouteDropTarget ? 'rgba(16, 185, 129, 0.85)' : highlight ? (isSelected ? 'rgba(139, 92, 246, 0.85)' : 'rgba(14, 165, 233, 0.85)') : 'transparent'}
+          shadowBlur={isRouteDropTarget ? 18 : highlight ? 18 : 0}
+          shadowOpacity={isRouteDropTarget ? 0.9 : highlight ? 0.9 : 0}
           listening={!isFilteredOut}
         />
 
@@ -374,6 +378,7 @@ export const MappedUnitComponent = ({
 
 export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
   return (
+    prevProps.isRouteDropTarget === nextProps.isRouteDropTarget &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.isHovered === nextProps.isHovered &&
     prevProps.stageScale === nextProps.stageScale &&

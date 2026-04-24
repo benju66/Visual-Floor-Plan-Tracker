@@ -109,6 +109,8 @@ const FloorplanCanvas = forwardRef(({
   
   const [hoveredUnit, setHoveredUnit] = useState(null);
   const [hoveredRouteNode, setHoveredRouteNode] = useState(null);
+  const [activeRouteDrag, setActiveRouteDrag] = useState(null);
+  const [routeDropTarget, setRouteDropTarget] = useState(null);
   const [isHoveringAnchor, setIsHoveringAnchor] = useState(false);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [activeDragNode, setActiveDragNode] = useState(null);
@@ -685,7 +687,7 @@ const FloorplanCanvas = forwardRef(({
     computedCursor = isHoveringAnchor ? 'grab' : addNodeCursor;
   } else if (toolMode === 'route') {
     if (routeSubMode === 'add') {
-      computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? 'not-allowed' : 'cell';
+      computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? 'not-allowed' : addNodeCursor;
     } else if (routeSubMode === 'remove') {
       computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? deleteNodeCursor : 'default';
     } else {
@@ -799,6 +801,28 @@ const FloorplanCanvas = forwardRef(({
           }}
           onPointerUp={(e) => {
             setIsDraggingCanvas(false);
+            
+            if (activeRouteDrag) {
+              if (routeDropTarget) {
+                let newRoute = [...pendingRoute];
+                const existingIdx = newRoute.indexOf(routeDropTarget);
+                
+                // If it already exists in the route, remove it first
+                if (existingIdx !== -1) {
+                  newRoute.splice(existingIdx, 1);
+                  // Adjust sourceIndex if the removed item was before it
+                  if (existingIdx <= activeRouteDrag.sourceIndex) {
+                    activeRouteDrag.sourceIndex -= 1;
+                  }
+                }
+                
+                newRoute.splice(activeRouteDrag.sourceIndex + 1, 0, routeDropTarget);
+                setPendingRoute(newRoute);
+              }
+              setActiveRouteDrag(null);
+              setRouteDropTarget(null);
+            }
+
             if (toolMode === 'draw' && boxOrigin) {
               const stage = e.target.getStage();
               const pointer = stage.getPointerPosition() || pointerPos;
@@ -831,7 +855,36 @@ const FloorplanCanvas = forwardRef(({
           }}
           onMouseMove={(e) => {
             const stage = e.target.getStage();
-            if (stage) setPointerPos(stage.getPointerPosition());
+            if (stage) {
+              const pos = stage.getPointerPosition();
+              setPointerPos(pos);
+              
+              if (activeRouteDrag && pos) {
+                // Convert screen pointer to unscaled canvas coordinates
+                const dropX = (pos.x - stagePosition.x) / stageScale;
+                const dropY = (pos.y - stagePosition.y) / stageScale;
+                
+                let closestId = null;
+                let minDist = Infinity;
+
+                units.forEach(u => {
+                  if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) return;
+                  const centroid = getCentroid(u.polygon_coordinates);
+                  const targetX = layout.offsetX + centroid.pctX * layout.drawW;
+                  const targetY = layout.offsetY + centroid.pctY * layout.drawH;
+                  
+                  const d = Math.sqrt(Math.pow(targetX - dropX, 2) + Math.pow(targetY - dropY, 2));
+                  if (d < (40 / stageScale) && d < minDist) {
+                    minDist = d;
+                    closestId = u.id;
+                  }
+                });
+
+                if (closestId !== routeDropTarget) {
+                  setRouteDropTarget(closestId);
+                }
+              }
+            }
           }}
           x={stagePosition.x}
           y={stagePosition.y}
@@ -868,6 +921,7 @@ const FloorplanCanvas = forwardRef(({
                 <MappedUnit
                   key={unit.id}
                   unit={unit}
+                  isRouteDropTarget={routeDropTarget === unit.id}
                   activeStatuses={activeStatuses}
                   legendFilter={legendFilter}
                   isSelected={selectedUnitIds?.includes(unit.id)}
@@ -978,16 +1032,75 @@ const FloorplanCanvas = forwardRef(({
 
               return (
                 <Group>
-                  <Line
-                    points={flatPoints}
-                    stroke="#3b82f6"
-                    strokeWidth={4 / stageScale}
-                    dash={[10 / stageScale, 10 / stageScale]}
-                    lineCap="round"
-                    lineJoin="round"
-                    opacity={lineOpacity}
-                    listening={false}
-                  />
+                  {routePoints.slice(0, -1).map((p1, i) => {
+                    const p2 = routePoints[i + 1];
+                    return (
+                      <Line
+                        key={`route-segment-${i}`}
+                        points={[
+                          layout.offsetX + p1.pctX * layout.drawW,
+                          layout.offsetY + p1.pctY * layout.drawH,
+                          layout.offsetX + p2.pctX * layout.drawW,
+                          layout.offsetY + p2.pctY * layout.drawH
+                        ]}
+                        stroke="#3b82f6"
+                        strokeWidth={4 / stageScale}
+                        dash={[10 / stageScale, 10 / stageScale]}
+                        lineCap="round"
+                        lineJoin="round"
+                        opacity={lineOpacity}
+                        listening={toolMode === 'route'}
+                        onMouseEnter={(e) => {
+                          e.target.stroke("#2563eb");
+                          e.target.strokeWidth(6 / stageScale);
+                          e.target.getLayer().batchDraw();
+                          e.target.getStage().container().style.cursor = 'grab';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.stroke("#3b82f6");
+                          e.target.strokeWidth(4 / stageScale);
+                          e.target.getLayer().batchDraw();
+                          e.target.getStage().container().style.cursor = computedCursor;
+                        }}
+                        onMouseDown={(e) => {
+                          e.cancelBubble = true;
+                          setActiveRouteDrag({ type: 'midpoint', sourceIndex: i });
+                        }}
+                      />
+                    );
+                  })}
+                  
+                  {activeRouteDrag && pointerPos && (() => {
+                    const ghostX = (pointerPos.x - stagePosition.x) / stageScale;
+                    const ghostY = (pointerPos.y - stagePosition.y) / stageScale;
+                    
+                    const p1 = routePoints[activeRouteDrag.sourceIndex];
+                    const p2 = routePoints[activeRouteDrag.sourceIndex + 1];
+                    
+                    const startX = layout.offsetX + p1.pctX * layout.drawW;
+                    const startY = layout.offsetY + p1.pctY * layout.drawH;
+                    const endX = layout.offsetX + p2.pctX * layout.drawW;
+                    const endY = layout.offsetY + p2.pctY * layout.drawH;
+
+                    return (
+                      <Group listening={false}>
+                        <Line
+                          points={[startX, startY, ghostX, ghostY, endX, endY]}
+                          stroke="#2563eb"
+                          strokeWidth={4 / stageScale}
+                          dash={[10 / stageScale, 10 / stageScale]}
+                          opacity={0.8}
+                        />
+                        <Circle
+                          x={ghostX}
+                          y={ghostY}
+                          radius={12 / stageScale}
+                          fill="#2563eb"
+                          opacity={0.5}
+                        />
+                      </Group>
+                    );
+                  })()}
                   {routePoints.map((p, idx) => {
                     const x = layout.offsetX + p.pctX * layout.drawW;
                     const y = layout.offsetY + p.pctY * layout.drawH;
@@ -1036,6 +1149,30 @@ const FloorplanCanvas = forwardRef(({
                             circle.shadowBlur(8 / stageScale);
                           }
                         }}
+                        onDragMove={(e) => {
+                          const dragX = e.target.x();
+                          const dragY = e.target.y();
+                          
+                          let closestId = null;
+                          let minDist = Infinity;
+
+                          units.forEach(u => {
+                            if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) return;
+                            const centroid = getCentroid(u.polygon_coordinates);
+                            const targetX = layout.offsetX + centroid.pctX * layout.drawW;
+                            const targetY = layout.offsetY + centroid.pctY * layout.drawH;
+                            
+                            const d = Math.sqrt(Math.pow(targetX - dragX, 2) + Math.pow(targetY - dragY, 2));
+                            if (d < (40 / stageScale) && d < minDist) {
+                              minDist = d;
+                              closestId = u.id;
+                            }
+                          });
+
+                          if (closestId !== routeDropTarget) {
+                            setRouteDropTarget(closestId);
+                          }
+                        }}
                         onDragEnd={(e) => {
                           e.cancelBubble = true;
                           e.target.getStage().container().style.cursor = 'grab';
@@ -1049,19 +1186,23 @@ const FloorplanCanvas = forwardRef(({
                           const dropX = e.target.x();
                           const dropY = e.target.y();
 
+                          setRouteDropTarget(null);
+
                           let closestId = null;
                           let minDist = Infinity;
 
-                          // 1. Check for Node Replacement (Dropping on another circle)
-                          routePoints.forEach(target => {
-                            const targetX = layout.offsetX + target.pctX * layout.drawW;
-                            const targetY = layout.offsetY + target.pctY * layout.drawH;
+                          // 1. Check for Node Replacement (Dropping on a unit)
+                          units.forEach(u => {
+                            if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) return;
+                            const centroid = getCentroid(u.polygon_coordinates);
+                            const targetX = layout.offsetX + centroid.pctX * layout.drawW;
+                            const targetY = layout.offsetY + centroid.pctY * layout.drawH;
 
                             const d = Math.sqrt(Math.pow(targetX - dropX, 2) + Math.pow(targetY - dropY, 2));
 
                             if (d < (40 / stageScale) && d < minDist) {
                               minDist = d;
-                              closestId = target.id;
+                              closestId = u.id;
                             }
                           });
 
@@ -1090,13 +1231,18 @@ const FloorplanCanvas = forwardRef(({
 
                           // 3. Apply Array Mutations
                           if (closestId && closestId !== p.id) {
-                            // NODE SHIFT LOGIC (Existing)
                             const newRoute = [...pendingRoute];
                             const dragIndex = newRoute.indexOf(p.id);
-                            const dropIndex = newRoute.indexOf(closestId);
                             
-                            const [draggedItem] = newRoute.splice(dragIndex, 1);
-                            newRoute.splice(dropIndex, 0, draggedItem);
+                            if (pendingRoute.includes(closestId)) {
+                              // NODE SHIFT LOGIC (Swap/Shift)
+                              const dropIndex = newRoute.indexOf(closestId);
+                              const [draggedItem] = newRoute.splice(dragIndex, 1);
+                              newRoute.splice(dropIndex, 0, draggedItem);
+                            } else {
+                              // NODE REPLACEMENT LOGIC (Assignment Change)
+                              newRoute[dragIndex] = closestId;
+                            }
                             
                             setPendingRoute(newRoute);
                           } else if (insertIndex !== -1) {
