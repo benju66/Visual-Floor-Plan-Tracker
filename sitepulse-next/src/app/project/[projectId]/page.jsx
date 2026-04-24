@@ -510,6 +510,7 @@ function App() {
                   <FloorplanCanvas
                     ref={floorplanRef}
                   activeStatuses={mapDisplayStatuses}
+                  rawStatuses={activeStatuses}
                   imageUrl={activeSheet.base_image_url}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
                   onUpdateUnitIconOffset={handleUpdateUnitIconOffset}
