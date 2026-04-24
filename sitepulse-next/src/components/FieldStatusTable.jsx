@@ -7,7 +7,7 @@ import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useProject, useUnits, useMilestones } from '@/hooks/useProjectQueries';
 import { useParams } from 'next/navigation';
-
+import WalkSequenceModal from './WalkSequenceModal';
 function UpdatingRing() {
   return (
     <svg className="h-7 w-7 shrink-0 animate-spin text-blue-600" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -182,6 +182,7 @@ export default function FieldStatusTable({
   const [sortColumn, setSortColumn] = useState('unit'); // 'unit', 'status', 'updated'
   const [sortDirection, setSortDirection] = useState('asc'); // 'asc', 'desc'
   const [typeFilter, setTypeFilter] = useState('All');
+  const [isSequenceModalOpen, setIsSequenceModalOpen] = useState(false);
   
   const params = useParams();
   const projectId = params?.projectId;
@@ -241,6 +242,14 @@ export default function FieldStatusTable({
         let cmp = 0;
         if (sortColumn === 'unit') {
           cmp = a.unit.unit_number.localeCompare(b.unit.unit_number, undefined, { numeric: true, sensitivity: 'base' });
+        } else if (sortColumn === 'walk_sequence') {
+          const seqA = typeof a.unit.walk_sequence === 'number' ? a.unit.walk_sequence : 99999;
+          const seqB = typeof b.unit.walk_sequence === 'number' ? b.unit.walk_sequence : 99999;
+          cmp = seqA - seqB;
+          // Fallback to unit_number if sequence is identical
+          if (cmp === 0) {
+            cmp = a.unit.unit_number.localeCompare(b.unit.unit_number, undefined, { numeric: true, sensitivity: 'base' });
+          }
         } else if (sortColumn === 'status') {
           const ma = a.log?.milestone || '';
           const mb = b.log?.milestone || '';
@@ -469,6 +478,36 @@ export default function FieldStatusTable({
             <div className="flex items-center justify-center bg-slate-200/80 dark:bg-slate-700/80 text-[10px] font-bold text-slate-600 dark:text-slate-300 rounded-md px-1.5 min-w-[20px] h-5" title={`${visible.length} locations visible`}>
               {visible.length}
             </div>
+          </div>
+
+          {/* Walking Path Controls */}
+          <div className="flex items-center gap-2 mr-2 border-r border-slate-300/80 dark:border-white/10 pr-4">
+            <button
+              type="button"
+              onClick={() => {
+                if (sortColumn === 'walk_sequence') {
+                  setSortColumn('unit');
+                  setSortDirection('asc');
+                } else {
+                  setSortColumn('walk_sequence');
+                  setSortDirection('asc');
+                }
+              }}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors shadow-sm ${
+                sortColumn === 'walk_sequence'
+                  ? 'bg-emerald-500 text-white border-emerald-600'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 border-slate-300/80 dark:border-white/15 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
+            >
+              Route Sort {sortColumn === 'walk_sequence' && '✓'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsSequenceModalOpen(true)}
+              className="text-xs font-semibold text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 underline decoration-slate-300 dark:decoration-slate-700 underline-offset-4 transition-colors"
+            >
+              Edit Route
+            </button>
           </div>
 
           <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm shrink-0">
@@ -733,6 +772,14 @@ export default function FieldStatusTable({
 
       {statusFilter && visible.length === 0 && (
         <p className="mt-4 text-center text-sm text-slate-500">No locations match this milestone filter.</p>
+      )}
+
+      {isSequenceModalOpen && (
+        <WalkSequenceModal
+          units={units}
+          sheetId={activeSheetId}
+          onClose={() => setIsSequenceModalOpen(false)}
+        />
       )}
     </div>
   );

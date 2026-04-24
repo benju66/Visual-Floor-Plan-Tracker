@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2 } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 
 export default function MapHorizontalToolbar({
@@ -27,13 +27,23 @@ export default function MapHorizontalToolbar({
     stamp: Stamp,
     select: Pointer,
     multi_select: ListChecks,
-    crosshair: Crosshair
+    crosshair: Crosshair,
+    route: Route
   };
 
   const isUndoEmpty = !undoStack || undoStack.length === 0;
   const isRedoEmpty = !redoStack || redoStack.length === 0;
 
-  const toolsToRender = mapSettings?.pinnedTools || ['select', 'multi_select', 'pan', 'draw', 'add_node', 'delete_node'];
+  let toolsToRender = mapSettings?.pinnedTools || ['select', 'multi_select', 'pan', 'route', 'draw', 'add_node', 'delete_node'];
+  if (!toolsToRender.includes('route')) {
+    toolsToRender = [...toolsToRender];
+    const panIdx = toolsToRender.indexOf('pan');
+    if (panIdx !== -1) {
+      toolsToRender.splice(panIdx + 1, 0, 'route');
+    } else {
+      toolsToRender.push('route');
+    }
+  }
 
   return (
     <div
@@ -89,12 +99,30 @@ export default function MapHorizontalToolbar({
           );
         }
 
+        if (toolId === 'route') {
+          return (
+            <button
+              key={`${toolId}-${idx}`}
+              type="button"
+              onClick={() => onToolModeChange(toolMode === 'route' ? 'pan' : 'route')}
+              className={`hidden md:flex p-2 rounded-full items-center justify-center transition-all ${
+                toolMode === 'route'
+                  ? 'bg-blue-500 text-white shadow-sm scale-110'
+                  : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+              }`}
+              title="Draw Walking Route"
+            >
+              <Icon size={18} />
+            </button>
+          );
+        }
+
         const isActive = toolMode === toolId;
         return (
           <button
             key={`${toolId}-${idx}`}
             type="button"
-            onClick={() => onToolModeChange?.(toolId)}
+            onClick={() => onToolModeChange(isActive ? 'pan' : toolId)}
             className={`p-2 rounded-full flex items-center justify-center transition-all ${
               isActive 
                 ? 'bg-blue-500 text-white shadow-sm scale-110' 
@@ -127,6 +155,19 @@ export default function MapHorizontalToolbar({
           <Magnet size={18} />
         </button>
       )}
+
+      <button
+        type="button"
+        onClick={() => onUpdateMapSettings?.({ ...mapSettings, showWalkSequence: !mapSettings?.showWalkSequence })}
+        className={`p-2 rounded-full flex items-center justify-center transition-all ${
+          mapSettings?.showWalkSequence 
+            ? 'bg-blue-500 text-white shadow-sm scale-110' 
+            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+        }`}
+        title={`${mapSettings?.showWalkSequence ? 'Hide' : 'Show'} Route Path`}
+      >
+        <Footprints size={18} />
+      </button>
 
       <button
         type="button"

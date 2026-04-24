@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path, Text } from 'react-konva';
 import useImage from 'use-image';
 import { Check } from 'lucide-react';
 import ViewportControls from '@/components/canvas/ViewportControls';
@@ -17,7 +17,7 @@ import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import RBush from 'rbush';
-import { useProject, useUnits, useStatuses, useMilestones, useSnappingVectors } from '@/hooks/useProjectQueries';
+import { useProject, useUnits, useStatuses, useMilestones, useSnappingVectors, useUpdateWalkSequence } from '@/hooks/useProjectQueries';
 import { useParams } from 'next/navigation';
 
 const FloorplanCanvas = forwardRef(({
@@ -112,6 +112,8 @@ const FloorplanCanvas = forwardRef(({
   const [contextMenu, setContextMenu] = useState(null);
   const [pointerPos, setPointerPos] = useState(null);
   const [isLegendSelected, setIsLegendSelected] = useState(false);
+  const [pendingRoute, setPendingRoute] = useState([]);
+  const routeMutation = useUpdateWalkSequence(activeSheetId);
 
   const [isShiftDown, setIsShiftDown] = useState(false);
   const [boxOrigin, setBoxOrigin] = useState(null);
@@ -212,6 +214,17 @@ const FloorplanCanvas = forwardRef(({
     if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
       onClearSelection();
     }
+    
+    if (toolMode === 'route') {
+      const existingRoute = [...unitsRef.current]
+        .filter(u => typeof u.walk_sequence === 'number')
+        .sort((a, b) => a.walk_sequence - b.walk_sequence)
+        .map(u => u.id);
+      setPendingRoute(existingRoute);
+    } else {
+      setPendingRoute([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolMode]);
 
   const layout = useMemo(() => {
@@ -457,6 +470,13 @@ const FloorplanCanvas = forwardRef(({
   };
 
   const handlePolygonClick = (e, unit) => {
+    if (toolMode === 'route') {
+      e.cancelBubble = true;
+      setPendingRoute(prev => 
+        prev.includes(unit.id) ? prev.filter(id => id !== unit.id) : [...prev, unit.id]
+      );
+      return;
+    }
     if (!['select', 'multi_select', 'add_node', 'delete_node'].includes(toolMode)) return;
     e.cancelBubble = true;
     
@@ -724,6 +744,25 @@ const FloorplanCanvas = forwardRef(({
         </button>
       )}
 
+      {toolMode === 'route' && pendingRoute.length > 0 && (
+        <button
+          type="button"
+          onClick={async () => {
+            const updates = [];
+            pendingRoute.forEach((id, idx) => updates.push({ id, walk_sequence: idx + 1 }));
+            const pendingSet = new Set(pendingRoute);
+            units.forEach(u => {
+              if (!pendingSet.has(u.id)) updates.push({ id: u.id, walk_sequence: null });
+            });
+            await routeMutation.mutateAsync(updates);
+            onToolModeChange('pan');
+          }}
+          className="absolute top-6 right-6 z-20 bg-emerald-500/95 backdrop-blur-sm text-white px-6 py-2 rounded-full shadow-lg hover:bg-emerald-600 transition-all flex items-center gap-2 font-bold border border-white/20"
+        >
+          <Check size={18} /> Save Route ({pendingRoute.length})
+        </button>
+      )}
+
       {dimensions.width > 0 && dimensions.height > 0 && (
         <Stage
           ref={stageRef}
@@ -893,6 +932,61 @@ const FloorplanCanvas = forwardRef(({
               setActiveDragNode={setActiveDragNode}
               setIsHoveringAnchor={setIsHoveringAnchor}
             />
+
+            {(toolMode === 'route' || mapSettings?.showWalkSequence) && (() => {
+              let orderedIds = [];
+              if (toolMode === 'route') {
+                orderedIds = pendingRoute;
+              } else {
+                orderedIds = [...units]
+                  .filter(u => typeof u.walk_sequence === 'number')
+                  .sort((a,b) => a.walk_sequence - b.walk_sequence)
+                  .map(u => u.id);
+              }
+              if (orderedIds.length === 0) return null;
+
+              const routePoints = orderedIds
+                .map(id => units.find(u => u.id === id))
+                .filter(u => u && u.polygon_coordinates && u.polygon_coordinates.length > 0)
+                .map(u => {
+                  const c = getCentroid(u.polygon_coordinates);
+                  return { id: u.id, pctX: c.pctX, pctY: c.pctY };
+                });
+              
+              if (routePoints.length === 0) return null;
+              
+              const flatPoints = routePoints.flatMap(p => [
+                layout.offsetX + p.pctX * layout.drawW,
+                layout.offsetY + p.pctY * layout.drawH
+              ]);
+
+              const lineOpacity = toolMode === 'route' ? 0.8 : 0.4;
+              const dotOpacity = toolMode === 'route' ? 1 : 0.6;
+
+              return (
+                <Group>
+                  <Line
+                    points={flatPoints}
+                    stroke="#3b82f6"
+                    strokeWidth={4 / stageScale}
+                    dash={[10 / stageScale, 10 / stageScale]}
+                    lineCap="round"
+                    lineJoin="round"
+                    opacity={lineOpacity}
+                  />
+                  {routePoints.map((p, idx) => {
+                    const x = layout.offsetX + p.pctX * layout.drawW;
+                    const y = layout.offsetY + p.pctY * layout.drawH;
+                    return (
+                      <Group key={`route-${p.id}`} x={x} y={y} opacity={dotOpacity}>
+                        <Circle radius={12 / stageScale} fill="#3b82f6" shadowColor="black" shadowBlur={4 / stageScale} shadowOpacity={0.3} shadowOffset={{x: 0, y: 2/stageScale}} />
+                        <Text text={(idx + 1).toString()} fontSize={14 / stageScale} fill="white" fontStyle="bold" align="center" verticalAlign="middle" width={24 / stageScale} height={24 / stageScale} offsetX={12 / stageScale} offsetY={12 / stageScale} />
+                      </Group>
+                    );
+                  })}
+                </Group>
+              );
+            })()}
 
             <MapLegend
               isVisible={legendPosition?.isVisible}

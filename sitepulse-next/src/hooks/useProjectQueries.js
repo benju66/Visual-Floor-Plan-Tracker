@@ -830,3 +830,37 @@ export function useReorderSheets(projectId) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['sheets', projectId] })
   });
 }
+
+export function useUpdateWalkSequence(sheetId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (sequenceUpdates) => {
+      // sequenceUpdates is an array of { id: unit_id, walk_sequence: number | null }
+      const CHUNK_SIZE = 800;
+      for (let i = 0; i < sequenceUpdates.length; i += CHUNK_SIZE) {
+        const chunk = sequenceUpdates.slice(i, i + CHUNK_SIZE);
+        for (const update of chunk) {
+          const { error } = await supabase
+            .from('units')
+            .update({ walk_sequence: update.walk_sequence })
+            .eq('id', update.id);
+          if (error) throw error;
+        }
+      }
+    },
+    onMutate: async (sequenceUpdates) => {
+      await queryClient.cancelQueries({ queryKey: ['units', sheetId] });
+      queryClient.setQueriesData({ queryKey: ['units', sheetId] }, old => {
+        if (!old) return old;
+        const updateMap = new Map(sequenceUpdates.map(u => [u.id, u.walk_sequence]));
+        return old.map(u => 
+          updateMap.has(u.id) ? { ...u, walk_sequence: updateMap.get(u.id) } : u
+        );
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['units', sheetId] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+    }
+  });
+}
