@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
-import { ArrowUp, ArrowDown, History, AlertTriangle, X, Check, ArrowRight } from 'lucide-react';
+import { ArrowUp, ArrowDown, History, AlertTriangle, X, Check, ArrowRight, ArrowLeft, Undo2, Redo2 } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -313,6 +313,7 @@ export default function FieldStatusTable({
   const [isApplying, setIsApplying] = useState(false);
   const [swipedHistory, setSwipedHistory] = useState([]);
   const [skippedToBack, setSkippedToBack] = useState([]);
+  const [cardRedoStack, setCardRedoStack] = useState([]);
 
   useEffect(() => {
     if (viewStyle === 'card') {
@@ -324,6 +325,66 @@ export default function FieldStatusTable({
       document.documentElement.classList.remove('hide-header-elements');
     };
   }, [viewStyle]);
+
+  const handleLocalUndo = () => {
+    if (swipedHistory.length === 0) return;
+    const newHist = [...swipedHistory];
+    const action = newHist.pop();
+    
+    // Support legacy string IDs if they exist during HMR
+    const unitId = typeof action === 'string' ? action : action.unitId;
+    const previousPendingPayload = typeof action === 'string' ? undefined : action.previousPendingPayload;
+    const wasSkippedToBack = typeof action === 'string' ? skippedToBack.includes(unitId) : action.wasSkippedToBack;
+
+    const currentPayload = pendingChanges[unitId];
+    
+    setCardRedoStack(prev => [...prev, { 
+      unitId, 
+      pendingChangePayload: currentPayload, 
+      previousPendingPayload,
+      wasSkippedToBack 
+    }]);
+    
+    setSwipedHistory(newHist);
+    if (wasSkippedToBack) {
+      setSkippedToBack(prev => prev.filter(id => id !== unitId));
+    }
+    
+    setPendingChanges(prev => {
+      const next = { ...prev };
+      if (previousPendingPayload) {
+        next[unitId] = previousPendingPayload;
+      } else {
+        delete next[unitId];
+      }
+      return next;
+    });
+  };
+
+  const handleLocalRedo = () => {
+    if (cardRedoStack.length === 0) return;
+    const newRedo = [...cardRedoStack];
+    const action = newRedo.pop();
+    
+    setSwipedHistory(prev => [...prev, { 
+      unitId: action.unitId, 
+      previousPendingPayload: action.previousPendingPayload, 
+      wasSkippedToBack: action.wasSkippedToBack 
+    }]);
+    
+    if (action.wasSkippedToBack) {
+      setSkippedToBack(prev => [...prev, action.unitId]);
+    }
+    
+    if (action.pendingChangePayload) {
+      setPendingChanges(prev => ({
+        ...prev,
+        [action.unitId]: action.pendingChangePayload
+      }));
+    }
+    
+    setCardRedoStack(newRedo);
+  };
 
   const handleLocalUpdate = (unit, baseLog, state, extraProps = {}) => {
     setPendingChanges(prev => {
@@ -418,9 +479,14 @@ export default function FieldStatusTable({
   }, [ranked, statusFilter, typeFilter]);
 
   const orderedCards = useMemo(() => {
-    const visibleCards = visible.filter(r => !swipedHistory.includes(r.unit.id));
+    const swipedIds = swipedHistory.map(h => typeof h === 'string' ? h : h.unitId);
+    const visibleCards = visible.filter(r => !swipedIds.includes(r.unit.id));
     const main = visibleCards.filter(c => !skippedToBack.includes(c.unit.id));
-    const skipped = visibleCards.filter(c => skippedToBack.includes(c.unit.id));
+    
+    const skipped = skippedToBack
+      .map(id => visibleCards.find(c => c.unit.id === id))
+      .filter(Boolean);
+      
     return [...main, ...skipped];
   }, [visible, swipedHistory, skippedToBack]);
 
@@ -562,6 +628,24 @@ export default function FieldStatusTable({
     if (sortColumn !== col) return null;
     return sortDirection === 'asc' ? <ArrowUp size={14} className="inline-block ml-1" /> : <ArrowDown size={14} className="inline-block ml-1" />;
   };
+  const handleNextCard = () => {
+    const topCard = orderedCards[0];
+    if (topCard) {
+      setSkippedToBack(prev => {
+        const filtered = prev.filter(id => id !== topCard.unit.id);
+        return [...filtered, topCard.unit.id];
+      });
+    }
+  };
+
+  const handlePrevCard = () => {
+    setSkippedToBack(prev => {
+      const next = [...prev];
+      next.pop(); 
+      return next;
+    });
+  };
+
 
   return (
     <div className="w-full h-full flex flex-col pb-2 md:pb-6">
@@ -722,8 +806,9 @@ export default function FieldStatusTable({
                   isTop={isTop}
                   depth={depth}
                   onSwipeLeft={() => {
-                    setSwipedHistory(prev => [...prev, unit.id]);
+                    setSwipedHistory(prev => [...prev, { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], wasSkippedToBack: true }]);
                     setSkippedToBack(prev => [...prev, unit.id]);
+                    setCardRedoStack([]);
                   }}
                   onSwipeRight={() => {
                     const pending = pendingChanges[unit.id]?.state;
@@ -733,12 +818,14 @@ export default function FieldStatusTable({
                     else if (current === 'ongoing') nextState = 'completed';
 
                     handleLocalUpdate(unit, log || {}, nextState);
-                    setSwipedHistory(prev => [...prev, unit.id]);
+                    setSwipedHistory(prev => [...prev, { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], wasSkippedToBack: false }]);
+                    setCardRedoStack([]);
                   }}
                   onChooseStatus={onChooseStatus}
                   onCommitEscape={(state, m) => {
                     handleLocalUpdate(unit, log || {}, state, { milestoneObj: m });
-                    setSwipedHistory(prev => [...prev, unit.id]);
+                    setSwipedHistory(prev => [...prev, { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], wasSkippedToBack: false }]);
+                    setCardRedoStack([]);
                   }}
                 />;
               })
@@ -746,52 +833,41 @@ export default function FieldStatusTable({
           </div>
 
           {/* Explicit Navigation Controls */}
-          <div className="flex md:hidden w-full items-center justify-center gap-6 mt-2 shrink-0 pb-4">
+          <div className="flex md:hidden w-full items-center justify-center gap-4 mt-2 shrink-0 pb-4">
+            {/* Existing Undo Button */}
             <button
-              onClick={() => {
-                setSwipedHistory(prev => {
-                  const newHist = [...prev];
-                  const popped = newHist.pop();
-                  setSkippedToBack(s => s.filter(id => id !== popped));
-                  return newHist;
-                });
-              }}
+              onClick={handleLocalUndo}
               disabled={swipedHistory.length === 0}
-              className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+              className="w-12 h-12 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
             >
-              <History size={24} />
+              <Undo2 size={22} />
             </button>
-            <button
-              onClick={() => {
-                const topCard = orderedCards[0];
-                if (topCard) {
-                  setSwipedHistory(prev => [...prev, topCard.unit.id]);
-                  setSkippedToBack(prev => [...prev, topCard.unit.id]);
-                }
-              }}
-              disabled={orderedCards.length === 0}
-              className="w-16 h-16 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-400 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
-            >
-              <X size={28} strokeWidth={3} />
-            </button>
-            <button
-              onClick={() => {
-                const topCard = orderedCards[0];
-                if (topCard) {
-                  const pending = pendingChanges[topCard.unit.id]?.state;
-                  const current = pending || topCard.log?.temporal_state || 'none';
-                  let nextState = 'planned';
-                  if (current === 'planned') nextState = 'ongoing';
-                  else if (current === 'ongoing') nextState = 'completed';
 
-                  handleLocalUpdate(topCard.unit, topCard.log || {}, nextState);
-                  setSwipedHistory(prev => [...prev, topCard.unit.id]);
-                }
-              }}
-              disabled={orderedCards.length === 0}
-              className="w-16 h-16 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-emerald-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+            {/* NEW: Back Arrow (Prev) */}
+            <button
+              onClick={handlePrevCard}
+              disabled={skippedToBack.length === 0}
+              className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
             >
-              <Check size={28} strokeWidth={3} />
+              <ArrowLeft size={24} />
+            </button>
+
+            {/* NEW: Forward Arrow (Next) */}
+            <button
+              onClick={handleNextCard}
+              disabled={orderedCards.length <= 1}
+              className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-sky-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+            >
+              <ArrowRight size={24} />
+            </button>
+
+            {/* Existing Redo Button */}
+            <button
+              onClick={handleLocalRedo}
+              disabled={cardRedoStack.length === 0}
+              className="w-12 h-12 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+            >
+              <Redo2 size={22} />
             </button>
           </div>
 
