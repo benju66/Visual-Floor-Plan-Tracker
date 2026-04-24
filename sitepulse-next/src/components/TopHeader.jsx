@@ -83,13 +83,13 @@ function TopHeader({
         <button
           type="button"
           onClick={() => setMilestoneMenu({ mode: 'filter' })}
-          className="flex-shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+          className="hide-in-swipe-view flex-shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
         >
           Milestones (Ctrl+K)
         </button>
 
         {/* Scope Tabs - Flex None to prevent squishing */}
-        <div className="flex flex-shrink-0 flex-nowrap rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
+        <div className="hide-in-swipe-view flex flex-shrink-0 flex-nowrap rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
           {activeSheet?.active_scopes && activeSheet.active_scopes.length > 0 ? (
             activeSheet.active_scopes.map((scope, index) => (
               <button
@@ -110,7 +110,7 @@ function TopHeader({
         </div>
 
         {/* View Mode Toggle */}
-        <div className="flex flex-shrink-0 rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
+        <div className="hidden md:flex flex-shrink-0 rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
           <button
             type="button"
             title="Dashboard View"
@@ -156,7 +156,7 @@ function TopHeader({
           <button
             type="button"
             onClick={() => setIsSettingsOpen(true)}
-            className="flex-shrink-0 p-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+            className="hide-in-swipe-view flex-shrink-0 p-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 font-medium shadow-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
             title="Settings"
           >
             <Settings size={18} />

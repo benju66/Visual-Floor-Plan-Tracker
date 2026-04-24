@@ -1,6 +1,6 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
-import { motion, useMotionValue, useTransform } from 'framer-motion';
+import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { ArrowUp, ArrowDown, History, AlertTriangle, X, Check, ArrowRight } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -284,6 +284,15 @@ export default function FieldStatusTable({
   const [sortDirection, setSortDirection] = useState('asc'); // 'asc', 'desc'
   const [typeFilter, setTypeFilter] = useState('All');
   const [isSequenceModalOpen, setIsSequenceModalOpen] = useState(false);
+  const [isMobileControlsOpen, setIsMobileControlsOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(true);
+
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const params = useParams();
   const projectId = params?.projectId;
@@ -552,7 +561,7 @@ export default function FieldStatusTable({
   };
 
   return (
-    <div className="w-full pb-6">
+    <div className="w-full h-full flex flex-col pb-2 md:pb-6">
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-3 mb-4">
         <div className="flex-1 w-full md:w-auto">
           {Object.keys(pendingChanges).length > 0 && (
@@ -578,7 +587,26 @@ export default function FieldStatusTable({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between w-full gap-3">
+        <div className="flex flex-col w-full md:w-auto gap-2">
+          {viewStyle === 'card' && !isDesktop && (
+            <button 
+              onClick={() => setIsMobileControlsOpen(!isMobileControlsOpen)} 
+              className="md:hidden flex items-center justify-between w-full p-2.5 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 shadow-sm mb-2"
+            >
+              Filters & Display Options
+              {isMobileControlsOpen ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+            </button>
+          )}
+
+          <AnimatePresence initial={false}>
+            {(isDesktop || viewStyle === 'table' || isMobileControlsOpen) && (
+              <motion.div
+                key="controls-drawer"
+                initial={!isDesktop ? { height: 0, opacity: 0 } : false}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="flex flex-wrap items-center justify-between w-full gap-3 overflow-hidden md:!overflow-visible"
+              >
           {/* Left side: Filter */}
           <div className="flex items-center gap-2 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-lg px-2 py-1 shadow-sm flex-1 md:flex-none min-w-[140px]">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1 hidden sm:inline">
@@ -662,15 +690,18 @@ export default function FieldStatusTable({
                   }`}
               >
                 Cards
-              </button>
+                </button>
+              </div>
             </div>
-          </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
         </div>
       </div>
 
       {viewStyle === 'card' ? (
-        <div className="flex flex-col gap-4 w-full">
-          <div className="relative h-[65vh] min-h-[450px] w-full md:hidden flex justify-center items-center overflow-hidden bg-slate-100 dark:bg-black/30 rounded-3xl border border-slate-200/50 dark:border-white/5 shadow-inner -mt-2">
+        <div className="flex flex-col flex-1 min-h-0 w-full gap-2">
+          <div className="relative flex-1 min-h-0 w-full md:hidden flex justify-center items-center overflow-hidden bg-slate-100 dark:bg-black/30 rounded-3xl border border-slate-200/50 dark:border-white/5 shadow-inner -mt-2">
             {orderedCards.length === 0 ? (
               <div className="text-slate-400 font-semibold text-lg flex flex-col items-center">
                 <div className="text-5xl mb-4">🙌</div>
@@ -712,7 +743,7 @@ export default function FieldStatusTable({
           </div>
 
           {/* Explicit Navigation Controls */}
-          <div className="flex md:hidden w-full items-center justify-center gap-6 mt-2">
+          <div className="flex md:hidden w-full items-center justify-center gap-6 mt-2 shrink-0 pb-4">
             <button
               onClick={() => {
                 setSwipedHistory(prev => {
