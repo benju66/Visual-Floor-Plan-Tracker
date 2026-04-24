@@ -138,6 +138,9 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
     ]
   );
 
+  const swipeRightOpacity = useTransform(x, [0, 100], [0, 1]);
+  const swipeLeftOpacity = useTransform(x, [0, -100], [0, 1]);
+
   const handleDragEnd = (event, info) => {
     if (info.offset.x > 100) {
       onSwipeRight();
@@ -188,10 +191,10 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
         )}
         {isTop && !pendingEscapeMilestone && (
           <>
-            <motion.div style={{ opacity: useTransform(x, [0, 100], [0, 1]) }} className="absolute inset-y-0 right-4 flex items-center justify-center pointer-events-none z-0">
+            <motion.div style={{ opacity: swipeRightOpacity }} className="absolute inset-y-0 right-4 flex items-center justify-center pointer-events-none z-0">
               <div className="p-4 bg-emerald-500 text-white rounded-full"><Check size={32} /></div>
             </motion.div>
-            <motion.div style={{ opacity: useTransform(x, [0, -100], [0, 1]) }} className="absolute inset-y-0 left-4 flex items-center justify-center pointer-events-none z-0">
+            <motion.div style={{ opacity: swipeLeftOpacity }} className="absolute inset-y-0 left-4 flex items-center justify-center pointer-events-none z-0">
               <div className="p-4 bg-slate-500 text-white rounded-full"><ArrowRight size={32} className="rotate-180" /></div>
             </motion.div>
           </>
