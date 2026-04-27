@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
-import { ArrowUp, ArrowDown, History, AlertTriangle, X, Check, ArrowRight, ArrowLeft, Undo2, Redo2 } from 'lucide-react';
+import { ArrowUp, ArrowDown, History, AlertTriangle, X, Check, ArrowRight, ArrowLeft, Undo2, Redo2, ChevronDown } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -112,8 +112,9 @@ const BottleneckIndicator = ({ outOfSequence }) => {
   );
 };
 
-const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChooseStatus, onCommitEscape }) => {
+const SwipeCard = ({ unit, log, rawStatuses, milestones, isTop, depth, onSwipeLeft, onSwipeRight, onChooseStatus, onCommitEscape }) => {
   const [pendingEscapeMilestone, setPendingEscapeMilestone] = useState(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-10, 10]);
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
@@ -159,6 +160,8 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
     }
   };
 
+  const unitRawLogs = rawStatuses?.filter(s => s.unit_id === unit.id) || [];
+
   return (
     <motion.div
       style={{
@@ -169,16 +172,17 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
         scale: isTop ? 1 : 1 - depth * 0.05,
         y: isTop ? 0 : depth * 12,
       }}
-      drag={isTop && !pendingEscapeMilestone ? "x" : false}
+      drag={isTop && !pendingEscapeMilestone && !isExpanded ? "x" : false}
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={handleDragEnd}
-      className={`absolute w-[90%] max-w-sm h-full max-h-[380px] flex flex-col justify-between touch-pan-y ${isTop && !pendingEscapeMilestone ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'}`}
+      layout
+      className={"absolute w-[90%] max-w-sm h-full max-h-[500px] flex flex-col justify-between touch-pan-y " + (isTop && !pendingEscapeMilestone && !isExpanded ? "cursor-grab active:cursor-grabbing " : "") + (isTop ? "pointer-events-auto" : "pointer-events-none")}
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1 - depth * 0.05, opacity: isTop ? 1 : 1 - depth * 0.1, y: depth * 12 }}
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
     >
       <motion.div
-        className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] shadow-2xl overflow-hidden relative ${isTop && pendingEscapeMilestone ? 'border-sky-400/50 dark:border-sky-500/50 pointer-events-auto' : 'border-slate-200/80 dark:border-white/10'}`}
+        className={"flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] shadow-2xl overflow-hidden relative " + (isTop && (pendingEscapeMilestone || isExpanded) ? "border-sky-400/50 dark:border-sky-500/50 pointer-events-auto" : "border-slate-200/80 dark:border-white/10")}
         style={{
           borderColor: isTop && !pendingEscapeMilestone ? borderGlow : undefined
         }}
@@ -258,6 +262,53 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
                   </span>
                 </div>
               </div>
+
+              {/* View Full History Toggle */}
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }} 
+                className="mt-4 flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 dark:hover:text-slate-300 transition-colors pointer-events-auto w-full py-2 shrink-0"
+              >
+                View Full History
+                <ChevronDown size={14} className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Animated Accordion Body */}
+              <AnimatePresence>
+                {isExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="w-full overflow-hidden pointer-events-auto"
+                  >
+                     <div className="max-h-[160px] overflow-y-auto mt-1 flex flex-col gap-1.5 pr-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-thumb]:rounded-full">
+                        {milestones.map(m => {
+                           const mLog = unitRawLogs.find(l => l.milestone === m.name);
+                           
+                           // Check if there is an unapplied local pending change for this specific milestone
+                           const isLocallyPending = log?.milestone === m.name;
+                           const state = isLocallyPending ? (log?.temporal_state || 'none') : (mLog?.temporal_state || 'none');
+                           
+                           const badgeColor = getBadgeColor(state);
+                           
+                           return (
+                             <div 
+                               key={m.name} 
+                               onClick={(e) => { e.stopPropagation(); setPendingEscapeMilestone(m); }}
+                               className={`flex items-center gap-2 p-2 rounded-xl border border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-black/10 hover:bg-slate-100 dark:hover:bg-black/20 transition-colors cursor-pointer ${state === 'none' ? 'opacity-60 hover:opacity-100' : ''}`}
+                             >
+                               <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: m.color || mLog?.status_color }} />
+                               <span className="truncate text-xs font-bold text-slate-700 dark:text-slate-200 flex-1 text-left">{m.name}</span>
+                               <span className={`text-[9px] uppercase tracking-widest font-black px-2 py-1 rounded-full ${badgeColor}`}>
+                                 {state === 'none' ? 'Not Started' : state}
+                               </span>
+                             </div>
+                           );
+                        })}
+                     </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </>
           )}
         </div>
@@ -269,6 +320,7 @@ const SwipeCard = ({ unit, log, isTop, depth, onSwipeLeft, onSwipeRight, onChoos
 
 export default function FieldStatusTable({
   activeStatuses = [],
+  rawStatuses = [],
   savingUnitId,
   onChooseStatus,
   defaultView = 'table',
@@ -304,6 +356,12 @@ export default function FieldStatusTable({
   const projectUnitTypes = project?.unit_types || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
   const { data: allMilestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
+
+  const currentMilestones = useMemo(() => {
+    return allMilestones
+      .filter(m => m.track === trackingMode)
+      .sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
+  }, [allMilestones, trackingMode]);
 
   const [viewStyle, setViewStyle] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth < 768) return 'card';
@@ -802,7 +860,14 @@ export default function FieldStatusTable({
                 return <SwipeCard
                   key={unit.id}
                   unit={unit}
-                  log={pendingChanges[unit.id] ? { ...log, temporal_state: pendingChanges[unit.id].state } : log}
+                  log={pendingChanges[unit.id] ? { 
+                    ...log, 
+                    temporal_state: pendingChanges[unit.id].state,
+                    milestone: pendingChanges[unit.id].extraProps?.milestoneObj?.name || log?.milestone,
+                    status_color: pendingChanges[unit.id].extraProps?.milestoneObj?.color || log?.status_color
+                  } : log}
+                  rawStatuses={rawStatuses}
+                  milestones={currentMilestones}
                   isTop={isTop}
                   depth={depth}
                   onSwipeLeft={() => {

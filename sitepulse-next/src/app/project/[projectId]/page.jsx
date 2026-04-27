@@ -479,6 +479,7 @@ function App() {
           <div className="h-full overflow-auto overscroll-y-contain">
             <FieldStatusTable
               activeStatuses={mapDisplayStatuses}
+              rawStatuses={activeStatuses}
               savingUnitId={savingUnitId}
               onChooseStatus={(unit, onSelect) => setMilestoneMenu({ mode: 'unit', unit, onSelect })}
               onApplyPendingChanges={async (changesArray) => {
