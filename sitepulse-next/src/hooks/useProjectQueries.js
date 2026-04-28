@@ -864,3 +864,39 @@ export function useUpdateWalkSequence(sheetId) {
     }
   });
 }
+
+export function useUpdateProjectMemberRole(projectId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ memberId, role }) => {
+      const { data, error } = await supabase
+        .from('project_members')
+        .update({ role })
+        .eq('id', memberId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async ({ memberId, role }) => {
+      await queryClient.cancelQueries({ queryKey: ['project_members', projectId] });
+      
+      const previousMembers = queryClient.getQueryData(['project_members', projectId]);
+      
+      queryClient.setQueriesData({ queryKey: ['project_members', projectId] }, old => {
+        if (!old) return old;
+        return old.map(m => m.id === memberId ? { ...m, role } : m);
+      });
+      
+      return { previousMembers };
+    },
+    onError: (err, newRole, context) => {
+      if (context?.previousMembers) {
+        queryClient.setQueryData(['project_members', projectId], context.previousMembers);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['project_members', projectId] });
+    }
+  });
+}

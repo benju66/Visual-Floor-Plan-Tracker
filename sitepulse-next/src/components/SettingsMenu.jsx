@@ -3,7 +3,7 @@ import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, Gri
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useBulkInsertStatusLogs, useProjectMembers, useCurrentUserRole } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useBulkInsertStatusLogs, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole } from '@/hooks/useProjectQueries';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
@@ -117,6 +117,7 @@ export default function SettingsMenu({
   const updateUnitFieldsMutation = useUpdateUnitFields(null);
   const updateStatusMutation = useUpdateStatus(scheduleLevelId);
   const bulkInsertLogsMutation = useBulkInsertStatusLogs(scheduleLevelId);
+  const updateMemberRoleMutation = useUpdateProjectMemberRole(projectId);
 
   const { data: project } = useProject(projectId);
   const updateProjectMutation = useUpdateProject(projectId);
@@ -1285,9 +1286,33 @@ export default function SettingsMenu({
                                <div className="text-xs text-slate-500">{member.profiles?.email}</div>
                             </td>
                             <td className="px-4 py-2 flex items-center justify-between">
-                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${member.role === 'admin' ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30' : member.role === 'pm' ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30'}`}>
-                                 {member.role}
-                               </span>
+                               {(() => {
+                                 const isCurrentUser = member.user_id === session?.user?.id;
+                                 const isTargetAdmin = member.role === 'admin';
+                                 const isCurrentUserAdmin = currentUserRole === 'admin';
+                                 const isDisabled = isCurrentUser || (isTargetAdmin && !isCurrentUserAdmin);
+
+                                 if (isDisabled) {
+                                   return (
+                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${member.role === 'admin' ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30' : member.role === 'pm' ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30'}`}>
+                                       {member.role}
+                                     </span>
+                                   );
+                                 }
+
+                                 return (
+                                   <select
+                                     value={member.role}
+                                     onChange={(e) => updateMemberRoleMutation.mutate({ memberId: member.id, role: e.target.value })}
+                                     className={`pl-2 pr-6 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider outline-none cursor-pointer border-r-4 border-transparent ${member.role === 'admin' ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 focus:ring-1 focus:ring-rose-500' : member.role === 'pm' ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30 focus:ring-1 focus:ring-sky-500' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 focus:ring-1 focus:ring-emerald-500'}`}
+                                     title="Change member role"
+                                   >
+                                     <option value="pm">PM</option>
+                                     <option value="superintendent">SUPERINTENDENT</option>
+                                     {isCurrentUserAdmin && <option value="admin">ADMIN</option>}
+                                   </select>
+                                 );
+                               })()}
                                
                                {/* NEW: Remove Member Button */}
                                <button 
