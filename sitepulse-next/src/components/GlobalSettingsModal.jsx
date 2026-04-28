@@ -27,33 +27,20 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
       if (!isOpen || !adminProjects || adminProjects.length === 0) return;
       
       setLoadingTeam(true);
-      const projectIds = adminProjects.map(p => p.id);
       
       const { data, error } = await supabase
-        .from('project_members')
-        .select(`
-          user_id,
-          profiles!inner(id, email, display_name)
-        `)
-        .in('project_id', projectIds);
+        .from('profiles')
+        .select('id, email, display_name');
         
       if (data && !error) {
-        // deduplicate users by user_id
-        const uniqueUsersMap = {};
-        data.forEach(m => {
-           if (m.profiles) {
-             uniqueUsersMap[m.user_id] = m.profiles;
-           }
-        });
-        
         // Sort alphabetically by display_name or email
-        const uniqueUsers = Object.values(uniqueUsersMap).sort((a, b) => {
+        const allUsers = data.sort((a, b) => {
           const nameA = (a.display_name || a.email).toLowerCase();
           const nameB = (b.display_name || b.email).toLowerCase();
           return nameA.localeCompare(nameB);
         });
         
-        setGlobalTeam(uniqueUsers);
+        setGlobalTeam(allUsers);
       } else {
         console.error("Error fetching global team:", error);
       }
