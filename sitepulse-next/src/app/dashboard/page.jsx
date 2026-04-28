@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/providers/AuthProvider';
-import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X, Info } from 'lucide-react';
-
+import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X, Info, Settings } from 'lucide-react';
+import GlobalSettingsModal from '@/components/GlobalSettingsModal';
 export default function DashboardPage() {
   const { session } = useAuth();
   const router = useRouter();
@@ -28,8 +28,11 @@ export default function DashboardPage() {
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [creating, setCreating] = useState(false);
+
+  const adminProjects = projects.filter(p => p.role === 'admin').map(p => p.projects);
 
   useEffect(() => {
     if (!session?.user?.id) return;
@@ -121,13 +124,24 @@ export default function DashboardPage() {
               Manage and access your construction trackers.
             </p>
           </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 px-5 py-2.5 rounded-xl font-bold transition-all shadow-sm group"
-          >
-            <Plus size={20} className="group-hover:rotate-90 transition-transform" />
-            New Project
-          </button>
+          <div className="flex items-center gap-3">
+            {adminProjects.length > 0 && (
+              <button
+                onClick={() => setIsGlobalSettingsOpen(true)}
+                className="flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-900/50 dark:hover:bg-slate-800 dark:text-slate-300 dark:border-white/10 px-5 py-2.5 rounded-xl font-bold transition-all shadow-sm group"
+              >
+                <Settings size={20} className="text-slate-500 group-hover:rotate-45 transition-transform" />
+                Global Settings
+              </button>
+            )}
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 px-5 py-2.5 rounded-xl font-bold transition-all shadow-sm group"
+            >
+              <Plus size={20} className="group-hover:rotate-90 transition-transform" />
+              New Project
+            </button>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -248,6 +262,12 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      <GlobalSettingsModal 
+        isOpen={isGlobalSettingsOpen} 
+        onClose={() => setIsGlobalSettingsOpen(false)} 
+        adminProjects={adminProjects} 
+      />
     </div>
   );
 }
