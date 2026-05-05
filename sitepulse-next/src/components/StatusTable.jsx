@@ -156,7 +156,11 @@ export default function StatusTable({
                 <td className="px-5 py-3 font-bold text-slate-900 dark:text-slate-100 align-middle">
                   <div className="flex items-center gap-2 relative">
                     {unit.unit_number}
-                    <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+                    <BottleneckIndicator 
+                      unit={unit} 
+                      outOfSequence={log?.outOfSequence} 
+                      onUpdateStatus={handleTimelineUpdate} 
+                    />
                     {savingUnitId === unit.id && <UpdatingRing />}
                   </div>
                 </td>

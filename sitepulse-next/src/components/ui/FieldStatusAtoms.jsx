@@ -1,6 +1,32 @@
 "use client";
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, ChevronRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+const getBadgeStyle = (state) => {
+  switch (state) {
+    case 'planned':
+      return {
+        wrapper: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-300/60 dark:border-amber-600/40',
+        dot: 'bg-amber-500',
+      };
+    case 'ongoing':
+      return {
+        wrapper: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-300/60 dark:border-blue-600/40',
+        dot: 'bg-blue-500',
+      };
+    case 'completed':
+      return {
+        wrapper: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-600/40',
+        dot: 'bg-emerald-500',
+      };
+    default:
+      return {
+        wrapper: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/40',
+        dot: 'bg-slate-400',
+      };
+  }
+};
 
 export function UpdatingRing() {
   return (
@@ -17,12 +43,23 @@ export function UpdatingRing() {
   );
 }
 
-export const BottleneckIndicator = ({ outOfSequence }) => {
+export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [expandedSeqId, setExpandedSeqId] = useState(null);
 
   if (!outOfSequence || (Array.isArray(outOfSequence) && outOfSequence.length === 0)) return null;
 
   const isArray = Array.isArray(outOfSequence);
+
+  const handleStateSelect = (e, seq, newState) => {
+    e.stopPropagation();
+    if (onUpdateStatus && unit) {
+      onUpdateStatus(unit, {}, newState, { 
+        milestoneObj: { name: seq.milestone, color: seq.status_color } 
+      });
+    }
+    setExpandedSeqId(null);
+  };
 
   return (
     <div
@@ -62,39 +99,65 @@ export const BottleneckIndicator = ({ outOfSequence }) => {
               {isArray ? (
                 <>
                   <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">The following operations were logged ahead of schedule:</p>
-                  <div className="flex flex-col gap-3 border-t border-white/10 dark:border-black/5 pt-4 mb-4 relative z-10">
-                    {outOfSequence.map(seq => (
-                      <div key={seq.id} className="flex items-center gap-3">
-                        <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
-                        <span className="truncate font-bold text-[14px]">{seq.milestone}</span>
-                        <span className="text-[11px] font-bold uppercase tracking-widest opacity-60 ml-auto pt-[1px]">{seq.temporal_state}</span>
-                      </div>
-                    ))}
+                  <div className="flex flex-col border-t border-white/10 dark:border-black/5 relative z-10">
+                    {outOfSequence.map(seq => {
+                      const isExpanded = expandedSeqId === seq.id;
+                      const badgeStyle = getBadgeStyle(seq.temporal_state);
+                      return (
+                        <div key={seq.id} className="border-b border-white/5 dark:border-black/5 last:border-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setExpandedSeqId(isExpanded ? null : seq.id); }}
+                            className="w-full flex items-center gap-3 py-3 px-1 transition-colors hover:bg-white/5 dark:hover:bg-black/5 rounded-lg active:scale-[0.98]"
+                          >
+                            <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
+                            <span className="truncate font-bold text-[14px] flex-1 text-left">{seq.milestone}</span>
+                            <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full ${badgeStyle.wrapper}`}>
+                              {seq.temporal_state}
+                            </span>
+                            <ChevronRight size={14} className={`shrink-0 transition-transform text-slate-400 ${isExpanded ? 'rotate-90 text-red-400' : ''}`} />
+                          </button>
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.15, ease: 'easeOut' }}
+                                className="overflow-hidden"
+                              >
+                                <div className="flex flex-col gap-2 py-2 px-1">
+                                  {['none', 'planned', 'ongoing', 'completed'].map((s) => {
+                                    const sb = getBadgeStyle(s);
+                                    return (
+                                      <button
+                                        key={s}
+                                        type="button"
+                                        onClick={(e) => handleStateSelect(e, seq, s)}
+                                        className={`w-full min-h-[44px] flex items-center gap-3 px-4 rounded-xl font-black uppercase tracking-wider text-sm transition-all duration-150 active:scale-[0.98] shadow-sm ${sb.wrapper}`}
+                                      >
+                                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${sb.dot}`} />
+                                        {s === 'none' ? 'Clear Status' : s}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               ) : (
                 <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">This location has been manually flagged for review.</p>
               )}
-              
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsOpen(false);
-                  const targetUnitId = isArray ? outOfSequence[0]?.unit_id : outOfSequence?.unit_id;
-                  if (targetUnitId) {
-                    document.dispatchEvent(new CustomEvent('open-quick-status', { detail: { unitId: targetUnitId } }));
-                  }
-                }}
-                className="w-full mt-2 py-3 px-4 bg-red-500 hover:bg-red-600 text-white font-bold text-[13px] uppercase tracking-widest rounded-xl transition-colors relative z-10 flex items-center justify-center"
-              >
-                Fix Status
-              </button>
             </div>
           </div>
 
           {/* Desktop Tooltip */}
           <div
-            className="hidden md:block absolute left-full ml-4 top-1/2 -translate-y-1/2 w-72 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-2xl p-4 shadow-2xl z-[100] pointer-events-auto border border-white/10 dark:border-black/10 animate-in fade-in zoom-in-95 duration-200"
+            className="hidden md:block absolute left-full ml-4 top-1/2 -translate-y-1/2 w-80 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs rounded-2xl p-5 shadow-2xl z-[100] pointer-events-auto border border-white/10 dark:border-black/10 animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="absolute top-1/2 -left-2 -translate-y-1/2 w-4 h-4 bg-slate-900 dark:bg-slate-100 rotate-45 border-l border-b border-white/10 dark:border-black/10" />
@@ -113,14 +176,54 @@ export const BottleneckIndicator = ({ outOfSequence }) => {
             {isArray ? (
               <>
                 <p className="opacity-80 mb-3 leading-tight text-slate-300 dark:text-slate-600 relative z-10">The following operations were logged ahead of schedule:</p>
-                <div className="flex flex-col gap-2 border-t border-white/10 dark:border-black/5 pt-3 relative z-10">
-                  {outOfSequence.map(seq => (
-                    <div key={seq.id} className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
-                      <span className="truncate font-medium text-[13px]">{seq.milestone}</span>
-                      <span className="text-[10px] uppercase tracking-widest opacity-50 ml-auto pt-[1px]">{seq.temporal_state}</span>
-                    </div>
-                  ))}
+                <div className="flex flex-col border-t border-white/10 dark:border-black/5 relative z-10">
+                  {outOfSequence.map(seq => {
+                    const isExpanded = expandedSeqId === seq.id;
+                    const badgeStyle = getBadgeStyle(seq.temporal_state);
+                    return (
+                      <div key={seq.id} className="border-b border-white/5 dark:border-black/5 last:border-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setExpandedSeqId(isExpanded ? null : seq.id); }}
+                          className="w-full flex items-center gap-2 py-2.5 px-1 transition-colors hover:bg-white/5 dark:hover:bg-black/5 rounded-lg active:scale-[0.98]"
+                        >
+                          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
+                          <span className="truncate font-medium text-[13px] flex-1 text-left">{seq.milestone}</span>
+                          <span className={`text-[9px] uppercase tracking-widest px-2 py-1 rounded-full ${badgeStyle.wrapper}`}>
+                            {seq.temporal_state}
+                          </span>
+                          <ChevronRight size={14} className={`shrink-0 transition-transform text-slate-400 ${isExpanded ? 'rotate-90 text-red-400' : ''}`} />
+                        </button>
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.15, ease: 'easeOut' }}
+                              className="overflow-hidden"
+                            >
+                              <div className="flex flex-col gap-1.5 py-1.5 px-1">
+                                {['none', 'planned', 'ongoing', 'completed'].map((s) => {
+                                  const sb = getBadgeStyle(s);
+                                  return (
+                                    <button
+                                      key={s}
+                                      type="button"
+                                      onClick={(e) => handleStateSelect(e, seq, s)}
+                                      className={`w-full min-h-[36px] flex items-center gap-2 px-3 rounded-lg font-bold uppercase tracking-wider text-[11px] transition-all duration-150 hover:opacity-80 active:scale-[0.98] ${sb.wrapper}`}
+                                    >
+                                      <span className={`w-2 h-2 rounded-full shrink-0 ${sb.dot}`} />
+                                      {s === 'none' ? 'Clear Status' : s}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             ) : (

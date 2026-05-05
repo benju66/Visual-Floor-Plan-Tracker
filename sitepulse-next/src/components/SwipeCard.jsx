@@ -218,7 +218,11 @@ const SwipeCard = ({
               <h2 className="text-6xl sm:text-7xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
                 {unit.unit_number}
               </h2>
-              <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+              <BottleneckIndicator 
+                unit={unit} 
+                outOfSequence={log?.outOfSequence} 
+                onUpdateStatus={onTimelineUpdate} 
+              />
             </div>
 
             {/* Current milestone */}

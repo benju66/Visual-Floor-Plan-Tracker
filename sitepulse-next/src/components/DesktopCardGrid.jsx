@@ -95,7 +95,11 @@ export default function DesktopCardGrid({
                   </span>
                   <div className={`font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 ${hero ? 'text-2xl' : 'text-lg'}`}>
                     {unit.unit_number}
-                    <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+                    <BottleneckIndicator 
+                      unit={unit} 
+                      outOfSequence={log?.outOfSequence} 
+                      onUpdateStatus={handleTimelineUpdate} 
+                    />
                   </div>
                 </div>
               </div>
