@@ -193,9 +193,10 @@ export default function FieldStatusTable({
       {/* ── View routing ── */}
       {!isDesktop && (
         <MobileSwipeDeck
-          orderedCards={visible}
+          visible={visible}
           pendingChanges={pendingChanges}
           pendingTimelineChanges={pendingTimelineChanges}
+          setPendingChanges={setPendingChanges}
           handleLocalUpdate={handleLocalUpdate}
           handleTimelineUpdate={handleTimelineUpdate}
           onChooseStatus={onChooseStatus}
