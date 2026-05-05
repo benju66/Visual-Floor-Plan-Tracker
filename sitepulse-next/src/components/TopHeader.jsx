@@ -20,7 +20,7 @@ function TopHeader({
   const hideScrollbar = "[&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']";
 
   return (
-    <header className="mb-2 md:mb-4 flex-shrink-0 flex flex-row justify-between items-center gap-2 md:gap-3 rounded-xl border px-2 py-2 md:px-3 bg-white/30 dark:bg-black/10 backdrop-blur-md border-slate-200/60 dark:border-white/10 shadow-sm relative z-20">
+    <header className="mb-2 md:mb-4 flex-shrink-0 flex flex-row justify-between items-center gap-2 md:gap-3 rounded-xl border px-2 py-2 md:px-3 bg-white/30 dark:bg-black/10 backdrop-blur-md border-slate-200/60 dark:border-white/10 shadow-sm relative z-20 hide-header-mobile">
 
       {/* 1. LEFT SIDE: Title & Project Location Controls */}
       <div className="flex items-center gap-3">

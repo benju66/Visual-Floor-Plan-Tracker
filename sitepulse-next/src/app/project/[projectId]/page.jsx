@@ -490,6 +490,9 @@ function App() {
                  }
               }}
               defaultView={settings.defaultFieldView || 'table'}
+              sheets={sheets}
+              activeSheetId={activeSheetId}
+              setActiveSheetId={setActiveSheetId}
             />
           </div>
         ) : (

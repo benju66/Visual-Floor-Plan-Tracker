@@ -1,5 +1,5 @@
 "use client";
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Undo2, Redo2, ArrowLeft, ArrowRight, ChevronDown, ArrowDown, ArrowUp } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import SwipeCard from '@/components/SwipeCard';
@@ -54,6 +54,9 @@ export default function MobileSwipeDeck({
   sortDirection,
   handleSort,
   onEditRoute,
+  sheets,
+  activeSheetId,
+  setActiveSheetId,
 }) {
   const router = useRouter();
   const [swipedHistory, setSwipedHistory] = useState([]);
@@ -189,50 +192,98 @@ export default function MobileSwipeDeck({
     }
   };
 
+  // --- Long Press Logic ---
+  const pressTimer = useRef(null);
+  const isLongPress = useRef(false);
+
+  const startPress = () => {
+    isLongPress.current = false;
+    pressTimer.current = setTimeout(() => {
+      isLongPress.current = true;
+      if (navigator.vibrate) navigator.vibrate(50);
+      onEditRoute();
+    }, 500);
+  };
+
+  const cancelPress = () => {
+    if (pressTimer.current) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+  };
+
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full gap-2">
-      {/* Unified Mobile Header */}
-      <div className="sticky top-0 z-40 w-full bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center gap-2 shrink-0 shadow-sm">
+      {/* Unified Two-Tier Mobile Header */}
+      <div className="sticky top-0 z-40 w-full bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm flex flex-col shrink-0">
         
-        {/* Back Button */}
-        <button
-          onClick={() => router.push('/dashboard')}
-          className="shrink-0 p-2.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 bg-white/50 dark:bg-black/20 rounded-full transition-colors"
-          aria-label="Back to Dashboard"
-        >
-          <ArrowLeft size={20} />
-        </button>
-
-        {/* Type Filter Select */}
-        <div className="relative flex items-center flex-1 min-w-0">
-          <select
-            className="appearance-none w-full flex-1 min-w-0 truncate bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-full px-4 py-2.5 pr-8 text-[12px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
+        {/* Top Tier: Back & Sheet Select */}
+        <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-200/50 dark:border-slate-800/50">
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="shrink-0 p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 bg-white/50 dark:bg-black/20 rounded-full transition-colors"
+            aria-label="Back to Dashboard"
           >
-            <option value="All">All Types</option>
-            {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <ChevronDown size={16} className="absolute right-3 pointer-events-none text-slate-400" />
+            <ArrowLeft size={20} />
+          </button>
+          
+          <div className="relative flex items-center flex-1 min-w-0">
+            <select
+              className="appearance-none w-full bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-lg px-4 py-2 pr-8 text-sm font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer truncate"
+              value={activeSheetId}
+              onChange={(e) => setActiveSheetId(e.target.value)}
+            >
+              {(!sheets || sheets.length === 0) && <option disabled value="">No levels</option>}
+              {sheets?.map((sheet) => (
+                <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
+              ))}
+            </select>
+            <ChevronDown size={16} className="absolute right-3 pointer-events-none text-slate-400" />
+          </div>
         </div>
 
-        {/* Route Controls Container */}
-        <button
-          onClick={() => {
-            if (sortColumn === 'walk_sequence') {
-              if (sortDirection === 'asc') handleSort('walk_sequence');
-              else handleSort('unit');
-            } else handleSort('walk_sequence');
-          }}
-          className={`shrink-0 px-4 py-2.5 text-[11px] font-bold rounded-full shadow-sm flex items-center gap-1 transition-colors ${
-            sortColumn === 'walk_sequence'
-              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-300/60'
-              : 'bg-white/80 dark:bg-black/40 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
-          }`}
-        >
-          Sort Route
-          {sortColumn === 'walk_sequence' && (sortDirection === 'asc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />)}
-        </button>
+        {/* Bottom Tier: Filters & Routing */}
+        <div className="flex items-center gap-3 px-3 py-2">
+          {/* Type Filter Select */}
+          <div className="relative flex items-center flex-1 min-w-0">
+            <select
+              className="appearance-none w-full flex-1 min-w-0 truncate bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-full px-4 py-2 pr-8 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+            >
+              <option value="All">All Types</option>
+              {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <ChevronDown size={16} className="absolute right-3 pointer-events-none text-slate-400" />
+          </div>
+
+          {/* Route Controls Container */}
+          <button
+            onPointerDown={startPress}
+            onPointerUp={cancelPress}
+            onPointerLeave={cancelPress}
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={(e) => {
+              cancelPress();
+              if (isLongPress.current) {
+                e.preventDefault();
+                return;
+              }
+              if (sortColumn === 'walk_sequence') {
+                if (sortDirection === 'asc') handleSort('walk_sequence');
+                else handleSort('unit');
+              } else handleSort('walk_sequence');
+            }}
+            className={`shrink-0 px-4 py-2 text-[11px] font-bold rounded-full shadow-sm flex items-center gap-1 transition-colors select-none ${
+              sortColumn === 'walk_sequence'
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-300/60'
+                : 'bg-white/80 dark:bg-black/40 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
+            }`}
+          >
+            Sort Route
+            {sortColumn === 'walk_sequence' && (sortDirection === 'asc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />)}
+          </button>
+        </div>
       </div>
 
       {/* Swipe deck */}
@@ -352,11 +403,11 @@ export default function MobileSwipeDeck({
       <AnimatePresence>
         {pendingCount > 0 && !isDrawerOpen && (
           <motion.div
-            initial={{ y: 100, opacity: 0 }}
+            initial={{ y: -100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
+            exit={{ y: -100, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-            className="fixed bottom-28 inset-x-0 z-50 flex justify-center pointer-events-none"
+            className="fixed top-20 inset-x-0 z-50 flex justify-center pointer-events-none"
           >
             <button
               onClick={() => setIsDrawerOpen(true)}

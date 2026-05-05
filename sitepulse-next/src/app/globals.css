@@ -105,3 +105,7 @@ select option, select optgroup {
   color: var(--text-h);
 }
 :root.hide-header-elements .hide-in-swipe-view { display: none !important; }
+
+@media (max-width: 767px) {
+  :root.hide-header-elements .hide-header-mobile { display: none !important; }
+}

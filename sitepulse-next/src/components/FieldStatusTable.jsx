@@ -23,9 +23,11 @@ export default function FieldStatusTable({
   onChooseStatus,
   defaultView = 'table',
   onApplyPendingChanges,
+  sheets,
+  activeSheetId,
+  setActiveSheetId,
 }) {
   // --- Zustand store subscriptions (global state — stays in container) ---
-  const activeSheetId = useMapStore((s) => s.activeSheetId);
   const selectedUnitIds = useMapStore((s) => s.selectedUnitIds);
   const toggleSelectedUnitId = useMapStore((s) => s.toggleSelectedUnitId);
   const setSelectedUnitIds = useMapStore((s) => s.setSelectedUnitIds);
@@ -216,6 +218,9 @@ export default function FieldStatusTable({
           sortDirection={sortDirection}
           handleSort={handleSort}
           onEditRoute={() => setIsSequenceModalOpen(true)}
+          sheets={sheets}
+          activeSheetId={activeSheetId}
+          setActiveSheetId={setActiveSheetId}
         />
       )}
 
