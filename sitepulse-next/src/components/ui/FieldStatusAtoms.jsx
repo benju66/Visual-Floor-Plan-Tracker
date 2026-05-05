@@ -17,7 +17,7 @@ export function UpdatingRing() {
   );
 }
 
-export const BottleneckIndicator = ({ outOfSequence, onClearFlag }) => {
+export const BottleneckIndicator = ({ outOfSequence }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   if (!outOfSequence || (Array.isArray(outOfSequence) && outOfSequence.length === 0)) return null;
@@ -75,22 +75,6 @@ export const BottleneckIndicator = ({ outOfSequence, onClearFlag }) => {
               ) : (
                 <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">This location has been manually flagged for review.</p>
               )}
-
-              {onClearFlag && (
-                <div className="mt-5 pt-4 border-t border-white/10 dark:border-black/5 relative z-10">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onClearFlag();
-                      setIsOpen(false);
-                    }}
-                    className="w-full flex justify-center items-center py-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 dark:text-red-400 font-bold text-xs uppercase tracking-widest transition-colors"
-                  >
-                    Clear Warning
-                  </button>
-                </div>
-              )}
             </div>
           </div>
 
@@ -127,22 +111,6 @@ export const BottleneckIndicator = ({ outOfSequence, onClearFlag }) => {
               </>
             ) : (
               <p className="opacity-80 mb-3 leading-tight text-slate-300 dark:text-slate-600 relative z-10">This location has been manually flagged for review.</p>
-            )}
-
-            {onClearFlag && (
-              <div className="mt-4 pt-3 border-t border-white/10 dark:border-black/5 relative z-10">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClearFlag();
-                    setIsOpen(false);
-                  }}
-                  className="w-full flex justify-center items-center py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 dark:text-red-400 font-bold text-[10px] uppercase tracking-widest transition-colors"
-                >
-                  Clear Warning
-                </button>
-              </div>
             )}
           </div>
         </>

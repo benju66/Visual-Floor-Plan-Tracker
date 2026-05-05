@@ -1,7 +1,7 @@
 "use client";
 import React, { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, Check, ArrowRight, X, History, Pencil, ChevronRight } from 'lucide-react';
+import { Check, ArrowRight, X, ListTodo, ChevronRight } from 'lucide-react';
 import { BottleneckIndicator } from './ui/FieldStatusAtoms';
 
 /**
@@ -212,10 +212,7 @@ const SwipeCard = ({
               <h2 className="text-6xl sm:text-7xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
                 {unit.unit_number}
               </h2>
-              <BottleneckIndicator 
-                outOfSequence={log?.outOfSequence} 
-                onClearFlag={isTop ? () => onStageUpdate(unit, log || {}, pendingState, { outOfSequence: false }) : undefined}
-              />
+              <BottleneckIndicator outOfSequence={log?.outOfSequence} />
             </div>
 
             {/* Current milestone */}
@@ -247,44 +244,8 @@ const SwipeCard = ({
           </div>
 
           {/* ── Action row ── */}
-          <div className="flex items-center justify-around px-6 pb-6 pt-2 border-t border-slate-100 dark:border-white/5 shrink-0 gap-3">
-            {/* Out-of-sequence / Edit Milestone button */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isTop) onChooseStatus?.(unit, () => {});
-              }}
-              disabled={!isTop}
-              aria-label="Edit milestone"
-              title="Edit Milestone"
-              className="flex flex-col items-center gap-1 min-w-[48px] min-h-[56px] justify-center rounded-2xl px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-all disabled:opacity-40 shadow-sm"
-            >
-              <Pencil size={20} strokeWidth={2} />
-              <span className="text-[9px] font-bold uppercase tracking-widest">Milestone</span>
-            </button>
-
-            {/* Log out-of-sequence warning */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isTop) onStageUpdate(unit, log || {}, pendingState, { outOfSequence: !(log?.outOfSequence) });
-              }}
-              disabled={!isTop}
-              aria-label="Flag out of sequence"
-              title="Flag Out of Sequence"
-              className={`flex flex-col items-center gap-1 min-w-[48px] min-h-[56px] justify-center rounded-2xl px-4 py-2 active:scale-95 transition-all disabled:opacity-40 shadow-sm ${
-                log?.outOfSequence
-                  ? 'bg-red-500 text-white dark:bg-red-600'
-                  : 'bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-500 dark:text-red-400'
-              }`}
-            >
-              <AlertTriangle size={20} strokeWidth={2.5} />
-              <span className="text-[9px] font-bold uppercase tracking-widest">Flag</span>
-            </button>
-
-            {/* History overlay toggle */}
+          <div className="flex items-center justify-center px-6 pb-6 pt-3 border-t border-slate-100 dark:border-white/5 shrink-0">
+            {/* Timeline overlay toggle */}
             <button
               type="button"
               onClick={(e) => {
@@ -293,16 +254,16 @@ const SwipeCard = ({
                 setOverlayActiveMilestone(null);
               }}
               disabled={!isTop}
-              aria-label="View milestone history"
-              title="View Full History"
-              className={`flex flex-col items-center gap-1 min-w-[48px] min-h-[56px] justify-center rounded-2xl px-4 py-2 active:scale-95 transition-all disabled:opacity-40 shadow-sm ${
+              aria-label="View project timeline"
+              title="View Project Timeline"
+              className={`w-full flex items-center justify-center gap-3 min-h-[56px] rounded-2xl px-6 py-2 font-black uppercase tracking-widest text-[13px] transition-all duration-150 active:scale-[0.98] disabled:opacity-40 shadow-sm ${
                 isHistoryOpen
-                  ? 'bg-sky-500 text-white'
+                  ? 'bg-sky-500 text-white shadow-md'
                   : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
               }`}
             >
-              <History size={20} strokeWidth={2} />
-              <span className="text-[9px] font-bold uppercase tracking-widest">History</span>
+              <ListTodo size={20} strokeWidth={2.5} />
+              Timeline
             </button>
           </div>
         </div>
@@ -329,7 +290,7 @@ const SwipeCard = ({
               {/* Sticky overlay header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/70 dark:border-white/8 shrink-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm rounded-t-[2rem]">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Milestone History</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Project Timeline</p>
                   <p className="text-lg font-black text-slate-800 dark:text-slate-100 leading-tight">
                     Unit {unit.unit_number}
                   </p>
