@@ -3,26 +3,26 @@ import React, { useState } from 'react';
 import { X, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const getBadgeStyle = (state) => {
+const getInvertedBadgeStyle = (state) => {
   switch (state) {
     case 'planned':
       return {
-        wrapper: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-300/60 dark:border-amber-600/40',
+        wrapper: 'bg-amber-900/40 text-amber-300 border border-amber-600/50 dark:bg-amber-100 dark:text-amber-800 dark:border-amber-300/60',
         dot: 'bg-amber-500',
       };
     case 'ongoing':
       return {
-        wrapper: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-300/60 dark:border-blue-600/40',
+        wrapper: 'bg-blue-900/40 text-blue-300 border border-blue-600/50 dark:bg-blue-100 dark:text-blue-800 dark:border-blue-300/60',
         dot: 'bg-blue-500',
       };
     case 'completed':
       return {
-        wrapper: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-600/40',
+        wrapper: 'bg-emerald-900/40 text-emerald-300 border border-emerald-600/50 dark:bg-emerald-100 dark:text-emerald-800 dark:border-emerald-300/60',
         dot: 'bg-emerald-500',
       };
     default:
       return {
-        wrapper: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/40',
+        wrapper: 'bg-white/10 text-slate-300 border border-white/20 dark:bg-slate-200 dark:text-slate-600 dark:border-slate-300/80',
         dot: 'bg-slate-400',
       };
   }
@@ -102,7 +102,7 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }) => 
                   <div className="flex flex-col border-t border-white/10 dark:border-black/5 relative z-10">
                     {outOfSequence.map(seq => {
                       const isExpanded = expandedSeqId === seq.id;
-                      const badgeStyle = getBadgeStyle(seq.temporal_state);
+                      const badgeStyle = getInvertedBadgeStyle(seq.temporal_state);
                       return (
                         <div key={seq.id} className="border-b border-white/5 dark:border-black/5 last:border-0">
                           <button
@@ -123,11 +123,11 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }) => 
                                 animate={{ height: 'auto', opacity: 1 }}
                                 exit={{ height: 0, opacity: 0 }}
                                 transition={{ duration: 0.15, ease: 'easeOut' }}
-                                className="overflow-hidden"
+                                className="overflow-hidden bg-black/20 dark:bg-black/5 rounded-xl mb-2 mx-1"
                               >
                                 <div className="flex flex-col gap-2 py-2 px-1">
                                   {['none', 'planned', 'ongoing', 'completed'].map((s) => {
-                                    const sb = getBadgeStyle(s);
+                                    const sb = getInvertedBadgeStyle(s);
                                     return (
                                       <button
                                         key={s}
@@ -179,7 +179,7 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }) => 
                 <div className="flex flex-col border-t border-white/10 dark:border-black/5 relative z-10">
                   {outOfSequence.map(seq => {
                     const isExpanded = expandedSeqId === seq.id;
-                    const badgeStyle = getBadgeStyle(seq.temporal_state);
+                    const badgeStyle = getInvertedBadgeStyle(seq.temporal_state);
                     return (
                       <div key={seq.id} className="border-b border-white/5 dark:border-black/5 last:border-0">
                         <button
@@ -200,11 +200,11 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }) => 
                               animate={{ height: 'auto', opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
                               transition={{ duration: 0.15, ease: 'easeOut' }}
-                              className="overflow-hidden"
+                              className="overflow-hidden bg-black/20 dark:bg-black/5 rounded-xl mb-2 mx-1"
                             >
                               <div className="flex flex-col gap-1.5 py-1.5 px-1">
                                 {['none', 'planned', 'ongoing', 'completed'].map((s) => {
-                                  const sb = getBadgeStyle(s);
+                                  const sb = getInvertedBadgeStyle(s);
                                   return (
                                     <button
                                       key={s}
