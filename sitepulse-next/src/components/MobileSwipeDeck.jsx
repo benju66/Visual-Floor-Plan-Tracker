@@ -13,6 +13,10 @@ import SwipeCard from '@/components/SwipeCard';
  * Issue 10 fix: cardRedoStack is also reset on typeFilter change to prevent
  *               stale redo entries for units no longer in the visible set.
  *
+ * Step 1 fix: onStageUpdate calls handleLocalUpdate WITHOUT touching swipedHistory.
+ *             This means milestone/state changes inside the overlay stage locally
+ *             but do NOT auto-advance the card. Only physical swipes advance the deck.
+ *
  * Props from container:
  *   visible          — { unit, log }[] from useFieldData
  *   pendingChanges   — object from useFieldData
@@ -162,6 +166,7 @@ export default function MobileSwipeDeck({
                 milestones={currentMilestones}
                 isTop={isTop}
                 depth={depth}
+                pendingChanges={pendingChanges}
                 onSwipeLeft={() => {
                   setSwipedHistory((prev) => [
                     ...prev,
@@ -184,13 +189,19 @@ export default function MobileSwipeDeck({
                   setCardRedoStack([]);
                 }}
                 onChooseStatus={onChooseStatus}
-                onCommitEscape={(state, m) => {
-                  handleLocalUpdate(unit, log || {}, state, { milestoneObj: m });
-                  setSwipedHistory((prev) => [
-                    ...prev,
-                    { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], wasSkippedToBack: false },
-                  ]);
-                  setCardRedoStack([]);
+                // onStageUpdate: mutates local pending state WITHOUT advancing the card.
+                // The card stays on top until the user physically swipes it.
+                onStageUpdate={(stateOrUnit, log, state, extraProps) => {
+                  // Support two calling conventions:
+                  //   onStageUpdate(unit, log, state, extraProps)  — from history overlay row
+                  //   onStageUpdate(state, milestoneObj)           — from status badge cycle
+                  if (typeof stateOrUnit === 'string') {
+                    // Called as onStageUpdate(state, milestoneObj)
+                    handleLocalUpdate(unit, log || {}, stateOrUnit, extraProps ? { milestoneObj: extraProps } : undefined);
+                  } else {
+                    // Called as onStageUpdate(unit, log, state, extraProps)
+                    handleLocalUpdate(stateOrUnit, log, state, extraProps);
+                  }
                 }}
               />
             );
