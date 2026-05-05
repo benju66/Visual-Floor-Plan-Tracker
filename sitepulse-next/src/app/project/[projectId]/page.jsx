@@ -433,7 +433,7 @@ function App() {
 
   return (
     <div
-      className="h-screen flex flex-col p-4 md:p-6 text-slate-800 dark:text-slate-100 select-none"
+      className="h-[100dvh] flex flex-col p-2 md:p-6 text-slate-800 dark:text-slate-100 select-none"
       style={{ fontFamily: 'sans-serif', background: 'var(--bg)' }}
     >
       <div style={{ display: 'none' }}>

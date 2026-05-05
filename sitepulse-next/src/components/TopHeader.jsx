@@ -20,10 +20,10 @@ function TopHeader({
   const hideScrollbar = "[&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']";
 
   return (
-    <header className="mb-4 flex-shrink-0 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-3 rounded-xl border px-3 py-2 bg-white/30 dark:bg-black/10 backdrop-blur-md border-slate-200/60 dark:border-white/10 shadow-sm relative z-20">
+    <header className="mb-2 md:mb-4 flex-shrink-0 flex flex-row justify-between items-center gap-2 md:gap-3 rounded-xl border px-2 py-2 md:px-3 bg-white/30 dark:bg-black/10 backdrop-blur-md border-slate-200/60 dark:border-white/10 shadow-sm relative z-20">
 
       {/* 1. LEFT SIDE: Title & Project Location Controls */}
-      <div className="flex items-center gap-3 w-full xl:w-auto">
+      <div className="flex items-center gap-3">
         <Link href="/dashboard" className="hide-in-swipe-view p-2 mr-1 rounded-xl bg-slate-100/50 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-sky-500 transition-colors shadow-sm" title="Back to Dashboard">
           <Home size={20} />
         </Link>
@@ -80,7 +80,7 @@ function TopHeader({
       </div>
 
       {/* 2. RIGHT SIDE: Tools, Scopes, and Settings */}
-      <div className={`flex items-center gap-2 w-full xl:w-auto overflow-x-auto pb-1 xl:pb-0 ${hideScrollbar}`}>
+      <div className={`flex items-center gap-2 overflow-x-auto pb-1 xl:pb-0 ${hideScrollbar}`}>
 
         {/* Milestones Button */}
         <button

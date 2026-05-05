@@ -1,6 +1,6 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
-import { Undo2, Redo2, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Undo2, Redo2, ArrowLeft, ArrowRight, ChevronDown, ArrowDown, ArrowUp } from 'lucide-react';
 import SwipeCard from '@/components/SwipeCard';
 
 /**
@@ -38,6 +38,12 @@ export default function MobileSwipeDeck({
   onChooseStatus,
   isApplying,
   typeFilter,
+  setTypeFilter,
+  projectUnitTypes = [],
+  sortColumn,
+  sortDirection,
+  handleSort,
+  onEditRoute,
 }) {
   const [swipedHistory, setSwipedHistory] = useState([]);
   const [skippedToBack, setSkippedToBack] = useState([]);
@@ -137,6 +143,47 @@ export default function MobileSwipeDeck({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full gap-2">
+      {/* Mobile Action Bar */}
+      <div className="flex items-center justify-between bg-white/60 dark:bg-black/20 rounded-xl border border-slate-200/60 dark:border-white/10 p-1 mb-1 shrink-0">
+        
+        {/* Type Filter Select (Compact) */}
+        <div className="relative flex items-center w-1/3">
+          <select
+            className="appearance-none w-full bg-transparent border-r border-slate-200/60 dark:border-white/10 py-1.5 pl-3 pr-7 text-[11px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none truncate cursor-pointer"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+          >
+            <option value="All">All Types</option>
+            {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <ChevronDown size={14} className="absolute right-2 pointer-events-none text-slate-400" />
+        </div>
+
+        {/* Route Sort */}
+        <button
+          onClick={() => {
+            if (sortColumn === 'walk_sequence') {
+              if (sortDirection === 'asc') handleSort('walk_sequence');
+              else handleSort('unit');
+            } else handleSort('walk_sequence');
+          }}
+          className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest flex justify-center items-center gap-1 transition-colors border-r border-slate-200/60 dark:border-white/10 ${
+            sortColumn === 'walk_sequence' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Sort Route
+          {sortColumn === 'walk_sequence' && (sortDirection === 'asc' ? <ArrowDown size={12} /> : <ArrowUp size={12} />)}
+        </button>
+
+        {/* Edit Route */}
+        <button
+          onClick={onEditRoute}
+          className="flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest flex justify-center items-center text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
+        >
+          Edit Route
+        </button>
+      </div>
+
       {/* Swipe deck */}
       <div className="relative flex-1 min-h-0 w-full flex justify-center items-center overflow-hidden bg-slate-100 dark:bg-black/30 rounded-3xl border border-slate-200/50 dark:border-white/5 shadow-inner -mt-2">
         {orderedCards.length === 0 ? (

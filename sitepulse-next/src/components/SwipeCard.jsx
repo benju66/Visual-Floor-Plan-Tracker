@@ -151,7 +151,7 @@ const SwipeCard = ({
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={handleDragEnd}
       layout
-      className={`absolute w-[90%] max-w-sm h-full flex flex-col touch-pan-y ${
+      className={`absolute w-[90%] max-w-sm h-full flex flex-col ${
         isDragEnabled ? 'cursor-grab active:cursor-grabbing' : ''
       } ${isTop ? 'pointer-events-auto' : 'pointer-events-none'}`}
       initial={{ scale: 0.8, opacity: 0 }}

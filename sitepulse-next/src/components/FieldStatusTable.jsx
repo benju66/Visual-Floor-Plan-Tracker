@@ -119,7 +119,7 @@ export default function FieldStatusTable({
         </div>
 
         {/* Filters & view toggles */}
-        <div className="flex flex-col w-full md:w-auto gap-3 flex-1 overflow-hidden">
+        <div className="hidden md:flex flex-col w-full md:w-auto gap-3 flex-1 overflow-hidden">
           
           <div className="flex flex-wrap items-center gap-2 w-full">
             {/* Type Filter Select */}
@@ -224,6 +224,12 @@ export default function FieldStatusTable({
           onChooseStatus={onChooseStatus}
           isApplying={isApplying}
           typeFilter={typeFilter}
+          setTypeFilter={setTypeFilter}
+          projectUnitTypes={projectUnitTypes}
+          sortColumn={sortColumn}
+          sortDirection={sortDirection}
+          handleSort={handleSort}
+          onEditRoute={() => setIsSequenceModalOpen(true)}
         />
       )}
 
