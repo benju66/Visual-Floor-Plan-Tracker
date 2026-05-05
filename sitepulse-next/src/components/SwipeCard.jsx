@@ -200,7 +200,7 @@ const SwipeCard = ({
         <div className="relative z-10 flex flex-col h-full w-full">
 
           {/* Main content area */}
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 pt-8 pb-4 min-h-0">
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-4 min-h-0 overflow-y-auto no-scrollbar">
 
             {/* Unit type pill */}
             <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3 inline-block shadow-sm">
@@ -209,7 +209,7 @@ const SwipeCard = ({
 
             {/* Unit number — dominant visual */}
             <div className="flex items-center justify-center gap-2 mb-1">
-              <h2 className="text-7xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
+              <h2 className="text-6xl sm:text-7xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
                 {unit.unit_number}
               </h2>
               <BottleneckIndicator outOfSequence={log?.outOfSequence} />
@@ -266,12 +266,16 @@ const SwipeCard = ({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                if (isTop) onChooseStatus?.(unit, () => {});
+                if (isTop) onStageUpdate(unit, log || {}, pendingState, { outOfSequence: !(log?.outOfSequence) });
               }}
               disabled={!isTop}
               aria-label="Flag out of sequence"
               title="Flag Out of Sequence"
-              className="flex flex-col items-center gap-1 min-w-[48px] min-h-[56px] justify-center rounded-2xl px-4 py-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-500 dark:text-red-400 active:scale-95 transition-all disabled:opacity-40 shadow-sm"
+              className={`flex flex-col items-center gap-1 min-w-[48px] min-h-[56px] justify-center rounded-2xl px-4 py-2 active:scale-95 transition-all disabled:opacity-40 shadow-sm ${
+                log?.outOfSequence
+                  ? 'bg-red-500 text-white dark:bg-red-600'
+                  : 'bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-500 dark:text-red-400'
+              }`}
             >
               <AlertTriangle size={20} strokeWidth={2.5} />
               <span className="text-[9px] font-bold uppercase tracking-widest">Flag</span>

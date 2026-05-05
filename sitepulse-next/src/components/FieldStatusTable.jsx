@@ -43,7 +43,6 @@ export default function FieldStatusTable({
 
   // --- Container-level UI state ---
   const [isSequenceModalOpen, setIsSequenceModalOpen] = useState(false);
-  const [isMobileControlsOpen, setIsMobileControlsOpen] = useState(false);
 
   // --- Business logic hook ---
   const {
@@ -118,49 +117,54 @@ export default function FieldStatusTable({
         </div>
 
         {/* Filters & view toggles */}
-        <div className="flex flex-col w-full md:w-auto gap-2">
-          {viewStyle === 'card' && !isDesktop && (
-            <button
-              onClick={() => setIsMobileControlsOpen(!isMobileControlsOpen)}
-              className="md:hidden flex items-center justify-between w-full p-2.5 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 shadow-sm mb-2"
+        <div className="flex flex-col w-full md:w-auto gap-3 overflow-hidden">
+          {/* Type Filter Chips (Unconditionally visible, scrollable on mobile) */}
+          <div className="flex items-center gap-2 w-full overflow-hidden">
+            <div className="flex items-center gap-2 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-xl p-1 shadow-sm flex-1 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+              <button
+                type="button"
+                onClick={() => setTypeFilter('All')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap snap-center transition-all duration-150 ${
+                  typeFilter === 'All'
+                    ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 shadow-md scale-100'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 scale-[0.98]'
+                }`}
+              >
+                All Spaces
+              </button>
+              {projectUnitTypes.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTypeFilter(t)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap snap-center transition-all duration-150 ${
+                    typeFilter === t
+                      ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 shadow-md scale-100'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 scale-[0.98]'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            {/* Visible count */}
+            <div
+              className="flex items-center justify-center bg-slate-200/80 dark:bg-slate-700/80 text-[10px] font-bold text-slate-600 dark:text-slate-300 rounded-xl px-2.5 h-8 shrink-0 border border-slate-300/80 dark:border-white/15 shadow-sm"
+              title={`${visible.length} locations visible`}
             >
-              Filters &amp; Display Options
-              {isMobileControlsOpen ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
-            </button>
-          )}
+              {visible.length}
+            </div>
+          </div>
 
           <AnimatePresence initial={false}>
-            {(isDesktop || viewStyle === 'table' || isMobileControlsOpen) && (
+            {isDesktop && (
               <motion.div
                 key="controls-drawer"
-                initial={!isDesktop ? { height: 0, opacity: 0 } : false}
+                initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                className="flex flex-wrap items-center justify-between w-full gap-3 overflow-hidden md:!overflow-visible"
+                className="flex flex-wrap items-center justify-end w-full gap-3 overflow-hidden md:!overflow-visible"
               >
-                {/* Type filter */}
-                <div className="flex items-center gap-2 bg-white/60 dark:bg-black/20 border border-slate-300/80 dark:border-white/15 rounded-lg px-2 py-1 shadow-sm flex-1 md:flex-none min-w-[140px]">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1 hidden sm:inline">
-                    Filter:
-                  </span>
-                  <select
-                    value={typeFilter}
-                    onChange={(e) => setTypeFilter(e.target.value)}
-                    className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer max-w-[160px] sm:max-w-xs truncate"
-                  >
-                    <option value="All">All Spaces</option>
-                    {projectUnitTypes.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                  <div
-                    className="flex items-center justify-center bg-slate-200/80 dark:bg-slate-700/80 text-[10px] font-bold text-slate-600 dark:text-slate-300 rounded-md px-1.5 min-w-[20px] h-5"
-                    title={`${visible.length} locations visible`}
-                  >
-                    {visible.length}
-                  </div>
-                </div>
-
                 {/* Right controls */}
                 <div className="flex flex-wrap items-center gap-2 md:ml-auto">
                   {/* Route sort */}

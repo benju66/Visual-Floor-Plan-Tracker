@@ -159,6 +159,7 @@ export default function MobileSwipeDeck({
                         temporal_state: pendingChanges[unit.id].state,
                         milestone: pendingChanges[unit.id].extraProps?.milestoneObj?.name || log?.milestone,
                         status_color: pendingChanges[unit.id].extraProps?.milestoneObj?.color || log?.status_color,
+                        outOfSequence: pendingChanges[unit.id].extraProps?.outOfSequence ?? log?.outOfSequence,
                       }
                     : log
                 }
