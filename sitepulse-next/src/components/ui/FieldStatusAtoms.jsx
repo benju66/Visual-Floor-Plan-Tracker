@@ -17,19 +17,21 @@ export function UpdatingRing() {
   );
 }
 
-export const BottleneckIndicator = ({ outOfSequence }) => {
+export const BottleneckIndicator = ({ outOfSequence, onClearFlag }) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  if (!outOfSequence || outOfSequence.length === 0) return null;
+  if (!outOfSequence || (Array.isArray(outOfSequence) && outOfSequence.length === 0)) return null;
+
+  const isArray = Array.isArray(outOfSequence);
 
   return (
     <div
-      className="relative flex items-center ml-1 z-[100]"
+      className="relative flex items-center justify-center p-3 -m-3 z-[100]"
       onMouseEnter={() => setIsOpen(true)}
       onMouseLeave={() => setIsOpen(false)}
     >
       <div
-        className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-pointer ring-2 ring-red-500/20 group/indicator"
+        className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-pointer ring-2 ring-red-500/20"
         onClick={(e) => {
           e.stopPropagation();
           setIsOpen(!isOpen);
@@ -56,16 +58,39 @@ export const BottleneckIndicator = ({ outOfSequence }) => {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                 Sequence Blocked
               </div>
-              <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">This baseline status is pending. Operations logged ahead in sequence:</p>
-              <div className="flex flex-col gap-3 border-t border-white/10 dark:border-black/5 pt-4 relative z-10">
-                {outOfSequence.map(seq => (
-                  <div key={seq.id} className="flex items-center gap-3">
-                    <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
-                    <span className="truncate font-bold text-[14px]">{seq.milestone}</span>
-                    <span className="text-[11px] font-bold uppercase tracking-widest opacity-60 ml-auto pt-[1px]">{seq.temporal_state}</span>
+              
+              {isArray ? (
+                <>
+                  <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">The following operations were logged ahead of schedule:</p>
+                  <div className="flex flex-col gap-3 border-t border-white/10 dark:border-black/5 pt-4 relative z-10">
+                    {outOfSequence.map(seq => (
+                      <div key={seq.id} className="flex items-center gap-3">
+                        <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
+                        <span className="truncate font-bold text-[14px]">{seq.milestone}</span>
+                        <span className="text-[11px] font-bold uppercase tracking-widest opacity-60 ml-auto pt-[1px]">{seq.temporal_state}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">This location has been manually flagged for review.</p>
+              )}
+
+              {onClearFlag && (
+                <div className="mt-5 pt-4 border-t border-white/10 dark:border-black/5 relative z-10">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onClearFlag();
+                      setIsOpen(false);
+                    }}
+                    className="w-full flex justify-center items-center py-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 dark:text-red-400 font-bold text-xs uppercase tracking-widest transition-colors"
+                  >
+                    Clear Warning
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -86,16 +111,39 @@ export const BottleneckIndicator = ({ outOfSequence }) => {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
               Sequence Blocked
             </div>
-            <p className="opacity-80 mb-3 leading-tight text-slate-300 dark:text-slate-600 relative z-10">This baseline status is pending. Operations logged ahead in sequence:</p>
-            <div className="flex flex-col gap-2 border-t border-white/10 dark:border-black/5 pt-3 relative z-10">
-              {outOfSequence.map(seq => (
-                <div key={seq.id} className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
-                  <span className="truncate font-medium text-[13px]">{seq.milestone}</span>
-                  <span className="text-[10px] uppercase tracking-widest opacity-50 ml-auto pt-[1px]">{seq.temporal_state}</span>
+            
+            {isArray ? (
+              <>
+                <p className="opacity-80 mb-3 leading-tight text-slate-300 dark:text-slate-600 relative z-10">The following operations were logged ahead of schedule:</p>
+                <div className="flex flex-col gap-2 border-t border-white/10 dark:border-black/5 pt-3 relative z-10">
+                  {outOfSequence.map(seq => (
+                    <div key={seq.id} className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
+                      <span className="truncate font-medium text-[13px]">{seq.milestone}</span>
+                      <span className="text-[10px] uppercase tracking-widest opacity-50 ml-auto pt-[1px]">{seq.temporal_state}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            ) : (
+              <p className="opacity-80 mb-3 leading-tight text-slate-300 dark:text-slate-600 relative z-10">This location has been manually flagged for review.</p>
+            )}
+
+            {onClearFlag && (
+              <div className="mt-4 pt-3 border-t border-white/10 dark:border-black/5 relative z-10">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClearFlag();
+                    setIsOpen(false);
+                  }}
+                  className="w-full flex justify-center items-center py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 dark:text-red-400 font-bold text-[10px] uppercase tracking-widest transition-colors"
+                >
+                  Clear Warning
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}

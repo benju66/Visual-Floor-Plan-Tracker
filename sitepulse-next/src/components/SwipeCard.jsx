@@ -208,11 +208,14 @@ const SwipeCard = ({
             </span>
 
             {/* Unit number — dominant visual */}
-            <div className="flex items-center justify-center gap-2 mb-1">
+            <div className="flex items-center justify-center gap-2 mb-1 relative">
               <h2 className="text-6xl sm:text-7xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
                 {unit.unit_number}
               </h2>
-              <BottleneckIndicator outOfSequence={log?.outOfSequence} />
+              <BottleneckIndicator 
+                outOfSequence={log?.outOfSequence} 
+                onClearFlag={isTop ? () => onStageUpdate(unit, log || {}, pendingState, { outOfSequence: false }) : undefined}
+              />
             </div>
 
             {/* Current milestone */}
