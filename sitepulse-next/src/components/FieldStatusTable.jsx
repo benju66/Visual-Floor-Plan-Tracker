@@ -235,6 +235,7 @@ export default function FieldStatusTable({
             pendingCount={pendingCount}
             handleDiscardAll={handleDiscardAll}
             handleApplyAll={handleApplyAll}
+            handleTimelineUpdate={handleTimelineUpdate}
             {...sharedSelectionProps}
           />
         </div>
@@ -254,6 +255,7 @@ export default function FieldStatusTable({
             sortColumn={sortColumn}
             sortDirection={sortDirection}
             handleSort={handleSort}
+            handleTimelineUpdate={handleTimelineUpdate}
             {...sharedSelectionProps}
           />
         </div>
