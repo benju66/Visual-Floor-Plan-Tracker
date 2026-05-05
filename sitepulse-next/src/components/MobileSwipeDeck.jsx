@@ -143,20 +143,20 @@ export default function MobileSwipeDeck({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full gap-2">
-      {/* Mobile Action Bar */}
-      <div className="flex items-center justify-between bg-white/60 dark:bg-black/20 rounded-xl border border-slate-200/60 dark:border-white/10 p-1 mb-1 shrink-0">
+      {/* Mobile Action Bar - Scrollable Pills */}
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar p-2 mb-2 shrink-0 w-full">
         
-        {/* Type Filter Select (Compact) */}
-        <div className="relative flex items-center w-1/3">
+        {/* Type Filter Select */}
+        <div className="relative flex items-center shrink-0">
           <select
-            className="appearance-none w-full bg-transparent border-r border-slate-200/60 dark:border-white/10 py-1.5 pl-3 pr-7 text-[11px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none truncate cursor-pointer"
+            className="appearance-none bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-full px-4 py-2.5 pr-8 text-[11px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer whitespace-nowrap"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
           >
             <option value="All">All Types</option>
             {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
-          <ChevronDown size={14} className="absolute right-2 pointer-events-none text-slate-400" />
+          <ChevronDown size={14} className="absolute right-3 pointer-events-none text-slate-400" />
         </div>
 
         {/* Route Sort */}
@@ -167,18 +167,20 @@ export default function MobileSwipeDeck({
               else handleSort('unit');
             } else handleSort('walk_sequence');
           }}
-          className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest flex justify-center items-center gap-1 transition-colors border-r border-slate-200/60 dark:border-white/10 ${
-            sortColumn === 'walk_sequence' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          className={`shrink-0 px-4 py-2.5 text-[11px] font-bold rounded-full shadow-sm flex items-center gap-1 transition-colors whitespace-nowrap ${
+            sortColumn === 'walk_sequence'
+              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-300/60'
+              : 'bg-white/80 dark:bg-black/40 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
           }`}
         >
           Sort Route
-          {sortColumn === 'walk_sequence' && (sortDirection === 'asc' ? <ArrowDown size={12} /> : <ArrowUp size={12} />)}
+          {sortColumn === 'walk_sequence' && (sortDirection === 'asc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />)}
         </button>
 
         {/* Edit Route */}
         <button
           onClick={onEditRoute}
-          className="flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest flex justify-center items-center text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
+          className="shrink-0 px-4 py-2.5 text-[11px] font-bold rounded-full bg-white/80 dark:bg-black/40 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors whitespace-nowrap"
         >
           Edit Route
         </button>

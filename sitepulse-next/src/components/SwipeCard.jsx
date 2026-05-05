@@ -102,8 +102,10 @@ const SwipeCard = ({
 
   const handleDragEnd = (event, info) => {
     if (info.offset.x > 100) {
+      if (typeof window !== 'undefined' && navigator.vibrate) { navigator.vibrate(50); }
       onSwipeRight();
     } else if (info.offset.x < -100) {
+      if (typeof window !== 'undefined' && navigator.vibrate) { navigator.vibrate(50); }
       onSwipeLeft();
     }
   };
@@ -146,9 +148,11 @@ const SwipeCard = ({
         zIndex: 10 - depth,
         scale: isTop ? 1 : 1 - depth * 0.05,
         y: isTop ? 0 : depth * 12,
+        touchAction: isTop ? 'none' : 'auto',
       }}
       drag={isDragEnabled ? 'x' : false}
       dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={0.7}
       onDragEnd={handleDragEnd}
       layout
       className={`absolute w-[90%] max-w-sm h-full flex flex-col ${

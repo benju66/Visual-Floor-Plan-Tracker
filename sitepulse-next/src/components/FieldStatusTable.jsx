@@ -90,33 +90,7 @@ export default function FieldStatusTable({
       {/* ── Top control bar ── */}
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-3 mb-4">
 
-        {/* Pending changes alert */}
-        <div className="flex-1 w-full md:w-auto">
-          {Object.keys(pendingChanges).length > 0 && (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-4 py-3 shadow-sm animate-in fade-in zoom-in-95 duration-200 w-full">
-              <span className="text-sm font-semibold text-amber-800 dark:text-amber-400 flex-1">
-                {Object.keys(pendingChanges).length} pending{' '}
-                {Object.keys(pendingChanges).length === 1 ? 'change' : 'changes'}
-              </span>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => setPendingChanges({})}
-                  disabled={isApplying}
-                  className="flex-1 sm:flex-none justify-center text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 text-xs font-semibold px-2 py-2 transition-colors bg-white/50 dark:bg-black/20 sm:bg-transparent rounded-lg"
-                >
-                  Discard
-                </button>
-                <button
-                  onClick={handleApplyAll}
-                  disabled={isApplying}
-                  className="flex-1 sm:flex-none justify-center bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isApplying ? <UpdatingRing /> : 'Apply Changes'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Pending changes moved to FAB */}
 
         {/* Filters & view toggles */}
         <div className="hidden md:flex flex-col w-full md:w-auto gap-3 flex-1 overflow-hidden">
@@ -276,6 +250,41 @@ export default function FieldStatusTable({
           onClose={() => setIsSequenceModalOpen(false)}
         />
       )}
+
+      {/* Mobile/Desktop FAB for Pending Changes */}
+      <AnimatePresence>
+        {Object.keys(pendingChanges).length > 0 && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none pb-[env(safe-area-inset-bottom)]"
+          >
+            <div className="bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border border-slate-700 dark:border-slate-600 max-w-sm w-full mx-auto">
+              <span className="text-sm font-bold ml-2 flex-1">
+                {Object.keys(pendingChanges).length} pending
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPendingChanges({})}
+                  disabled={isApplying}
+                  className="px-4 py-2 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors disabled:opacity-50"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={handleApplyAll}
+                  disabled={isApplying}
+                  className="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-amber-950 rounded-full transition-colors shadow-md disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isApplying ? <UpdatingRing /> : 'Apply'}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

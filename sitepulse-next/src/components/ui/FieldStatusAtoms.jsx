@@ -62,7 +62,7 @@ export const BottleneckIndicator = ({ outOfSequence }) => {
               {isArray ? (
                 <>
                   <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">The following operations were logged ahead of schedule:</p>
-                  <div className="flex flex-col gap-3 border-t border-white/10 dark:border-black/5 pt-4 relative z-10">
+                  <div className="flex flex-col gap-3 border-t border-white/10 dark:border-black/5 pt-4 mb-4 relative z-10">
                     {outOfSequence.map(seq => (
                       <div key={seq.id} className="flex items-center gap-3">
                         <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
@@ -75,6 +75,20 @@ export const BottleneckIndicator = ({ outOfSequence }) => {
               ) : (
                 <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">This location has been manually flagged for review.</p>
               )}
+              
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsOpen(false);
+                  const targetUnitId = isArray ? outOfSequence[0]?.unit_id : outOfSequence?.unit_id;
+                  if (targetUnitId) {
+                    document.dispatchEvent(new CustomEvent('open-quick-status', { detail: { unitId: targetUnitId } }));
+                  }
+                }}
+                className="w-full mt-2 py-3 px-4 bg-red-500 hover:bg-red-600 text-white font-bold text-[13px] uppercase tracking-widest rounded-xl transition-colors relative z-10 flex items-center justify-center"
+              >
+                Fix Status
+              </button>
             </div>
           </div>
 
