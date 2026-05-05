@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { AlertTriangle, Check, ArrowRight, X, ChevronDown } from 'lucide-react';
-import { BottleneckIndicator } from './FieldStatusTable';
+import { BottleneckIndicator } from './ui/FieldStatusAtoms';
 
 const SwipeCard = ({ unit, log, rawStatuses, milestones, isTop, depth, onSwipeLeft, onSwipeRight, onChooseStatus, onCommitEscape }) => {
   const [pendingEscapeMilestone, setPendingEscapeMilestone] = useState(null);

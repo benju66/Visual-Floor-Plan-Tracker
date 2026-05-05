@@ -21,11 +21,13 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 - **Data Fetching:** Always use/extend the established TanStack Query custom hooks (`src/hooks/useProjectQueries.js`, `src/hooks/useMapActions.js`, `src/hooks/useProjectActions.js`). Server state handles an **Offline-First** setup utilizing `@tanstack/react-query-persist-client` writing to `IndexedDB` for durable disconnected mutations. Do not break this mutation queue or the WebSocket cache injections that resolve Thundering Herds.
 - **Global State:** All floating UI state (modals, active tools, selected units, filters) MUST be managed in the appropriate Zustand store (`src/store/useMapStore.js`, `src/store/useUIStore.js`, or `src/store/useSettingsStore.js`).
 - **Persisted State:** When accessing persisted Zustand properties (like `settings`, `mapSettings`, `legendPosition`), you MUST use the `useHydratedStore` custom hook (exported from `src/store/useSettingsStore.js`) to prevent React hydration mismatch errors.
+- **`pendingChanges` is intentionally local `useState`** in `useFieldData.js` — do NOT migrate it to Zustand or TanStack Query cache. It is a staging buffer that feeds the IDB mutation queue via `handleApplyAll` → `onApplyPendingChanges` → `commitUnitMilestone`. Moving it to global state would bypass the offline replay queue.
 
 ## 3. Map & Canvas Engine (React-Konva)
 - The interactive floorplan map is rendered via `<FloorplanCanvas />`. Operations rely heavily on Konva's drawing lifecycle.
 - **Event Bubbling:** Map interactions are complex. Ensure custom HTML overlays (Toolbars, Context Menus) cleanly stop event propagation (e.g., `e.stopPropagation()`) so clicking a button doesn't trigger a canvas `onClick`.
-- The Canvas UI is modularized (`CanvasContextMenu`, `MapHorizontalToolbar`, `FieldStatusTable`). Avoid bloating the main `FloorplanCanvas` file.
+- The Canvas UI is modularized (`CanvasContextMenu`, `MapHorizontalToolbar`). Avoid bloating the main `FloorplanCanvas` file.
+- The field list UI uses a **Container/Presenter pattern**: `FieldStatusTable` (container, `src/components/FieldStatusTable.jsx`) invokes `useFieldData` (`src/hooks/useFieldData.js`) for shared business logic, then conditionally renders one of three presenters: `StatusTable` (desktop table), `DesktopCardGrid` (desktop cards), or `MobileSwipeDeck` (mobile swipe). Shared UI atoms live in `src/components/ui/FieldStatusAtoms.jsx`. Pure sub-components live in `src/components/ui/StatusTrigger.jsx` and `src/components/ui/DatesInline.jsx`.
 
 ## 4. Best Practices
 - Components needing client hooks must start with `"use client"`.
