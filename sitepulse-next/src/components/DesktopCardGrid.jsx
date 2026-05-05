@@ -34,6 +34,10 @@ export default function DesktopCardGrid({
   setSelectedUnitIds,
   setHistoryModalUnitId,
   onChooseStatus,
+  pendingCount,
+  handleDiscardAll,
+  handleApplyAll,
+  handleTimelineUpdate,
 }) {
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
 
