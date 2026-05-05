@@ -63,10 +63,12 @@ const SwipeCard = ({
   isTop,
   depth,
   pendingChanges,
+  pendingTimelineChanges,
   onSwipeLeft,
   onSwipeRight,
   onChooseStatus,
   onStageUpdate,
+  onTimelineUpdate,
 }) => {
   // Whether the full-card history overlay is open
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -133,10 +135,12 @@ const SwipeCard = ({
   // --- Overlay inline state selection: stage update, keep card, stay in overlay ---
   const handleOverlayStateSelect = (e, state, m) => {
     e.stopPropagation();
-    onStageUpdate(unit, log || {}, state, { milestoneObj: m });
+    onTimelineUpdate(unit, log || {}, state, { milestoneObj: m });
   };
 
   const badgeStyle = getBadgeStyle(pendingState);
+  
+  const timelineChangeCount = Object.keys(pendingTimelineChanges || {}).filter(k => k.startsWith(unit.id + '_')).length;
 
   return (
     <motion.div
@@ -265,7 +269,7 @@ const SwipeCard = ({
               }`}
             >
               <ListTodo size={20} strokeWidth={2.5} />
-              Timeline
+              Timeline {timelineChangeCount > 0 && <span className="ml-1 px-2 py-0.5 bg-amber-400 text-amber-950 rounded-full text-[11px] font-black">{timelineChangeCount}</span>}
             </button>
           </div>
         </div>
@@ -319,12 +323,15 @@ const SwipeCard = ({
                 onPointerDownCapture={(e) => e.stopPropagation()}
               >
                 {milestones.map((m) => {
+                  const pendingTimeline = pendingTimelineChanges?.[`${unit.id}_${m.name}`];
                   const mLog = unitRawLogs.find((l) => l.milestone === m.name);
                   // Use the live log state (which reflects pending changes passed as `log` prop)
                   const isCurrentMilestone = log?.milestone === m.name;
-                  const state = isCurrentMilestone
-                    ? pendingState
-                    : mLog?.temporal_state || 'none';
+                  const state = pendingTimeline 
+                    ? pendingTimeline.state
+                    : isCurrentMilestone
+                      ? pendingState
+                      : mLog?.temporal_state || 'none';
 
                   const rowBadge = getBadgeStyle(state);
                   const isPickerOpen = overlayActiveMilestone?.name === m.name;
@@ -381,7 +388,7 @@ const SwipeCard = ({
                               <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-1">
                                 Set status for: <span className="text-slate-600 dark:text-slate-300">{m.name}</span>
                               </p>
-                              {['planned', 'ongoing', 'completed'].map((s) => {
+                              {['none', 'planned', 'ongoing', 'completed'].map((s) => {
                                 const sb = getBadgeStyle(s);
                                 return (
                                   <button
@@ -391,7 +398,7 @@ const SwipeCard = ({
                                     className={`w-full min-h-[48px] flex items-center gap-3 px-4 rounded-xl font-black uppercase tracking-wider text-sm transition-all duration-150 active:scale-[0.98] shadow-sm ${sb.wrapper}`}
                                   >
                                     <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${sb.dot}`} />
-                                    {s}
+                                    {s === 'none' ? 'Clear Status' : s}
                                   </button>
                                 );
                               })}

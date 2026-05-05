@@ -130,7 +130,7 @@ function App() {
     autoEnrollUser();
   }, [roleLoaded, currentUserRole, projectId, queryClient]);
 
-  const { data: sheets = [] } = useSheets(projectId);
+  const { data: sheets = [], isSuccess: isSheetsLoaded } = useSheets(projectId);
   const { data: milestones = [] } = useMilestones(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
   const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), milestones);
@@ -198,6 +198,8 @@ function App() {
 
   // Auto-select first available sheet to prevent invalid UI mounting or empty cache fallbacks
   useEffect(() => {
+    if (!isMounted || !isSheetsLoaded) return;
+
     // If sheets have loaded, but the activeSheetId doesn't belong to this project's sheets
     if (sheets && !sheets.find(s => s.id === activeSheetId)) {
       // If the project has sheets, pick the first one. If it's a new project with 0 sheets, clear it.
@@ -206,7 +208,7 @@ function App() {
         setActiveSheetId(fallbackId);
       }
     }
-  }, [sheets, activeSheetId, setActiveSheetId]);
+  }, [sheets, activeSheetId, setActiveSheetId, isSheetsLoaded, isMounted]);
 
   const activeSheet = sheets.find((s) => s.id === activeSheetId);
 
@@ -507,6 +509,8 @@ function App() {
                     onToggleLegend={() => setLegendPosition(prev => ({ ...prev, isVisible: !prev.isVisible }))}
                     onUpdateMapSettings={setMapSettings}
                     isSnappingLoading={isSnappingLoading}
+                    settings={settings}
+                    onUpdateSettings={setSettings}
                   />
                   <FloorplanCanvas
                     ref={floorplanRef}

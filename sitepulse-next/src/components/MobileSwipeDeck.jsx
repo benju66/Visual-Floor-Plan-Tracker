@@ -32,8 +32,10 @@ import SwipeCard from '@/components/SwipeCard';
 export default function MobileSwipeDeck({
   visible,
   pendingChanges,
+  pendingTimelineChanges,
   setPendingChanges,
   handleLocalUpdate,
+  handleTimelineUpdate,
   currentMilestones,
   rawStatuses,
   onChooseStatus,
@@ -205,7 +207,15 @@ export default function MobileSwipeDeck({
                 key={unit.id}
                 unit={unit}
                 log={
-                  pendingChanges[unit.id]
+                  pendingTimelineChanges[`${unit.id}_${log?.milestone}`]
+                    ? {
+                        ...log,
+                        temporal_state: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].state,
+                        milestone: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].extraProps?.milestoneObj?.name || log?.milestone,
+                        status_color: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].extraProps?.milestoneObj?.color || log?.status_color,
+                        outOfSequence: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].extraProps?.outOfSequence ?? log?.outOfSequence,
+                      }
+                    : pendingChanges[unit.id]
                     ? {
                         ...log,
                         temporal_state: pendingChanges[unit.id].state,
@@ -220,6 +230,7 @@ export default function MobileSwipeDeck({
                 isTop={isTop}
                 depth={depth}
                 pendingChanges={pendingChanges}
+                pendingTimelineChanges={pendingTimelineChanges}
                 onSwipeLeft={() => {
                   setSwipedHistory((prev) => [
                     ...prev,
@@ -229,7 +240,8 @@ export default function MobileSwipeDeck({
                   setCardRedoStack([]);
                 }}
                 onSwipeRight={() => {
-                  const pending = pendingChanges[unit.id]?.state;
+                  const unitPending = pendingChanges[unit.id];
+                  const pending = pendingTimelineChanges[`${unit.id}_${log?.milestone}`]?.state || unitPending?.state;
                   const current = pending || log?.temporal_state || 'none';
                   let nextState = 'planned';
                   if (current === 'planned') nextState = 'ongoing';
@@ -244,18 +256,16 @@ export default function MobileSwipeDeck({
                 onChooseStatus={onChooseStatus}
                 // onStageUpdate: mutates local pending state WITHOUT advancing the card.
                 // The card stays on top until the user physically swipes it.
-                onStageUpdate={(stateOrUnit, log, state, extraProps) => {
-                  // Support two calling conventions:
-                  //   onStageUpdate(unit, log, state, extraProps)  — from history overlay row
-                  //   onStageUpdate(state, milestoneObj)           — from status badge cycle
+                onStageUpdate={(stateOrUnit, mLog, state, extraProps) => {
                   if (typeof stateOrUnit === 'string') {
                     // Called as onStageUpdate(state, milestoneObj)
-                    handleLocalUpdate(unit, log || {}, stateOrUnit, extraProps ? { milestoneObj: extraProps } : undefined);
+                    handleLocalUpdate(unit, log || {}, stateOrUnit, mLog ? { milestoneObj: mLog } : undefined);
                   } else {
                     // Called as onStageUpdate(unit, log, state, extraProps)
-                    handleLocalUpdate(stateOrUnit, log, state, extraProps);
+                    handleLocalUpdate(stateOrUnit, mLog, state, extraProps);
                   }
                 }}
+                onTimelineUpdate={handleTimelineUpdate}
               />
             );
           })

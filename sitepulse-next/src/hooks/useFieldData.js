@@ -58,6 +58,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   });
 
   const [pendingChanges, setPendingChanges] = useState({});
+  const [pendingTimelineChanges, setPendingTimelineChanges] = useState({});
   const [isApplying, setIsApplying] = useState(false);
 
   // Sync viewStyle when the defaultView prop changes (e.g. settings updated)
@@ -102,18 +103,63 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     });
   };
 
+  const handleTimelineUpdate = (unit, baseLog, state, extraProps = {}) => {
+    const milestoneName = extraProps?.milestoneObj?.name || baseLog?.milestone;
+    const key = `${unit.id}_${milestoneName}`;
+    setPendingTimelineChanges((prev) => ({
+      ...prev,
+      [key]: {
+        unit,
+        log: baseLog,
+        state,
+        extraProps
+      }
+    }));
+  };
+
+  const handleDiscardAll = () => {
+    setPendingChanges({});
+    setPendingTimelineChanges({});
+  };
+
+  const pendingCount = useMemo(() => {
+    const dedupedChanges = new Set();
+    Object.values(pendingChanges).forEach(c => {
+      const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone;
+      if (mName) dedupedChanges.add(`${c.unit.id}_${mName}`);
+    });
+    Object.values(pendingTimelineChanges).forEach(c => {
+      const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone;
+      if (mName) dedupedChanges.add(`${c.unit.id}_${mName}`);
+    });
+    return dedupedChanges.size;
+  }, [pendingChanges, pendingTimelineChanges]);
+
   /**
    * Applies all pending changes through the established mutation chain.
    * try/finally guarantees isApplying resets even when a mutation throws
    * (e.g. offline-paused mutateAsync rejection, RLS violation).
    */
   const handleApplyAll = async () => {
-    const changesArray = Object.values(pendingChanges);
-    if (changesArray.length === 0) return;
+    const changesArray = [
+      ...Object.values(pendingChanges),
+      ...Object.values(pendingTimelineChanges)
+    ];
+    
+    const dedupedMap = new Map();
+    changesArray.forEach(c => {
+       const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone;
+       if (mName) dedupedMap.set(`${c.unit.id}_${mName}`, c);
+    });
+    
+    const finalChanges = Array.from(dedupedMap.values());
+    if (finalChanges.length === 0) return;
+    
     setIsApplying(true);
     try {
-      await onApplyPendingChanges?.(changesArray);
+      await onApplyPendingChanges?.(finalChanges);
       setPendingChanges({});
+      setPendingTimelineChanges({});
     } finally {
       setIsApplying(false);
     }
@@ -222,9 +268,13 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     setViewStyle,
     // Pending changes & apply
     pendingChanges,
+    pendingTimelineChanges,
+    pendingCount,
     setPendingChanges,
     isApplying,
     handleLocalUpdate,
+    handleTimelineUpdate,
+    handleDiscardAll,
     handleApplyAll,
   };
 }

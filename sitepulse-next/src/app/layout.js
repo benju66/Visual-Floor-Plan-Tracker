@@ -18,11 +18,18 @@ export const metadata = {
   description: "Visually track construction progress on floor plans.",
 };
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 export default function RootLayout({ children }) {
   return (
     <html
       lang="en"
-      className={`${outfit.variable} ${robotoMono.variable} h-full antialiased`}
+      className={`${outfit.variable} ${robotoMono.variable} h-full antialiased overscroll-none`}
     >
       <body className="min-h-full flex flex-col font-sans bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300 ease-in-out overscroll-y-none">
         <AuthProvider>

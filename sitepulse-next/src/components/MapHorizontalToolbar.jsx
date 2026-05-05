@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 
 export default function MapHorizontalToolbar({
@@ -11,7 +11,9 @@ export default function MapHorizontalToolbar({
   legendIsVisible,
   onToggleLegend,
   onUpdateMapSettings,
-  isSnappingLoading
+  isSnappingLoading,
+  settings,
+  onUpdateSettings
 }) {
   const toolMode = useMapStore(s => s.toolMode);
   const onToolModeChange = useMapStore(s => s.setToolMode);
@@ -184,6 +186,21 @@ export default function MapHorizontalToolbar({
       >
         <List size={18} />
       </button>
+
+      {settings && onUpdateSettings && (
+        <button
+          type="button"
+          onClick={() => onUpdateSettings({ ...settings, showHistoryHover: !settings?.showHistoryHover })}
+          className={`p-2 rounded-full flex items-center justify-center transition-all ${
+            settings?.showHistoryHover 
+              ? 'bg-purple-500 text-white shadow-sm scale-110' 
+              : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+          }`}
+          title={`${settings?.showHistoryHover ? 'Hide' : 'Show'} Hover History`}
+        >
+          <History size={18} />
+        </button>
+      )}
     </div>
 
     {toolMode === 'route' && (

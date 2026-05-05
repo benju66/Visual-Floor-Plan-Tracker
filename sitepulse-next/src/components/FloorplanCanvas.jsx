@@ -11,6 +11,7 @@ import DraftPolygon from '@/components/canvas/DraftPolygon';
 import StampPreview from '@/components/canvas/StampPreview';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import MapLegend from '@/components/canvas/MapLegend';
+import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 import { useMapStore } from '@/store/useMapStore';
@@ -1329,59 +1330,18 @@ const FloorplanCanvas = forwardRef(({
         </div>
       )}
 
-      {settings?.showHistoryHover && hoveredUnit && pointerPos && !contextMenu && !['draw', 'add_node', 'route'].includes(toolMode) && (
-        (() => {
-          const u = units.find(x => x.id === hoveredUnit);
-          // Extract ALL raw logs for this specific unit and the active tracking mode
-          const unitRawLogs = rawStatuses?.filter(s => s.unit_id === hoveredUnit && s.track === trackingMode) || [];
-
-          return (
-            <div
-              className="absolute z-40 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-4 py-3 rounded-xl text-sm shadow-2xl pointer-events-none transition-opacity animate-in fade-in duration-150 border border-slate-700 dark:border-white/20 min-w-[240px] max-w-[300px]"
-              style={{
-                left: pointerPos.x + 20,
-                top: pointerPos.y + 20,
-              }}
-            >
-              <div className="font-bold text-base mb-2 border-b border-slate-700/50 dark:border-black/10 pb-2 flex justify-between items-center">
-                 <span>{u?.unit_number || 'Unknown Location'}</span>
-                 <span className="text-[9px] uppercase tracking-widest opacity-50 font-bold bg-white/10 dark:bg-black/10 px-1.5 py-0.5 rounded">
-                   {u?.unit_type || 'Space'}
-                 </span>
-              </div>
-              
-              {/* Scrollable list to handle large milestone schemas */}
-              <div className="flex flex-col gap-2.5 max-h-[250px] overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin' }}>
-                {milestones.length === 0 ? (
-                   <div className="text-xs italic opacity-50">No milestones configured for this track.</div>
-                ) : (
-                   milestones.map(m => {
-                      const log = unitRawLogs.find(s => s.milestone === m.name);
-                      const state = log ? log.temporal_state : 'none';
-                      
-                      // Color coding logic based on state
-                      let stateColor = 'text-slate-400';
-                      if (state === 'completed') stateColor = 'text-emerald-400 dark:text-emerald-600';
-                      if (state === 'ongoing') stateColor = 'text-amber-400 dark:text-amber-600';
-                      if (state === 'planned') stateColor = 'text-blue-400 dark:text-blue-600';
-                      
-                      return (
-                         <div key={m.id} className={`flex items-center justify-between gap-4 text-xs ${state === 'none' ? 'opacity-40' : 'opacity-100'}`}>
-                           <div className="flex items-center gap-2 truncate">
-                             <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
-                             <span className="truncate font-medium">{m.name}</span>
-                           </div>
-                           <span className={`text-[9px] uppercase tracking-widest font-bold shrink-0 ${stateColor}`}>
-                             {state === 'none' ? 'Not Started' : state}
-                           </span>
-                         </div>
-                      )
-                   })
-                )}
-              </div>
-            </div>
-          );
-        })()
+      {settings?.showHistoryHover && (
+         <HoverHistoryTooltip
+            hoveredUnit={hoveredUnit}
+            pointerPos={pointerPos}
+            units={units}
+            rawStatuses={rawStatuses}
+            trackingMode={trackingMode}
+            milestones={milestones}
+            dimensions={dimensions}
+            toolMode={toolMode}
+            contextMenu={contextMenu}
+         />
       )}
 
       <CanvasContextMenu

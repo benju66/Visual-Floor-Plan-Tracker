@@ -58,9 +58,13 @@ export default function FieldStatusTable({
     viewStyle,
     setViewStyle,
     pendingChanges,
+    pendingTimelineChanges,
+    pendingCount,
     setPendingChanges,
     isApplying,
     handleLocalUpdate,
+    handleTimelineUpdate,
+    handleDiscardAll,
     handleApplyAll,
   } = useFieldData({ activeStatuses, defaultView, onApplyPendingChanges });
 
@@ -189,13 +193,15 @@ export default function FieldStatusTable({
       {/* ── View routing ── */}
       {!isDesktop && (
         <MobileSwipeDeck
-          visible={visible}
+          orderedCards={visible}
           pendingChanges={pendingChanges}
-          setPendingChanges={setPendingChanges}
+          pendingTimelineChanges={pendingTimelineChanges}
           handleLocalUpdate={handleLocalUpdate}
+          handleTimelineUpdate={handleTimelineUpdate}
+          onChooseStatus={onChooseStatus}
+          savingUnitId={savingUnitId}
           currentMilestones={currentMilestones}
           rawStatuses={rawStatuses}
-          onChooseStatus={onChooseStatus}
           isApplying={isApplying}
           typeFilter={typeFilter}
           setTypeFilter={setTypeFilter}
@@ -253,7 +259,7 @@ export default function FieldStatusTable({
 
       {/* Mobile/Desktop FAB for Pending Changes */}
       <AnimatePresence>
-        {Object.keys(pendingChanges).length > 0 && (
+        {pendingCount > 0 && (
           <motion.div
             initial={{ y: -100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -263,11 +269,11 @@ export default function FieldStatusTable({
           >
             <div className="bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border border-slate-700 dark:border-slate-600 max-w-sm w-full mx-auto">
               <span className="text-sm font-bold ml-2 flex-1">
-                {Object.keys(pendingChanges).length} pending
+                {pendingCount} pending
               </span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setPendingChanges({})}
+                  onClick={handleDiscardAll}
                   disabled={isApplying}
                   className="px-4 py-2 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors disabled:opacity-50"
                 >

@@ -254,7 +254,7 @@ export function useMapActions(project) {
     
     if (milestone.isClearAction) {
       try {
-        const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
+        const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode && s.milestone === milestone.name) || activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
         if (!oldLog) return;
         await clearStatusMutation.mutateAsync({ unitId: unit.id, track: trackingMode, milestone: oldLog.milestone });
         if (!isUndoRedo) {
@@ -272,10 +272,10 @@ export function useMapActions(project) {
       return;
     }
 
-    const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track) || null;
+    const milestoneName = milestone.name || milestone.milestone;
+    const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track && s.milestone === milestoneName) || null;
     try {
       const status_color = milestone.color || milestone.status_color;
-      const milestoneName = milestone.name || milestone.milestone;
       const sheetSchedule = activeSheet?.milestone_schedules?.[milestoneName] || {};
       
       const newLogData = {
@@ -352,7 +352,11 @@ export function useMapActions(project) {
 
     if (type === 'status') {
       if (value === 'none') {
-        const milestone = { isClearAction: true, track: trackingMode };
+        const milestone = { 
+          isClearAction: true, 
+          track: trackingMode,
+          name: extraProps.milestoneObj?.name || existingStatus?.milestone 
+        };
         commitUnitMilestone(unit, milestone);
         return;
       }
