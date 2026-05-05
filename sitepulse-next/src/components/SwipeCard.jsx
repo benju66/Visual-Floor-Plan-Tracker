@@ -134,7 +134,6 @@ const SwipeCard = ({
   const handleOverlayStateSelect = (e, state, m) => {
     e.stopPropagation();
     onStageUpdate(unit, log || {}, state, { milestoneObj: m });
-    setOverlayActiveMilestone(null);
   };
 
   const badgeStyle = getBadgeStyle(pendingState);
