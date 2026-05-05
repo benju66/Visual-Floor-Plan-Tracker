@@ -306,5 +306,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     handleRemovePendingItem,
     handleDiscardAll,
     handleApplyAll,
+    // Misc
+    trackingMode,
   };
 }

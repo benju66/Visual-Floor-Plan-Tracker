@@ -15,25 +15,26 @@ export default function HoverHistoryTooltip({
   const [activePos, setActivePos] = useState(null);
   const timeoutRef = useRef(null);
   const isHoveredRef = useRef(false);
+  const anchoredUnitRef = useRef(null);
+  const containerRef = useRef(null);
 
   useEffect(() => {
     // Hide tooltip if interacting with context menus or map editing modes
     if (contextMenu || ['draw', 'add_node', 'route'].includes(toolMode)) {
       setActiveUnit(null);
+      anchoredUnitRef.current = null;
       return;
     }
 
     if (hoveredUnit) {
       clearTimeout(timeoutRef.current);
       setActiveUnit(hoveredUnit);
-      if (pointerPos) {
-        setActivePos(pointerPos);
-      }
     } else {
       // Small debounce to keep tooltip alive while cursor transitions
       timeoutRef.current = setTimeout(() => {
         if (!isHoveredRef.current) {
           setActiveUnit(null);
+          anchoredUnitRef.current = null;
         }
       }, 150);
     }
@@ -41,12 +42,26 @@ export default function HoverHistoryTooltip({
     return () => clearTimeout(timeoutRef.current);
   }, [hoveredUnit, contextMenu, toolMode]);
 
-  // Continuously update position while following a unit, but ignore if only pointer updates
+  // Update position ONLY ONCE per hovered unit to prevent the "runaway tooltip" bug
+  // and eliminate 60FPS React state re-renders for a massive performance win.
   useEffect(() => {
-     if (hoveredUnit && pointerPos) {
+     if (hoveredUnit && pointerPos && anchoredUnitRef.current !== hoveredUnit) {
         setActivePos(pointerPos);
+        anchoredUnitRef.current = hoveredUnit;
      }
   }, [pointerPos, hoveredUnit]);
+
+  // Native DOM event listener for bulletproof scroll isolation
+  // React's synthetic onWheel e.stopPropagation() does not prevent native bubbling to Konva
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handleNativeWheel = (e) => {
+      e.stopPropagation();
+    };
+    el.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleNativeWheel);
+  }, [activeUnit, activePos]);
 
   if (!activeUnit || !activePos) return null;
 
@@ -69,6 +84,7 @@ export default function HoverHistoryTooltip({
 
   return (
     <div
+      ref={containerRef}
       onMouseEnter={() => {
         isHoveredRef.current = true;
         clearTimeout(timeoutRef.current);
@@ -77,6 +93,7 @@ export default function HoverHistoryTooltip({
         isHoveredRef.current = false;
         timeoutRef.current = setTimeout(() => {
           setActiveUnit(null);
+          anchoredUnitRef.current = null;
         }, 150);
       }}
       onPointerDown={(e) => e.stopPropagation()}
@@ -95,7 +112,7 @@ export default function HoverHistoryTooltip({
          </span>
       </div>
       
-      <div className="flex flex-col gap-2.5 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+      <div className="flex flex-col gap-2.5 max-h-[250px] overflow-y-auto overscroll-contain pr-2 custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
         {milestones.length === 0 ? (
            <div className="text-xs italic opacity-50">No milestones configured for this track.</div>
         ) : (

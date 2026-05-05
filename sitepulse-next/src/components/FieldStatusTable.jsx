@@ -69,6 +69,7 @@ export default function FieldStatusTable({
     handleRemovePendingItem,
     handleDiscardAll,
     handleApplyAll,
+    trackingMode,
   } = useFieldData({ activeStatuses, defaultView, onApplyPendingChanges });
 
   // --- Empty state guard ---
@@ -256,6 +257,10 @@ export default function FieldStatusTable({
             sortDirection={sortDirection}
             handleSort={handleSort}
             handleTimelineUpdate={handleTimelineUpdate}
+            rawStatuses={rawStatuses}
+            currentMilestones={currentMilestones}
+            pendingTimelineChanges={pendingTimelineChanges}
+            trackingMode={trackingMode}
             {...sharedSelectionProps}
           />
         </div>

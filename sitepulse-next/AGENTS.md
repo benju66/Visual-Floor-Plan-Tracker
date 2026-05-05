@@ -25,7 +25,7 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 
 ## 3. Map & Canvas Engine (React-Konva)
 - The interactive floorplan map is rendered via `<FloorplanCanvas />`. Operations rely heavily on Konva's drawing lifecycle.
-- **Event Bubbling:** Map interactions are complex. Ensure custom HTML overlays (Toolbars, Context Menus) cleanly stop event propagation (e.g., `e.stopPropagation()`) so clicking a button doesn't trigger a canvas `onClick`.
+- **Event Bubbling & Native Isolation:** Map interactions are complex. While React's synthetic `e.stopPropagation()` stops bubbling within the React tree (sufficient for most `onClick` events), it **does not** stop native events from reaching Konva's native DOM listeners. For custom HTML overlays that scroll or require strict isolation from map zooming/panning, you MUST use a `useRef` to attach a native DOM event listener (e.g., `el.addEventListener('wheel', (e) => e.stopPropagation(), { passive: false })`) and utilize CSS like `overscroll-contain` to prevent browser scroll chaining.
 - The Canvas UI is modularized (`CanvasContextMenu`, `MapHorizontalToolbar`). Avoid bloating the main `FloorplanCanvas` file.
 - The field list UI uses a **Container/Presenter pattern**: `FieldStatusTable` (container, `src/components/FieldStatusTable.jsx`) invokes `useFieldData` (`src/hooks/useFieldData.js`) for shared business logic, then conditionally renders one of three presenters: `StatusTable` (desktop table), `DesktopCardGrid` (desktop cards), or `MobileSwipeDeck` (mobile swipe). Shared UI atoms live in `src/components/ui/FieldStatusAtoms.jsx`. Pure sub-components live in `src/components/ui/StatusTrigger.jsx` and `src/components/ui/DatesInline.jsx`.
 

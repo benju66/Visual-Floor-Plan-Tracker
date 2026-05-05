@@ -1,8 +1,8 @@
 "use client";
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUp, ArrowDown, History } from 'lucide-react';
-import { BottleneckIndicator, UpdatingRing } from '@/components/ui/FieldStatusAtoms';
+import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown } from 'lucide-react';
+import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle } from '@/components/ui/FieldStatusAtoms';
 import StatusTrigger from '@/components/ui/StatusTrigger';
 
 /**
@@ -45,8 +45,50 @@ export default function StatusTable({
   handleDiscardAll,
   handleApplyAll,
   handleTimelineUpdate,
+  rawStatuses,
+  currentMilestones,
+  pendingTimelineChanges,
+  trackingMode,
 }) {
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
+  const [expandedUnitIds, setExpandedUnitIds] = useState(new Set());
+
+  // Clear expansions when milestones change (e.g., track changes)
+  React.useEffect(() => {
+    setExpandedUnitIds(new Set());
+  }, [currentMilestones]);
+
+  const logMap = React.useMemo(() => {
+    const map = new Map();
+    if (rawStatuses) {
+      rawStatuses.forEach(log => {
+        map.set(`${log.unit_id}_${log.milestone}`, log);
+      });
+    }
+    return map;
+  }, [rawStatuses]);
+
+  const isAllExpanded = expandedUnitIds.size === visible.length && visible.length > 0;
+
+  const toggleExpandAll = (e) => {
+    e.stopPropagation();
+    if (isAllExpanded) {
+      setExpandedUnitIds(new Set());
+    } else {
+      const allIds = new Set(visible.map(r => r.unit.id));
+      setExpandedUnitIds(allIds);
+    }
+  };
+
+  const toggleRowExpanded = (e, unitId) => {
+    e.stopPropagation();
+    setExpandedUnitIds(prev => {
+      const next = new Set(prev);
+      if (next.has(unitId)) next.delete(unitId);
+      else next.add(unitId);
+      return next;
+    });
+  };
 
   // Q1 resolution: renderSortIcon lives here, not in the hook (no JSX from hooks)
   const renderSortIcon = (col) => {
@@ -85,9 +127,9 @@ export default function StatusTable({
 
   return (
     <>
-      <div className="w-full overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 shadow-sm backdrop-blur-md">
-      <table className="w-full text-left border-collapse text-sm text-slate-800 dark:text-slate-200">
-        <thead className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-white/10">
+      <div className="w-full h-full overflow-auto rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/15 shadow-sm relative">
+      <table className="w-full text-left border-collapse text-sm text-slate-800 dark:text-slate-200 relative">
+        <thead className="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-slate-300 dark:after:border-white/10">
           <tr>
             <th className="px-5 py-3 w-10">
               <input
@@ -101,7 +143,16 @@ export default function StatusTable({
               onClick={() => handleSort('unit')}
               className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
             >
-              Location {renderSortIcon('unit')}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleExpandAll}
+                  className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                >
+                  {isAllExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </button>
+                Location {renderSortIcon('unit')}
+              </div>
             </th>
             <th
               onClick={() => handleSort('unit_type')}
@@ -138,11 +189,11 @@ export default function StatusTable({
             const dLog = pending ? { ...log, temporal_state: pending.state } : log;
 
             return (
+              <React.Fragment key={unit.id}>
               <tr
-                key={unit.id}
                 onClick={(e) => handleRowClick(e, unit.id, index)}
-                className={`border-b border-slate-200/50 dark:border-white/5 last:border-none hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer ${
-                  selectedUnitIds.includes(unit.id) ? 'bg-purple-50/40 dark:bg-purple-900/10' : ''
+                className={`border-b border-slate-200 dark:border-white/5 last:border-none hover:bg-slate-50 dark:hover:bg-white/10 transition-colors cursor-pointer ${
+                  selectedUnitIds.includes(unit.id) ? 'bg-purple-50 dark:bg-purple-900/10' : ''
                 }`}
               >
                 <td className="px-5 py-3 align-middle text-center">
@@ -155,6 +206,13 @@ export default function StatusTable({
                 </td>
                 <td className="px-5 py-3 font-bold text-slate-900 dark:text-slate-100 align-middle">
                   <div className="flex items-center gap-2 relative">
+                    <button
+                      type="button"
+                      onClick={(e) => toggleRowExpanded(e, unit.id)}
+                      className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      {expandedUnitIds.has(unit.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </button>
                     {unit.unit_number}
                     <BottleneckIndicator 
                       unit={unit} 
@@ -200,8 +258,8 @@ export default function StatusTable({
                       className={`bg-transparent border ${
                         pending?.extraProps?.startDate !== undefined
                           ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                          : 'border-slate-200/80 dark:border-white/10'
-                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
+                          : 'border-slate-300 dark:border-white/10'
+                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
@@ -226,8 +284,8 @@ export default function StatusTable({
                       className={`bg-transparent border ${
                         pending?.extraProps?.endDate !== undefined
                           ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                          : 'border-slate-200/80 dark:border-white/10'
-                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
+                          : 'border-slate-300 dark:border-white/10'
+                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
@@ -254,8 +312,8 @@ export default function StatusTable({
                       className={`bg-transparent border ${
                         pending?.extraProps?.loggedDate !== undefined
                           ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                          : 'border-slate-200/80 dark:border-white/10'
-                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                          : 'border-slate-300 dark:border-white/10'
+                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40 ${
                         !pending?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''
                       } transition`}
                     />
@@ -274,6 +332,140 @@ export default function StatusTable({
                   </button>
                 </td>
               </tr>
+              {expandedUnitIds.has(unit.id) && currentMilestones?.map(milestone => {
+                if (milestone.name === log?.milestone) return null;
+                
+                const childLog = logMap.get(`${unit.id}_${milestone.name}`) || {
+                  unit_id: unit.id,
+                  milestone: milestone.name,
+                  status_color: milestone.color,
+                  track: trackingMode,
+                  temporal_state: 'none'
+                };
+                const childPending = pendingTimelineChanges[`${unit.id}_${milestone.name}`];
+                const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
+                
+                return (
+                  <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 last:border-none">
+                    <td className="px-5 py-2"></td>
+                    <td className="px-5 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 align-middle pl-10">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 font-bold">↳</span>
+                        {milestone.name}
+                      </div>
+                    </td>
+                    <td className="px-5 py-2"></td>
+                    <td className="px-5 py-2 align-middle">
+                      <select
+                        value={dChildLog.temporal_state || 'none'}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleTimelineUpdate(unit, childLog, e.target.value, { milestoneObj: milestone });
+                        }}
+                        disabled={savingUnitId === unit.id || isApplying}
+                        className={`w-full sm:w-auto rounded-lg border ${
+                          childPending?.state && childPending.state !== childLog.temporal_state
+                            ? 'ring-2 ring-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                            : ''
+                        } px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer ${getTemporalStateStyle(dChildLog.temporal_state || 'none')}`}
+                      >
+                        <option value="none">Not Set</option>
+                        <option value="planned">Planned</option>
+                        <option value="ongoing">Ongoing</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </td>
+                    <td className="px-5 py-2 align-middle">
+                      {childLog ? (
+                        <input
+                          type="date"
+                          value={
+                            childPending?.extraProps?.startDate !== undefined
+                              ? childPending.extraProps.startDate
+                              : childLog.planned_start_date || ''
+                          }
+                          onChange={(e) =>
+                            handleTimelineUpdate(unit, childLog, childPending?.state || childLog.temporal_state || 'none', {
+                              startDate: e.target.value,
+                              endDate: childLog.planned_end_date,
+                              milestoneObj: milestone
+                            })
+                          }
+                          disabled={isApplying}
+                          className={`bg-transparent border ${
+                            childPending?.extraProps?.startDate !== undefined
+                              ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
+                              : 'border-slate-300 dark:border-white/10'
+                          } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
+                        />
+                      ) : (
+                        <span className="text-slate-400 text-xs italic">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-2 align-middle">
+                      {childLog ? (
+                        <input
+                          type="date"
+                          value={
+                            childPending?.extraProps?.endDate !== undefined
+                              ? childPending.extraProps.endDate
+                              : childLog.planned_end_date || ''
+                          }
+                          onChange={(e) =>
+                            handleTimelineUpdate(unit, childLog, childPending?.state || childLog.temporal_state || 'none', {
+                              startDate: childLog.planned_start_date,
+                              endDate: e.target.value,
+                              milestoneObj: milestone
+                            })
+                          }
+                          disabled={isApplying}
+                          className={`bg-transparent border ${
+                            childPending?.extraProps?.endDate !== undefined
+                              ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
+                              : 'border-slate-300 dark:border-white/10'
+                          } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
+                        />
+                      ) : (
+                        <span className="text-slate-400 text-xs italic">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
+                      {(childPending?.state || childLog.temporal_state) === 'completed' ? (
+                        <input
+                          type="date"
+                          value={
+                            childPending?.extraProps?.loggedDate !== undefined
+                              ? childPending.extraProps.loggedDate
+                              : childLog.logged_date || ''
+                          }
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) =>
+                            handleTimelineUpdate(unit, childLog, childPending?.state || childLog.temporal_state || 'none', {
+                              startDate: childLog.planned_start_date,
+                              endDate: childLog.planned_end_date,
+                              loggedDate: e.target.value,
+                              milestoneObj: milestone
+                            })
+                          }
+                          disabled={isApplying}
+                          className={`bg-transparent border ${
+                            childPending?.extraProps?.loggedDate !== undefined
+                              ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
+                              : 'border-slate-300 dark:border-white/10'
+                          } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40 ${
+                            !childPending?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''
+                          } transition`}
+                        />
+                      ) : (
+                        <span className="text-slate-400 text-xs italic">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 align-middle text-right"></td>
+                  </tr>
+                );
+              })}
+              </React.Fragment>
             );
           })}
         </tbody>

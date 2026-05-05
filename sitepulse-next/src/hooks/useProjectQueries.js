@@ -900,3 +900,33 @@ export function useUpdateProjectMemberRole(projectId) {
     }
   });
 }
+
+/**
+ * useStatusHistory — fetches raw (un-deduplicated) status_logs for velocity charting.
+ * Only returns rows where temporal_state = 'completed' and logged_date is not null.
+ * Returns a plain JSON array — safe for @tanstack/react-query-persist-client IDB serialization.
+ *
+ * The queryKey uses spread (...validUnitIds) instead of an array value to avoid
+ * creating a new array reference on every render, which would cause an infinite refetch loop.
+ */
+export function useStatusHistory(unitIds) {
+  const validUnitIds = unitIds?.filter(id => !String(id).startsWith('temp_')) || [];
+  return useQuery({
+    queryKey: ['status_history', ...validUnitIds],
+    queryFn: async () => {
+      if (validUnitIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from('status_logs')
+        .select('unit_id, milestone, track, logged_date')
+        .in('unit_id', validUnitIds)
+        .eq('temporal_state', 'completed')
+        .not('logged_date', 'is', null)
+        .order('logged_date', { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: validUnitIds.length > 0,
+    staleTime: 1000 * 60 * 5, // 5 min — completed events are stable
+    placeholderData: keepPreviousData,
+  });
+}

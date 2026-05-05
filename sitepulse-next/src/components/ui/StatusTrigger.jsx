@@ -1,5 +1,6 @@
 "use client";
 import React from 'react';
+import { getTemporalStateStyle } from './FieldStatusAtoms';
 
 /**
  * Pure presentational component — no Zustand imports.
@@ -57,13 +58,13 @@ export default function StatusTrigger({
             onLocalUpdate(unit, baseLog, e.target.value);
           }}
           disabled={savingUnitId === unit.id || isApplying}
-          className={`w-full sm:w-auto rounded-xl border ${
+          className={`w-full sm:w-auto rounded-lg border ${
             pendingChange?.state && pendingChange.state !== baseLog?.temporal_state
-              ? 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-500/20'
-              : 'border-slate-200/80 dark:border-white/10'
-          } bg-white/60 dark:bg-black/25 px-2 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 ${large ? 'py-3 text-base' : ''}`}
+              ? 'ring-2 ring-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+              : ''
+          } px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer ${large ? 'py-2.5 text-xs' : ''} ${getTemporalStateStyle(log?.temporal_state || 'none')}`}
         >
-          <option value="none">No status (Choose status)</option>
+          <option value="none">Not Set (Choose status)</option>
           <option value="planned">Planned</option>
           <option value="ongoing">Ongoing</option>
           <option value="completed">Completed</option>

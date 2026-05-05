@@ -3,6 +3,19 @@ import React, { useState } from 'react';
 import { X, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+export const getTemporalStateStyle = (state) => {
+  switch (state) {
+    case 'planned':
+      return 'bg-amber-100 text-amber-800 border-amber-300/60 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-600/50';
+    case 'ongoing':
+      return 'bg-blue-100 text-blue-800 border-blue-300/60 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-600/50';
+    case 'completed':
+      return 'bg-emerald-100 text-emerald-800 border-emerald-300/60 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-600/50';
+    default:
+      return 'bg-slate-100 text-slate-600 border-slate-300/80 dark:bg-white/10 dark:text-slate-300 dark:border-white/20';
+  }
+};
+
 const getInvertedBadgeStyle = (state) => {
   switch (state) {
     case 'planned':

@@ -52,8 +52,8 @@ export default function DatesInline({ unit, baseLog, pendingChange, onLocalUpdat
           className={`bg-transparent border ${
             pendingChange?.extraProps?.startDate !== undefined
               ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-              : 'border-slate-200/80 dark:border-white/10'
-          } rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
+              : 'border-slate-300 dark:border-white/10'
+          } rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
         />
       </label>
 
@@ -73,8 +73,8 @@ export default function DatesInline({ unit, baseLog, pendingChange, onLocalUpdat
           className={`bg-transparent border ${
             pendingChange?.extraProps?.endDate !== undefined
               ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-              : 'border-slate-200/80 dark:border-white/10'
-          } rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
+              : 'border-slate-300 dark:border-white/10'
+          } rounded px-2 py-1 text-xs font-medium outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
         />
       </label>
 
@@ -96,10 +96,10 @@ export default function DatesInline({ unit, baseLog, pendingChange, onLocalUpdat
             className={`bg-transparent border ${
               pendingChange?.extraProps?.loggedDate !== undefined
                 ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                : 'border-slate-200/80 dark:border-white/10'
+                : 'border-slate-300 dark:border-white/10'
             } rounded px-2 py-1 text-xs font-bold ${
               !pendingChange?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''
-            } outline-none hover:bg-slate-50 dark:hover:bg-slate-800`}
+            } outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
           />
         </div>
       )}
