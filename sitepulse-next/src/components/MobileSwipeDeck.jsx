@@ -1,6 +1,7 @@
 "use client";
 import React, { useMemo, useState, useEffect } from 'react';
 import { Undo2, Redo2, ArrowLeft, ArrowRight, ChevronDown, ArrowDown, ArrowUp } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import SwipeCard from '@/components/SwipeCard';
 
 /**
@@ -45,6 +46,7 @@ export default function MobileSwipeDeck({
   handleSort,
   onEditRoute,
 }) {
+  const router = useRouter();
   const [swipedHistory, setSwipedHistory] = useState([]);
   const [skippedToBack, setSkippedToBack] = useState([]);
   const [cardRedoStack, setCardRedoStack] = useState([]);
@@ -143,23 +145,32 @@ export default function MobileSwipeDeck({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full gap-2">
-      {/* Mobile Action Bar - Scrollable Pills */}
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar p-2 mb-2 shrink-0 w-full">
+      {/* Unified Mobile Header */}
+      <div className="sticky top-0 z-40 w-full bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center gap-2 shrink-0 shadow-sm">
         
+        {/* Back Button */}
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="shrink-0 p-2.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 bg-white/50 dark:bg-black/20 rounded-full transition-colors"
+          aria-label="Back to Dashboard"
+        >
+          <ArrowLeft size={20} />
+        </button>
+
         {/* Type Filter Select */}
-        <div className="relative flex items-center shrink-0">
+        <div className="relative flex items-center flex-1 min-w-0">
           <select
-            className="appearance-none bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-full px-4 py-2.5 pr-8 text-[11px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer whitespace-nowrap"
+            className="appearance-none w-full flex-1 min-w-0 truncate bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-full px-4 py-2.5 pr-8 text-[12px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
           >
             <option value="All">All Types</option>
             {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
-          <ChevronDown size={14} className="absolute right-3 pointer-events-none text-slate-400" />
+          <ChevronDown size={16} className="absolute right-3 pointer-events-none text-slate-400" />
         </div>
 
-        {/* Route Sort */}
+        {/* Route Controls Container */}
         <button
           onClick={() => {
             if (sortColumn === 'walk_sequence') {
@@ -167,7 +178,7 @@ export default function MobileSwipeDeck({
               else handleSort('unit');
             } else handleSort('walk_sequence');
           }}
-          className={`shrink-0 px-4 py-2.5 text-[11px] font-bold rounded-full shadow-sm flex items-center gap-1 transition-colors whitespace-nowrap ${
+          className={`shrink-0 px-4 py-2.5 text-[11px] font-bold rounded-full shadow-sm flex items-center gap-1 transition-colors ${
             sortColumn === 'walk_sequence'
               ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-300/60'
               : 'bg-white/80 dark:bg-black/40 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
@@ -176,18 +187,10 @@ export default function MobileSwipeDeck({
           Sort Route
           {sortColumn === 'walk_sequence' && (sortDirection === 'asc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />)}
         </button>
-
-        {/* Edit Route */}
-        <button
-          onClick={onEditRoute}
-          className="shrink-0 px-4 py-2.5 text-[11px] font-bold rounded-full bg-white/80 dark:bg-black/40 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors whitespace-nowrap"
-        >
-          Edit Route
-        </button>
       </div>
 
       {/* Swipe deck */}
-      <div className="relative flex-1 min-h-0 w-full flex justify-center items-center overflow-hidden bg-slate-100 dark:bg-black/30 rounded-3xl border border-slate-200/50 dark:border-white/5 shadow-inner -mt-2">
+      <div className="flex-1 w-full relative flex items-center justify-center overflow-hidden bg-slate-100 dark:bg-slate-950">
         {orderedCards.length === 0 ? (
           <div className="text-slate-400 font-semibold text-lg flex flex-col items-center">
             <div className="text-5xl mb-4">🙌</div>
