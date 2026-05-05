@@ -255,11 +255,11 @@ export default function FieldStatusTable({
       <AnimatePresence>
         {Object.keys(pendingChanges).length > 0 && (
           <motion.div
-            initial={{ y: 100, opacity: 0 }}
+            initial={{ y: -100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
+            exit={{ y: -100, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-            className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none pb-[env(safe-area-inset-bottom)]"
+            className="fixed top-16 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none pt-[env(safe-area-inset-top)]"
           >
             <div className="bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border border-slate-700 dark:border-slate-600 max-w-sm w-full mx-auto">
               <span className="text-sm font-bold ml-2 flex-1">
