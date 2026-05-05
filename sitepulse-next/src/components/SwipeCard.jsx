@@ -147,7 +147,6 @@ const SwipeCard = ({
         zIndex: 10 - depth,
         scale: isTop ? 1 : 1 - depth * 0.05,
         y: isTop ? 0 : depth * 12,
-        touchAction: isTop ? 'none' : 'auto',
       }}
       drag={isDragEnabled ? 'x' : false}
       dragConstraints={{ left: 0, right: 0 }}
@@ -203,7 +202,7 @@ const SwipeCard = ({
         <div className="relative z-10 flex flex-col h-full w-full">
 
           {/* Main content area */}
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-4 min-h-0 overflow-y-auto no-scrollbar">
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-4 min-h-0 overflow-y-auto no-scrollbar touch-pan-y overscroll-contain">
 
             {/* Unit type pill */}
             <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3 inline-block shadow-sm">
