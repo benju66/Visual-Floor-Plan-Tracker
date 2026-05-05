@@ -117,6 +117,35 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     }));
   };
 
+  const handleRemovePendingItem = (unitId, milestoneName) => {
+    let hasRemaining = false;
+
+    if (milestoneName) {
+      setPendingTimelineChanges((prev) => {
+        const next = { ...prev };
+        delete next[`${unitId}_${milestoneName}`];
+        return next;
+      });
+      const hasPrimary = pendingChanges[unitId] !== undefined;
+      const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
+        (k) => k.startsWith(`${unitId}_`) && k !== `${unitId}_${milestoneName}`
+      );
+      hasRemaining = hasPrimary || remainingTimelineKeys.length > 0;
+    } else {
+      setPendingChanges((prev) => {
+        const next = { ...prev };
+        delete next[unitId];
+        return next;
+      });
+      const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
+        (k) => k.startsWith(`${unitId}_`)
+      );
+      hasRemaining = remainingTimelineKeys.length > 0;
+    }
+
+    return hasRemaining;
+  };
+
   const handleDiscardAll = () => {
     setPendingChanges({});
     setPendingTimelineChanges({});
@@ -125,12 +154,12 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   const pendingCount = useMemo(() => {
     const dedupedChanges = new Set();
     Object.values(pendingChanges).forEach(c => {
-      const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone;
-      if (mName) dedupedChanges.add(`${c.unit.id}_${mName}`);
+      const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone || 'Primary';
+      dedupedChanges.add(`${c.unit.id}_${mName}`);
     });
     Object.values(pendingTimelineChanges).forEach(c => {
-      const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone;
-      if (mName) dedupedChanges.add(`${c.unit.id}_${mName}`);
+      const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone || 'Primary';
+      dedupedChanges.add(`${c.unit.id}_${mName}`);
     });
     return dedupedChanges.size;
   }, [pendingChanges, pendingTimelineChanges]);
@@ -148,8 +177,8 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     
     const dedupedMap = new Map();
     changesArray.forEach(c => {
-       const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone;
-       if (mName) dedupedMap.set(`${c.unit.id}_${mName}`, c);
+       const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone || 'Primary';
+       dedupedMap.set(`${c.unit.id}_${mName}`, c);
     });
     
     const finalChanges = Array.from(dedupedMap.values());
@@ -274,6 +303,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     isApplying,
     handleLocalUpdate,
     handleTimelineUpdate,
+    handleRemovePendingItem,
     handleDiscardAll,
     handleApplyAll,
   };

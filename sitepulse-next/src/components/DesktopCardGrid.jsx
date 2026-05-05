@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { History } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 import StatusTrigger from '@/components/ui/StatusTrigger';
@@ -51,7 +52,8 @@ export default function DesktopCardGrid({
   };
 
   return (
-    <div className="grid grid-cols-4 gap-3 mt-4">
+    <>
+      <div className="grid grid-cols-4 gap-3 mt-4">
       {visible.map(({ unit, log }, index) => {
         const recent =
           log?.created_at && Date.now() - new Date(log.created_at).getTime() < 1000 * 60 * 60 * 24 * 30;
@@ -131,5 +133,41 @@ export default function DesktopCardGrid({
         );
       })}
     </div>
+
+      {/* Desktop FAB for Pending Changes */}
+      <AnimatePresence>
+        {pendingCount > 0 && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            className="fixed bottom-6 right-6 z-50 flex justify-center pointer-events-none"
+          >
+            <div className="bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border border-slate-700 dark:border-slate-600">
+              <span className="text-sm font-bold ml-2">
+                {pendingCount} pending
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDiscardAll}
+                  disabled={isApplying}
+                  className="px-4 py-2 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors disabled:opacity-50"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={handleApplyAll}
+                  disabled={isApplying}
+                  className="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-amber-950 rounded-full transition-colors shadow-md disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isApplying ? <UpdatingRing /> : 'Apply'}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

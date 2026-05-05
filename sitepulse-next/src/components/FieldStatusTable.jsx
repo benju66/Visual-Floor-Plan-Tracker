@@ -64,6 +64,7 @@ export default function FieldStatusTable({
     isApplying,
     handleLocalUpdate,
     handleTimelineUpdate,
+    handleRemovePendingItem,
     handleDiscardAll,
     handleApplyAll,
   } = useFieldData({ activeStatuses, defaultView, onApplyPendingChanges });
@@ -199,6 +200,10 @@ export default function FieldStatusTable({
           setPendingChanges={setPendingChanges}
           handleLocalUpdate={handleLocalUpdate}
           handleTimelineUpdate={handleTimelineUpdate}
+          handleRemovePendingItem={handleRemovePendingItem}
+          handleDiscardAll={handleDiscardAll}
+          handleApplyAll={handleApplyAll}
+          pendingCount={pendingCount}
           onChooseStatus={onChooseStatus}
           savingUnitId={savingUnitId}
           currentMilestones={currentMilestones}
@@ -222,6 +227,9 @@ export default function FieldStatusTable({
             handleLocalUpdate={handleLocalUpdate}
             savingUnitId={savingUnitId}
             isApplying={isApplying}
+            pendingCount={pendingCount}
+            handleDiscardAll={handleDiscardAll}
+            handleApplyAll={handleApplyAll}
             {...sharedSelectionProps}
           />
         </div>
@@ -235,6 +243,9 @@ export default function FieldStatusTable({
             handleLocalUpdate={handleLocalUpdate}
             savingUnitId={savingUnitId}
             isApplying={isApplying}
+            pendingCount={pendingCount}
+            handleDiscardAll={handleDiscardAll}
+            handleApplyAll={handleApplyAll}
             sortColumn={sortColumn}
             sortDirection={sortDirection}
             handleSort={handleSort}
@@ -258,40 +269,7 @@ export default function FieldStatusTable({
         />
       )}
 
-      {/* Mobile/Desktop FAB for Pending Changes */}
-      <AnimatePresence>
-        {pendingCount > 0 && (
-          <motion.div
-            initial={{ y: -100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -100, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-            className="fixed top-16 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none pt-[env(safe-area-inset-top)]"
-          >
-            <div className="bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border border-slate-700 dark:border-slate-600 max-w-sm w-full mx-auto">
-              <span className="text-sm font-bold ml-2 flex-1">
-                {pendingCount} pending
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleDiscardAll}
-                  disabled={isApplying}
-                  className="px-4 py-2 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors disabled:opacity-50"
-                >
-                  Discard
-                </button>
-                <button
-                  onClick={handleApplyAll}
-                  disabled={isApplying}
-                  className="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-amber-950 rounded-full transition-colors shadow-md disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isApplying ? <UpdatingRing /> : 'Apply'}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
     </div>
   );
 }

@@ -3,6 +3,9 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Undo2, Redo2, ArrowLeft, ArrowRight, ChevronDown, ArrowDown, ArrowUp } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import SwipeCard from '@/components/SwipeCard';
+import { motion, AnimatePresence } from 'framer-motion';
+import PendingReviewDrawer from './PendingReviewDrawer';
+import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 
 /**
  * MobileSwipeDeck — Mobile swipe card presenter.
@@ -36,6 +39,10 @@ export default function MobileSwipeDeck({
   setPendingChanges,
   handleLocalUpdate,
   handleTimelineUpdate,
+  handleRemovePendingItem,
+  handleDiscardAll,
+  handleApplyAll,
+  pendingCount,
   currentMilestones,
   rawStatuses,
   onChooseStatus,
@@ -52,6 +59,11 @@ export default function MobileSwipeDeck({
   const [swipedHistory, setSwipedHistory] = useState([]);
   const [skippedToBack, setSkippedToBack] = useState([]);
   const [cardRedoStack, setCardRedoStack] = useState([]);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    if (pendingCount === 0) setIsDrawerOpen(false);
+  }, [pendingCount]);
 
   // Q2 (Option A) + Issue 10: reset all stacks when filter changes
   useEffect(() => {
@@ -143,6 +155,38 @@ export default function MobileSwipeDeck({
       next.pop();
       return next;
     });
+  };
+
+  const handleDrawerItemRemove = (unitId, milestoneName) => {
+    const hasRemaining = handleRemovePendingItem(unitId, milestoneName);
+    if (!hasRemaining) {
+      setSwipedHistory((prev) => prev.filter((h) => {
+        const id = typeof h === 'string' ? h : h.unitId;
+        return id !== unitId;
+      }));
+      setSkippedToBack((prev) => prev.filter((id) => id !== unitId));
+    }
+    setCardRedoStack([]);
+  };
+
+  const handleLocalDiscardAll = () => {
+    handleDiscardAll();
+    setSwipedHistory([]);
+    setSkippedToBack([]);
+    setCardRedoStack([]);
+  };
+
+  const handleStageUpdateHelper = (stateOrUnit, mLog, state, extraProps, isTimeline = false) => {
+    if (isTimeline) {
+      handleTimelineUpdate(stateOrUnit, mLog, state, extraProps);
+    } else {
+      if (typeof stateOrUnit === 'string') {
+        // Called as onStageUpdate(state, milestoneObj) inside SwipeCard, but Drawer passes full unit
+        // Actually, drawer passes unit, log, state, extraProps, isTimeline
+      } else {
+        handleLocalUpdate(stateOrUnit, mLog, state, extraProps);
+      }
+    }
   };
 
   return (
@@ -303,6 +347,52 @@ export default function MobileSwipeDeck({
           <Redo2 size={22} />
         </button>
       </div>
+
+      {/* Mobile FAB for Pending Changes */}
+      <AnimatePresence>
+        {pendingCount > 0 && !isDrawerOpen && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            className="fixed bottom-28 inset-x-0 z-50 flex justify-center pointer-events-none"
+          >
+            <button
+              onClick={() => setIsDrawerOpen(true)}
+              className="pointer-events-auto bg-slate-900 dark:bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-slate-700 dark:border-slate-600 active:scale-95 transition-transform"
+            >
+              <span className="text-sm font-bold">Review ({pendingCount})</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Pending Review Drawer */}
+      <AnimatePresence>
+        {isDrawerOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm z-50 pointer-events-auto"
+              onPointerDownCapture={(e) => { e.stopPropagation(); setIsDrawerOpen(false); }}
+            />
+            <PendingReviewDrawer
+              pendingChanges={pendingChanges}
+              pendingTimelineChanges={pendingTimelineChanges}
+              onClose={() => setIsDrawerOpen(false)}
+              handleApplyAll={handleApplyAll}
+              handleLocalDiscardAll={handleLocalDiscardAll}
+              handleDrawerItemRemove={handleDrawerItemRemove}
+              handleStageUpdate={handleStageUpdateHelper}
+              isApplying={isApplying}
+              currentMilestones={currentMilestones}
+            />
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

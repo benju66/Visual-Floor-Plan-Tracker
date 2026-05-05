@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUp, ArrowDown, History } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 import StatusTrigger from '@/components/ui/StatusTrigger';
@@ -79,7 +80,8 @@ export default function StatusTable({
   };
 
   return (
-    <div className="w-full overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 shadow-sm backdrop-blur-md">
+    <>
+      <div className="w-full overflow-x-auto rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/40 dark:bg-black/15 shadow-sm backdrop-blur-md">
       <table className="w-full text-left border-collapse text-sm text-slate-800 dark:text-slate-200">
         <thead className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-white/10">
           <tr>
@@ -268,6 +270,42 @@ export default function StatusTable({
           })}
         </tbody>
       </table>
-    </div>
+      </div>
+
+      {/* Desktop FAB for Pending Changes */}
+      <AnimatePresence>
+        {pendingCount > 0 && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            className="fixed bottom-6 right-6 z-50 flex justify-center pointer-events-none"
+          >
+            <div className="bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border border-slate-700 dark:border-slate-600">
+              <span className="text-sm font-bold ml-2">
+                {pendingCount} pending
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDiscardAll}
+                  disabled={isApplying}
+                  className="px-4 py-2 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors disabled:opacity-50"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={handleApplyAll}
+                  disabled={isApplying}
+                  className="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-amber-950 rounded-full transition-colors shadow-md disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isApplying ? <UpdatingRing /> : 'Apply'}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
