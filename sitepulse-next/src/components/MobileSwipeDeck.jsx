@@ -181,7 +181,7 @@ export default function MobileSwipeDeck({
                   const current = pending || log?.temporal_state || 'none';
                   let nextState = 'planned';
                   if (current === 'planned') nextState = 'ongoing';
-                  else if (current === 'ongoing') nextState = 'completed';
+                  else if (current === 'ongoing' || current === 'completed') nextState = 'completed';
                   handleLocalUpdate(unit, log || {}, nextState);
                   setSwipedHistory((prev) => [
                     ...prev,

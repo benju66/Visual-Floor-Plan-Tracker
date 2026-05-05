@@ -476,7 +476,7 @@ function App() {
             />
           </div>
         ) : viewMode === 'list' ? (
-          <div className="h-full overflow-auto overscroll-y-contain">
+          <div className="h-full flex flex-col min-h-0">
             <FieldStatusTable
               activeStatuses={mapDisplayStatuses}
               rawStatuses={activeStatuses}

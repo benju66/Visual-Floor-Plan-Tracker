@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, FolderEdit, RefreshCw, Folders, Plus, Download, LayoutDashboard, Map as MapIcon, List, Home } from 'lucide-react';
+import { Settings, FolderEdit, RefreshCw, Folders, Plus, Download, LayoutDashboard, Map as MapIcon, List, Home, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { useIsFetching } from '@tanstack/react-query';
 import { useCurrentUserRole } from '@/hooks/useProjectQueries';
@@ -43,16 +43,19 @@ function TopHeader({
         </div>
 
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <select
-            className="border border-slate-300/80 dark:border-white/15 py-1.5 px-2 rounded-lg text-sm font-semibold shadow-sm bg-white/60 dark:bg-black/25 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/10 transition-colors w-full xl:w-auto"
-            value={activeSheetId}
-            onChange={(e) => setActiveSheetId(e.target.value)}
-          >
-            {sheets.length === 0 && <option disabled value="">No levels added</option>}
-            {sheets.map((sheet) => (
-              <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
-            ))}
-          </select>
+          <div className="relative inline-flex items-center flex-1 sm:flex-none min-w-[140px]">
+            <select
+              className="appearance-none w-full border border-slate-300/80 dark:border-white/15 py-1.5 pl-3 pr-8 rounded-lg text-sm font-semibold shadow-sm bg-white/60 dark:bg-black/25 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+              value={activeSheetId}
+              onChange={(e) => setActiveSheetId(e.target.value)}
+            >
+              {sheets.length === 0 && <option disabled value="">No levels added</option>}
+              {sheets.map((sheet) => (
+                <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
+              ))}
+            </select>
+            <ChevronDown size={16} className="absolute right-2.5 pointer-events-none text-slate-500" />
+          </div>
           {currentUserRole !== 'superintendent' && (
             <>
               <button
