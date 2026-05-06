@@ -2,7 +2,8 @@
 import React, { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { eachDayOfInterval, parseISO, format, startOfWeek } from 'date-fns';
-import { Target, Activity, PauseCircle, Info, TrendingUp } from 'lucide-react';
+import { Target, Activity, PauseCircle, Info, TrendingUp, ChevronUp, ChevronDown } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/hooks/useProjectQueries';
 
 // Lazy-load recharts via next/dynamic — prevents SSR hydration crash
@@ -68,6 +69,7 @@ function bucketByWeek(allDays, byDay, totalScope) {
 
 export default function ProjectDashboard({ units, activeStatuses, milestones, trackingMode, sheets, activeSheet }) {
   const [allSheets, setAllSheets] = useState(false);
+  const [isChartExpanded, setIsChartExpanded] = useState(true);
 
   const sheetIds = useMemo(() => sheets?.map(s => s.id) || [], [sheets]);
   const { data: allProjectUnits = [] } = useAllProjectUnits(allSheets ? sheetIds : []);
@@ -331,13 +333,36 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
             </p>
           </div>
           {chartData.length > 0 && (
-            <div className="text-right shrink-0">
-              <div className="text-xs text-slate-400 mb-0.5">Progress</div>
-              <div className="text-lg font-bold text-emerald-500">{overallProgress}%</div>
+            <div className="flex items-center gap-4 shrink-0">
+              <div className="text-right">
+                <div className="text-xs text-slate-400 mb-0.5">Progress</div>
+                <div className="text-lg font-bold text-emerald-500">{overallProgress}%</div>
+              </div>
+              <button 
+                onClick={() => setIsChartExpanded(!isChartExpanded)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                title={isChartExpanded ? "Collapse chart" : "Expand chart"}
+              >
+                {isChartExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+              </button>
             </div>
           )}
         </div>
-        <VelocityChart chartData={chartData} />
+        <AnimatePresence initial={false}>
+          {isChartExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: 'easeInOut' }}
+              className="overflow-hidden"
+            >
+              <div className="pt-2">
+                <VelocityChart chartData={chartData} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="glass-panel rounded-2xl border p-6 shadow-sm">
