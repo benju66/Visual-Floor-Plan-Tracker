@@ -47,7 +47,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-errors.txt
+errors*.txt
 
 # Editors and OS
 .vscode/*
