@@ -1,0 +1,14 @@
+export const queryKeys = {
+  project:            (id: string)              => ['project', id]          as const,
+  sheets:             (projectId: string)       => ['sheets', projectId]    as const,
+  units:              (sheetId: string)         => ['units', sheetId]       as const,
+  milestones:         (projectId: string)       => ['milestones', projectId]as const,
+  statuses:           (sheetId: string, unitIds: string[]) => ['statuses', sheetId, ...unitIds] as const,
+  allProjectUnits:    (sheetIds: string[])      => ['all_project_units', ...sheetIds] as const,
+  allProjectStatuses: (unitIds: string[])       => ['all_project_statuses', ...unitIds] as const,
+  unitHistory:        (unitId: string)          => ['unit_history', unitId]  as const,
+  statusHistory:      (...unitIds: string[])    => ['status_history', ...unitIds] as const,
+  snappingVectors:    (sheetId: string)         => ['snapping_vectors_v2', sheetId] as const,
+  projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
+  currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
+} as const;
