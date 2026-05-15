@@ -38,7 +38,7 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 - The backend parses CAD/PDF files via PyMuPDF into percentage-normalized line data.
 - The frontend loads this array via `useSnappingVectors()` and instantiates a localized `RBush` spatial tree inside the canvas components.
 - **CRITICAL:** Do NOT attempt to persist instantiated `RBush` class objects into TanStack Query state, as this will crash the `@tanstack/react-query-persist-client` IndexedDB serialization. Always return raw JSON arrays from the hook, and instantiate `RBush` inside `useMemo` blocks within the rendering components.
-- Rely on `getSnappedCoordinate()` in `src/utils/geometry.ts` for aspect-ratio aware mathematical snapping and "Gravity" corner-snapping.
+- Rely on `getSnappedCoordinate()` in `src/utils/geometry.ts` for aspect-ratio aware mathematical snapping and "Gravity" corner-snapping. The `mixAlpha()` utility in the same file is the single source of truth for CSS color → rgba() conversion (handles hex, rgb, rgba inputs).
 
 ## 6. TypeScript Guardrails (CRITICAL)
 - **Language:** This codebase is migrating incrementally from JavaScript to strict TypeScript. `tsconfig.json` has `allowJs: true` and `checkJs: false`, so `.js`/`.jsx` files remain valid during migration.

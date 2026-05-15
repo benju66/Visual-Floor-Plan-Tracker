@@ -109,3 +109,25 @@ export const getSnappedCoordinate = (
 
   return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
 };
+
+/**
+ * Converts any CSS color string to rgba() with the given alpha.
+ * Handles: hex (#RGB or #RRGGBB), rgb(...), rgba(...).
+ * Used by StampPreview and MappedUnit fill calculations.
+ */
+export const mixAlpha = (colorStr: string, alpha: number): string => {
+  if (!colorStr) return '';
+  if (colorStr.startsWith('rgba')) {
+    return colorStr.replace(/[\d.]+\)$/g, `${alpha})`);
+  }
+  if (colorStr.startsWith('rgb')) {
+    return colorStr.replace('rgb', 'rgba').replace(')', `, ${alpha})`);
+  }
+  if (colorStr.startsWith('#')) {
+    let c = colorStr.substring(1).split('');
+    if (c.length === 3) c = [c[0], c[0], c[1], c[1], c[2], c[2]];
+    const cNum = parseInt(c.join(''), 16);
+    return `rgba(${(cNum >> 16) & 255},${(cNum >> 8) & 255},${cNum & 255},${alpha})`;
+  }
+  return colorStr;
+};

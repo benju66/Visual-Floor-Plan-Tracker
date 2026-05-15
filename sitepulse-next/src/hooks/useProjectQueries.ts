@@ -217,7 +217,11 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
       const latestStatusMap: Record<string, StatusLog> = {};
       data.forEach(log => {
         const key = `${log.unit_id}_${log.track}_${log.milestone}`;
-        if (!latestStatusMap[key] || new Date(log.created_at || 0) >= new Date(latestStatusMap[key].created_at || 0)) {
+        // Prefer client_timestamp (written at mutation time) over server created_at.
+        // Prevents non-deterministic ordering when bulk ops share the same server timestamp.
+        const logTime = new Date(log.client_timestamp || log.created_at || 0).getTime();
+        const existingTime = new Date(latestStatusMap[key]?.client_timestamp || latestStatusMap[key]?.created_at || 0).getTime();
+        if (!latestStatusMap[key] || logTime >= existingTime) {
           latestStatusMap[key] = log;
         }
       });
@@ -254,7 +258,11 @@ export function useAllProjectStatuses(unitIds: string[]) {
       const latestStatusMap: Record<string, StatusLog> = {};
       data.forEach(log => {
         const key = `${log.unit_id}_${log.track}_${log.milestone}`;
-        if (!latestStatusMap[key] || new Date(log.created_at || 0) >= new Date(latestStatusMap[key].created_at || 0)) {
+        // Prefer client_timestamp (written at mutation time) over server created_at.
+        // Prevents non-deterministic ordering when bulk ops share the same server timestamp.
+        const logTime = new Date(log.client_timestamp || log.created_at || 0).getTime();
+        const existingTime = new Date(latestStatusMap[key]?.client_timestamp || latestStatusMap[key]?.created_at || 0).getTime();
+        if (!latestStatusMap[key] || logTime >= existingTime) {
           latestStatusMap[key] = log;
         }
       });

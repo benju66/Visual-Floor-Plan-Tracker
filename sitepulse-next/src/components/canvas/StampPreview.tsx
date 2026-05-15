@@ -1,5 +1,6 @@
 import React from 'react';
 import { Line } from 'react-konva';
+import { mixAlpha } from '@/utils/geometry';
 import type { Unit, StatusLog, PercentPoint, CanvasLayout } from '@/types/domain';
 import type { ToolMode } from '@/store/useMapStore';
 
@@ -54,7 +55,7 @@ export default function StampPreview({
   let strokeColor = '#8b5cf6';
   if (activeStatus && activeStatus.status_color) {
     strokeColor = activeStatus.status_color;
-    fillColor = activeStatus.status_color.replace('rgb', 'rgba').replace(')', ', 0.3)');
+    fillColor = mixAlpha(activeStatus.status_color, 0.3);
   }
 
   return (

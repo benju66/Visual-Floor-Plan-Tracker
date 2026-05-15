@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/types/queryKeys';
@@ -31,7 +31,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
   const [redoStack, setRedoStack] = useState<UndoAction[]>([]);
   const queryClient = useQueryClient();
 
-  const triggerUndo = async () => {
+  const triggerUndo = useCallback(async () => {
     if (undoStack.length === 0 || !sheetId) return;
     const action = undoStack[undoStack.length - 1];
     setUndoStack(prev => prev.slice(0, -1));
@@ -143,9 +143,9 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         }
         break;
     }
-  };
+  }, [undoStack, sheetId, queryClient]);
 
-  const triggerRedo = async () => {
+  const triggerRedo = useCallback(async () => {
     if (redoStack.length === 0 || !sheetId) return;
     const action = redoStack[redoStack.length - 1];
     setRedoStack(prev => prev.slice(0, -1));
@@ -219,7 +219,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         }
         break;
     }
-  };
+  }, [redoStack, sheetId, queryClient]);
 
   const undoStateRef = useRef({ toolMode, triggerUndo, triggerRedo });
   useEffect(() => {

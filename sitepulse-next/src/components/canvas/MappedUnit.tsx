@@ -427,6 +427,19 @@ export const MappedUnitComponent = ({
 };
 
 export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
+  // Guard: reference-check unit geometry and icon offset for immediate bail-out
+  const prevUnit = prevProps.unit;
+  const nextUnit = nextProps.unit;
+  if (prevUnit.polygon_coordinates !== nextUnit.polygon_coordinates) return false;
+  if (prevUnit.icon_offset_x !== nextUnit.icon_offset_x) return false;
+  if (prevUnit.icon_offset_y !== nextUnit.icon_offset_y) return false;
+
+  // Cache find() once — reused for status_color, temporal_state, and milestone checks.
+  // Avoids 6 repeated O(n) scans per comparator invocation per unit.
+  const prevStatus = prevProps.activeStatuses.find(s => s.unit_id === prevProps.unit.id);
+  const nextStatus = nextProps.activeStatuses.find(s => s.unit_id === nextProps.unit.id);
+  if (prevStatus?.status_color !== nextStatus?.status_color) return false;
+
   return (
     prevProps.isRouteDropTarget === nextProps.isRouteDropTarget &&
     prevProps.isSelected === nextProps.isSelected &&
@@ -445,9 +458,7 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
       prevProps.activeDragPolygon?.dx === nextProps.activeDragPolygon?.dx &&
       prevProps.activeDragPolygon?.dy === nextProps.activeDragPolygon?.dy) &&
     prevProps.layout.drawW === nextProps.layout.drawW &&
-    prevProps.activeStatuses.find(s => s.unit_id === prevProps.unit.id)?.temporal_state === 
-    nextProps.activeStatuses.find(s => s.unit_id === nextProps.unit.id)?.temporal_state &&
-    prevProps.activeStatuses.find(s => s.unit_id === prevProps.unit.id)?.milestone === 
-    nextProps.activeStatuses.find(s => s.unit_id === nextProps.unit.id)?.milestone
+    prevStatus?.temporal_state === nextStatus?.temporal_state &&
+    prevStatus?.milestone === nextStatus?.milestone
   );
 });

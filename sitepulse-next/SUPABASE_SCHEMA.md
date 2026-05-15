@@ -30,6 +30,7 @@
 - `polygon_coordinates` (JSONB, Not Null)
 - `icon_offset_x` (FLOAT, Default 0)
 - `icon_offset_y` (FLOAT, Default 0)
+- `walk_sequence` (INTEGER, Default NULL) -- Ordered walk route position; NULL = not in any route
 - `created_at` (TIMESTAMPTZ)
 
 ## 4. project_milestones

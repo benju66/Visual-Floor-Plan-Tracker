@@ -12,7 +12,7 @@ import StampPreview from '@/components/canvas/StampPreview';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import MapLegend from '@/components/canvas/MapLegend';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
-import { distToSegment, getCentroid, getSnappedCoordinate } from '@/utils/geometry';
+import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -149,6 +149,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const aspect = layoutRef.current.drawW / Math.max(1, layoutRef.current.drawH);
   const lastBoxEndRef = useRef(0);
+  // Tracks the last snap result from onMouseMove — consumed by handleStageClick to guarantee
+  // the committed draft point matches the visual snap indicator pixel-perfectly.
+  const lastSnapRef = useRef<{ pctX: number; pctY: number; snapped: boolean } | null>(null);
 
   const [stageScale, setStageScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
@@ -299,7 +302,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     const { minPctX, maxPctX, minPctY, maxPctY } = visibleBoundingBox;
 
     return units.filter(unit => {
-      if (!unit.polygon_coordinates || unit.polygon_coordinates.length === 0) return true;
+      // Unmapped units have no renderable geometry — exclude them unless the user is
+      // actively drawing, where clicking the canvas can target any unit slot.
+      if (!unit.polygon_coordinates || (unit.polygon_coordinates as any[]).length === 0) {
+        return toolMode === 'draw';
+      }
       
       return unit.polygon_coordinates.some(pt => 
         pt.pctX >= minPctX && 
@@ -308,7 +315,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         pt.pctY <= maxPctY
       );
     });
-  }, [units, visibleBoundingBox, layout.drawW]);
+  }, [units, visibleBoundingBox, layout.drawW, toolMode]);
 
   useImperativeHandle(ref, () => ({
     exportFullImage: () => {
@@ -414,22 +421,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     });
   };
 
-  const mixAlpha = (colorStr: string, alpha: number): string => {
-    if (!colorStr) return '';
-    const cacheKey = colorStr + alpha;
-    if (colorStr.startsWith('rgba')) {
-      return colorStr.replace(/[\d.]+\)$/g, `${alpha})`);
-    } else if (colorStr.startsWith('#')) {
-      let c = colorStr.substring(1).split('');
-      if(c.length === 3){
-          c= [c[0], c[0], c[1], c[1], c[2], c[2]];
-      }
-      const cNum = parseInt(c.join(''), 16);
-      return 'rgba('+[(cNum>>16)&255, (cNum>>8)&255, cNum&255].join(',')+','+alpha+')';
-    }
-    return colorStr || '';
-  };
-
   const handleStageClick = (e: any) => {
     setContextMenu(null);
     const stage = e.target.getStage();
@@ -468,12 +459,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         const dy = Math.abs(pctY - lastPoint.pctY);
         if (dx > dy) pctY = lastPoint.pctY;
         else pctX = lastPoint.pctX;
-      } else if (mapSettings?.enableSnapping) {
-        const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, stageScale, mapSettings?.snappingStrength || 15);
-        if (snap.snapped) {
-          pctX = snap.pctX;
-          pctY = snap.pctY;
-        }
+      } else if (mapSettings?.enableSnapping && lastSnapRef.current?.snapped) {
+        // Consume the last snap computed by onMouseMove — avoids double-computation
+        // and guarantees the committed point matches the visual snap ring.
+        pctX = lastSnapRef.current.pctX;
+        pctY = lastSnapRef.current.pctY;
       }
       setDraftPoints([...draftPoints, { pctX, pctY }]);
     } else if (['select', 'multi_select', 'add_node', 'delete_node'].includes(toolMode)) {
@@ -893,6 +883,17 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             if (!stage) return;
             const pos = stage.getPointerPosition();
             if (stage) setPointerPos(pos);
+
+            // Update lastSnapRef so handleStageClick consumes the same snap result as the visual ring
+            if (toolMode === 'draw' && mapSettings?.enableSnapping && pos) {
+              const logX = (pos.x - stage.x()) / stageScale;
+              const logY = (pos.y - stage.y()) / stageScale;
+              const px = (logX - layout.offsetX) / layout.drawW;
+              const py = (logY - layout.offsetY) / layout.drawH;
+              lastSnapRef.current = getSnappedCoordinate(px, py, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15);
+            } else {
+              lastSnapRef.current = null;
+            }
             
             // NEW: Routing midpoint drag targeting
             if (activeRouteDrag && pos) {
