@@ -64,33 +64,25 @@ export default function DashboardPage() {
     
     setCreating(true);
     try {
-      // 1. Create project (WITH PROCORE ID)
-      const insertData = { name: newProjectName.trim() };
-      
-      // Use the persisted React state variable
-      if (linkProcoreProject) {
-        // Pass the string directly to match your varchar column in Supabase
-        insertData.procore_project_id = linkProcoreProject;
+      // Call the server-side API route to bypass RLS issues
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newProjectName.trim(),
+          procore_project_id: linkProcoreProject,
+          user_id: session.user.id
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create project');
       }
 
-      const { data: projectRecord, error: projectError } = await supabase
-        .from('projects')
-        .insert([insertData])
-        .select()
-        .single();
-        
-      if (projectError) throw projectError;
-      
-      // 2. Assign admin role
-      const { error: memberError } = await supabase
-        .from('project_members')
-        .insert([{
-          project_id: projectRecord.id,
-          user_id: session.user.id,
-          role: 'admin'
-        }]);
-        
-      if (memberError) throw memberError;
+      const projectRecord = await response.json();
       
       // 3. Redirect
       router.push(`/project/${projectRecord.id}`);
