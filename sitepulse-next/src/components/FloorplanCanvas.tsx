@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path, Text } from 'react-konva';
 import useImage from 'use-image';
+import dynamic from 'next/dynamic';
 import { Check } from 'lucide-react';
 import ViewportControls from '@/components/canvas/ViewportControls';
 import ContextActionDock from '@/components/canvas/ContextActionDock';
@@ -24,10 +25,17 @@ import type { StatusLog, Unit, PercentPoint as Point, Milestone } from '@/types/
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
+// Lazy-load TileRenderer to avoid SSR issues with OpenSeadragon
+const TileRenderer = dynamic(() => import('@/components/canvas/TileRenderer'), { ssr: false });
+
 interface FloorplanCanvasProps {
   activeStatuses: StatusLog[];
   rawStatuses: StatusLog[];
   imageUrl: string;
+  /** Tile pyramid metadata — when present, TileRenderer is used instead of KonvaImage */
+  tileManifestUrl?: string | null;
+  tileImageWidth?: number | null;
+  tileImageHeight?: number | null;
   onUpdateUnitPolygon?: (unitId: string, points: Point[]) => void;
   onUpdateUnitIconOffset?: (unitId: string, offsetX: number, offsetY: number) => void;
   onDuplicateUnit?: (unitId: string | null) => void;
@@ -47,6 +55,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   activeStatuses,
   rawStatuses,
   imageUrl,
+  tileManifestUrl,
+  tileImageWidth,
+  tileImageHeight,
   onUpdateUnitPolygon,
   onUpdateUnitIconOffset,
   onDuplicateUnit,
@@ -109,7 +120,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const unitIds = units.map(u => u.id);
   
   // activeStatuses is now provided by props and bottleneck resolution
-  const [image] = useImage(imageUrl, 'anonymous');
+  const [image] = useImage(tileManifestUrl ? '' : imageUrl, 'anonymous');
+
+  // Feature flag: use tile renderer when tile metadata is available
+  const useTiles = !!(tileManifestUrl && tileImageWidth && tileImageHeight);
 
   const stageRef = useRef<any>(null);
   const zoomDebounceRef = useRef<any>(null);
@@ -265,11 +279,19 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     if (!stageW || !stageH) {
       return { offsetX: 0, offsetY: 0, drawW: 0, drawH: 0, stageW: 0, stageH: 0 };
     }
-    if (!image) {
+
+    // Use tile dimensions if available, otherwise fall back to image natural dimensions
+    let nw: number, nh: number;
+    if (useTiles && tileImageWidth && tileImageHeight) {
+      nw = tileImageWidth;
+      nh = tileImageHeight;
+    } else if (image) {
+      nw = image.naturalWidth || image.width;
+      nh = image.naturalHeight || image.height;
+    } else {
       return { offsetX: 0, offsetY: 0, drawW: stageW, drawH: stageH, stageW, stageH };
     }
-    const nw = image.naturalWidth || image.width;
-    const nh = image.naturalHeight || image.height;
+
     if (!nw || !nh) {
       return { offsetX: 0, offsetY: 0, drawW: stageW, drawH: stageH, stageW, stageH };
     }
@@ -279,7 +301,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     const offsetX = (stageW - drawW) / 2;
     const offsetY = (stageH - drawH) / 2;
     return { offsetX, offsetY, drawW, drawH, stageW, stageH };
-  }, [image, dimensions.width, dimensions.height]);
+  }, [image, dimensions.width, dimensions.height, useTiles, tileImageWidth, tileImageHeight]);
 
   useEffect(() => { layoutRef.current = layout; }, [layout]);
 
@@ -319,17 +341,26 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   useImperativeHandle(ref, () => ({
     exportFullImage: () => {
-      if (!stageRef.current || !image) return null;
+      if (!stageRef.current) return null;
       
       const stage = stageRef.current;
+
+      // Determine source dimensions — from tile metadata or loaded image
+      let nw: number, nh: number;
+      if (useTiles && tileImageWidth && tileImageHeight) {
+        nw = tileImageWidth;
+        nh = tileImageHeight;
+      } else if (image) {
+        nw = image.naturalWidth || image.width;
+        nh = image.naturalHeight || image.height;
+      } else {
+        return null;
+      }
       
       const oldScale = stage.scaleX();
       const oldPosition = stage.position();
       const oldWidth = stage.width();
       const oldHeight = stage.height();
-
-      const nw = image.naturalWidth || image.width;
-      const nh = image.naturalHeight || image.height;
 
       const exportScale = nw / layout.drawW;
 
@@ -798,6 +829,21 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       )}
 
       {dimensions.width > 0 && dimensions.height > 0 && (
+        <>
+        {/* Tile background layer — renders DZI tiles via OpenSeadragon when available */}
+        {useTiles && tileManifestUrl && tileImageWidth && tileImageHeight && (
+          <TileRenderer
+            tileManifestUrl={tileManifestUrl}
+            tilesBaseUrl={tileManifestUrl.replace('/output.dzi', '/output_files/')}
+            imageWidth={tileImageWidth}
+            imageHeight={tileImageHeight}
+            containerWidth={dimensions.width}
+            containerHeight={dimensions.height}
+            stageScale={stageScale}
+            stagePosition={stagePosition}
+            layout={layout}
+          />
+        )}
         <Stage
           ref={stageRef}
           width={dimensions.width}
@@ -941,7 +987,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           }}
         >
           <Layer>
-            {image && layout.drawW > 0 && layout.drawH > 0 && (
+            {/* Background: Tile renderer for tiled sheets, KonvaImage fallback for legacy */}
+            {!useTiles && image && layout.drawW > 0 && layout.drawH > 0 && (
               <KonvaImage
                 image={image}
                 x={layout.offsetX}
@@ -1345,6 +1392,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             />
           </Layer>
         </Stage>
+        </>
       )}
 
       {mapSettings?.showCrosshair && pointerPos && (

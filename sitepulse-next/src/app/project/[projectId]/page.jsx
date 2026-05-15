@@ -440,7 +440,7 @@ function App() {
     >
       <div style={{ display: 'none' }}>
         {sheets.map(sheet => (
-          sheet.base_image_url && <img key={sheet.id} src={sheet.base_image_url} alt="preload" />
+          sheet.base_image_url && !sheet.tile_manifest_url && <img key={sheet.id} src={sheet.base_image_url} alt="preload" />
         ))}
       </div>
       <TopHeader
@@ -520,6 +520,9 @@ function App() {
                   activeStatuses={mapDisplayStatuses}
                   rawStatuses={activeStatuses}
                   imageUrl={activeSheet.base_image_url}
+                  tileManifestUrl={activeSheet.tile_manifest_url || null}
+                  tileImageWidth={activeSheet.tile_image_width || null}
+                  tileImageHeight={activeSheet.tile_image_height || null}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
                   onUpdateUnitIconOffset={handleUpdateUnitIconOffset}
                   onDuplicateUnit={handleDuplicateUnit}

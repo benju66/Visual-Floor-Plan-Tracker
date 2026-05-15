@@ -177,18 +177,48 @@ export function useSnappingVectors(sheetId: string) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return null;
 
+      // Helper to format raw vector JSON into RBush-compatible items
+      const formatVectors = (vectors: any[]): SnappingVectorLine[] => {
+        return vectors.map((line: any) => ({
+          minX: Math.min(line.start.pctX, line.end.pctX),
+          minY: Math.min(line.start.pctY, line.end.pctY),
+          maxX: Math.max(line.start.pctX, line.end.pctX),
+          maxY: Math.max(line.start.pctY, line.end.pctY),
+          lineData: line
+        }));
+      };
+
       try {
+        // P1: Check cached vectors in sheet_vectors table first
+        const { data: cachedRow } = await supabase
+          .from('sheet_vectors')
+          .select('vectors')
+          .eq('sheet_id', sheetId)
+          .maybeSingle();
+
+        if (cachedRow?.vectors && Array.isArray(cachedRow.vectors) && cachedRow.vectors.length > 0) {
+          return formatVectors(cachedRow.vectors as any[]);
+        }
+
+        // Cache miss — extract from backend API
         const json = await extractVectorsService(sheetId, session.access_token);
-        
-        const formattedData = json.vectors.map((line: any) => {
-          return {
-            minX: Math.min(line.start.pctX, line.end.pctX),
-            minY: Math.min(line.start.pctY, line.end.pctY),
-            maxX: Math.max(line.start.pctX, line.end.pctX),
-            maxY: Math.max(line.start.pctY, line.end.pctY),
-            lineData: line
-          };
-        });
+        const formattedData = formatVectors(json.vectors);
+
+        // Write-through: cache the raw vectors in the database for next time (fire-and-forget)
+        if (json.vectors && json.vectors.length > 0) {
+          void (async () => {
+            try {
+              await supabase
+                .from('sheet_vectors')
+                .upsert(
+                  { sheet_id: sheetId, vectors: json.vectors as unknown as import('@/types/database.types').Json },
+                  { onConflict: 'sheet_id' }
+                );
+            } catch (err: any) {
+              console.warn('Failed to cache vectors:', err.message);
+            }
+          })();
+        }
         
         return formattedData;
       } catch (err: any) {

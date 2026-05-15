@@ -36,9 +36,10 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 
 ## 5. Hybrid Vector-Snapping Engine
 - The backend parses CAD/PDF files via PyMuPDF into percentage-normalized line data.
-- The frontend loads this array via `useSnappingVectors()` and instantiates a localized `RBush` spatial tree inside the canvas components.
-- **CRITICAL:** Do NOT attempt to persist instantiated `RBush` class objects into TanStack Query state, as this will crash the `@tanstack/react-query-persist-client` IndexedDB serialization. Always return raw JSON arrays from the hook, and instantiate `RBush` inside `useMemo` blocks within the rendering components.
+- The frontend loads this array via `useSnappingVectors()` (which checks the `sheet_vectors` cache table first, then falls back to the backend API with write-through caching).
+- **CRITICAL:** Do NOT attempt to persist instantiated `RBush` class objects into TanStack Query state, as this will crash the `@tanstack/react-query-persist-client` IndexedDB serialization. Always return raw JSON arrays from the hook, and instantiate `RBush` inside `useState` + deferred `useEffect(setTimeout(10))` blocks within the rendering components to avoid blocking the initial render.
 - Rely on `getSnappedCoordinate()` in `src/utils/geometry.ts` for aspect-ratio aware mathematical snapping and "Gravity" corner-snapping. The `mixAlpha()` utility in the same file is the single source of truth for CSS color → rgba() conversion (handles hex, rgb, rgba inputs).
+- **Tile Pyramid Rendering:** When `sheet.tile_manifest_url` is present, `FloorplanCanvas` renders an OpenSeadragon `TileRenderer` behind the Konva `Stage` for progressive deep-zoom loading. When absent, the legacy `useImage()` + `<KonvaImage>` path is used. All markup and interaction remains on the Konva layer.
 
 ## 6. TypeScript Guardrails (CRITICAL)
 - **Language:** This codebase is migrating incrementally from JavaScript to strict TypeScript. `tsconfig.json` has `allowJs: true` and `checkJs: false`, so `.js`/`.jsx` files remain valid during migration.

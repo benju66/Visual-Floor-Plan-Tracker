@@ -15,6 +15,9 @@
 - `sequence_order` (INTEGER, Default 0)
 - `sheet_name` (TEXT, Not Null)
 - `base_image_url` (TEXT)
+- `tile_manifest_url` (TEXT) -- DZI manifest URL for tiled deep-zoom rendering
+- `tile_image_width` (INTEGER) -- Natural pixel width of the high-res tile source
+- `tile_image_height` (INTEGER) -- Natural pixel height of the high-res tile source
 - `scale_ratio` (FLOAT)
 - `scale_preset` (TEXT)
 - `active_scopes` (JSONB, Default '[]') -- Array of assigned scope names
@@ -68,3 +71,8 @@
 - `user_id` (UUID, Foreign Key -> auth.users.id / profiles.id)
 - `role` (TEXT, Not Null) -- Enum: 'admin', 'pm', 'superintendent', 'viewer'
 - `created_at` (TIMESTAMPTZ)
+
+## 8. sheet_vectors (Vector Cache Table)
+- `sheet_id` (UUID, Primary Key, Foreign Key -> sheets.id ON DELETE CASCADE)
+- `vectors` (JSONB, Not Null) -- Cached vector linework from PDF extraction
+- `created_at` (TIMESTAMPTZ, Default now())

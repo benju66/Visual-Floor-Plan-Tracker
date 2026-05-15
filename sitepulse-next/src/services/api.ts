@@ -122,3 +122,25 @@ export async function extractVectorsService(sheetId: string, token: string): Pro
 
   return response.json();
 }
+
+export interface GenerateTilesResult {
+  tile_manifest_url: string;
+  tile_image_width: number;
+  tile_image_height: number;
+}
+
+export async function generateTilesService(sheetId: string, token: string): Promise<GenerateTilesResult> {
+  const response = await fetch(`${API_BASE_URL}/generate-tiles/${sheetId}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to generate tiles');
+  }
+
+  return response.json();
+}

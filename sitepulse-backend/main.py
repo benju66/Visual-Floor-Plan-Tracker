@@ -1,13 +1,17 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import os
 import io
+import glob
+import shutil
+import tempfile
 import fitz  # PyMuPDF for fast PDF to Image conversion
 import math
+import pyvips
 from jose import jwt, JWTError, ExpiredSignatureError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -117,6 +121,74 @@ def hex_to_rgb(color_str: str):
         return tuple(int(color_str[i:i+2], 16)/255.0 for i in (0, 2, 4))
     return (0, 0, 0)
 
+
+def generate_and_upload_tiles(sheet_id: str, pdf_bytes: bytes, page_number: int = 0):
+    """Generate a DZI tile pyramid from a PDF page and upload to Supabase Storage.
+    Returns (manifest_url, image_width, image_height)."""
+    tile_dir = None
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc.load_page(page_number)
+
+        # Render at 6x zoom for deep zoom crispness
+        zoom = 6.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        png_bytes = pix.tobytes("png")
+        img_width = pix.width
+        img_height = pix.height
+        doc.close()
+
+        # Generate DZI tile pyramid via libvips
+        img = pyvips.Image.new_from_buffer(png_bytes, "")
+        tile_dir = tempfile.mkdtemp(prefix=f"tiles_{sheet_id}_")
+        tile_base = os.path.join(tile_dir, "output")
+        img.dzsave(tile_base, layout="dz", suffix=".webp[Q=80]", tile_size=256)
+
+        # Upload all tile files to Supabase Storage
+        dzi_file = f"{tile_base}.dzi"
+        tiles_folder = f"{tile_base}_files"
+
+        # Upload DZI manifest
+        with open(dzi_file, "rb") as f:
+            manifest_path = f"tiles/{sheet_id}/output.dzi"
+            try:
+                supabase.storage.from_("floorplans").remove([manifest_path])
+            except Exception:
+                pass
+            supabase.storage.from_("floorplans").upload(
+                path=manifest_path,
+                file=f.read(),
+                file_options={"content-type": "application/xml"},
+            )
+
+        # Upload each tile level and its tiles
+        for level_dir in sorted(os.listdir(tiles_folder)):
+            level_path = os.path.join(tiles_folder, level_dir)
+            if not os.path.isdir(level_path):
+                continue
+            for tile_file in os.listdir(level_path):
+                tile_file_path = os.path.join(level_path, tile_file)
+                storage_path = f"tiles/{sheet_id}/output_files/{level_dir}/{tile_file}"
+                with open(tile_file_path, "rb") as f:
+                    try:
+                        supabase.storage.from_("floorplans").upload(
+                            path=storage_path,
+                            file=f.read(),
+                            file_options={"content-type": "image/webp"},
+                        )
+                    except Exception:
+                        # File may already exist during lazy-migration retry
+                        pass
+
+        manifest_url = supabase.storage.from_("floorplans").get_public_url(f"tiles/{sheet_id}/output.dzi")
+        return manifest_url, img_width, img_height
+
+    finally:
+        # Clean up temp directory
+        if tile_dir and os.path.exists(tile_dir):
+            shutil.rmtree(tile_dir, ignore_errors=True)
+
 @app.post("/upload-floorplan/{sheet_id}")
 async def upload_and_convert_floorplan(
     sheet_id: str,
@@ -139,7 +211,7 @@ async def upload_and_convert_floorplan(
 
             page = doc.load_page(page_number - 1)
 
-            # Upgrade the zoom from 2.0 to 4.0 for high-fidelity rendering
+            # Render fallback PNG at 4x for backward compat
             zoom = 4.0
             mat = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False)
@@ -153,6 +225,7 @@ async def upload_and_convert_floorplan(
                 file_options={"content-type": "image/png"},
             )
 
+            # Extract and store single-page PDF for vector extraction + PDF export
             single_page_doc = fitz.open()
             single_page_doc.insert_pdf(doc, from_page=page_number - 1, to_page=page_number - 1)
             single_page_pdf_bytes = single_page_doc.write()
@@ -167,11 +240,26 @@ async def upload_and_convert_floorplan(
 
             public_url = supabase.storage.from_("floorplans").get_public_url(file_path)
             supabase.table("sheets").update({"base_image_url": public_url}).eq("id", sheet_id).execute()
-            return public_url
+
+            # Generate tile pyramid for deep-zoom rendering
+            manifest_url, tile_w, tile_h = generate_and_upload_tiles(sheet_id, single_page_pdf_bytes, 0)
+            supabase.table("sheets").update({
+                "tile_manifest_url": manifest_url,
+                "tile_image_width": tile_w,
+                "tile_image_height": tile_h,
+            }).eq("id", sheet_id).execute()
+
+            # Invalidate cached vectors (F6) — forces re-extraction for new PDF
+            try:
+                supabase.table("sheet_vectors").delete().eq("sheet_id", sheet_id).execute()
+            except Exception:
+                pass  # Table may not exist yet during migration
+
+            return public_url, manifest_url
 
         import asyncio
-        public_url = await asyncio.to_thread(process_upload)
-        return {"status": "success", "image_url": public_url}
+        public_url, manifest_url = await asyncio.to_thread(process_upload)
+        return {"status": "success", "image_url": public_url, "tile_manifest_url": manifest_url}
 
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -202,6 +290,11 @@ async def attach_original_pdf(
                 file=pdf_bytes,
                 file_options={"content-type": "application/pdf"},
             )
+            # Invalidate cached vectors (F6) — new PDF means new geometry
+            try:
+                supabase.table("sheet_vectors").delete().eq("sheet_id", sheet_id).execute()
+            except Exception:
+                pass
             
         import asyncio
         await asyncio.to_thread(process_attach)
@@ -276,6 +369,61 @@ async def extract_snapping_vectors(sheet_id: str, user: dict = Depends(get_curre
         print(f"Error extracting vectors: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/generate-tiles/{sheet_id}")
+async def generate_tiles_for_existing_sheet(sheet_id: str, user: dict = Depends(get_current_user)):
+    """Lazy-migration: generate tile pyramid for an existing sheet that only has a PNG."""
+    try:
+        await verify_sheet_access(sheet_id, user["sub"])
+
+        def process_generate():
+            # Download the stored single-page original PDF
+            pdf_path = f"originals/{sheet_id}.pdf"
+            res = supabase.storage.from_("floorplans").download(pdf_path)
+
+            manifest_url, tile_w, tile_h = generate_and_upload_tiles(sheet_id, res, 0)
+            supabase.table("sheets").update({
+                "tile_manifest_url": manifest_url,
+                "tile_image_width": tile_w,
+                "tile_image_height": tile_h,
+            }).eq("id", sheet_id).execute()
+            return manifest_url, tile_w, tile_h
+
+        import asyncio
+        manifest_url, tile_w, tile_h = await asyncio.to_thread(process_generate)
+        return {
+            "status": "success",
+            "tile_manifest_url": manifest_url,
+            "tile_image_width": tile_w,
+            "tile_image_height": tile_h,
+        }
+
+    except fitz.FileDataError:
+        raise HTTPException(status_code=404, detail="Original PDF not found. Cannot generate tiles.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error generating tiles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/tile-manifest/{sheet_id}")
+async def get_tile_manifest(sheet_id: str, user: dict = Depends(get_current_user)):
+    """Return the DZI manifest XML for OpenSeadragon."""
+    try:
+        await verify_sheet_access(sheet_id, user["sub"])
+
+        def fetch_manifest():
+            manifest_path = f"tiles/{sheet_id}/output.dzi"
+            res = supabase.storage.from_("floorplans").download(manifest_path)
+            return res
+
+        import asyncio
+        dzi_bytes = await asyncio.to_thread(fetch_manifest)
+        return Response(content=dzi_bytes, media_type="application/xml")
+
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Tile manifest not found: {str(e)}")
 
 @app.post("/export-pdf/{sheet_id}")
 async def export_status_pdf(

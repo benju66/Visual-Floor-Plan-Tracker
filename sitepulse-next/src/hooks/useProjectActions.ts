@@ -109,6 +109,8 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       await supabase.from('sheets').update({ base_image_url }).eq('id', sheetId);
 
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets(project.id) });
+      // F7: Invalidate cached vectors so snapping uses fresh data
+      queryClient.invalidateQueries({ queryKey: queryKeys.snappingVectors(sheetId) });
       setActiveSheetId(sheetId);
       setIsModalOpen(false);
       setNewLevelName('');
@@ -129,6 +131,8 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       const token = session?.access_token;
       if (!token) throw new Error('Missing token');
       await attachOriginalService(activeSheetId, file, token);
+      // F7: Invalidate cached vectors so snapping re-extracts from new PDF
+      queryClient.invalidateQueries({ queryKey: queryKeys.snappingVectors(activeSheetId) });
       showToast('Successfully attached original PDF!', 'success');
     } catch (e: any) {
       showToast('Failed to attach: ' + e.message, 'error');
@@ -150,10 +154,46 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
     try {
       showToast('Wiping level and all data...', 'info');
       
+      // Remove stored images and original PDF
       await supabase.storage.from('floorplans').remove([
         `converted/${sheetId}.png`,
         `originals/${sheetId}.pdf`
       ]);
+
+      // F4: Clean up tile folder — list and remove all tile files
+      try {
+        const { data: tileFiles } = await supabase.storage.from('floorplans').list(`tiles/${sheetId}`, { limit: 1000 });
+        if (tileFiles && tileFiles.length > 0) {
+          // List files in subdirectories (output_files/0/, output_files/1/, etc.)
+          const { data: subFiles } = await supabase.storage.from('floorplans').list(`tiles/${sheetId}/output_files`, { limit: 5000 });
+          const allPaths: string[] = [`tiles/${sheetId}/output.dzi`];
+          if (subFiles) {
+            for (const sub of subFiles) {
+              const { data: levelFiles } = await supabase.storage.from('floorplans').list(`tiles/${sheetId}/output_files/${sub.name}`, { limit: 5000 });
+              if (levelFiles) {
+                for (const tile of levelFiles) {
+                  allPaths.push(`tiles/${sheetId}/output_files/${sub.name}/${tile.name}`);
+                }
+              }
+            }
+          }
+          if (allPaths.length > 0) {
+            // Supabase storage remove supports batches
+            for (let i = 0; i < allPaths.length; i += 100) {
+              await supabase.storage.from('floorplans').remove(allPaths.slice(i, i + 100));
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Tile cleanup warning (non-fatal):', e);
+      }
+
+      // Clean up cached vectors
+      try {
+        await supabase.from('sheet_vectors').delete().eq('sheet_id', sheetId);
+      } catch (e) {
+        // Table may not exist yet
+      }
 
       const { data: sheetUnits } = await supabase.from('units').select('id').eq('sheet_id', sheetId);
       if (sheetUnits && sheetUnits.length > 0) {

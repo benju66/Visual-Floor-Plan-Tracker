@@ -40,6 +40,9 @@ export interface Database {
           sequence_order: number | null
           sheet_name: string
           base_image_url: string | null
+          tile_manifest_url: string | null
+          tile_image_width: number | null
+          tile_image_height: number | null
           scale_ratio: number | null
           scale_preset: string | null
           active_scopes: Json | null
@@ -52,6 +55,9 @@ export interface Database {
           sequence_order?: number | null
           sheet_name: string
           base_image_url?: string | null
+          tile_manifest_url?: string | null
+          tile_image_width?: number | null
+          tile_image_height?: number | null
           scale_ratio?: number | null
           scale_preset?: string | null
           active_scopes?: Json | null
@@ -64,6 +70,9 @@ export interface Database {
           sequence_order?: number | null
           sheet_name?: string
           base_image_url?: string | null
+          tile_manifest_url?: string | null
+          tile_image_width?: number | null
+          tile_image_height?: number | null
           scale_ratio?: number | null
           scale_preset?: string | null
           active_scopes?: Json | null
@@ -233,6 +242,31 @@ export interface Database {
           created_at?: string | null
         }
         Relationships: []
+      }
+      sheet_vectors: {
+        Row: {
+          sheet_id: string
+          vectors: Json
+          created_at: string | null
+        }
+        Insert: {
+          sheet_id: string
+          vectors: Json
+          created_at?: string | null
+        }
+        Update: {
+          sheet_id?: string
+          vectors?: Json
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_vectors_sheet_id_fkey"
+            columns: ["sheet_id"]
+            referencedRelation: "sheets"
+            referencedColumns: ["id"]
+          }
+        ]
       }
     }
     Views: {
