@@ -195,6 +195,51 @@ export interface Database {
         }
         Relationships: []
       }
+      status_audit_log: {
+        Row: {
+          id: string
+          unit_id: string | null
+          milestone: string
+          status_color: string
+          temporal_state: string
+          track: string
+          planned_start_date: string | null
+          planned_end_date: string | null
+          logged_date: string | null
+          client_timestamp: string | null
+          user_id: string | null
+          changed_at: string | null
+        }
+        Insert: {
+          id?: string
+          unit_id?: string | null
+          milestone: string
+          status_color?: string
+          temporal_state?: string
+          track?: string
+          planned_start_date?: string | null
+          planned_end_date?: string | null
+          logged_date?: string | null
+          client_timestamp?: string | null
+          user_id?: string | null
+          changed_at?: string | null
+        }
+        Update: {
+          id?: string
+          unit_id?: string | null
+          milestone?: string
+          status_color?: string
+          temporal_state?: string
+          track?: string
+          planned_start_date?: string | null
+          planned_end_date?: string | null
+          logged_date?: string | null
+          client_timestamp?: string | null
+          user_id?: string | null
+          changed_at?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           id: string
@@ -273,7 +318,10 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      upsert_status_log: {
+        Args: { log_data: Json }
+        Returns: Database['public']['Tables']['status_logs']['Row']
+      }
     }
     Enums: {
       [_ in never]: never

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useMapStore } from '@/store/useMapStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -9,6 +9,7 @@ import {
   loadPendingChanges,
   loadPendingTimelineChanges,
   clearPersistedPendingChanges,
+  persistCurrentQueue,
 } from '@/utils/pendingChangesStore';
 import type { Unit, StatusLog, PendingChangesMap, PendingChange, TemporalState, Milestone } from '@/types/domain';
 
@@ -60,6 +61,9 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   const [pendingChanges, setPendingChanges] = useState<PendingChangesMap>({});
   const [pendingTimelineChanges, setPendingTimelineChanges] = useState<PendingChangesMap>({});
   const [isApplying, setIsApplying] = useState<boolean>(false);
+  // Ref (not state) to quiesce reactive IDB persist effects during the sync loop.
+  // Prevents the useEffect from writing to IDB on every setPendingChanges call during handleApplyAll.
+  const isSyncingRef = useRef(false);
 
   // --- Rehydrate persisted pending changes from IDB on mount / project change ---
   const [hasRehydrated, setHasRehydrated] = useState(false);
@@ -83,13 +87,14 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   }, [projectId]);
 
   // --- Persist pending changes to IDB on every update ---
+  // Guarded by isSyncingRef to prevent redundant writes during handleApplyAll's per-item dequeue loop.
   useEffect(() => {
-    if (!hasRehydrated) return; // Don't write back initial empty state before rehydration
+    if (!hasRehydrated || isSyncingRef.current) return;
     persistPendingChanges(projectId, pendingChanges);
   }, [pendingChanges, hasRehydrated, projectId]);
 
   useEffect(() => {
-    if (!hasRehydrated) return;
+    if (!hasRehydrated || isSyncingRef.current) return;
     persistPendingTimelineChanges(projectId, pendingTimelineChanges);
   }, [pendingTimelineChanges, hasRehydrated, projectId]);
 
@@ -117,6 +122,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   // --- Handlers ---
 
   const handleLocalUpdate = (unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
+    const now = new Date().toISOString();
     setPendingChanges((prev) => {
       const existing = prev[unit.id] || {
         log: baseLog || {},
@@ -129,6 +135,8 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
           unit,
           log: baseLog,
           state,
+          // Preserve original capturedAt if re-editing an already-queued item
+          capturedAt: existing.capturedAt ?? now,
           extraProps: { ...existing.extraProps, ...extraProps },
         },
       };
@@ -136,17 +144,22 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   };
 
   const handleTimelineUpdate = (unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
+    const now = new Date().toISOString();
     const milestoneName = extraProps?.milestoneObj?.name || baseLog?.milestone;
     const key = `${unit.id}_${milestoneName}`;
-    setPendingTimelineChanges((prev) => ({
-      ...prev,
-      [key]: {
-        unit,
-        log: baseLog,
-        state,
-        extraProps
-      }
-    }));
+    setPendingTimelineChanges((prev) => {
+      const existing = prev[key];
+      return {
+        ...prev,
+        [key]: {
+          unit,
+          log: baseLog,
+          state,
+          capturedAt: existing?.capturedAt ?? now,
+          extraProps
+        }
+      };
+    });
   };
 
   const handleRemovePendingItem = (unitId: string, milestoneName?: string | null): boolean => {
@@ -215,41 +228,44 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     if (finalChanges.length === 0) return { succeeded: 0, failed: 0 };
     
     setIsApplying(true);
+    isSyncingRef.current = true; // Quiesce reactive IDB writes during sync loop
     let succeeded = 0;
     let failed = 0;
     const failedChanges: PendingChange[] = [];
+
+    // Work against live snapshots so we can write directly to IDB on each checkpoint
+    let livePending = { ...pendingChanges };
+    let liveTimeline = { ...pendingTimelineChanges };
 
     try {
       for (const change of finalChanges) {
         try {
           await onApplyPendingChanges?.([change]);
           succeeded++;
+          // Per-item dequeue: immediately remove the synced item from the live snapshots
+          // and checkpoint to IDB. If the browser crashes after this point, only unsynced
+          // items will remain in IDB on rehydration.
+          const mName = change.extraProps?.milestoneObj?.name || change.log?.milestone;
+          const key = `${change.unit.id}_${mName}`;
+          delete livePending[change.unit.id];
+          delete liveTimeline[key];
+          await persistCurrentQueue(projectId, livePending, liveTimeline);
         } catch {
           failed++;
           failedChanges.push(change);
         }
       }
 
+      // Sync React state to match the drained IDB
+      setPendingChanges(livePending);
+      setPendingTimelineChanges(liveTimeline);
+
+      // Belt-and-suspenders: if everything succeeded, do a final clean clear
       if (failed === 0) {
-        setPendingChanges({});
-        setPendingTimelineChanges({});
         await clearPersistedPendingChanges(projectId);
-      } else {
-        const newPending: PendingChangesMap = {};
-        const newTimeline: PendingChangesMap = {};
-        failedChanges.forEach(c => {
-          const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone;
-          const key = `${c.unit.id}_${mName}`;
-          if (pendingTimelineChanges[key]) {
-            newTimeline[key] = c;
-          } else {
-            newPending[c.unit.id] = c;
-          }
-        });
-        setPendingChanges(newPending);
-        setPendingTimelineChanges(newTimeline);
       }
     } finally {
+      isSyncingRef.current = false;
       setIsApplying(false);
     }
 

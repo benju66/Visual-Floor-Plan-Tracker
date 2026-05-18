@@ -486,7 +486,7 @@ function App() {
               onChooseStatus={(unit, onSelect) => setMilestoneMenu({ mode: 'unit', unit, onSelect })}
               onApplyPendingChanges={async (changesArray) => {
                  for (const c of changesArray) {
-                    await commitUnitMilestone(c.unit, c.extraProps?.milestoneObj || { name: c.log?.milestone, color: c.log?.status_color, track: trackingMode }, c.state, false, c.extraProps);
+                    await commitUnitMilestone(c.unit, c.extraProps?.milestoneObj || { name: c.log?.milestone, color: c.log?.status_color, track: trackingMode }, c.state, false, { ...c.extraProps, client_timestamp: c.capturedAt });
                  }
               }}
               defaultView={settings.defaultFieldView || 'table'}

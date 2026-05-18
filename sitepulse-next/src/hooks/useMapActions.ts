@@ -294,7 +294,10 @@ export function useMapActions(project: Project | null | undefined) {
         track: milestone.track as string,
         planned_start_date: extraProps.startDate || sheetSchedule.start_date || null,
         planned_end_date: extraProps.endDate || sheetSchedule.end_date || null,
-        logged_date: extraProps.loggedDate !== undefined ? (extraProps.loggedDate || null) : (currentTemporalState === 'completed' ? new Date().toISOString().split('T')[0] : null)
+        logged_date: extraProps.loggedDate !== undefined ? (extraProps.loggedDate || null) : (currentTemporalState === 'completed' ? new Date().toISOString().split('T')[0] : null),
+        // client_timestamp from PendingChange.capturedAt (offline-capture time).
+        // For immediate (online) mutations this will be null/undefined; useUpdateStatus stamps it as a fallback.
+        client_timestamp: extraProps.client_timestamp || null
       };
       const newLog = await updateStatusMutation.mutateAsync(newLogData);
       

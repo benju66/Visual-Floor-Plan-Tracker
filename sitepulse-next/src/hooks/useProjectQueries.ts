@@ -101,12 +101,14 @@ export function useUnitHistory(unitId: string) {
     queryKey: queryKeys.unitHistory(unitId),
     queryFn: async (): Promise<StatusLog[]> => {
       if (!unitId) return [];
-      const { data, error } = await supabase.from('status_logs')
+      // Re-pointed to status_audit_log: the append-only audit table preserves
+      // full state-change history, unlike status_logs which is now slot-unique.
+      const { data, error } = await supabase.from('status_audit_log')
         .select('*')
         .eq('unit_id', unitId)
-        .order('created_at', { ascending: false });
+        .order('changed_at', { ascending: false });
       if (error) throw error;
-      return data;
+      return data as unknown as StatusLog[];
     },
     enabled: !!unitId
   });
@@ -252,18 +254,9 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
 
       if (error) throw error;
       
-      const latestStatusMap: Record<string, StatusLog> = {};
-      data.forEach(log => {
-        const key = `${log.unit_id}_${log.track}_${log.milestone}`;
-        // Prefer client_timestamp (written at mutation time) over server created_at.
-        // Prevents non-deterministic ordering when bulk ops share the same server timestamp.
-        const logTime = new Date(log.client_timestamp || log.created_at || 0).getTime();
-        const existingTime = new Date(latestStatusMap[key]?.client_timestamp || latestStatusMap[key]?.created_at || 0).getTime();
-        if (!latestStatusMap[key] || logTime >= existingTime) {
-          latestStatusMap[key] = log;
-        }
-      });
-      return Object.values(latestStatusMap);
+      // With the slot-unique constraint (unit_id, track, milestone), the DB guarantees
+      // one row per slot. No client-side deduplication needed.
+      return data as StatusLog[];
     },
     enabled: !!sheetId && validUnitIds.length > 0,
     placeholderData: keepPreviousData
@@ -293,18 +286,9 @@ export function useAllProjectStatuses(unitIds: string[]) {
       const { data, error } = await supabase.from('status_logs').select('*').in('unit_id', validUnitIds);
       if (error) throw error;
       
-      const latestStatusMap: Record<string, StatusLog> = {};
-      data.forEach(log => {
-        const key = `${log.unit_id}_${log.track}_${log.milestone}`;
-        // Prefer client_timestamp (written at mutation time) over server created_at.
-        // Prevents non-deterministic ordering when bulk ops share the same server timestamp.
-        const logTime = new Date(log.client_timestamp || log.created_at || 0).getTime();
-        const existingTime = new Date(latestStatusMap[key]?.client_timestamp || latestStatusMap[key]?.created_at || 0).getTime();
-        if (!latestStatusMap[key] || logTime >= existingTime) {
-          latestStatusMap[key] = log;
-        }
-      });
-      return Object.values(latestStatusMap);
+      // With the slot-unique constraint (unit_id, track, milestone), the DB guarantees
+      // one row per slot. No client-side deduplication needed.
+      return data as StatusLog[];
     },
     enabled: validUnitIds.length > 0,
     placeholderData: keepPreviousData
@@ -418,9 +402,15 @@ export function useUpdateStatus(sheetId: string) {
 
       delete safeData.created_at;
       delete safeData.id;
-      safeData.client_timestamp = new Date().toISOString();
+      // client_timestamp comes from PendingChange.capturedAt (offline-capture time).
+      // For immediate (online) mutations, stamp here as a fallback.
+      if (!safeData.client_timestamp) {
+        safeData.client_timestamp = new Date().toISOString();
+      }
 
-      const { data, error } = await supabase.from('status_logs').insert([safeData]).select().single();
+      const { data, error } = await supabase
+        .rpc('upsert_status_log', { log_data: safeData })
+        .single();
       if (error) throw error;
       return data;
     },
@@ -467,7 +457,7 @@ export function useClearStatus(sheetId: string) {
           temporal_state: 'none' as TemporalState,
           client_timestamp: new Date().toISOString()
       };
-      const { error } = await supabase.from('status_logs').insert([newLog as any]);
+      const { error } = await supabase.rpc('upsert_status_log', { log_data: newLog });
       if (error) throw error;
     },
     onMutate: async ({ unitId, track, milestone }) => {
@@ -614,8 +604,8 @@ export function useBulkUpdateStatus(sheetId: string) {
                 copy.client_timestamp = clientTimestamp;
                 return copy;
               });
-              const { error: insertError } = await supabase.from('status_logs').insert(safeNewLogs);
-              if (insertError) throw insertError;
+              const { error: upsertError } = await supabase.from('status_logs').upsert(safeNewLogs, { onConflict: 'unit_id,track,milestone' });
+              if (upsertError) throw upsertError;
             }
           }
         } else {
@@ -639,8 +629,8 @@ export function useBulkUpdateStatus(sheetId: string) {
               return baseLog;
             });
             
-            const { error: insertError } = await supabase.from('status_logs').insert(newLogs as any);
-            if (insertError) throw insertError;
+            const { error: upsertError } = await supabase.from('status_logs').upsert(newLogs as any, { onConflict: 'unit_id,track,milestone' });
+            if (upsertError) throw upsertError;
           }
         }
       }
@@ -725,7 +715,7 @@ export function useBulkInsertStatusLogs(sheetId: string) {
       const CHUNK_SIZE = 800;
       for (let i = 0; i < safeLogs.length; i += CHUNK_SIZE) {
         const chunk = safeLogs.slice(i, i + CHUNK_SIZE);
-        const { error } = await supabase.from('status_logs').insert(chunk);
+        const { error } = await supabase.from('status_logs').upsert(chunk, { onConflict: 'unit_id,track,milestone' });
         if (error) throw error;
       }
     },
@@ -969,15 +959,17 @@ export function useStatusHistory(unitIds: string[]) {
     queryKey: queryKeys.statusHistory(...validUnitIds),
     queryFn: async (): Promise<Pick<StatusLog, 'unit_id' | 'milestone' | 'track' | 'logged_date'>[]> => {
       if (validUnitIds.length === 0) return [];
+      // Re-pointed to status_audit_log: the audit table has the full append-only
+      // history of completed milestones, used by the dashboard timeline chart.
       const { data, error } = await supabase
-        .from('status_logs')
-        .select('unit_id, milestone, track, logged_date')
+        .from('status_audit_log')
+        .select('unit_id, milestone, track, logged_date, client_timestamp, user_id')
         .in('unit_id', validUnitIds)
         .eq('temporal_state', 'completed')
         .not('logged_date', 'is', null)
         .order('logged_date', { ascending: true });
       if (error) throw error;
-      return data ?? [];
+      return data as unknown as Pick<StatusLog, 'unit_id' | 'milestone' | 'track' | 'logged_date'>[];
     },
     enabled: validUnitIds.length > 0,
     staleTime: 1000 * 60 * 5,

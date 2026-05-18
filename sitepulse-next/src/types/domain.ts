@@ -7,6 +7,7 @@ export type Milestone  = Database['public']['Tables']['project_milestones']['Row
 export type StatusLog  = Database['public']['Tables']['status_logs']['Row'];
 export type Profile    = Database['public']['Tables']['profiles']['Row'];
 export type ProjectMember = Database['public']['Tables']['project_members']['Row'];
+export type StatusAuditLog = Database['public']['Tables']['status_audit_log']['Row'];
 
 export type StatusLogInsert = Database['public']['Tables']['status_logs']['Insert'];
 export type UnitInsert      = Database['public']['Tables']['units']['Insert'];
@@ -37,6 +38,8 @@ export interface PendingChange {
   unit: Unit;
   log: StatusLog | null;
   state: TemporalState;
+  /** ISO timestamp — when change was made on-device (offline-capture time) */
+  capturedAt: string;
   extraProps: {
     milestoneObj?: Pick<Milestone, 'name' | 'color' | 'track'>;
     startDate?: string | null;

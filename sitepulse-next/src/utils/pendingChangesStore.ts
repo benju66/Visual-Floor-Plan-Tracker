@@ -67,3 +67,27 @@ export async function clearPersistedPendingChanges(projectId: string): Promise<v
     // IDB unavailable — no-op
   }
 }
+
+/**
+ * Atomically checkpoints both the primary and timeline pending change maps to IDB.
+ * Called after each successful mutation in handleApplyAll to checkpoint sync progress.
+ * If the browser crashes mid-sync, only unsynced items will remain in IDB on rehydration.
+ */
+export async function persistCurrentQueue(
+  projectId: string,
+  pending: PendingChangesMap,
+  timeline: PendingChangesMap
+): Promise<void> {
+  try {
+    await Promise.all([
+      Object.keys(pending).length === 0
+        ? del(pendingKey(projectId))
+        : set(pendingKey(projectId), pending),
+      Object.keys(timeline).length === 0
+        ? del(timelineKey(projectId))
+        : set(timelineKey(projectId), timeline),
+    ]);
+  } catch {
+    // IDB unavailable — in-memory state still correct; silent degradation
+  }
+}
