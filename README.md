@@ -28,7 +28,7 @@ SitePulse is an enterprise-grade construction project management platform focuse
 * **Enterprise Synchronization Engine:** Features a zero data-loss offline mutation queue via IndexedDB for field workers in connectivity dead-zones, paired with real-time surgical WebSocket cache injections for instantly responsive, thundering-herd-proof dashboards.
 * **Centralized Scheduling:** Transition effortlessly between the visual canvas and a spreadsheet-like data grid to manage start/completion dates automatically linked to visually mapped units.
 * **Procore SSO Integration:** Native deep-linking from the Procore App Marketplace directly into project canvases, with automated domain-restricted user provisioning and project auto-enrollment.
-* **Mobile Field Experience (Swipe Deck):** A high-speed, gesture-driven "Swipe Deck" for field teams to rapid-fire advance unit statuses on mobile devices, optimized for low-latency field updates.
+* **Mobile Field Experience (Swipe Deck):** An enterprise-grade, gesture-driven mobile interface optimized for high-speed field triage. Features "Smart Confirm" swipe navigation, inline segmented controls for exact status assignment, proactive out-of-sequence bottleneck detection (with persistent UI banners), and a robust multi-layer Snapshot Undo queue to ensure absolute data integrity.
 * **Enterprise RBAC Wrapper:** Multi-tenant project data access ensuring subcontractors, managers, and admins only see what they are authorized to manage.
 
 ## 🛠️ Local Development Setup

@@ -1,10 +1,11 @@
 "use client";
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronRight } from 'lucide-react';
+import { X, ChevronRight, AlertTriangle } from 'lucide-react';
 import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
+import type { Unit, StatusLog, PendingChange, TemporalState, Milestone } from '@/types/domain';
 
-const getBadgeStyle = (state) => {
+const getBadgeStyle = (state: TemporalState) => {
   switch (state) {
     case 'planned':
       return {
@@ -29,6 +30,18 @@ const getBadgeStyle = (state) => {
   }
 };
 
+interface PendingReviewDrawerProps {
+  pendingChanges: Record<string, PendingChange>;
+  pendingTimelineChanges: Record<string, PendingChange>;
+  onClose: () => void;
+  handleApplyAll: () => Promise<{ succeeded: number; failed: number }>;
+  handleLocalDiscardAll: () => void;
+  handleDrawerItemRemove: (unitId: string, milestoneName: string | null) => void;
+  handleStageUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps: any, isTimeline: boolean) => void;
+  isApplying: boolean;
+  currentMilestones: Milestone[];
+}
+
 export default function PendingReviewDrawer({
   pendingChanges,
   pendingTimelineChanges,
@@ -39,40 +52,63 @@ export default function PendingReviewDrawer({
   handleStageUpdate,
   isApplying,
   currentMilestones,
-}) {
-  const [activePickerKey, setActivePickerKey] = useState(null);
+}: PendingReviewDrawerProps) {
+  const [activePickerKey, setActivePickerKey] = useState<string | null>(null);
+  const [applyResult, setApplyResult] = useState<{ succeeded: number; failed: number } | null>(null);
 
-  // Aggregate pending items into an array
-  const pendingItems = [];
+  const pendingMap = new Map<string, any>();
 
   Object.entries(pendingChanges).forEach(([unitId, change]) => {
-    pendingItems.push({
-      key: unitId,
+    const mName = change.extraProps?.milestoneObj?.name || change.log?.milestone || 'Primary';
+    const key = `${unitId}_${mName}`;
+    pendingMap.set(key, {
+      key,
       unitId,
       unitNumber: change.unit.unit_number,
       unit: change.unit,
       log: change.log,
-      milestoneName: change.extraProps?.milestoneObj?.name || change.log?.milestone || 'Primary',
+      milestoneName: mName,
       milestoneColor: change.extraProps?.milestoneObj?.color || change.log?.status_color || '#94a3b8',
       state: change.state,
       isTimeline: false,
+      hasConflict: false,
     });
   });
 
   Object.entries(pendingTimelineChanges).forEach(([timelineKey, change]) => {
-    pendingItems.push({
-      key: timelineKey,
+    const mName = change.extraProps?.milestoneObj?.name || change.log?.milestone;
+    const key = `${change.unit.id}_${mName}`;
+    const existing = pendingMap.get(key);
+    
+    pendingMap.set(key, {
+      key,
       unitId: change.unit.id,
       unitNumber: change.unit.unit_number,
       unit: change.unit,
       log: change.log,
-      milestoneName: change.extraProps?.milestoneObj?.name || change.log?.milestone,
+      milestoneName: mName,
       milestoneColor: change.extraProps?.milestoneObj?.color || change.log?.status_color || '#94a3b8',
       state: change.state,
       isTimeline: true,
       milestoneObj: change.extraProps?.milestoneObj,
+      hasConflict: !!existing,
     });
   });
+
+  const pendingItems = Array.from(pendingMap.values());
+
+  const handleApplyWithFeedback = async () => {
+    try {
+      const result = await handleApplyAll();
+      if (result.failed > 0) {
+        setApplyResult(result);
+        setTimeout(() => setApplyResult(null), 5000);
+      }
+    } catch (e) {
+      setApplyResult({ succeeded: 0, failed: pendingItems.length });
+      setTimeout(() => setApplyResult(null), 5000);
+    }
+  };
 
   return (
     <motion.div
@@ -118,8 +154,13 @@ export default function PendingReviewDrawer({
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                     Unit {item.unitNumber}
                   </span>
-                  <span className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
+                  <span className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 truncate">
                     {item.milestoneName}
+                    {item.hasConflict && (
+                      <span title="Timeline update overrides main card update">
+                        <AlertTriangle size={12} className="text-amber-500" />
+                      </span>
+                    )}
                   </span>
                 </div>
 
@@ -155,7 +196,7 @@ export default function PendingReviewDrawer({
                     className="bg-slate-50 dark:bg-slate-800/50"
                   >
                     <div className="flex flex-col gap-2 px-4 py-3">
-                      {['none', 'planned', 'ongoing', 'completed'].map((s) => {
+                      {(['none', 'planned', 'ongoing', 'completed'] as TemporalState[]).map((s) => {
                         const sb = getBadgeStyle(s);
                         return (
                           <button
@@ -182,17 +223,30 @@ export default function PendingReviewDrawer({
       </div>
 
       {/* Footer Actions */}
-      <div className="p-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shrink-0 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="p-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shrink-0 pb-[max(1.5rem,env(safe-area-inset-bottom))] relative">
+        <AnimatePresence>
+          {applyResult && applyResult.failed > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="absolute bottom-full left-6 right-6 mb-4 px-4 py-3 bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700 rounded-xl text-amber-800 dark:text-amber-200 text-xs font-bold shadow-lg"
+            >
+              ⚠ {applyResult.succeeded} applied, {applyResult.failed} failed. Please check connection and try again.
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <button
-          onClick={handleApplyAll}
-          disabled={isApplying}
+          onClick={handleApplyWithFeedback}
+          disabled={isApplying || pendingItems.length === 0}
           className="w-full flex items-center justify-center gap-2 min-h-[56px] rounded-2xl bg-amber-500 hover:bg-amber-400 text-amber-950 font-black uppercase tracking-widest text-sm transition-transform active:scale-[0.98] shadow-lg disabled:opacity-50"
         >
           {isApplying ? <UpdatingRing /> : `Apply ${pendingItems.length} Changes`}
         </button>
         <button
           onClick={handleLocalDiscardAll}
-          disabled={isApplying}
+          disabled={isApplying || pendingItems.length === 0}
           className="w-full mt-3 min-h-[44px] rounded-xl text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest text-xs hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
         >
           Discard All

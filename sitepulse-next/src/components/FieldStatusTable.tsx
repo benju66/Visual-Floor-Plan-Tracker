@@ -84,6 +84,7 @@ export default function FieldStatusTable({
     pendingTimelineChanges,
     pendingCount,
     setPendingChanges,
+    setPendingTimelineChanges,
     isApplying,
     handleLocalUpdate,
     handleTimelineUpdate,
@@ -222,6 +223,7 @@ export default function FieldStatusTable({
           pendingChanges={pendingChanges}
           pendingTimelineChanges={pendingTimelineChanges}
           setPendingChanges={setPendingChanges}
+          setPendingTimelineChanges={setPendingTimelineChanges}
           handleLocalUpdate={handleLocalUpdate}
           handleTimelineUpdate={handleTimelineUpdate}
           handleRemovePendingItem={handleRemovePendingItem}

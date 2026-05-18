@@ -149,33 +149,35 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     }));
   };
 
-  const handleRemovePendingItem = (unitId: string, milestoneName?: string) => {
-    let hasRemaining = false;
-
+  const handleRemovePendingItem = (unitId: string, milestoneName?: string | null): boolean => {
     if (milestoneName) {
+      const hasPrimary = pendingChanges[unitId] !== undefined;
+      const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
+        (k) => k.startsWith(`${unitId}_`) && k !== `${unitId}_${milestoneName}`
+      );
+      const hasRemaining = hasPrimary || remainingTimelineKeys.length > 0;
+
       setPendingTimelineChanges((prev) => {
         const next = { ...prev };
         delete next[`${unitId}_${milestoneName}`];
         return next;
       });
-      const hasPrimary = pendingChanges[unitId] !== undefined;
-      const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
-        (k) => k.startsWith(`${unitId}_`) && k !== `${unitId}_${milestoneName}`
-      );
-      hasRemaining = hasPrimary || remainingTimelineKeys.length > 0;
+
+      return hasRemaining;
     } else {
+      const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
+        (k) => k.startsWith(`${unitId}_`)
+      );
+      const hasRemaining = remainingTimelineKeys.length > 0;
+
       setPendingChanges((prev) => {
         const next = { ...prev };
         delete next[unitId];
         return next;
       });
-      const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
-        (k) => k.startsWith(`${unitId}_`)
-      );
-      hasRemaining = remainingTimelineKeys.length > 0;
-    }
 
-    return hasRemaining;
+      return hasRemaining;
+    }
   };
 
   const handleDiscardAll = () => {
@@ -197,7 +199,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     return dedupedChanges.size;
   }, [pendingChanges, pendingTimelineChanges]);
 
-  const handleApplyAll = async () => {
+  const handleApplyAll = async (): Promise<{ succeeded: number; failed: number }> => {
     const changesArray = [
       ...Object.values(pendingChanges),
       ...Object.values(pendingTimelineChanges)
@@ -210,19 +212,48 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     });
     
     const finalChanges = Array.from(dedupedMap.values());
-    if (finalChanges.length === 0) return;
+    if (finalChanges.length === 0) return { succeeded: 0, failed: 0 };
     
     setIsApplying(true);
+    let succeeded = 0;
+    let failed = 0;
+    const failedChanges: PendingChange[] = [];
+
     try {
-      await onApplyPendingChanges?.(finalChanges);
-      setPendingChanges({});
-      setPendingTimelineChanges({});
-      // Clear IDB only on success — if onApplyPendingChanges throws, both
-      // in-memory state and IDB remain intact so the user can retry.
-      await clearPersistedPendingChanges(projectId);
+      for (const change of finalChanges) {
+        try {
+          await onApplyPendingChanges?.([change]);
+          succeeded++;
+        } catch {
+          failed++;
+          failedChanges.push(change);
+        }
+      }
+
+      if (failed === 0) {
+        setPendingChanges({});
+        setPendingTimelineChanges({});
+        await clearPersistedPendingChanges(projectId);
+      } else {
+        const newPending: PendingChangesMap = {};
+        const newTimeline: PendingChangesMap = {};
+        failedChanges.forEach(c => {
+          const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone;
+          const key = `${c.unit.id}_${mName}`;
+          if (pendingTimelineChanges[key]) {
+            newTimeline[key] = c;
+          } else {
+            newPending[c.unit.id] = c;
+          }
+        });
+        setPendingChanges(newPending);
+        setPendingTimelineChanges(newTimeline);
+      }
     } finally {
       setIsApplying(false);
     }
+
+    return { succeeded, failed };
   };
 
   const handleSort = (col: string) => {
@@ -326,6 +357,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     pendingTimelineChanges,
     pendingCount,
     setPendingChanges,
+    setPendingTimelineChanges,
     isApplying,
     handleLocalUpdate,
     handleTimelineUpdate,

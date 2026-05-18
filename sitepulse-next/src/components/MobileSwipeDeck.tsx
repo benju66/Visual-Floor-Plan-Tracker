@@ -7,18 +7,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 import PendingReviewDrawer from './PendingReviewDrawer';
 import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 import SyncIndicator from '@/components/ui/SyncIndicator';
-import type { Unit, StatusLog, Milestone, Sheet, PendingChangesMap, PendingChange, TemporalState } from '@/types/domain';
+import type { Unit, StatusLog, Milestone, Sheet, PendingChangesMap, PendingChange, TemporalState, StatusLogAugmented } from '@/types/domain';
 
 interface MobileSwipeDeckProps {
   visible: Array<{ unit: Unit; log: StatusLog | undefined | null }>;
   pendingChanges: PendingChangesMap;
   pendingTimelineChanges: Record<string, PendingChange>;
   setPendingChanges: React.Dispatch<React.SetStateAction<PendingChangesMap>>;
+  setPendingTimelineChanges: React.Dispatch<React.SetStateAction<Record<string, PendingChange>>>;
   handleLocalUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps?: any) => void;
   handleTimelineUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps?: any) => void;
-  handleRemovePendingItem: (unitId: string, milestoneName: string) => boolean;
+  handleRemovePendingItem: (unitId: string, milestoneName?: string | null) => boolean;
   handleDiscardAll: () => void;
-  handleApplyAll: () => void;
+  handleApplyAll: () => Promise<{ succeeded: number; failed: number }>;
   pendingCount: number;
   currentMilestones: Milestone[];
   rawStatuses: StatusLog[];
@@ -38,11 +39,19 @@ interface MobileSwipeDeckProps {
   setActiveSheetId: (id: string) => void;
 }
 
+type HistoryEntry = {
+  unitId: string;
+  previousPendingPayload: PendingChange | undefined;
+  previousTimelinePayloads: PendingChange[];
+  wasSkippedToBack: boolean;
+};
+
 export default function MobileSwipeDeck({
   visible,
   pendingChanges,
   pendingTimelineChanges,
   setPendingChanges,
+  setPendingTimelineChanges,
   handleLocalUpdate,
   handleTimelineUpdate,
   handleRemovePendingItem,
@@ -66,25 +75,29 @@ export default function MobileSwipeDeck({
   setActiveSheetId,
 }: MobileSwipeDeckProps) {
   const router = useRouter();
-  const [swipedHistory, setSwipedHistory] = useState<any[]>([]);
+  const [swipedHistory, setSwipedHistory] = useState<HistoryEntry[]>([]);
   const [skippedToBack, setSkippedToBack] = useState<string[]>([]);
-  const [cardRedoStack, setCardRedoStack] = useState<any[]>([]);
+  const [cardRedoStack, setCardRedoStack] = useState<HistoryEntry[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (pendingCount === 0) setIsDrawerOpen(false);
   }, [pendingCount]);
 
-  // Q2 (Option A) + Issue 10: reset all stacks when filter changes
   useEffect(() => {
     setSwipedHistory([]);
     setSkippedToBack([]);
     setCardRedoStack([]);
   }, [typeFilter]);
 
-  // orderedCards: mobile-only derived list; depends on visible + mobile state
+  const collectTimelinePayloads = (unitId: string) => {
+    return Object.keys(pendingTimelineChanges)
+      .filter(k => k.startsWith(`${unitId}_`))
+      .map(k => pendingTimelineChanges[k]);
+  };
+
   const orderedCards = useMemo(() => {
-    const swipedIds = swipedHistory.map((h) => (typeof h === 'string' ? h : h.unitId));
+    const swipedIds = swipedHistory.map((h) => h.unitId);
     const visibleCards = visible.filter((r) => !swipedIds.includes(r.unit.id));
     const main = visibleCards.filter((c) => !skippedToBack.includes(c.unit.id));
     const skipped = skippedToBack
@@ -93,37 +106,49 @@ export default function MobileSwipeDeck({
     return [...main, ...skipped];
   }, [visible, swipedHistory, skippedToBack]);
 
-  // --- Handlers ---
-
   const handleLocalUndo = () => {
     if (swipedHistory.length === 0) return;
     const newHist = [...swipedHistory];
     const action = newHist.pop();
+    if (!action) return;
 
-    const unitId = typeof action === 'string' ? action : action.unitId;
-    const previousPendingPayload = typeof action === 'string' ? undefined : action.previousPendingPayload;
-    const wasSkippedToBack = typeof action === 'string' ? skippedToBack.includes(unitId) : action.wasSkippedToBack;
-
-    const currentPayload = pendingChanges[unitId];
+    const currentPayload = pendingChanges[action.unitId];
+    const currentTimelinePayloads = collectTimelinePayloads(action.unitId);
 
     setCardRedoStack((prev) => [
       ...prev,
-      { unitId, pendingChangePayload: currentPayload, previousPendingPayload, wasSkippedToBack },
+      { 
+        unitId: action.unitId, 
+        previousPendingPayload: currentPayload, 
+        previousTimelinePayloads: currentTimelinePayloads,
+        wasSkippedToBack: action.wasSkippedToBack 
+      },
     ]);
     setSwipedHistory(newHist);
 
-    if (wasSkippedToBack) {
-      setSkippedToBack((prev) => prev.filter((id) => id !== unitId));
+    if (action.wasSkippedToBack) {
+      setSkippedToBack((prev) => prev.filter((id) => id !== action.unitId));
     }
 
-    // Restore previous pending state for this unit
     setPendingChanges((prev) => {
       const next = { ...prev };
-      if (previousPendingPayload) {
-        next[unitId] = previousPendingPayload;
+      if (action.previousPendingPayload) {
+        next[action.unitId] = action.previousPendingPayload;
       } else {
-        delete next[unitId];
+        delete next[action.unitId];
       }
+      return next;
+    });
+
+    setPendingTimelineChanges((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach(k => {
+        if (k.startsWith(`${action.unitId}_`)) delete next[k];
+      });
+      action.previousTimelinePayloads.forEach(p => {
+        const mName = p.extraProps?.milestoneObj?.name || p.log?.milestone;
+        next[`${action.unitId}_${mName}`] = p;
+      });
       return next;
     });
   };
@@ -132,20 +157,47 @@ export default function MobileSwipeDeck({
     if (cardRedoStack.length === 0) return;
     const newRedo = [...cardRedoStack];
     const action = newRedo.pop();
+    if (!action) return;
+
+    const currentPayload = pendingChanges[action.unitId];
+    const currentTimelinePayloads = collectTimelinePayloads(action.unitId);
 
     setSwipedHistory((prev) => [
       ...prev,
-      { unitId: action.unitId, previousPendingPayload: action.previousPendingPayload, wasSkippedToBack: action.wasSkippedToBack },
+      { 
+        unitId: action.unitId, 
+        previousPendingPayload: currentPayload,
+        previousTimelinePayloads: currentTimelinePayloads,
+        wasSkippedToBack: action.wasSkippedToBack 
+      },
     ]);
+
     if (action.wasSkippedToBack) {
       setSkippedToBack((prev) => [...prev, action.unitId]);
     }
-    if (action.pendingChangePayload) {
-      setPendingChanges((prev) => ({
-        ...prev,
-        [action.unitId]: action.pendingChangePayload,
-      }));
-    }
+
+    setPendingChanges((prev) => {
+      const next = { ...prev };
+      if (action.previousPendingPayload) {
+        next[action.unitId] = action.previousPendingPayload;
+      } else {
+        delete next[action.unitId];
+      }
+      return next;
+    });
+
+    setPendingTimelineChanges((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach(k => {
+        if (k.startsWith(`${action.unitId}_`)) delete next[k];
+      });
+      action.previousTimelinePayloads.forEach(p => {
+        const mName = p.extraProps?.milestoneObj?.name || p.log?.milestone;
+        next[`${action.unitId}_${mName}`] = p;
+      });
+      return next;
+    });
+    
     setCardRedoStack(newRedo);
   };
 
@@ -167,13 +219,10 @@ export default function MobileSwipeDeck({
     });
   };
 
-  const handleDrawerItemRemove = (unitId: string, milestoneName: string) => {
+  const handleDrawerItemRemove = (unitId: string, milestoneName: string | null) => {
     const hasRemaining = handleRemovePendingItem(unitId, milestoneName);
     if (!hasRemaining) {
-      setSwipedHistory((prev) => prev.filter((h) => {
-        const id = typeof h === 'string' ? h : h.unitId;
-        return id !== unitId;
-      }));
+      setSwipedHistory((prev) => prev.filter((h) => h.unitId !== unitId));
       setSkippedToBack((prev) => prev.filter((id) => id !== unitId));
     }
     setCardRedoStack([]);
@@ -186,19 +235,6 @@ export default function MobileSwipeDeck({
     setCardRedoStack([]);
   };
 
-  const handleStageUpdateHelper = (stateOrUnit: any, mLog: any, state: any, extraProps: any, isTimeline = false) => {
-    if (isTimeline) {
-      handleTimelineUpdate(stateOrUnit, mLog, state, extraProps);
-    } else {
-      if (typeof stateOrUnit === 'string') {
-        // Called as onStageUpdate(state, milestoneObj) inside SwipeCard, but Drawer passes full unit
-        // Actually, drawer passes unit, log, state, extraProps, isTimeline
-      } else {
-        handleLocalUpdate(stateOrUnit, mLog, state, extraProps);
-      }
-    }
-  };
-
   // --- Long Press Logic ---
   const pressTimer = useRef<any>(null);
   const isLongPress = useRef(false);
@@ -209,112 +245,121 @@ export default function MobileSwipeDeck({
       isLongPress.current = true;
       if (navigator.vibrate) navigator.vibrate(50);
       onEditRoute();
-    }, 500);
+    }, 600);
   };
 
   const cancelPress = () => {
-    if (pressTimer.current) {
-      clearTimeout(pressTimer.current);
-      pressTimer.current = null;
-    }
+    if (pressTimer.current) clearTimeout(pressTimer.current);
   };
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 w-full gap-2">
-      {/* Unified Two-Tier Mobile Header */}
-      <div className="sticky top-0 z-40 w-full bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm flex flex-col shrink-0">
-        
-        {/* Top Tier: Back & Sheet Select */}
-        <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-200/50 dark:border-slate-800/50">
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="shrink-0 p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 bg-white/50 dark:bg-black/20 rounded-full transition-colors"
-            aria-label="Back to Dashboard"
-          >
-          <ArrowLeft size={20} />
-          </button>
-
-          <SyncIndicator
-            pendingCount={pendingCount}
-            isApplying={isApplying}
-            hasRehydrated={hasRehydrated}
-          />
-          <div className="relative flex items-center flex-1 min-w-0">
-            <select
-              className="appearance-none w-full bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-lg px-4 py-2 pr-8 text-sm font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer truncate"
-              value={activeSheetId}
-              onChange={(e) => setActiveSheetId(e.target.value)}
-            >
-              {(!sheets || sheets.length === 0) && <option disabled value="">No levels</option>}
-              {sheets?.map((sheet) => (
-                <option key={sheet.id} value={sheet.id}>{sheet.sheet_name}</option>
-              ))}
-            </select>
-            <ChevronDown size={16} className="absolute right-3 pointer-events-none text-slate-400" />
-          </div>
-        </div>
-
-        {/* Bottom Tier: Filters & Routing */}
-        <div className="flex items-center gap-3 px-3 py-2">
-          {/* Type Filter Select */}
-          <div className="relative flex items-center flex-1 min-w-0">
-            <select
-              className="appearance-none w-full flex-1 min-w-0 truncate bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-full px-4 py-2 pr-8 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-            >
-              <option value="All">All Types</option>
-              {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <ChevronDown size={16} className="absolute right-3 pointer-events-none text-slate-400" />
-          </div>
-
-          {/* Route Controls Container */}
-          <button
-            onPointerDown={startPress}
-            onPointerUp={cancelPress}
-            onPointerLeave={cancelPress}
-            onContextMenu={(e) => e.preventDefault()}
-            onClick={(e) => {
-              cancelPress();
-              if (isLongPress.current) {
-                e.preventDefault();
-                return;
-              }
-              if (sortColumn === 'walk_sequence') {
-                if (sortDirection === 'asc') handleSort('walk_sequence');
-                else handleSort('unit');
-              } else handleSort('walk_sequence');
-            }}
-            className={`shrink-0 px-4 py-2 text-[11px] font-bold rounded-full shadow-sm flex items-center gap-1 transition-colors select-none ${
-              sortColumn === 'walk_sequence'
-                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-300/60'
-                : 'bg-white/80 dark:bg-black/40 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
-          >
-            Sort Route
-            {sortColumn === 'walk_sequence' && (sortDirection === 'asc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />)}
-          </button>
-        </div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 dark:bg-black relative">
+      <div className="absolute top-2 right-4 z-50">
+        <SyncIndicator isApplying={isApplying} hasRehydrated={hasRehydrated} pendingCount={pendingCount} />
       </div>
 
-      {/* Swipe deck */}
-      <div className="flex-1 w-full relative flex items-center justify-center overflow-hidden bg-slate-100 dark:bg-slate-950">
+      <div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm z-40 shrink-0 mt-8 mb-4">
+        <div className="flex items-center gap-2 px-4 py-3 overflow-x-auto no-scrollbar">
+          <button
+            onClick={() => setTypeFilter('all')}
+            className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider transition-colors ${
+              typeFilter === 'all'
+                ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-md'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            All Units
+          </button>
+          {projectUnitTypes.map((type) => (
+            <button
+              key={type}
+              onClick={() => setTypeFilter(type)}
+              className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider transition-colors ${
+                typeFilter === type
+                  ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-md'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+
+        <div className="px-4 pb-3 flex items-center justify-between">
+          <div className="flex items-center gap-3 w-full">
+            <div className="relative flex-1">
+              <select
+                value={sortColumn}
+                onChange={(e) => handleSort(e.target.value)}
+                className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-sky-500/50"
+              >
+                <option value="unit_number">Sort by Unit</option>
+                <option value="unit_type">Sort by Type</option>
+                <option value="walk_sequence">Sort by Route</option>
+              </select>
+              <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+            
+            <button
+              onClick={() => handleSort(sortColumn)}
+              className="w-10 h-10 flex items-center justify-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shrink-0"
+            >
+              {sortDirection === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+            </button>
+          </div>
+        </div>
+        
+        {sheets.length > 1 && (
+           <div className="px-4 pb-3">
+             <div className="relative w-full">
+               <select
+                 value={activeSheetId}
+                 onChange={(e) => setActiveSheetId(e.target.value)}
+                 className="w-full appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-sky-600 dark:text-sky-400 outline-none focus:ring-2 focus:ring-sky-500/50 truncate pr-10"
+               >
+                 {sheets.map(s => (
+                   <option key={s.id} value={s.id}>Level: {s.sheet_name}</option>
+                 ))}
+               </select>
+               <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-sky-500 pointer-events-none" />
+             </div>
+           </div>
+        )}
+      </div>
+
+      <div className="flex-1 relative flex items-center justify-center w-full max-w-sm mx-auto perspective-[1200px]">
         {orderedCards.length === 0 ? (
-          <div className="text-slate-400 font-semibold text-lg flex flex-col items-center">
-            <div className="text-5xl mb-4">🙌</div>
-            All locations verified!
+          <div className="text-center p-8 bg-slate-100/50 dark:bg-slate-800/30 rounded-3xl border border-slate-200 dark:border-slate-800">
+            <h3 className="text-xl font-black text-slate-400 dark:text-slate-500 mb-2">Deck Empty</h3>
+            <p className="text-sm font-bold text-slate-400 dark:text-slate-500/70 uppercase tracking-widest">
+              You've cleared all units
+            </p>
           </div>
         ) : (
-          orderedCards.slice(0, 5).reverse().map(({ unit, log }, index, arr) => {
-            const isTop = index === arr.length - 1;
-            const depth = arr.length - 1 - index;
+          orderedCards.map((c, i) => {
+            const isTop = i === 0;
+            const depth = Math.min(i, 3);
+            const { unit, log } = c;
+
+            const unitPending = pendingChanges[unit.id];
+            const hasExistingPending = !!unitPending;
+            const currentState = unitPending?.state
+              || pendingTimelineChanges[`${unit.id}_${log?.milestone}`]?.state
+              || log?.temporal_state || 'none';
+
+            let swipeRightLabel = '✓';
+            if (!hasExistingPending) {
+              if (currentState === 'completed') swipeRightLabel = '→';
+              else if (currentState === 'none') swipeRightLabel = 'PLN';
+              else if (currentState === 'planned') swipeRightLabel = 'ONG';
+            }
+
             return (
               <SwipeCard
                 key={unit.id}
                 unit={unit}
                 log={
-                  pendingTimelineChanges[`${unit.id}_${log?.milestone}`]
+                  (pendingTimelineChanges[`${unit.id}_${log?.milestone}`]
                     ? {
                         ...log,
                         temporal_state: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].state,
@@ -330,7 +375,7 @@ export default function MobileSwipeDeck({
                         status_color: pendingChanges[unit.id].extraProps?.milestoneObj?.color || log?.status_color,
                         outOfSequence: pendingChanges[unit.id].extraProps?.outOfSequence ?? (log as any)?.outOfSequence,
                       }
-                    : log
+                    : log) as StatusLogAugmented | null
                 }
                 rawStatuses={rawStatuses}
                 milestones={currentMilestones}
@@ -338,40 +383,31 @@ export default function MobileSwipeDeck({
                 depth={depth}
                 pendingChanges={pendingChanges}
                 pendingTimelineChanges={pendingTimelineChanges}
+                hasPendingUpdate={hasExistingPending}
+                swipeRightLabel={swipeRightLabel}
                 onSwipeLeft={() => {
                   setSwipedHistory((prev) => [
                     ...prev,
-                    { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], wasSkippedToBack: true },
+                    { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], previousTimelinePayloads: collectTimelinePayloads(unit.id), wasSkippedToBack: true },
                   ]);
                   setSkippedToBack((prev) => [...prev, unit.id]);
                   setCardRedoStack([]);
                 }}
                 onSwipeRight={() => {
-                  const unitPending = pendingChanges[unit.id];
-                  const pending = pendingTimelineChanges[`${unit.id}_${log?.milestone}`]?.state || unitPending?.state;
-                  const current = pending || log?.temporal_state || 'none';
-                  let nextState: TemporalState = 'planned';
-                  if (current === 'planned') nextState = 'ongoing';
-                  else if (current === 'ongoing' || current === 'completed') nextState = 'completed';
-                  handleLocalUpdate(unit, log || null, nextState);
+                  if (!hasExistingPending && currentState !== 'completed') {
+                    let nextState: TemporalState = 'planned';
+                    if (currentState === 'planned') nextState = 'ongoing';
+                    else if (currentState === 'ongoing') nextState = 'completed';
+                    handleLocalUpdate(unit, log || null, nextState);
+                  }
                   setSwipedHistory((prev) => [
                     ...prev,
-                    { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], wasSkippedToBack: false },
+                    { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], previousTimelinePayloads: collectTimelinePayloads(unit.id), wasSkippedToBack: false },
                   ]);
                   setCardRedoStack([]);
                 }}
-                onChooseStatus={onChooseStatus}
-                // onStageUpdate: mutates local pending state WITHOUT advancing the card.
-                // The card stays on top until the user physically swipes it.
-                onStageUpdate={(stateOrUnit: any, mLog: any, state: any, extraProps: any) => {
-                  if (typeof stateOrUnit === 'string') {
-                    // Called as onStageUpdate(state, milestoneObj)
-                    handleLocalUpdate(unit, log || null, stateOrUnit as TemporalState, mLog ? { milestoneObj: mLog } : undefined);
-                  } else {
-                    // Called as onStageUpdate(unit, log, state, extraProps)
-                    handleLocalUpdate(stateOrUnit, mLog, state, extraProps);
-                  }
-                }}
+                onChooseStatus={() => onChooseStatus?.(unit.id, log?.milestone || '', log?.temporal_state || '', '')}
+                onStageUpdate={handleLocalUpdate}
                 onTimelineUpdate={handleTimelineUpdate}
               />
             );
@@ -379,7 +415,6 @@ export default function MobileSwipeDeck({
         )}
       </div>
 
-      {/* Navigation controls */}
       <div className="flex w-full items-center justify-center gap-4 mt-2 shrink-0 pb-4">
         <button
           onClick={handleLocalUndo}
@@ -398,20 +433,22 @@ export default function MobileSwipeDeck({
         <button
           onClick={handleNextCard}
           disabled={orderedCards.length <= 1}
-          className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-sky-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+          onPointerDown={startPress}
+          onPointerUp={cancelPress}
+          onPointerLeave={cancelPress}
+          className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
         >
           <ArrowRight size={24} />
         </button>
         <button
           onClick={handleLocalRedo}
           disabled={cardRedoStack.length === 0}
-          className="w-12 h-12 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+          className="w-12 h-12 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-sky-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
         >
           <Redo2 size={22} />
         </button>
       </div>
 
-      {/* Mobile FAB for Pending Changes */}
       <AnimatePresence>
         {pendingCount > 0 && !isDrawerOpen && (
           <motion.div
@@ -431,7 +468,6 @@ export default function MobileSwipeDeck({
         )}
       </AnimatePresence>
 
-      {/* Pending Review Drawer */}
       <AnimatePresence>
         {isDrawerOpen && (
           <>
@@ -449,7 +485,7 @@ export default function MobileSwipeDeck({
               handleApplyAll={handleApplyAll}
               handleLocalDiscardAll={handleLocalDiscardAll}
               handleDrawerItemRemove={handleDrawerItemRemove}
-              handleStageUpdate={handleStageUpdateHelper}
+              handleStageUpdate={handleTimelineUpdate}
               isApplying={isApplying}
               currentMilestones={currentMilestones}
             />
