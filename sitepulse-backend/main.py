@@ -241,13 +241,17 @@ async def upload_and_convert_floorplan(
             public_url = supabase.storage.from_("floorplans").get_public_url(file_path)
             supabase.table("sheets").update({"base_image_url": public_url}).eq("id", sheet_id).execute()
 
-            # Generate tile pyramid for deep-zoom rendering
-            manifest_url, tile_w, tile_h = generate_and_upload_tiles(sheet_id, single_page_pdf_bytes, 0)
-            supabase.table("sheets").update({
-                "tile_manifest_url": manifest_url,
-                "tile_image_width": tile_w,
-                "tile_image_height": tile_h,
-            }).eq("id", sheet_id).execute()
+            # Generate tile pyramid for deep-zoom rendering (non-fatal — falls back to base PNG if pyvips unavailable)
+            try:
+                manifest_url, tile_w, tile_h = generate_and_upload_tiles(sheet_id, single_page_pdf_bytes, 0)
+                supabase.table("sheets").update({
+                    "tile_manifest_url": manifest_url,
+                    "tile_image_width": tile_w,
+                    "tile_image_height": tile_h,
+                }).eq("id", sheet_id).execute()
+            except Exception as tile_err:
+                print(f"[WARN] Tile generation skipped (libvips unavailable?): {tile_err}")
+                # Upload succeeded — viewer will fall back to base_image_url
 
             # Invalidate cached vectors (F6) — forces re-extraction for new PDF
             try:

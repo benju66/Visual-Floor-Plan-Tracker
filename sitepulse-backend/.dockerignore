@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git
+*.log
+legend_debug.txt
+fix_indent.py
+test_fitz.py
