@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import PendingReviewDrawer from './PendingReviewDrawer';
 import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 import SyncIndicator from '@/components/ui/SyncIndicator';
+import { useUIStore } from '@/store/useUIStore';
 import type { Unit, StatusLog, Milestone, Sheet, PendingChangesMap, PendingChange, TemporalState, StatusLogAugmented } from '@/types/domain';
 
 interface MobileSwipeDeckProps {
@@ -79,6 +80,8 @@ export default function MobileSwipeDeck({
   const [skippedToBack, setSkippedToBack] = useState<string[]>([]);
   const [cardRedoStack, setCardRedoStack] = useState<HistoryEntry[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [actionDirection, setActionDirection] = useState<'left' | 'right' | 'none'>('none');
+  const setToast = useUIStore(s => s.setToast);
 
   useEffect(() => {
     if (pendingCount === 0) setIsDrawerOpen(false);
@@ -111,6 +114,9 @@ export default function MobileSwipeDeck({
     const newHist = [...swipedHistory];
     const action = newHist.pop();
     if (!action) return;
+
+    setActionDirection(action.wasSkippedToBack ? 'left' : 'right');
+    setToast({ message: 'Action undone', type: 'info' });
 
     const currentPayload = pendingChanges[action.unitId];
     const currentTimelinePayloads = collectTimelinePayloads(action.unitId);
@@ -159,6 +165,9 @@ export default function MobileSwipeDeck({
     const action = newRedo.pop();
     if (!action) return;
 
+    setActionDirection(action.wasSkippedToBack ? 'left' : 'right');
+    setToast({ message: 'Action re-applied', type: 'info' });
+
     const currentPayload = pendingChanges[action.unitId];
     const currentTimelinePayloads = collectTimelinePayloads(action.unitId);
 
@@ -204,6 +213,7 @@ export default function MobileSwipeDeck({
   const handleNextCard = () => {
     const topCard = orderedCards[0];
     if (topCard) {
+      setActionDirection('left');
       setSkippedToBack((prev) => {
         const filtered = prev.filter((id) => id !== topCard.unit.id);
         return [...filtered, topCard.unit.id];
@@ -212,6 +222,7 @@ export default function MobileSwipeDeck({
   };
 
   const handlePrevCard = () => {
+    setActionDirection('left');
     setSkippedToBack((prev) => {
       const next = [...prev];
       next.pop();
@@ -254,12 +265,12 @@ export default function MobileSwipeDeck({
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 dark:bg-black relative">
-      <div className="absolute top-2 right-4 z-50">
-        <SyncIndicator isApplying={isApplying} hasRehydrated={hasRehydrated} pendingCount={pendingCount} />
-      </div>
-
-      <div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm z-40 shrink-0 mt-8 mb-4">
-        <div className="flex items-center gap-2 px-4 py-3 overflow-x-auto no-scrollbar">
+      <div className="w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm z-50 shrink-0 pt-3 mb-2">
+        <div className="flex items-center justify-between px-4 pb-3">
+          <span className="text-sm font-black text-slate-800 dark:text-slate-100 tracking-tight">Review Field Deck</span>
+          <SyncIndicator isApplying={isApplying} hasRehydrated={hasRehydrated} pendingCount={pendingCount} />
+        </div>
+        <div className="flex items-center gap-2 px-4 pb-3 overflow-x-auto no-scrollbar">
           <button
             onClick={() => setTypeFilter('all')}
             className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider transition-colors ${
@@ -336,7 +347,8 @@ export default function MobileSwipeDeck({
             </p>
           </div>
         ) : (
-          orderedCards.map((c, i) => {
+          <AnimatePresence mode="popLayout" custom={actionDirection}>
+            {orderedCards.map((c, i) => {
             const isTop = i === 0;
             const depth = Math.min(i, 3);
             const { unit, log } = c;
@@ -385,6 +397,7 @@ export default function MobileSwipeDeck({
                 pendingTimelineChanges={pendingTimelineChanges}
                 hasPendingUpdate={hasExistingPending}
                 swipeRightLabel={swipeRightLabel}
+                entryDirection={actionDirection}
                 onSwipeLeft={() => {
                   setSwipedHistory((prev) => [
                     ...prev,
@@ -392,6 +405,7 @@ export default function MobileSwipeDeck({
                   ]);
                   setSkippedToBack((prev) => [...prev, unit.id]);
                   setCardRedoStack([]);
+                  setActionDirection('none');
                 }}
                 onSwipeRight={() => {
                   if (!hasExistingPending && currentState !== 'completed') {
@@ -405,17 +419,19 @@ export default function MobileSwipeDeck({
                     { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], previousTimelinePayloads: collectTimelinePayloads(unit.id), wasSkippedToBack: false },
                   ]);
                   setCardRedoStack([]);
+                  setActionDirection('none');
                 }}
                 onChooseStatus={() => onChooseStatus?.(unit.id, log?.milestone || '', log?.temporal_state || '', '')}
                 onStageUpdate={handleLocalUpdate}
                 onTimelineUpdate={handleTimelineUpdate}
               />
             );
-          })
+          })}
+          </AnimatePresence>
         )}
       </div>
 
-      <div className="flex w-full items-center justify-center gap-4 mt-2 shrink-0 pb-4">
+      <div className="flex w-full items-center justify-center gap-4 shrink-0 pb-8 pt-4 bg-white/70 dark:bg-slate-900/70 backdrop-blur-lg border-t border-slate-200/60 dark:border-white/10 z-40 relative rounded-t-[2.5rem]">
         <button
           onClick={handleLocalUndo}
           disabled={swipedHistory.length === 0}

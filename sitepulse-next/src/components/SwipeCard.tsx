@@ -1,6 +1,6 @@
 "use client";
-import React, { useState } from 'react';
-import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion, useMotionValue, useTransform, AnimatePresence, animate } from 'framer-motion';
 import { ArrowRight, X, ListTodo, AlertTriangle } from 'lucide-react';
 import type { Unit, StatusLog, Milestone, PendingChange, TemporalState, StatusLogAugmented, BottleneckSequence } from '@/types/domain';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
@@ -46,6 +46,7 @@ interface SwipeCardProps {
   onTimelineUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps: any) => void;
   hasPendingUpdate: boolean;
   swipeRightLabel: string;
+  entryDirection?: 'left' | 'right' | 'none';
 }
 
 const SwipeCard = ({
@@ -64,6 +65,7 @@ const SwipeCard = ({
   onTimelineUpdate,
   hasPendingUpdate,
   swipeRightLabel,
+  entryDirection,
 }: SwipeCardProps) => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
@@ -93,6 +95,16 @@ const SwipeCard = ({
 
   const swipeRightOpacity = useTransform(x, [0, 100], [0, 1]);
   const swipeLeftOpacity = useTransform(x, [0, -100], [0, 1]);
+
+  useEffect(() => {
+    if (entryDirection === 'left') {
+      x.set(-300);
+      animate(x, 0, { type: 'spring', stiffness: 300, damping: 25 });
+    } else if (entryDirection === 'right') {
+      x.set(300);
+      animate(x, 0, { type: 'spring', stiffness: 300, damping: 25 });
+    }
+  }, [entryDirection, x]);
 
   const handleDragEnd = (event: any, info: any) => {
     if (info.offset.x > 100) {
@@ -146,15 +158,24 @@ const SwipeCard = ({
       dragElastic={0.7}
       onDragEnd={handleDragEnd}
       layout
-      className={`absolute w-[90%] max-w-sm h-full flex flex-col ${
+      variants={{
+        exit: (dir) => ({
+          x: dir === 'left' ? -300 : dir === 'right' ? 300 : undefined,
+          opacity: 0,
+          scale: 0.8,
+          transition: { duration: 0.25 }
+        })
+      }}
+      className={`absolute w-[90%] max-w-sm top-0 bottom-14 flex flex-col ${
         isDragEnabled ? 'cursor-grab active:cursor-grabbing' : ''
       } ${isTop ? 'pointer-events-auto' : 'pointer-events-none'}`}
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1 - depth * 0.05, opacity: isTop ? 1 : 1 - depth * 0.1, y: depth * 12 }}
+      exit="exit"
       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
     >
       <motion.div
-        className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2rem] border-[3px] shadow-2xl overflow-hidden relative ${
+        className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2.5rem] border-[3px] shadow-2xl overflow-hidden relative ${
           isTop && isHistoryOpen
             ? 'border-sky-400/50 dark:border-sky-500/50'
             : hasBottleneck
@@ -299,10 +320,10 @@ const SwipeCard = ({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.97 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="absolute inset-0 z-50 flex flex-col rounded-[2rem] overflow-hidden bg-white/97 dark:bg-slate-900/97 backdrop-blur-md"
+              className="absolute inset-0 z-50 flex flex-col rounded-[2.5rem] overflow-hidden bg-white/97 dark:bg-slate-900/97 backdrop-blur-md"
               onPointerDownCapture={(e: any) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/70 dark:border-white/8 shrink-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm rounded-t-[2rem]">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/70 dark:border-white/8 shrink-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm rounded-t-[2.5rem]">
                 <div>
                   <p className="text-lg font-black text-slate-800 dark:text-slate-100 leading-tight">
                     {unit.unit_number} · Timeline

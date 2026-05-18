@@ -38,7 +38,7 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 The field-first mobile experience is accessible at viewports under 768px and is optimized for construction field workers.
 
-- **Swipe Card Deck** — Units are presented as a stack of swipeable cards (powered by Framer Motion). Swipe right to advance status, swipe left to skip. Undo/redo controls are available at the bottom of the deck. The deck is **lazy-loaded** via `next/dynamic` so desktop users never download it.
+- **Swipe Card Deck** — Units are presented as a stack of swipeable cards (powered by Framer Motion). Swipe right to advance status, swipe left to skip. Undo/redo controls are housed in a glassmorphic bottom bar and feature directional fly-in/fly-out animations with global toast feedback. The deck is **lazy-loaded** via `next/dynamic` so desktop users never download it.
 - **Tap-to-Cycle Status Badge** — The main card displays a large, glove-friendly status badge. Tap to cycle through `planned → ongoing → completed`.
 - **Inline Segmented Timeline Controls** — Opening the Timeline overlay reveals all project milestones, each with a 4-segment inline status bar (`× | PLN | ONG | ✓`). Tap any segment to set that milestone's status instantly — no accordion expansion, no layout shift. Designed for the iPhone SE (375px) through Pro Max (430px) viewport range.
 - **Pending Review Drawer** — All staged changes are batched and reviewable before committing to the database via the Review FAB.
