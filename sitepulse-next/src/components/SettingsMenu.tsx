@@ -135,6 +135,7 @@ export default function SettingsMenu({
   
   const [pendingScheduleUpdates, setPendingScheduleUpdates] = useState<Record<string, any>>({});
   const [isApplyingSchedule, setIsApplyingSchedule] = useState(false);
+  const [scheduleTypeFilter, setScheduleTypeFilter] = useState('all');
 
   useEffect(() => {
     if (!scheduleLevelId && sheets?.length > 0) {
@@ -182,9 +183,10 @@ export default function SettingsMenu({
     }
   };
 
-  const stageScheduleUpdate = (unit: any, baseLog: any, targetMilestone: any, updates: any) => {
+  const stageScheduleUpdate = (unit: any, baseLog: any, targetMilestone: any, updates: any, compositeKey?: string) => {
+     const key = compositeKey || unit.id;
      setPendingScheduleUpdates(prev => {
-        const existing = prev[unit.id] || {
+        const existing = prev[key] || {
            unit,
            baseLog,
            targetMilestone,
@@ -195,7 +197,7 @@ export default function SettingsMenu({
         };
         return {
            ...prev,
-           [unit.id]: { ...existing, ...updates }
+           [key]: { ...existing, ...updates }
         };
      });
   };
@@ -938,25 +940,78 @@ export default function SettingsMenu({
                       className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm"
                     >
                        <option value="" disabled>Select Milestone</option>
+                       <option value="__ALL__">All Milestones</option>
                        {milestones.map(m => <option key={m.id} value={m.id}>{m.name} ({m.track})</option>)}
                     </select>
                   </div>
                   
-                  {scheduleLevelId && scheduleMilestoneId ? (
+                   {/* Location Type Filter Chips */}
+                   {scheduleLevelId && (
+                     <div className="flex flex-wrap gap-1.5 mb-3">
+                       <button
+                         type="button"
+                         onClick={() => setScheduleTypeFilter('all')}
+                         className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                           scheduleTypeFilter === 'all'
+                             ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm'
+                             : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
+                         }`}
+                       >
+                         All Locations
+                       </button>
+                       {projectUnitTypes.map((type: string) => (
+                         <button
+                           key={type}
+                           type="button"
+                           onClick={() => setScheduleTypeFilter(type)}
+                           className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                             scheduleTypeFilter === type
+                               ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm'
+                               : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
+                           }`}
+                         >
+                           {type}
+                         </button>
+                       ))}
+                     </div>
+                   )}
+
+                  {scheduleLevelId && scheduleMilestoneId ? (() => {
+                    const isAllMilestones = scheduleMilestoneId === '__ALL__';
+                    const activeMilestones = isAllMilestones ? milestones : [milestones.find(m => m.id === scheduleMilestoneId)].filter(Boolean);
+                    
+                    // Build flat list of { unit, milestone } pairs
+                    // Filter units by selected location type
+                    const filteredUnits = scheduleTypeFilter === 'all'
+                      ? scheduleUnits
+                      : scheduleUnits.filter(u => u.unit_type === scheduleTypeFilter);
+                    
+                    const rows = filteredUnits.flatMap(u =>
+                      activeMilestones.map(m => ({ unit: u, milestone: m! }))
+                    );
+
+                    return (
                     <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                       {scheduleUnits.map(u => {
-                          const activeMilestone = milestones.find(m => m.id === scheduleMilestoneId);
-                          const log = scheduleStatuses.find(s => s.unit_id === u.id && s.milestone === activeMilestone?.name);
-                          const pending = pendingScheduleUpdates[u.id];
+                       {rows.map(({ unit: u, milestone: activeMilestone }) => {
+                          const compositeKey = `${u.id}__${activeMilestone.id}`;
+                          const log = scheduleStatuses.find(s => s.unit_id === u.id && s.milestone === activeMilestone.name);
+                          const pending = pendingScheduleUpdates[compositeKey];
                           const sDate = pending ? pending.startDate : log?.planned_start_date || '';
                           const eDate = pending ? pending.endDate : log?.planned_end_date || '';
                           const tState = pending ? pending.state : log?.temporal_state || 'none';
                           
                           return (
-                            <div key={u.id} className={`flex items-center justify-between p-2 rounded-lg border ${pending ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
-                               <div className="w-1/3 flex flex-col">
-                                 <span className="font-bold text-xs">{u.unit_number}</span>
-                                 <span className="text-[10px] text-slate-500">{u.unit_type || 'Unassigned'}</span>
+                            <div key={compositeKey} className={`flex items-center justify-between p-2 rounded-lg border ${pending ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                               <div className="w-1/4 flex flex-col min-w-0">
+                                 <span className="font-bold text-xs truncate">{u.unit_number}</span>
+                                 {isAllMilestones ? (
+                                   <span className="text-[10px] font-medium truncate flex items-center gap-1">
+                                     <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: activeMilestone.color }} />
+                                     {activeMilestone.name}
+                                   </span>
+                                 ) : (
+                                   <span className="text-[10px] text-slate-500">{u.unit_type || 'Unassigned'}</span>
+                                 )}
                                </div>
                                
                                <div className="flex gap-2 items-center flex-1">
@@ -965,7 +1020,7 @@ export default function SettingsMenu({
                                     <input 
                                       type="date" 
                                       value={sDate} 
-                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { startDate: e.target.value || null })}
+                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { startDate: e.target.value || null }, compositeKey)}
                                       className="text-xs px-2 py-1 border border-slate-200 dark:border-slate-600 rounded bg-transparent"
                                     />
                                  </div>
@@ -974,7 +1029,7 @@ export default function SettingsMenu({
                                     <input 
                                       type="date" 
                                       value={eDate} 
-                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { endDate: e.target.value || null })}
+                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { endDate: e.target.value || null }, compositeKey)}
                                       className="text-xs px-2 py-1 border border-slate-200 dark:border-slate-600 rounded bg-transparent"
                                     />
                                  </div>
@@ -982,7 +1037,7 @@ export default function SettingsMenu({
                                     <span className="text-[10px] text-slate-500 ml-1">Override Status</span>
                                     <select 
                                       value={tState}
-                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { state: e.target.value })}
+                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { state: e.target.value }, compositeKey)}
                                       className="text-xs px-2 py-1 border border-slate-200 dark:border-slate-600 rounded bg-transparent"
                                     >
                                        <option value="none">None</option>
@@ -997,7 +1052,8 @@ export default function SettingsMenu({
                        })}
                        {scheduleUnits.length === 0 && <p className="text-center text-sm text-slate-500 py-4">No locations mapped on this level yet.</p>}
                     </div>
-                  ) : (
+                    );
+                  })() : (
                     <div className="text-center py-8 text-slate-400 border border-dashed rounded-lg">
                        Select a Level and Milestone to build schedule.
                     </div>
