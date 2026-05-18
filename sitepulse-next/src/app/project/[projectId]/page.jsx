@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Settings, FolderEdit, Trash2, Pencil } from 'lucide-react';
+import { Settings, FolderEdit, Trash2, Pencil, X } from 'lucide-react';
 import FloorplanCanvas from '@/components/FloorplanCanvas';
 import FieldStatusTable from '@/components/FieldStatusTable';
 import BulkActionDock from '@/components/BulkActionDock';
@@ -279,10 +279,28 @@ function App() {
           setToolMode('pan');
         }
       }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (document.activeElement?.tagName === 'INPUT') return;
+        if (selectedUnitIds.length > 0) {
+          setConfirmModal({
+            message: `Delete ${selectedUnitIds.length} selected unit(s)?`,
+            onConfirm: () => handleDeleteUnits(selectedUnitIds)
+          });
+        }
+      }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selectedUnitIds]);
+  }, [selectedUnitIds, toolMode, confirmModal, isModalOpen, isSettingsOpen, isProjectMenuOpen, quickStatusUnitId, historyModalUnitId, unitNamingOpen, quickMilestoneUnitId]);
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast, setToast]);
 
   useEffect(() => {
     if (selectedUnitIds?.length === 1 && listRefs.current[selectedUnitIds[0]]) {
@@ -687,11 +705,19 @@ function App() {
       {toast && (
         <div
           role="status"
-          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] px-6 py-3 rounded-lg shadow-lg font-medium text-white max-w-md text-center ${
-            toast.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'
+          className={`fixed bottom-[100px] sm:bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-xl shadow-2xl font-bold text-white max-w-sm sm:max-w-md w-max flex items-center justify-between gap-4 transition-all animate-in fade-in slide-in-from-bottom-4 ${
+            toast.type === 'error' ? 'bg-red-600' : 
+            toast.type === 'info' ? 'bg-sky-600' : 'bg-emerald-600'
           }`}
         >
-          {toast.message}
+          <span className="text-sm tracking-wide truncate">{toast.message}</span>
+          <button 
+            onClick={() => setToast(null)}
+            className="p-1 hover:bg-white/20 rounded-full transition-colors active:scale-95 shrink-0"
+            aria-label="Dismiss notification"
+          >
+            <X size={16} strokeWidth={3} />
+          </button>
         </div>
       )}
 
