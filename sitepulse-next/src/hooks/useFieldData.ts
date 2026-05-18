@@ -3,6 +3,13 @@ import { useParams } from 'next/navigation';
 import { useMapStore } from '@/store/useMapStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useProject, useUnits, useMilestones } from '@/hooks/useProjectQueries';
+import {
+  persistPendingChanges,
+  persistPendingTimelineChanges,
+  loadPendingChanges,
+  loadPendingTimelineChanges,
+  clearPersistedPendingChanges,
+} from '@/utils/pendingChangesStore';
 import type { Unit, StatusLog, PendingChangesMap, PendingChange, TemporalState, Milestone } from '@/types/domain';
 
 interface UseFieldDataProps {
@@ -53,6 +60,38 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   const [pendingChanges, setPendingChanges] = useState<PendingChangesMap>({});
   const [pendingTimelineChanges, setPendingTimelineChanges] = useState<PendingChangesMap>({});
   const [isApplying, setIsApplying] = useState<boolean>(false);
+
+  // --- Rehydrate persisted pending changes from IDB on mount / project change ---
+  const [hasRehydrated, setHasRehydrated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHasRehydrated(false); // Reset on projectId change
+
+    (async () => {
+      const [savedPending, savedTimeline] = await Promise.all([
+        loadPendingChanges(projectId),
+        loadPendingTimelineChanges(projectId),
+      ]);
+      if (cancelled) return;
+      if (Object.keys(savedPending).length > 0) setPendingChanges(savedPending);
+      if (Object.keys(savedTimeline).length > 0) setPendingTimelineChanges(savedTimeline);
+      setHasRehydrated(true);
+    })();
+
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // --- Persist pending changes to IDB on every update ---
+  useEffect(() => {
+    if (!hasRehydrated) return; // Don't write back initial empty state before rehydration
+    persistPendingChanges(projectId, pendingChanges);
+  }, [pendingChanges, hasRehydrated, projectId]);
+
+  useEffect(() => {
+    if (!hasRehydrated) return;
+    persistPendingTimelineChanges(projectId, pendingTimelineChanges);
+  }, [pendingTimelineChanges, hasRehydrated, projectId]);
 
   // Sync viewStyle when the defaultView prop changes (e.g. settings updated)
   useEffect(() => {
@@ -142,6 +181,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   const handleDiscardAll = () => {
     setPendingChanges({});
     setPendingTimelineChanges({});
+    clearPersistedPendingChanges(projectId);
   };
 
   const pendingCount = useMemo(() => {
@@ -177,6 +217,9 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
       await onApplyPendingChanges?.(finalChanges);
       setPendingChanges({});
       setPendingTimelineChanges({});
+      // Clear IDB only on success — if onApplyPendingChanges throws, both
+      // in-memory state and IDB remain intact so the user can retry.
+      await clearPersistedPendingChanges(projectId);
     } finally {
       setIsApplying(false);
     }
@@ -268,6 +311,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   return {
     units,
     projectUnitTypes,
+    hasRehydrated,
     currentMilestones,
     ranked,
     visible,

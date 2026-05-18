@@ -6,6 +6,7 @@ import SwipeCard from '@/components/SwipeCard';
 import { motion, AnimatePresence } from 'framer-motion';
 import PendingReviewDrawer from './PendingReviewDrawer';
 import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
+import SyncIndicator from '@/components/ui/SyncIndicator';
 import type { Unit, StatusLog, Milestone, Sheet, PendingChangesMap, PendingChange, TemporalState } from '@/types/domain';
 
 interface MobileSwipeDeckProps {
@@ -24,6 +25,7 @@ interface MobileSwipeDeckProps {
   onChooseStatus?: (unitId: string, milestoneName: string, state: string, track: string) => void;
   savingUnitId?: string | null;
   isApplying: boolean;
+  hasRehydrated: boolean;
   typeFilter: string;
   setTypeFilter: (val: string) => void;
   projectUnitTypes: string[];
@@ -51,6 +53,7 @@ export default function MobileSwipeDeck({
   rawStatuses,
   onChooseStatus,
   isApplying,
+  hasRehydrated,
   typeFilter,
   setTypeFilter,
   projectUnitTypes = [],
@@ -228,9 +231,14 @@ export default function MobileSwipeDeck({
             className="shrink-0 p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 bg-white/50 dark:bg-black/20 rounded-full transition-colors"
             aria-label="Back to Dashboard"
           >
-            <ArrowLeft size={20} />
+          <ArrowLeft size={20} />
           </button>
-          
+
+          <SyncIndicator
+            pendingCount={pendingCount}
+            isApplying={isApplying}
+            hasRehydrated={hasRehydrated}
+          />
           <div className="relative flex items-center flex-1 min-w-0">
             <select
               className="appearance-none w-full bg-white/80 dark:bg-black/40 border border-slate-200/80 dark:border-white/10 rounded-lg px-4 py-2 pr-8 text-sm font-bold text-slate-700 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer truncate"

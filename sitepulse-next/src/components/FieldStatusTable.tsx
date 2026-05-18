@@ -6,7 +6,16 @@ import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useFieldData } from '@/hooks/useFieldData';
 import WalkSequenceModal from './WalkSequenceModal';
-import MobileSwipeDeck from './MobileSwipeDeck';
+import dynamic from 'next/dynamic';
+
+const MobileSwipeDeck = dynamic(() => import('./MobileSwipeDeck'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-slate-300 border-t-sky-500 rounded-full animate-spin" />
+    </div>
+  ),
+});
 import DesktopCardGrid from './DesktopCardGrid';
 import StatusTable from './StatusTable';
 import type { Sheet } from '@/types/domain';
@@ -61,6 +70,7 @@ export default function FieldStatusTable({
   const {
     units,
     projectUnitTypes,
+    hasRehydrated,
     currentMilestones,
     visible,
     sortColumn,
@@ -223,6 +233,7 @@ export default function FieldStatusTable({
           currentMilestones={currentMilestones}
           rawStatuses={rawStatuses}
           isApplying={isApplying}
+          hasRehydrated={hasRehydrated}
           typeFilter={typeFilter}
           setTypeFilter={setTypeFilter}
           projectUnitTypes={projectUnitTypes}
