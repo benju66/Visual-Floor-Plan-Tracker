@@ -1,6 +1,6 @@
 "use client";
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Undo2, Redo2, ArrowLeft, ArrowRight, ChevronDown, ArrowDown, ArrowUp, ListFilter } from 'lucide-react';
+import { Undo2, Redo2, ArrowLeft, ArrowRight, ChevronDown, ArrowDown, ArrowUp, ListFilter, Home, Settings } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import SwipeCard from '@/components/SwipeCard';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -83,6 +83,7 @@ export default function MobileSwipeDeck({
   const [actionDirection, setActionDirection] = useState<'left' | 'right' | 'none'>('none');
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const setToast = useUIStore(s => s.setToast);
+  const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
 
   useEffect(() => {
     if (pendingCount === 0) setIsDrawerOpen(false);
@@ -358,7 +359,25 @@ export default function MobileSwipeDeck({
            </div>
          )}
 
-         <div className="px-4 pb-3 pt-2 border-t border-slate-100 dark:border-slate-800/50 flex justify-end">
+         <div className="px-4 pb-3 pt-2 border-t border-slate-100 dark:border-slate-800/50 flex items-center justify-between">
+           <div className="flex items-center gap-2">
+             <button
+               onClick={() => router.push('/dashboard')}
+               className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors px-3 py-2 rounded-lg"
+             >
+               <Home size={14} /> Dash
+             </button>
+             <button
+               onClick={() => {
+                 setIsSettingsOpen(true);
+                 setIsFiltersOpen(false);
+               }}
+               className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors px-3 py-2 rounded-lg"
+             >
+               <Settings size={14} /> Settings
+             </button>
+           </div>
+           
            <button 
              onClick={() => {
                setSwipedHistory([]);
@@ -367,9 +386,9 @@ export default function MobileSwipeDeck({
                setToast({ message: 'Deck history reset', type: 'info' });
                setIsFiltersOpen(false);
              }}
-             className="text-[11px] font-black uppercase tracking-widest text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/30 transition-colors px-4 py-2 rounded-lg"
+             className="text-[11px] font-black uppercase tracking-widest text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/30 transition-colors px-3 py-2 rounded-lg"
            >
-             Reset Deck History
+             Reset Deck
            </button>
          </div>
             </motion.div>

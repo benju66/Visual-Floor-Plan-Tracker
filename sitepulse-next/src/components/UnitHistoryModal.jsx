@@ -83,7 +83,7 @@ export default function UnitHistoryModal({ isOpen, onClose, unitId, unitNumber }
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {logs.map((log) => {
-                    const date = new Date(log.created_at);
+                    const date = new Date(log.changed_at || log.created_at);
                     const isCompleted = log.temporal_state === 'completed';
                     const isOngoing = log.temporal_state === 'ongoing';
                     return (

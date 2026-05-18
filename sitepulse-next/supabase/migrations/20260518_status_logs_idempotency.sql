@@ -3,11 +3,14 @@
 -- Purpose: Eliminate offline queue sync data bloat by making
 --          status_logs slot-unique (one row per unit/track/milestone)
 --          and creating an append-only audit log for full history.
+--
+-- IDEMPOTENT: Safe to re-run. Every step is guarded.
 -- ============================================================
 
 -- ============================================================
 -- STEP 1: Deduplicate existing rows — keep latest per slot
--- CAUTION: This is destructive. Back up status_logs before running.
+-- CAUTION: This is destructive on first run. Back up status_logs first.
+-- On re-run: constraint already enforces uniqueness, so 0 rows deleted.
 -- ============================================================
 DELETE FROM status_logs
 WHERE id NOT IN (
@@ -18,12 +21,20 @@ WHERE id NOT IN (
 );
 
 -- ============================================================
--- STEP 2: Add slot-unique constraint
+-- STEP 2: Add slot-unique constraint (guarded)
 -- Ensures only one current-state row per (unit_id, track, milestone).
 -- ============================================================
-ALTER TABLE status_logs
-  ADD CONSTRAINT status_logs_slot_unique
-  UNIQUE (unit_id, track, milestone);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'status_logs_slot_unique'
+  ) THEN
+    ALTER TABLE status_logs
+      ADD CONSTRAINT status_logs_slot_unique
+      UNIQUE (unit_id, track, milestone);
+  END IF;
+END
+$$;
 
 -- ============================================================
 -- STEP 3: Create status_audit_log (append-only history table)
@@ -56,6 +67,28 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_completed
   WHERE temporal_state = 'completed' AND logged_date IS NOT NULL;
 
 -- ============================================================
+-- STEP 3b: RLS for status_audit_log (guarded)
+-- Must mirror the status_logs policy so authenticated users
+-- can read audit history. Writes are trigger-only (SECURITY DEFINER).
+-- ============================================================
+ALTER TABLE status_audit_log ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'status_audit_log'
+      AND policyname = 'Authenticated users can read audit logs'
+  ) THEN
+    CREATE POLICY "Authenticated users can read audit logs"
+      ON status_audit_log FOR SELECT
+      TO authenticated
+      USING (true);
+  END IF;
+END
+$$;
+
+-- ============================================================
 -- STEP 4: Trigger — auto-append to audit log on every write
 -- Fires on both INSERT (first slot write) and UPDATE (upserts).
 -- NOTE: auth.uid() is NOT available inside SECURITY DEFINER
@@ -78,6 +111,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Drop-and-recreate trigger (triggers don't support CREATE OR REPLACE)
+DROP TRIGGER IF EXISTS trg_status_log_audit ON status_logs;
 CREATE TRIGGER trg_status_log_audit
   AFTER INSERT OR UPDATE ON status_logs
   FOR EACH ROW EXECUTE FUNCTION fn_status_log_audit();

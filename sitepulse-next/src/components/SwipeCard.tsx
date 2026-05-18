@@ -1,9 +1,10 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence, animate } from 'framer-motion';
-import { ArrowRight, X, ListTodo, AlertTriangle } from 'lucide-react';
+import { ArrowRight, X, ListTodo, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import type { Unit, StatusLog, Milestone, PendingChange, TemporalState, StatusLogAugmented, BottleneckSequence } from '@/types/domain';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
+import { useUIStore } from '@/store/useUIStore';
 
 const getBadgeStyle = (state: TemporalState) => {
   switch (state) {
@@ -68,6 +69,8 @@ const SwipeCard = ({
   entryDirection,
 }: SwipeCardProps) => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const hideCompletedTimeline = useUIStore(s => s.hideCompletedTimeline);
+  const setHideCompletedTimeline = useUIStore(s => s.setHideCompletedTimeline);
 
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-10, 10]);
@@ -334,17 +337,38 @@ const SwipeCard = ({
                     </p>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsHistoryOpen(false);
-                  }}
-                  aria-label="Close history"
-                  className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors active:scale-95 shrink-0"
-                >
-                  <X size={18} strokeWidth={2.5} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setHideCompletedTimeline(!hideCompletedTimeline);
+                    }}
+                    aria-label={hideCompletedTimeline ? "Show completed items" : "Hide completed items"}
+                    className={`h-10 px-3 flex items-center justify-center gap-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-colors shrink-0 ${
+                      hideCompletedTimeline
+                        ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400'
+                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {hideCompletedTimeline ? (
+                      <><EyeOff size={14} /> Hidden</>
+                    ) : (
+                      <><Eye size={14} /> Showing</>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsHistoryOpen(false);
+                    }}
+                    aria-label="Close history"
+                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors active:scale-95 shrink-0"
+                  >
+                    <X size={18} strokeWidth={2.5} />
+                  </button>
+                </div>
               </div>
 
               <div
@@ -421,6 +445,8 @@ const SwipeCard = ({
                     : isCurrentMilestone
                       ? pendingState
                       : (mLog?.temporal_state as TemporalState) || 'none';
+
+                  if (hideCompletedTimeline && state === 'completed') return null;
 
                   return (
                     <div key={m.name} className="border-b border-slate-100 dark:border-white/6 last:border-b-0 px-4 py-2.5">

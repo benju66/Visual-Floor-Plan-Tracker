@@ -48,6 +48,9 @@ export interface UIState {
 
   newLevelName: string;
   setNewLevelName: (val: Updater<string>) => void;
+
+  hideCompletedTimeline: boolean;
+  setHideCompletedTimeline: (val: Updater<boolean>) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -88,12 +91,16 @@ export const useUIStore = create<UIState>()(
 
       newLevelName: '',
       setNewLevelName: (val) => set((state) => ({ newLevelName: typeof val === 'function' ? val(state.newLevelName) : val })),
+
+      hideCompletedTimeline: false,
+      setHideCompletedTimeline: (val) => set((state) => ({ hideCompletedTimeline: typeof val === 'function' ? val(state.hideCompletedTimeline) : val })),
     }),
     {
       name: 'sitepulse-ui-session',
       storage: createJSONStorage(() => sessionStorage),
       partialize: (state) => ({
         viewMode: state.viewMode,
+        hideCompletedTimeline: state.hideCompletedTimeline,
       })
     }
   )

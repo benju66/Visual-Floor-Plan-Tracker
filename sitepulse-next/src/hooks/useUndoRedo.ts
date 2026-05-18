@@ -58,7 +58,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           await supabase.from('units').insert([action.unitData as any]);
         }
         if (action.statusData) {
-          await supabase.from('status_logs').insert([action.statusData as any]);
+          await supabase.from('status_logs').upsert([action.statusData as any], { onConflict: 'unit_id,track,milestone' });
         }
         break;
 
@@ -84,7 +84,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           const milestone = action.newLog?.milestone;
           insertObj = { unit_id: action.unitId, track, milestone, temporal_state: 'none' };
         }
-        await supabase.from('status_logs').insert([insertObj]);
+        await supabase.from('status_logs').upsert([insertObj], { onConflict: 'unit_id,track,milestone' });
         break;
 
       case 'BULK_UPDATE_STATUS':
@@ -130,7 +130,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
 
           if (logsToInsert.length > 0) {
             for (let i = 0; i < logsToInsert.length; i += CHUNK_SIZE) {
-              await supabase.from('status_logs').insert(logsToInsert.slice(i, i + CHUNK_SIZE) as any);
+              await supabase.from('status_logs').upsert(logsToInsert.slice(i, i + CHUNK_SIZE) as any, { onConflict: 'unit_id,track,milestone' });
             }
           }
         }
@@ -184,7 +184,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         });
         if (action.newLog) {
           const { id, created_at, ...rest } = action.newLog as any;
-          await supabase.from('status_logs').insert([rest]);
+          await supabase.from('status_logs').upsert([rest], { onConflict: 'unit_id,track,milestone' });
         }
         break;
 
@@ -207,7 +207,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           const CHUNK_SIZE = 800;
           const logsToInsert: any[] = action.newLogs.map(({ id, created_at, ...rest }: any) => rest);
           for (let i = 0; i < logsToInsert.length; i += CHUNK_SIZE) {
-            await supabase.from('status_logs').insert(logsToInsert.slice(i, i + CHUNK_SIZE) as any);
+            await supabase.from('status_logs').upsert(logsToInsert.slice(i, i + CHUNK_SIZE) as any, { onConflict: 'unit_id,track,milestone' });
           }
         }
         break;

@@ -31,12 +31,29 @@ export default function QueryProvider({ children }) {
     const channel = supabase.channel('sitepulse-global-sync')
       .on(
         'postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'status_logs' }, 
+        // With slot-unique status_logs, most writes are UPSERTs which fire as UPDATE events.
+        // Listen to all change types (INSERT, UPDATE, DELETE) to keep caches in sync.
+        { event: '*', schema: 'public', table: 'status_logs' }, 
         (payload) => {
+          if (payload.eventType === 'DELETE') {
+            // Remove deleted log from all caches
+            const oldLog = payload.old;
+            const removeFromCache = (old) => {
+              if (!old) return old;
+              return old.filter(s => s.id !== oldLog.id);
+            };
+            const queries = queryClient.getQueriesData({ queryKey: ['statuses'] });
+            queries.forEach(([queryKey]) => {
+              queryClient.setQueryData(queryKey, removeFromCache);
+            });
+            queryClient.setQueriesData({ queryKey: ['all_project_statuses'] }, removeFromCache);
+            return;
+          }
+
+          // INSERT or UPDATE — inject/replace the log in all caches
           const newLog = payload.new;
 
           // 1. Inject into the specific sheet's cache
-          // (Note: This relies on the active sheets being cached. We update all instances.)
           const queries = queryClient.getQueriesData({ queryKey: ['statuses'] });
           queries.forEach(([queryKey, oldData]) => {
             if (!oldData) return;

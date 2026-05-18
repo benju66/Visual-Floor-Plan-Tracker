@@ -16,7 +16,7 @@ SitePulse is an enterprise-grade construction project management platform focuse
 **Backend API (`/sitepulse-backend`)**
 * **Framework:** [FastAPI](https://fastapi.tiangolo.com/) (High-performance Async Python)
 * **PDF Processing:** [PyMuPDF / fitz](https://pymupdf.readthedocs.io/) (High-fidelity conversion, exact matrix mapping, vector markup regeneration)
-* **Authentication:** Supabase Auth (`supabase.auth.get_user()` for rock-solid JWT validation)
+* **Authentication:** Supabase Auth (Local JWT validation via `PyJWT` — no network round-trip)
 * **Database & Storage:** Supabase (PostgreSQL, Storage buckets for original and converted sheets)
 
 ## 🚀 Core Features
@@ -25,7 +25,7 @@ SitePulse is an enterprise-grade construction project management platform focuse
 * **Hybrid Vector-Snapping Engine:** A high-precision, invisible R-Tree spatial index that extracts architectural lines from source CAD/PDFs. It allows users to trace perfectly straight, pixel-accurate walls by mathematically locking the drawing cursor and nodes to the original structural geometries (with gravity corner-snapping).
 * **Enterprise State Integrity:** Built to prevent data races. Tracks *Planned*, *Ongoing*, and *Completed* stages with precise sequence enforcement and downstream bottleneck detection.
 * **Architectural PDF Exports:** Unlike standard dashboard tools that just take a screen capture, SitePulse calculates the exact matrix de-rotation of your original PDF to programmatically inject visual statuses (hatching, opacity, lines) back into the source PDF file as Bluebeam-compatible annotations.
-* **Enterprise Synchronization Engine:** Features a zero data-loss offline mutation queue via IndexedDB for field workers in connectivity dead-zones, paired with real-time surgical WebSocket cache injections for instantly responsive, thundering-herd-proof dashboards.
+* **Idempotent Synchronization Engine:** A defense-in-depth offline sync stack featuring slot-unique `UPSERT` mutations (one row per unit/track/milestone), a Last-Write-Wins timestamp guard via Postgres RPC, per-item IndexedDB checkpointing for crash-proof field syncs, and a trigger-managed `status_audit_log` for full-fidelity historical audit trails. Paired with real-time WebSocket cache injections for thundering-herd-proof dashboards.
 * **Centralized Scheduling:** Transition effortlessly between the visual canvas and a spreadsheet-like data grid to manage start/completion dates automatically linked to visually mapped units.
 * **Procore SSO Integration:** Native deep-linking from the Procore App Marketplace directly into project canvases, with automated domain-restricted user provisioning and project auto-enrollment.
 * **Mobile Field Experience (Swipe Deck):** An enterprise-grade, gesture-driven mobile interface optimized for high-speed field triage. Features "Smart Confirm" swipe navigation, inline segmented controls for exact status assignment, proactive out-of-sequence bottleneck detection (with persistent UI banners), and a robust multi-layer Snapshot Undo queue to ensure absolute data integrity.
@@ -83,6 +83,18 @@ uvicorn main:app --reload
 * **Map vs Table Sync:** The application features deep integration between the `Canvas` elements and the `FieldStatusTable`. Updates made visually immediately reflect in the table, and vice-versa.
 * **Coordinate Mapping:** Frontend Konva percentages (`pctX`, `pctY`) are utilized to keep shapes responsive. Upon PDF export, the backend transforms these percentages against `CropBox` matrices and `derotation_matrix` logic to perfectly apply Bluebeam-ready vector annotations regardless of sheet crop orientations.
 * **Event Propagation:** Strict control is maintained over click events (`e.cancelBubble = true`) to prevent dragging operations from inadvertently selecting elements beneath them on the interactive canvas.
+* **Slot-Unique Status Model:** `status_logs` enforces `UNIQUE(unit_id, track, milestone)` — one current-state row per slot. All mutations use the `upsert_status_log` RPC or `.upsert()`. History is preserved in the append-only `status_audit_log` table via a Postgres trigger.
+* **Offline-First Sync:** Pending changes are persisted to IndexedDB with project-scoped keys. The sync engine (`handleApplyAll`) dequeues items individually, checkpointing to IDB after each success. `client_timestamp` reflects offline-capture time, not sync time.
+
+## 🗃️ Database Migrations
+
+SQL migrations live in `sitepulse-next/supabase/migrations/`. These must be applied to your Supabase project manually via the SQL Editor or Supabase CLI before deploying frontend changes that depend on them.
+
+| Migration | Purpose |
+|---|---|
+| `20260518_status_logs_idempotency.sql` | Deduplicates existing rows, adds slot-unique constraint, creates `status_audit_log` table + trigger, and deploys the `upsert_status_log` RPC with LWW timestamp guard |
+
+> ⚠️ **The dedup step is destructive.** Always back up `status_logs` before running.
 
 ---
 *Built for the future of construction management.*
