@@ -2,9 +2,12 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
-from supabase.lib.client_options import ClientOptions
+from supabase.lib.client_options import ClientOptions as _BaseClientOptions
+from supabase_auth._sync.storage import SyncSupportedStorage
+from dataclasses import dataclass
 from pydantic import BaseModel
 from typing import List, Optional, Dict
+from contextlib import asynccontextmanager
 import os
 import io
 import shutil
@@ -17,7 +20,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI(title="SitePulse Backend API")
+@dataclass
+class SafeClientOptions(_BaseClientOptions):
+    """Guard against supabase-py v2.28.3 regression where ClientOptions
+    dropped the 'storage' and 'httpx_client' fields but _init_supabase_auth_client
+    still reads them. Uses the correct types per library contract."""
+    storage: Optional[SyncSupportedStorage] = None
+    httpx_client: Optional[object] = None
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
@@ -26,14 +35,6 @@ allowed_origins = [url.strip() for url in FRONTEND_URL.split(",")]
 for default_url in ["http://localhost:3000", "https://sitepulse.build"]:
     if default_url not in allowed_origins:
         allowed_origins.append(default_url)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins, 
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
@@ -47,10 +48,36 @@ if not supabase_url or not supabase_key or not supabase_jwt_secret:
 supabase: Client = create_client(
     supabase_url,
     supabase_key,
-    options=ClientOptions(
+    options=SafeClientOptions(
         postgrest_client_timeout=25,
         storage_client_timeout=25,
     )
+)
+
+@asynccontextmanager
+async def lifespan(app):
+    """Fail fast with clear diagnostics if Supabase sub-clients failed to init."""
+    checks = {
+        "auth": hasattr(supabase, "auth"),
+        "storage": hasattr(supabase, "storage"),
+        "postgrest": hasattr(supabase, "postgrest"),
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    if failed:
+        raise RuntimeError(
+            f"FATAL: Supabase client missing sub-clients: {', '.join(failed)}. "
+            f"Check supabase-py version compatibility."
+        )
+    yield
+
+app = FastAPI(title="SitePulse Backend API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins, 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.get("/")
