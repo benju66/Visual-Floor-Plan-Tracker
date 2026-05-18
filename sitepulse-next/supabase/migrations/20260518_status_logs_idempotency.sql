@@ -21,6 +21,13 @@ WHERE id NOT IN (
 );
 
 -- ============================================================
+-- STEP 1b: Relax logged_date — allow NULL for non-completed statuses
+-- logged_date is only meaningful for 'completed' milestones.
+-- 'planned' and 'ongoing' statuses have no completion date.
+-- ============================================================
+ALTER TABLE status_logs ALTER COLUMN logged_date DROP NOT NULL;
+
+-- ============================================================
 -- STEP 2: Add slot-unique constraint (guarded)
 -- Ensures only one current-state row per (unit_id, track, milestone).
 -- ============================================================
