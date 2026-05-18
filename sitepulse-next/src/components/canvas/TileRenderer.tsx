@@ -1,6 +1,12 @@
 "use client";
-import React, { useEffect, useRef, useCallback, useState } from 'react';
+import React, { useEffect, useRef, useImperativeHandle, useState } from 'react';
 import OpenSeadragon from 'openseadragon';
+
+export interface TileRendererHandle {
+  /** Synchronously sync the OSD viewport to the given Konva state — call this from
+   *  the same execution frame as a Konva stage mutation to eliminate visual lag. */
+  syncViewport: (scale: number, position: { x: number; y: number }) => void;
+}
 
 export interface TileRendererProps {
   /** Public URL to the DZI manifest XML */
@@ -20,6 +26,9 @@ export interface TileRendererProps {
   layout: { offsetX: number; offsetY: number; drawW: number; drawH: number; stageW: number; stageH: number };
   /** Callback to report when the viewer is ready */
   onReady?: () => void;
+  /** Ref passed as a prop because next/dynamic does not forward native refs.
+   *  Exposes syncViewport() for frame-aligned imperative OSD updates. */
+  forwardedRef?: React.Ref<TileRendererHandle>;
 }
 
 /**
@@ -29,6 +38,10 @@ export interface TileRendererProps {
  * The Konva stage is the "source of truth" for viewport state (scale/position).
  * This component listens to prop changes and syncs the OpenSeadragon viewport accordingly.
  * OpenSeadragon handles all tile fetching, caching, and progressive loading internally.
+ *
+ * For frame-aligned sync (zero-lag during wheel/pan), FloorplanCanvas calls
+ * syncViewport() imperatively via the forwardedRef handle in the same execution
+ * frame as the Konva direct mutation.
  */
 const TileRenderer: React.FC<TileRendererProps> = ({
   tileManifestUrl,
@@ -41,11 +54,73 @@ const TileRenderer: React.FC<TileRendererProps> = ({
   stagePosition,
   layout,
   onReady,
+  forwardedRef,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<OpenSeadragon.Viewer | null>(null);
   const isSyncingRef = useRef(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  // Track the last synchronous sync frame to avoid redundant useEffect syncs
+  const lastSyncFrameRef = useRef(0);
+
+  /**
+   * Core sync calculation — translates Konva viewport state into OSD viewport bounds.
+   * Used by both the imperative syncViewport() handle and the prop-driven useEffect fallback.
+   */
+  const performSync = (scale: number, position: { x: number; y: number }) => {
+    const viewer = viewerRef.current;
+    if (!viewer || !isInitialized || !layout.drawW || !layout.drawH) return;
+
+    isSyncingRef.current = true;
+
+    try {
+      const viewport = viewer.viewport;
+      
+      // Calculate the aspect-ratio-fitted image position in the OSD coordinate system.
+      // OSD uses a coordinate system where the image width = 1.0
+      const imageAspect = imageWidth / imageHeight;
+      
+      // Current visible area in Konva logical coords (before stage transform):
+      const viewLeft = (-position.x / scale);
+      const viewTop = (-position.y / scale);
+      const viewWidth = containerWidth / scale;
+      const viewHeight = containerHeight / scale;
+      
+      // Convert to image-relative coordinates (0-1 range, relative to the drawn image)
+      const imgLeft = (viewLeft - layout.offsetX) / layout.drawW;
+      const imgTop = (viewTop - layout.offsetY) / layout.drawH;
+      const imgRight = (viewLeft + viewWidth - layout.offsetX) / layout.drawW;
+      const imgBottom = (viewTop + viewHeight - layout.offsetY) / layout.drawH;
+      
+      // Convert to OSD viewport coordinates
+      // In OSD, x goes 0..1 for image width, y goes 0..(1/aspect) for image height
+      const osdLeft = imgLeft;
+      const osdTop = imgTop / imageAspect;
+      const osdRight = imgRight;
+      const osdBottom = imgBottom / imageAspect;
+      
+      const osdRect = new OpenSeadragon.Rect(
+        osdLeft,
+        osdTop, 
+        osdRight - osdLeft,
+        osdBottom - osdTop
+      );
+      
+      viewport.fitBounds(osdRect, true); // true = immediately, no animation
+    } catch (e) {
+      // Viewport may not be ready yet
+    } finally {
+      isSyncingRef.current = false;
+    }
+  };
+
+  // Expose imperative sync handle via forwardedRef (next/dynamic cannot forward native refs)
+  useImperativeHandle(forwardedRef, () => ({
+    syncViewport: (scale: number, position: { x: number; y: number }) => {
+      lastSyncFrameRef.current = performance.now();
+      performSync(scale, position);
+    }
+  }), [isInitialized, layout, containerWidth, containerHeight, imageWidth, imageHeight]);
 
   // Initialize OpenSeadragon viewer
   useEffect(() => {
@@ -108,57 +183,12 @@ const TileRenderer: React.FC<TileRendererProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tileManifestUrl, tilesBaseUrl, imageWidth, imageHeight]);
 
-  // Sync OpenSeadragon viewport to match Konva stage state
+  // Prop-driven sync fallback — fires when React state updates (e.g., button zoom, reset view).
+  // Skipped when a synchronous sync already occurred in the same frame (within 16ms).
   useEffect(() => {
-    const viewer = viewerRef.current;
-    if (!viewer || !isInitialized || !layout.drawW || !layout.drawH) return;
-
-    isSyncingRef.current = true;
-
-    try {
-      const viewport = viewer.viewport;
-      
-      // Calculate the aspect-ratio-fitted image position in the OSD coordinate system.
-      // OSD uses a coordinate system where the image width = 1.0
-      // We need to translate Konva's pixel-based stagePosition/stageScale into OSD viewport coords.
-      
-      const imageAspect = imageWidth / imageHeight;
-      
-      // In OSD coordinates, the image goes from (0,0) to (1, 1/aspect)
-      // The Konva stage maps the image to layout.offsetX, layout.offsetY with drawW×drawH
-      
-      // Current visible area in Konva logical coords (before stage transform):
-      const viewLeft = (-stagePosition.x / stageScale);
-      const viewTop = (-stagePosition.y / stageScale);
-      const viewWidth = containerWidth / stageScale;
-      const viewHeight = containerHeight / stageScale;
-      
-      // Convert to image-relative coordinates (0-1 range, relative to the drawn image)
-      const imgLeft = (viewLeft - layout.offsetX) / layout.drawW;
-      const imgTop = (viewTop - layout.offsetY) / layout.drawH;
-      const imgRight = (viewLeft + viewWidth - layout.offsetX) / layout.drawW;
-      const imgBottom = (viewTop + viewHeight - layout.offsetY) / layout.drawH;
-      
-      // Convert to OSD viewport coordinates
-      // In OSD, x goes 0..1 for image width, y goes 0..(1/aspect) for image height
-      const osdLeft = imgLeft;
-      const osdTop = imgTop / imageAspect;
-      const osdRight = imgRight;
-      const osdBottom = imgBottom / imageAspect;
-      
-      const osdRect = new OpenSeadragon.Rect(
-        osdLeft,
-        osdTop, 
-        osdRight - osdLeft,
-        osdBottom - osdTop
-      );
-      
-      viewport.fitBounds(osdRect, true); // true = immediately, no animation
-    } catch (e) {
-      // Viewport may not be ready yet
-    } finally {
-      isSyncingRef.current = false;
-    }
+    // If a synchronous sync happened very recently (same frame), skip the prop-driven sync
+    if (performance.now() - lastSyncFrameRef.current < 16) return;
+    performSync(stageScale, stagePosition);
   }, [stageScale, stagePosition, layout, containerWidth, containerHeight, imageWidth, imageHeight, isInitialized]);
 
   // Resize the OSD container when dimensions change

@@ -2,17 +2,16 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.responses import StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import os
 import io
-import glob
 import shutil
 import tempfile
 import fitz  # PyMuPDF for fast PDF to Image conversion
-import math
+import jwt  # PyJWT — local JWT validation, no network round-trip
 import pyvips
-from jose import jwt, JWTError, ExpiredSignatureError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 
@@ -43,7 +42,16 @@ supabase_jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
 if not supabase_url or not supabase_key or not supabase_jwt_secret:
     raise ValueError("FATAL ERROR: Supabase keys are missing from the .env file!")
 
-supabase: Client = create_client(supabase_url, supabase_key)
+# Configure explicit timeouts to prevent PDF/storage downloads from hanging
+# until Render's 30-second platform deadline fires an opaque process kill.
+supabase: Client = create_client(
+    supabase_url,
+    supabase_key,
+    options=ClientOptions(
+        postgrest_client_timeout=25,
+        storage_client_timeout=25,
+    )
+)
 
 @app.get("/")
 def health_check():
@@ -52,19 +60,28 @@ def health_check():
 security = HTTPBearer()
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Validates the Supabase JWT locally using SUPABASE_JWT_SECRET.
+    Eliminates the blocking network call to supabase.auth.get_user() that
+    was the primary cause of /extract-vectors request timeouts.
+    """
     token = credentials.credentials
     try:
-        user_response = supabase.auth.get_user(token)
-        
-        if not user_response or not user_response.user:
-            raise HTTPException(status_code=401, detail="Invalid token structure")
-            
-        if user_response.user.role != "authenticated":
+        payload = jwt.decode(
+            token,
+            supabase_jwt_secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False},  # Supabase uses role claim, not URL audience
+        )
+        if payload.get("role") != "authenticated":
             raise HTTPException(status_code=401, detail="Not authorized")
-            
-        return {"sub": user_response.user.id, "role": user_response.user.role}
-        
-    except Exception as e:
+        return {"sub": payload["sub"], "role": payload["role"]}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=401,
+            detail="Token expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except jwt.PyJWTError:
         raise HTTPException(
             status_code=401,
             detail="Invalid authentication credentials",
@@ -253,11 +270,15 @@ async def upload_and_convert_floorplan(
                 print(f"[WARN] Tile generation skipped (libvips unavailable?): {tile_err}")
                 # Upload succeeded — viewer will fall back to base_image_url
 
-            # Invalidate cached vectors (F6) — forces re-extraction for new PDF
+            # Pre-extract vectors and populate cache (non-fatal)
             try:
-                supabase.table("sheet_vectors").delete().eq("sheet_id", sheet_id).execute()
-            except Exception:
-                pass  # Table may not exist yet during migration
+                vectors = extract_vectors_from_pdf(single_page_pdf_bytes)
+                supabase.table("sheet_vectors").upsert(
+                    {"sheet_id": sheet_id, "vectors": vectors},
+                    on_conflict="sheet_id"
+                ).execute()
+            except Exception as vec_err:
+                print(f"[WARN] Vector pre-extraction skipped: {vec_err}")
 
             return public_url, manifest_url
 
@@ -294,11 +315,15 @@ async def attach_original_pdf(
                 file=pdf_bytes,
                 file_options={"content-type": "application/pdf"},
             )
-            # Invalidate cached vectors (F6) — new PDF means new geometry
+            # Pre-extract vectors from the new PDF (non-fatal)
             try:
-                supabase.table("sheet_vectors").delete().eq("sheet_id", sheet_id).execute()
-            except Exception:
-                pass
+                vectors = extract_vectors_from_pdf(pdf_bytes)
+                supabase.table("sheet_vectors").upsert(
+                    {"sheet_id": sheet_id, "vectors": vectors},
+                    on_conflict="sheet_id"
+                ).execute()
+            except Exception as vec_err:
+                print(f"[WARN] Vector pre-extraction from attached PDF skipped: {vec_err}")
             
         import asyncio
         await asyncio.to_thread(process_attach)
@@ -309,62 +334,79 @@ async def attach_original_pdf(
         print(f"Error attaching pdf: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def extract_vectors_from_pdf(pdf_bytes: bytes) -> list:
+    """Extract structural line vectors from a PDF page.
+    Returns a list of {start: {pctX, pctY}, end: {pctX, pctY}} dicts.
+    Filters out curves (fixtures) and microscopic lineweights (hatching)."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page = doc[0]
+
+    width = page.rect.width
+    height = page.rect.height
+
+    # Inverse the derotation matrix to map PDF coordinates back to the map percentages
+    inv_derot = ~page.derotation_matrix
+    tl = page.cropbox.tl
+
+    drawings = page.get_drawings()
+    clean_lines = []
+
+    def map_point(p):
+        p_mapped = (p - tl) * inv_derot
+        return {"pctX": p_mapped.x / width, "pctY": p_mapped.y / height}
+
+    for path in drawings:
+        # FILTER 1: Reject curves (doors, toilets, fixtures)
+        if any(item[0] in ('c', 'v', 'y') for item in path["items"]):
+            continue
+
+        # FILTER 2: Reject microscopic lineweights (hatching, shading)
+        path_width = path.get("width")
+        if path_width is not None and path_width < 0.2:
+            continue
+
+        for item in path["items"]:
+            if item[0] == 'l':
+                p1, p2 = item[1], item[2]
+                clean_lines.append({"start": map_point(p1), "end": map_point(p2)})
+
+            elif item[0] == 're':
+                rect = item[1]
+                p1, p2, p3, p4 = rect.tl, rect.tr, rect.br, rect.bl
+                clean_lines.append({"start": map_point(p1), "end": map_point(p2)})
+                clean_lines.append({"start": map_point(p2), "end": map_point(p3)})
+                clean_lines.append({"start": map_point(p3), "end": map_point(p4)})
+                clean_lines.append({"start": map_point(p4), "end": map_point(p1)})
+
+    doc.close()
+    return clean_lines
+
+
 @app.get("/extract-vectors/{sheet_id}")
 async def extract_snapping_vectors(sheet_id: str, user: dict = Depends(get_current_user)):
+    """Fallback endpoint for legacy sheets without pre-extracted vectors.
+    Extracts vectors from the stored PDF and writes through to sheet_vectors cache."""
     try:
         await verify_sheet_access(sheet_id, user["sub"])
 
-        def process_extract():
-            # Download original PDF directly from Storage
+        def process():
             pdf_path = f"originals/{sheet_id}.pdf"
             res = supabase.storage.from_("floorplans").download(pdf_path)
-            doc = fitz.open(stream=res, filetype="pdf")
-            page = doc[0]
-            
-            width = page.rect.width
-            height = page.rect.height
-            
-            # Inverse the derotation matrix to map PDF coordinates back to the map percentages
-            inv_derot = ~page.derotation_matrix
-            tl = page.cropbox.tl
-            
-            drawings = page.get_drawings()
-            clean_lines = []
-
-            def map_point(p):
-                p_mapped = (p - tl) * inv_derot
-                return {"pctX": p_mapped.x / width, "pctY": p_mapped.y / height}
-
-            for path in drawings:
-                # FILTER 1: Reject curves (doors, toilets, fixtures)
-                if any(item[0] in ('c', 'v', 'y') for item in path["items"]):
-                    continue
-                    
-                # FILTER 2: Reject microscopic lineweights (hatching, shading)
-                path_width = path.get("width")
-                if path_width is not None and path_width < 0.2:
-                    continue
-
-                for item in path["items"]:
-                    if item[0] == 'l':
-                        p1, p2 = item[1], item[2]
-                        clean_lines.append({"start": map_point(p1), "end": map_point(p2)})
-                    
-                    elif item[0] == 're':
-                        rect = item[1]
-                        p1, p2, p3, p4 = rect.tl, rect.tr, rect.br, rect.bl
-                        clean_lines.append({"start": map_point(p1), "end": map_point(p2)})
-                        clean_lines.append({"start": map_point(p2), "end": map_point(p3)})
-                        clean_lines.append({"start": map_point(p3), "end": map_point(p4)})
-                        clean_lines.append({"start": map_point(p4), "end": map_point(p1)})
-
-            doc.close()
-            return clean_lines
+            vectors = extract_vectors_from_pdf(res)
+            # Write-through: cache for future reads
+            try:
+                supabase.table("sheet_vectors").upsert(
+                    {"sheet_id": sheet_id, "vectors": vectors},
+                    on_conflict="sheet_id"
+                ).execute()
+            except Exception:
+                pass
+            return vectors
 
         import asyncio
-        clean_lines = await asyncio.to_thread(process_extract)
+        clean_lines = await asyncio.to_thread(process)
         return {"status": "success", "vectors": clean_lines}
-        
+
     except fitz.FileDataError:
         raise HTTPException(status_code=404, detail="Original PDF not found for vector extraction.")
     except HTTPException:
@@ -507,8 +549,7 @@ async def export_status_pdf(
             if req.legend_data:
                 legend = req.legend_data
                 
-                with open("legend_debug.txt", "w") as df:
-                    df.write(str(legend))
+                # (debug file write removed — was leaking user data to disk in production)
                     
                 pctX = legend.get('pctX', 0.05)
                 pctY = legend.get('pctY', 0.05)

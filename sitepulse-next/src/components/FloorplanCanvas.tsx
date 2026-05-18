@@ -1,9 +1,11 @@
 "use client";
-import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path, Text } from 'react-konva';
+import Konva from 'konva';
 import useImage from 'use-image';
 import dynamic from 'next/dynamic';
 import { Check } from 'lucide-react';
+import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 import ViewportControls from '@/components/canvas/ViewportControls';
 import ContextActionDock from '@/components/canvas/ContextActionDock';
 import CanvasContextMenu from '@/components/CanvasContextMenu';
@@ -24,6 +26,7 @@ import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point, Milestone } from '@/types/domain';
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
+import type { TileRendererHandle } from '@/components/canvas/TileRenderer';
 
 // Lazy-load TileRenderer to avoid SSR issues with OpenSeadragon
 const TileRenderer = dynamic(() => import('@/components/canvas/TileRenderer'), { ssr: false });
@@ -127,9 +130,25 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const stageRef = useRef<any>(null);
   const zoomDebounceRef = useRef<any>(null);
+  const tileRendererRef = useRef<TileRendererHandle | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const spaceWasPanRef = useRef<ToolMode | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  // HiDPI / Retina fix: ensure Konva renders at native device pixel ratio
+  useEffect(() => {
+    const updatePixelRatio = () => {
+      const dpr = window.devicePixelRatio || 1;
+      Konva.pixelRatio = dpr;
+    };
+    updatePixelRatio();
+    const mediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const handler = () => updatePixelRatio();
+    mediaQuery.addEventListener?.('change', handler);
+    return () => mediaQuery.removeEventListener?.('change', handler);
+  }, []);
   const [draftPoints, setDraftPoints] = useState<Point[]>([]);
   const draftPointsRef = useRef(draftPoints);
   useEffect(() => { draftPointsRef.current = draftPoints; }, [draftPoints]);
@@ -169,6 +188,12 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const [stageScale, setStageScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
+
+  // Callback refs for functions defined later in the component — used by keyboard shortcuts
+  // inside the useEffect (which runs before those functions are declared).
+  const handleZoomRef = useRef<(direction: number) => void>(() => {});
+  const resetViewRef = useRef<() => void>(() => {});
+  const zoomToFitRef = useRef<(unitId: string) => void>(() => {});
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -227,12 +252,55 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           setDraftPoints([]);
         }
       }
+
+      // --- Phase 2 Keyboard Shortcuts ---
+      if (!isInputActive && !(e.metaKey || e.ctrlKey)) {
+        // Space held = temporary pan (like Figma/Photoshop)
+        if (e.key === ' ' && !spaceWasPanRef.current) {
+          e.preventDefault();
+          spaceWasPanRef.current = toolMode as ToolMode;
+          onToolModeChange('pan');
+        }
+
+        // Number keys for quick tool access
+        if (e.key === '1') onToolModeChange('select');
+        if (e.key === '2') onToolModeChange('pan');
+        if (e.key === '3') onToolModeChange('draw');
+
+        // +/- for zoom (via ref to avoid block-scoped variable error)
+        if (e.key === '=' || e.key === '+') handleZoomRef.current(1);
+        if (e.key === '-' || e.key === '_') handleZoomRef.current(-1);
+
+        // 0 or Home = fit to view
+        if (e.key === '0' || e.key === 'Home') resetViewRef.current();
+
+        // F = fit selection to screen
+        if (e.key === 'f' && selectedUnitIdsRef.current?.length > 0) {
+          zoomToFitRef.current(selectedUnitIdsRef.current[0]);
+        }
+      }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.key === 'Shift') setIsShiftDown(false);
+      // Release space = return to previous tool
+      if (e.key === ' ' && spaceWasPanRef.current) {
+        onToolModeChange(spaceWasPanRef.current);
+        spaceWasPanRef.current = null;
+      }
     };
+
+    // Safety: if user holds Space and switches windows, keyup never fires.
+    // Reset the temporary pan state on window blur.
+    const handleBlur = () => {
+      if (spaceWasPanRef.current) {
+        onToolModeChange(spaceWasPanRef.current);
+        spaceWasPanRef.current = null;
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
+    window.addEventListener('blur', handleBlur);
 
     const checkSize = () => {
       if (containerRef.current) {
@@ -250,6 +318,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
+      window.removeEventListener('blur', handleBlur);
       window.removeEventListener('resize', checkSize);
       timeouts.forEach(clearTimeout);
     };
@@ -377,13 +446,84 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       stage.position(oldPosition);
 
       return { dataUrl, width: nw, height: nh };
-    }
+    },
+    zoomToFit,
   }));
+
+  // Cleanup animation on unmount or sheet change
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [activeSheetId]);
+
+  // Animate the viewport from current state to a target scale/position over durationMs.
+  // Uses requestAnimationFrame with ease-out interpolation. Syncs OSD on every frame.
+  // Cancellable via animationFrameRef — any new viewport mutation cancels the running animation.
+  const animateViewport = useCallback((targetScale: number, targetPosition: { x: number; y: number }, durationMs: number) => {
+    // Cancel any running animation
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    const stage = stageRef.current;
+    if (!stage) {
+      setStageScale(targetScale);
+      setStagePosition(targetPosition);
+      return;
+    }
+
+    const startScale = stage.scaleX();
+    const startPos = { x: stage.x(), y: stage.y() };
+    const startTime = performance.now();
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / durationMs, 1);
+      // Ease-out cubic: 1 - (1 - t)^3
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      const currentScale = startScale + (targetScale - startScale) * eased;
+      const currentPos = {
+        x: startPos.x + (targetPosition.x - startPos.x) * eased,
+        y: startPos.y + (targetPosition.y - startPos.y) * eased,
+      };
+
+      // Direct Konva mutation for 60fps
+      stage.scale({ x: currentScale, y: currentScale });
+      stage.position(currentPos);
+      stage.batchDraw();
+
+      // Frame-aligned OSD sync
+      tileRendererRef.current?.syncViewport(currentScale, currentPos);
+
+      if (progress < 1) {
+        animationFrameRef.current = requestAnimationFrame(step);
+      } else {
+        // Animation complete — set final React state
+        animationFrameRef.current = null;
+        setStageScale(targetScale);
+        setStagePosition(targetPosition);
+      }
+    };
+
+    animationFrameRef.current = requestAnimationFrame(step);
+  }, []);
 
   const handleWheel = (e: any) => {
     e.evt.preventDefault();
     const stage = e.target.getStage();
     if (!stage) return;
+
+    // Cancel any running viewport animation (e.g., reset view)
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
     
     const oldScale = stage.scaleX();
     const pointer = stage.getPointerPosition();
@@ -419,6 +559,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     stage.position(newPos);
     stage.batchDraw();
 
+    // Frame-aligned OSD sync — zero lag between tiles and markup overlay
+    tileRendererRef.current?.syncViewport(newScale, newPos);
+
     // Sync back to React state debounced
     if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
     zoomDebounceRef.current = setTimeout(() => {
@@ -431,9 +574,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     setContextMenu(null);
     if (!stageRef.current) return;
     const stage = stageRef.current;
-    const oldScale = stageScale;
+    const oldScale = stage.scaleX();
     const scaleBy = 1.2;
-    const newScale = direction === 1 ? oldScale * scaleBy : oldScale / scaleBy;
+    const newScale = Math.max(0.1, Math.min(direction === 1 ? oldScale * scaleBy : oldScale / scaleBy, 15));
     
     const centerPoint = {
       x: dimensions.width / 2,
@@ -445,11 +588,12 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       y: (centerPoint.y - stage.y()) / oldScale,
     };
     
-    setStageScale(newScale);
-    setStagePosition({
+    const newPos = {
       x: centerPoint.x - mousePointTo.x * newScale,
       y: centerPoint.y - mousePointTo.y * newScale,
-    });
+    };
+
+    animateViewport(newScale, newPos, 200);
   };
 
   const handleStageClick = (e: any) => {
@@ -714,9 +858,67 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   };
 
   const resetView = () => {
-    setStageScale(1);
-    setStagePosition({ x: 0, y: 0 });
+    animateViewport(1, { x: 0, y: 0 }, 300);
   };
+
+  // Zoom the viewport to fit a specific unit's bounding box at ~70% viewport fill
+  const zoomToFit = useCallback((unitId: string) => {
+    const unit = units.find(u => u.id === unitId);
+    if (!unit?.polygon_coordinates?.length || !layout.drawW || !layout.drawH) return;
+
+    const coords = unit.polygon_coordinates;
+    let minPctX = Infinity, maxPctX = -Infinity, minPctY = Infinity, maxPctY = -Infinity;
+    coords.forEach(p => {
+      if (p.pctX < minPctX) minPctX = p.pctX;
+      if (p.pctX > maxPctX) maxPctX = p.pctX;
+      if (p.pctY < minPctY) minPctY = p.pctY;
+      if (p.pctY > maxPctY) maxPctY = p.pctY;
+    });
+
+    // Convert to logical pixel coordinates
+    const bboxLeft = layout.offsetX + minPctX * layout.drawW;
+    const bboxTop = layout.offsetY + minPctY * layout.drawH;
+    const bboxW = (maxPctX - minPctX) * layout.drawW;
+    const bboxH = (maxPctY - minPctY) * layout.drawH;
+
+    // Calculate scale to fill 70% of viewport
+    const viewW = dimensions.width;
+    const viewH = dimensions.height;
+    const fitScale = Math.min(viewW / bboxW, viewH / bboxH) * 0.7;
+    const clampedScale = Math.max(0.1, Math.min(fitScale, 15));
+
+    // Center the bounding box in the viewport
+    const centerX = bboxLeft + bboxW / 2;
+    const centerY = bboxTop + bboxH / 2;
+    const targetPos = {
+      x: viewW / 2 - centerX * clampedScale,
+      y: viewH / 2 - centerY * clampedScale,
+    };
+
+    animateViewport(clampedScale, targetPos, 350);
+  }, [units, layout, dimensions, animateViewport]);
+
+  // Zoom to a specific absolute scale level, centered on the current viewport center
+  const zoomToLevel = useCallback((targetScale: number) => {
+    if (!stageRef.current) return;
+    const stage = stageRef.current;
+    const oldScale = stage.scaleX();
+    const centerPoint = { x: dimensions.width / 2, y: dimensions.height / 2 };
+    const mousePointTo = {
+      x: (centerPoint.x - stage.x()) / oldScale,
+      y: (centerPoint.y - stage.y()) / oldScale,
+    };
+    const newPos = {
+      x: centerPoint.x - mousePointTo.x * targetScale,
+      y: centerPoint.y - mousePointTo.y * targetScale,
+    };
+    animateViewport(targetScale, newPos, 250);
+  }, [dimensions, animateViewport]);
+
+  // Keep keyboard shortcut callback refs in sync
+  handleZoomRef.current = handleZoom;
+  resetViewRef.current = resetView;
+  zoomToFitRef.current = zoomToFit;
 
   const addSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#10b981' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='8' x2='12' y2='16'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
   const removeSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
@@ -769,7 +971,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       className="relative w-full h-full flex-1 border rounded-xl overflow-hidden"
       style={{
         cursor: computedCursor,
-        background: 'var(--glass-bg)',
+        background: 'radial-gradient(circle, var(--canvas-dot, rgba(148,163,184,0.15)) 1px, transparent 1px)',
+        backgroundColor: 'var(--canvas-bg, #f8f9fb)',
+        backgroundSize: '20px 20px',
         borderColor: 'var(--glass-border)',
         boxShadow: 'var(--glass-shadow)',
       }}
@@ -777,6 +981,12 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       <ViewportControls 
         resetView={resetView} 
         handleZoom={handleZoom} 
+      />
+
+      <ZoomIndicator
+        stageScale={stageScale}
+        onZoomToLevel={zoomToLevel}
+        onFitToView={resetView}
       />
 
       <ContextActionDock
@@ -833,6 +1043,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         {/* Tile background layer — renders DZI tiles via OpenSeadragon when available */}
         {useTiles && tileManifestUrl && tileImageWidth && tileImageHeight && (
           <TileRenderer
+            forwardedRef={tileRendererRef}
             tileManifestUrl={tileManifestUrl}
             tilesBaseUrl={tileManifestUrl.replace('/output.dzi', '/output_files/')}
             imageWidth={tileImageWidth}
@@ -850,6 +1061,26 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           height={dimensions.height}
           onClick={handleStageClick}
           onWheel={handleWheel}
+          onDblClick={(e: any) => {
+            // Double-click zoom: 2x in (or Shift+dblclick for 2x out)
+            if (e.target !== stageRef.current && e.target?.attrs?.id !== 'bg-rect') return;
+            const stage = e.target.getStage();
+            if (!stage) return;
+            const pointer = stage.getPointerPosition();
+            if (!pointer) return;
+            const zoomFactor = e.evt?.shiftKey ? 0.5 : 2;
+            const oldScale = stage.scaleX();
+            const newScale = Math.max(0.1, Math.min(oldScale * zoomFactor, 15));
+            const mousePointTo = {
+              x: (pointer.x - stage.x()) / oldScale,
+              y: (pointer.y - stage.y()) / oldScale,
+            };
+            const newPos = {
+              x: pointer.x - mousePointTo.x * newScale,
+              y: pointer.y - mousePointTo.y * newScale,
+            };
+            animateViewport(newScale, newPos, 300);
+          }}
           draggable={true}
           onPointerDown={(e) => {
             if (toolMode === 'pan' || (e.evt && e.evt.button === 1)) {
@@ -982,11 +1213,30 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           onDragEnd={(e) => {
             if (e.target === stageRef.current) {
                setIsDraggingCanvas(false);
-               setStagePosition({ x: e.target.x(), y: e.target.y() });
+               const newPos = { x: e.target.x(), y: e.target.y() };
+               setStagePosition(newPos);
+               tileRendererRef.current?.syncViewport(stageScale, newPos);
+            }
+          }}
+          onDragMove={(e) => {
+            // Frame-aligned OSD sync during pan drag — prevents tile background freezing
+            if (e.target === stageRef.current) {
+              tileRendererRef.current?.syncViewport(
+                stageScale,
+                { x: e.target.x(), y: e.target.y() }
+              );
             }
           }}
         >
-          <Layer>
+          <Layer
+            ref={(node: any) => {
+              // Disable image smoothing for crisp construction drawing lines at deep zoom
+              if (node) {
+                const ctx = node.getCanvas()?.getContext();
+                if (ctx) ctx.imageSmoothingEnabled = false;
+              }
+            }}
+          >
             {/* Background: Tile renderer for tiled sheets, KonvaImage fallback for legacy */}
             {!useTiles && image && layout.drawW > 0 && layout.drawH > 0 && (
               <KonvaImage

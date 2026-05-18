@@ -211,6 +211,7 @@ export const MappedUnitComponent = ({
           closed={true}
           globalCompositeOperation="multiply"
           listening={false}
+          perfectDrawEnabled={false}
         />
 
         {/* LAYER 2: Stroke Only (Standard rendering, sharp, vibrant) */}
@@ -224,6 +225,8 @@ export const MappedUnitComponent = ({
           shadowBlur={isRouteDropTarget ? 18 : highlight ? 18 : 0}
           shadowOpacity={isRouteDropTarget ? 0.9 : highlight ? 0.9 : 0}
           listening={!isFilteredOut}
+          perfectDrawEnabled={false}
+          shadowForStrokeEnabled={false}
         />
 
         {/* Out of Sequence Hatching Overlay */}
@@ -244,8 +247,8 @@ export const MappedUnitComponent = ({
         })()}
       </Group>
       
-      {/* The Status Icon */}
-      {(activeStatus && tState !== 'none' && !isFilteredOut && !isZoomedOut) && (() => {
+      {/* The Status Icon — hidden below 0.7x scale for cleaner zoomed-out view */}
+      {(activeStatus && tState !== 'none' && !isFilteredOut && stageScale > 0.7) && (() => {
         const TEMPORAL_COLORS: Record<string, string> = {
           planned: '#94a3b8',   // Slate Gray
           ongoing: '#f59e0b',   // Amber

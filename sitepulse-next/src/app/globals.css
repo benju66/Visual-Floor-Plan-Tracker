@@ -36,6 +36,9 @@
   --glass-border: rgba(255, 255, 255, 0.6);
   --glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
 
+  --canvas-bg: #f8f9fb;
+  --canvas-dot: rgba(148, 163, 184, 0.15);
+
   --text: #475569; /* Slate 600 */
   --text-h: #020617; /* Slate 950 */
   --bg: #f1f5f9; /* Slate 100 */
@@ -68,6 +71,9 @@
   --glass-bg: rgba(15, 23, 42, 0.7); /* deeper dark blue */
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-shadow: 0 16px 48px rgba(0, 0, 0, 0.8);
+
+  --canvas-bg: #0f1219;
+  --canvas-dot: rgba(148, 163, 184, 0.08);
 
   --text: #94a3b8;
   --text-h: #f8fafc;

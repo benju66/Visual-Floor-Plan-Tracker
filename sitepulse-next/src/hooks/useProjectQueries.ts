@@ -175,7 +175,10 @@ export function useSnappingVectors(sheetId: string) {
       if (!sheetId) return null;
       
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return null;
+      if (!session) {
+        console.warn('[useSnappingVectors] No active session — vector snapping disabled');
+        return null;
+      }
 
       // Helper to format raw vector JSON into RBush-compatible items
       const formatVectors = (vectors: any[]): SnappingVectorLine[] => {
@@ -196,8 +199,8 @@ export function useSnappingVectors(sheetId: string) {
           .eq('sheet_id', sheetId)
           .maybeSingle();
 
-        if (cachedRow?.vectors && Array.isArray(cachedRow.vectors) && cachedRow.vectors.length > 0) {
-          return formatVectors(cachedRow.vectors as any[]);
+        if (cachedRow?.vectors && Array.isArray(cachedRow.vectors)) {
+          return cachedRow.vectors.length > 0 ? formatVectors(cachedRow.vectors as any[]) : [];
         }
 
         // Cache miss — extract from backend API
@@ -215,7 +218,7 @@ export function useSnappingVectors(sheetId: string) {
                   { onConflict: 'sheet_id' }
                 );
             } catch (err: any) {
-              console.warn('Failed to cache vectors:', err.message);
+              console.error('[sheet_vectors] Write-through cache upsert failed:', err.message);
             }
           })();
         }
@@ -223,12 +226,17 @@ export function useSnappingVectors(sheetId: string) {
         return formattedData;
       } catch (err: any) {
         console.warn('Vector snapping unavailable for this sheet:', err.message);
-        throw err;
+        return null;
       }
     },
     enabled: !!sheetId,
     staleTime: Infinity,
-    retry: 1
+    retry: (failureCount, error) => {
+      // Retry once for transient fetch failures, not for 404/401
+      if (failureCount < 1 && (error as Error)?.message?.includes('Failed to fetch')) return true;
+      return false;
+    },
+    retryDelay: 5000,
   });
 }
 

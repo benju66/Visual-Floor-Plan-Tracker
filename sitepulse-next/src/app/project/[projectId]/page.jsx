@@ -587,6 +587,7 @@ function App() {
               setListRef={(id, el) => listRefs.current[id] = el}
               onRenameUnitInitiate={handleRenameUnitInitiate}
               onDeleteUnit={handleDeleteUnit}
+              onLocateUnit={(unitId) => floorplanRef.current?.zoomToFit(unitId)}
             />
             </div>
           </div>

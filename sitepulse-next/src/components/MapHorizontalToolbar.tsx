@@ -148,7 +148,11 @@ export default function MapHorizontalToolbar({
                 ? 'bg-blue-500 text-white shadow-sm scale-110' 
                 : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
             }`}
-            title={toolId.charAt(0).toUpperCase() + toolId.slice(1).replace('_', ' ')}
+            title={(() => {
+              const shortcuts: Record<string, string> = { select: '1', pan: '2', draw: '3' };
+              const label = toolId.charAt(0).toUpperCase() + toolId.slice(1).replace('_', ' ');
+              return shortcuts[toolId] ? `${label} (${shortcuts[toolId]})` : label;
+            })()}
           >
             <Icon size={18} />
           </button>

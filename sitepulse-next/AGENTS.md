@@ -50,3 +50,20 @@ Welcome to the SitePulse codebase. Please follow these architectural rules stric
 - **`pendingChanges` Remains Local:** The `pendingChanges` and `pendingTimelineChanges` state in `useFieldData.ts` is typed as `Record<string, PendingChange>` via local `useState`. This is intentional — do NOT migrate it to Zustand or TanStack Query. See Section 2 for rationale.
 - **No `any`:** Prefer `unknown` with type narrowing over `any`. During migration, `// @ts-nocheck` may be temporarily used on large files being converted, but must be removed before merging to main.
 - **File Extensions:** New files must use `.ts`/`.tsx`. When converting an existing file, rename `.js` → `.ts` or `.jsx` → `.tsx` and fix all type errors before committing. Do not commit a renamed file that still has `// @ts-nocheck`  to the main branch.
+
+## 7. Backend API Rules (`sitepulse-backend/main.py`)
+- **Auth Pattern (CRITICAL):** ALL protected endpoints use `Depends(get_current_user)`. This dependency validates the Supabase JWT **locally** using `PyJWT` and `SUPABASE_JWT_SECRET` — it does NOT call `supabase.auth.get_user()`. Do NOT revert to the network call; it was a primary cause of `/extract-vectors` 500 timeouts on Render's free tier. The correct pattern is:
+  ```python
+  import jwt  # PyJWT — NOT python-jose (abandoned, CVE-2024-33663)
+  payload = jwt.decode(token, supabase_jwt_secret, algorithms=["HS256"], options={"verify_aud": False})
+  ```
+- **Supabase Client Timeouts:** The global `supabase` client is initialized with `ClientOptions(postgrest_client_timeout=25, storage_client_timeout=25)`. These 25-second limits exist to ensure storage downloads fail gracefully as catchable Python exceptions before Render's 30-second platform deadline fires an opaque process kill. Do NOT remove or increase these values without a corresponding Render plan upgrade.
+- **No `python-jose`:** The project uses `PyJWT==x.x.x` exclusively. `python-jose` is abandoned (last release 2021, CVE-2024-33663) and must not be re-added.
+- **No Debug File Writes:** Never write user data to disk in endpoint handlers (e.g., `open("debug.txt", "w")`). Render's filesystem is ephemeral and shared; this leaks PII. Use `print()` or structured logging to stdout only — Render captures stdout in its log dashboard.
+- **Exception Handling:** Each endpoint wraps its work in `try / except fitz.FileDataError / except HTTPException / except Exception`. The `except fitz.FileDataError` branch returns a 404 (PDF not found). Storage timeouts surface as `httpx.ReadTimeout` and are caught by the generic `except Exception` block — they will now produce a descriptive 500 message instead of a silent platform kill.
+
+## 8. Backend Dependency Notes (`sitepulse-backend/requirements.txt`)
+- **`pyiceberg` is a transitive dependency of `storage3`** (the Supabase Storage client), which requires `pyiceberg>=0.10.0`. You cannot remove it from the installed environment by removing it from `requirements.txt` — pip's resolver will pull it back in. Do not waste effort attempting to eliminate it.
+- **Do NOT manually pin `starlette`**: FastAPI manages its own compatible `starlette` version. A manual pin creates silent conflicts. Let FastAPI's declared dependency resolve it.
+- **Do NOT re-add `python-jose`**: See §7. Use `PyJWT` only.
+- **`rich`, `cachetools`, `tenacity`** are required by `supabase-py` internals. Keep them pinned even though `main.py` does not import them directly.

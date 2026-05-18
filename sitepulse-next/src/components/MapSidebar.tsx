@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Pencil, Trash2, ChevronDown, ChevronRight, Crosshair } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUnits } from '@/hooks/useProjectQueries';
 import type { Milestone, Unit, Sheet } from '@/types/domain';
@@ -13,13 +13,14 @@ export interface MapSidebarProps {
   activeSheet: Sheet | null | undefined;
   onRenameUnitInitiate: (id: string) => void;
   onDeleteUnit: (id: string) => void;
+  onLocateUnit?: (unitId: string) => void;
 }
 
 function MapSidebar({
   milestones = [], filterMilestone, setFilterMilestone,
   temporalFilters, setTemporalFilters,
   activeSheet,
-  onRenameUnitInitiate, onDeleteUnit
+  onRenameUnitInitiate, onDeleteUnit, onLocateUnit
 }: MapSidebarProps) {
   const activeSheetId = useMapStore(s => s.activeSheetId);
   const trackingMode = useMapStore(s => s.trackingMode);
@@ -160,6 +161,9 @@ function MapSidebar({
                 <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
               </svg>
               {activeSheet?.sheet_name || 'Level'}
+              <span className="ml-auto text-xs font-normal text-slate-300 dark:text-slate-400 tabular-nums">
+                {sortedUnits.length} {sortedUnits.length === 1 ? 'unit' : 'units'}
+              </span>
             </div>
 
             <ul className="flex flex-col bg-white/40 dark:bg-black/15">
@@ -186,6 +190,19 @@ function MapSidebar({
                     Location: {unit.unit_number}
                   </span>
                   <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    {onLocateUnit && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onLocateUnit(unit.id);
+                        }}
+                        className="text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 p-1.5 border border-slate-200/80 dark:border-slate-700/50 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors bg-white/50 dark:bg-black/20"
+                        title="Locate on map"
+                      >
+                        <Crosshair size={14} />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
