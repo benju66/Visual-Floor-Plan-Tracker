@@ -1,7 +1,7 @@
 "use client";
 import React, { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
-import { Check, ArrowRight, X, ListTodo, ChevronRight } from 'lucide-react';
+import { Check, ArrowRight, X, ListTodo } from 'lucide-react';
 import { BottleneckIndicator } from './ui/FieldStatusAtoms';
 
 /**
@@ -42,7 +42,7 @@ const getBadgeStyle = (state) => {
   }
 };
 
-const getBadgeColor = (state) => getBadgeStyle(state).wrapper;
+
 
 /**
  * SwipeCard — Enterprise SaaS swipe card.
@@ -72,8 +72,6 @@ const SwipeCard = ({
 }) => {
   // Whether the full-card history overlay is open
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  // Milestone selected inside the overlay for inline state picker
-  const [overlayActiveMilestone, setOverlayActiveMilestone] = useState(null);
 
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-10, 10]);
@@ -126,15 +124,10 @@ const SwipeCard = ({
     onStageUpdate(unit, log || {}, next);
   };
 
-  // --- Overlay milestone tap → open inline state picker ---
-  const handleOverlayMilestoneTap = (e, m) => {
-    e.stopPropagation();
-    setOverlayActiveMilestone((prev) => (prev?.name === m.name ? null : m));
-  };
-
-  // --- Overlay inline state selection: stage update, keep card, stay in overlay ---
+  // --- Overlay inline state selection: set status directly, stay in overlay ---
   const handleOverlayStateSelect = (e, state, m) => {
     e.stopPropagation();
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
     onTimelineUpdate(unit, log || {}, state, { milestoneObj: m });
   };
 
@@ -261,7 +254,6 @@ const SwipeCard = ({
               onClick={(e) => {
                 e.stopPropagation();
                 setIsHistoryOpen((v) => !v);
-                setOverlayActiveMilestone(null);
               }}
               disabled={!isTop}
               aria-label="View project timeline"
@@ -310,7 +302,6 @@ const SwipeCard = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsHistoryOpen(false);
-                    setOverlayActiveMilestone(null);
                   }}
                   aria-label="Close history"
                   className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors active:scale-95 shrink-0"
@@ -337,86 +328,54 @@ const SwipeCard = ({
                       ? pendingState
                       : mLog?.temporal_state || 'none';
 
-                  const rowBadge = getBadgeStyle(state);
-                  const isPickerOpen = overlayActiveMilestone?.name === m.name;
-
                   return (
-                    <div key={m.name} className="border-b border-slate-100 dark:border-white/6 last:border-b-0">
-                      {/* Milestone row — min-h-[56px] for thumb-friendly tap target */}
-                      <button
-                        type="button"
-                        onClick={(e) => handleOverlayMilestoneTap(e, m)}
-                        className={`w-full flex items-center gap-3 px-5 min-h-[56px] py-3 text-left transition-all duration-150 active:scale-[0.98] ${
-                          isPickerOpen
-                            ? 'bg-sky-50 dark:bg-sky-900/20'
-                            : 'hover:bg-slate-50 dark:hover:bg-white/4 active:bg-slate-100 dark:active:bg-white/8'
-                        } ${state === 'none' ? 'opacity-60 hover:opacity-100' : ''}`}
-                      >
-                        {/* Milestone color swatch */}
+                    <div key={m.name} className="border-b border-slate-100 dark:border-white/6 last:border-b-0 px-4 py-2.5">
+                      {/* Row 1: Milestone name (full width) */}
+                      <div className="flex items-center gap-2 mb-1.5">
                         <span
                           className="w-3 h-3 rounded-sm shrink-0"
                           style={{ backgroundColor: m.color || mLog?.status_color || '#94a3b8' }}
                         />
-                        {/* Milestone name */}
-                        <span className="flex-1 truncate text-sm font-bold text-slate-700 dark:text-slate-200">
+                        <span className="flex-1 truncate text-[13px] font-bold text-slate-700 dark:text-slate-200">
                           {m.name}
-                          {isCurrentMilestone && (
-                            <span className="ml-2 text-[9px] font-black uppercase tracking-widest text-sky-500">
-                              Active
-                            </span>
-                          )}
                         </span>
-                        {/* State badge */}
-                        <span className={`text-[10px] uppercase tracking-widest font-black px-2.5 py-1.5 rounded-full shrink-0 ${rowBadge.wrapper}`}>
-                          {state === 'none' ? 'Not Set' : state}
-                        </span>
-                        <ChevronRight
-                          size={14}
-                          strokeWidth={2.5}
-                          className={`shrink-0 text-slate-400 transition-transform duration-200 ${isPickerOpen ? 'rotate-90 text-sky-500' : ''}`}
-                        />
-                      </button>
-
-                      {/* Inline state picker — expands below the tapped row */}
-                      <AnimatePresence>
-                        {isPickerOpen && (
-                          <motion.div
-                            key={`picker-${m.name}`}
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.15, ease: 'easeOut' }}
-                            className="overflow-hidden bg-slate-50 dark:bg-slate-800/60"
-                          >
-                            <div className="flex flex-col gap-2 px-5 py-3">
-                              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-1">
-                                Set status for: <span className="text-slate-600 dark:text-slate-300">{m.name}</span>
-                              </p>
-                              {['none', 'planned', 'ongoing', 'completed'].map((s) => {
-                                const sb = getBadgeStyle(s);
-                                return (
-                                  <button
-                                    key={s}
-                                    type="button"
-                                    onClick={(e) => handleOverlayStateSelect(e, s, m)}
-                                    className={`w-full min-h-[48px] flex items-center gap-3 px-4 rounded-xl font-black uppercase tracking-wider text-sm transition-all duration-150 active:scale-[0.98] shadow-sm ${sb.wrapper}`}
-                                  >
-                                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${sb.dot}`} />
-                                    {s === 'none' ? 'Clear Status' : s}
-                                  </button>
-                                );
-                              })}
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setOverlayActiveMilestone(null); }}
-                                className="mt-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 transition min-h-[44px]"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </motion.div>
+                        {isCurrentMilestone && (
+                          <span className="text-[9px] font-black uppercase tracking-widest text-sky-500 shrink-0">
+                            Active
+                          </span>
                         )}
-                      </AnimatePresence>
+                      </div>
+
+                      {/* Row 2: Inline segmented status control (full width) */}
+                      <div className="flex gap-1.5 pl-5" role="radiogroup" aria-label={`Status for ${m.name}`}>
+                        {[
+                          { key: 'none',      label: '×',   ariaLabel: 'Clear status' },
+                          { key: 'planned',   label: 'PLN', ariaLabel: 'Planned' },
+                          { key: 'ongoing',   label: 'ONG', ariaLabel: 'Ongoing' },
+                          { key: 'completed', label: '✓',   ariaLabel: 'Completed' },
+                        ].map((seg) => {
+                          const isActive = state === seg.key;
+                          const segStyle = getBadgeStyle(seg.key);
+                          return (
+                            <button
+                              key={seg.key}
+                              type="button"
+                              role="radio"
+                              aria-checked={isActive}
+                              aria-label={seg.ariaLabel}
+                              onClick={(e) => handleOverlayStateSelect(e, seg.key, m)}
+                              className={`flex-1 min-h-[36px] rounded-lg text-[11px] font-black uppercase tracking-wider 
+                                transition-all duration-100 active:scale-95
+                                ${isActive
+                                  ? segStyle.wrapper + ' shadow-sm ring-1 ring-inset ring-white/20'
+                                  : 'bg-slate-100/80 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 border border-transparent hover:border-slate-300 dark:hover:border-slate-600'
+                                }`}
+                            >
+                              {seg.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })}
