@@ -166,7 +166,7 @@ const SwipeCard = ({
           transition: { duration: 0.25 }
         })
       }}
-      className={`absolute w-[90%] max-w-sm top-0 bottom-14 flex flex-col ${
+      className={`absolute w-[90%] max-w-sm top-0 bottom-4 flex flex-col ${
         isDragEnabled ? 'cursor-grab active:cursor-grabbing' : ''
       } ${isTop ? 'pointer-events-auto' : 'pointer-events-none'}`}
       initial={{ scale: 0.8, opacity: 0 }}

@@ -356,7 +356,22 @@ export default function MobileSwipeDeck({
                <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-sky-500 pointer-events-none" />
              </div>
            </div>
-        )}
+         )}
+
+         <div className="px-4 pb-3 pt-2 border-t border-slate-100 dark:border-slate-800/50 flex justify-end">
+           <button 
+             onClick={() => {
+               setSwipedHistory([]);
+               setSkippedToBack([]);
+               setCardRedoStack([]);
+               setToast({ message: 'Deck history reset', type: 'info' });
+               setIsFiltersOpen(false);
+             }}
+             className="text-[11px] font-black uppercase tracking-widest text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/30 transition-colors px-4 py-2 rounded-lg"
+           >
+             Reset Deck History
+           </button>
+         </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -369,6 +384,17 @@ export default function MobileSwipeDeck({
             <p className="text-sm font-bold text-slate-400 dark:text-slate-500/70 uppercase tracking-widest">
               You've cleared all units
             </p>
+            <button 
+              onClick={() => {
+                setSwipedHistory([]);
+                setSkippedToBack([]);
+                setCardRedoStack([]);
+                setToast({ message: 'Deck history reset', type: 'info' });
+              }}
+              className="mt-6 px-6 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-black text-sky-500 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm active:scale-95"
+            >
+              Restart Deck
+            </button>
           </div>
         ) : (
           <AnimatePresence mode="popLayout" custom={actionDirection}>
