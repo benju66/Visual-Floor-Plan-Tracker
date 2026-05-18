@@ -213,18 +213,18 @@ const SwipeCard = ({
         )}
 
         <div className="relative z-10 flex flex-col h-full w-full">
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-4 min-h-0 overflow-y-auto no-scrollbar touch-pan-y overscroll-contain">
-            <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3 inline-block shadow-sm">
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-2 min-h-0 overflow-y-auto no-scrollbar touch-pan-y overscroll-contain">
+            <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 inline-block shadow-sm">
               {unit.unit_type || 'Unknown'} · {completedCount}/{milestones.length}
             </span>
 
             <div className="flex items-center justify-center gap-2 mb-1 relative">
-              <h2 className="text-6xl sm:text-7xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
+              <h2 className="text-5xl sm:text-6xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
                 {unit.unit_number}
               </h2>
             </div>
 
-            <div className="mt-3 mb-6 flex flex-col items-center">
+            <div className="mt-2 mb-3 flex flex-col items-center">
               <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">
                 Current Milestone
               </p>
@@ -290,7 +290,7 @@ const SwipeCard = ({
             </button>
           )}
 
-          <div className="flex items-center justify-center px-6 pb-6 pt-3 border-t border-slate-100 dark:border-white/5 shrink-0">
+          <div className="flex items-center justify-center px-6 pb-4 pt-3 border-t border-slate-100 dark:border-white/5 shrink-0">
             <button
               type="button"
               onClick={(e) => {
@@ -300,7 +300,7 @@ const SwipeCard = ({
               disabled={!isTop}
               aria-label="View project timeline"
               title="View Project Timeline"
-              className={`w-full flex items-center justify-center gap-3 min-h-[56px] rounded-2xl px-6 py-2 font-black uppercase tracking-widest text-[13px] transition-all duration-150 active:scale-[0.98] disabled:opacity-40 shadow-sm ${
+              className={`w-full flex items-center justify-center gap-3 min-h-[48px] rounded-2xl px-6 py-2 font-black uppercase tracking-widest text-[13px] transition-all duration-150 active:scale-[0.98] disabled:opacity-40 shadow-sm ${
                 isHistoryOpen
                   ? 'bg-sky-500 text-white shadow-md'
                   : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'

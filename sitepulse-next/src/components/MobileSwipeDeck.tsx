@@ -1,6 +1,6 @@
 "use client";
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Undo2, Redo2, ArrowLeft, ArrowRight, ChevronDown, ArrowDown, ArrowUp } from 'lucide-react';
+import { Undo2, Redo2, ArrowLeft, ArrowRight, ChevronDown, ArrowDown, ArrowUp, ListFilter } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import SwipeCard from '@/components/SwipeCard';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -81,6 +81,7 @@ export default function MobileSwipeDeck({
   const [cardRedoStack, setCardRedoStack] = useState<HistoryEntry[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [actionDirection, setActionDirection] = useState<'left' | 'right' | 'none'>('none');
+  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const setToast = useUIStore(s => s.setToast);
 
   useEffect(() => {
@@ -91,6 +92,7 @@ export default function MobileSwipeDeck({
     setSwipedHistory([]);
     setSkippedToBack([]);
     setCardRedoStack([]);
+    setIsFiltersOpen(false);
   }, [typeFilter]);
 
   const collectTimelinePayloads = (unitId: string) => {
@@ -265,12 +267,31 @@ export default function MobileSwipeDeck({
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 dark:bg-black relative">
-      <div className="w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm z-50 shrink-0 pt-3 mb-2">
+      <div className="w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm z-50 shrink-0 pt-3 relative">
         <div className="flex items-center justify-between px-4 pb-3">
           <span className="text-sm font-black text-slate-800 dark:text-slate-100 tracking-tight">Review Field Deck</span>
-          <SyncIndicator isApplying={isApplying} hasRehydrated={hasRehydrated} pendingCount={pendingCount} />
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsFiltersOpen(v => !v)}
+              className={`p-1.5 rounded-full transition-colors ${
+                isFiltersOpen || typeFilter !== 'all' ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+              }`}
+            >
+              <ListFilter size={18} />
+            </button>
+            <SyncIndicator isApplying={isApplying} hasRehydrated={hasRehydrated} pendingCount={pendingCount} />
+          </div>
         </div>
-        <div className="flex items-center gap-2 px-4 pb-3 overflow-x-auto no-scrollbar">
+
+        <AnimatePresence>
+          {isFiltersOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="absolute top-full left-0 w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800/80 shadow-lg overflow-hidden flex flex-col z-50"
+            >
+              <div className="flex items-center gap-2 px-4 py-3 overflow-x-auto no-scrollbar border-b border-slate-100 dark:border-slate-800/50">
           <button
             onClick={() => setTypeFilter('all')}
             className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider transition-colors ${
@@ -336,9 +357,12 @@ export default function MobileSwipeDeck({
              </div>
            </div>
         )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      <div className="flex-1 relative flex items-center justify-center w-full max-w-sm mx-auto perspective-[1200px]">
+      <div className="flex-1 relative flex items-center justify-center w-full max-w-sm mx-auto perspective-[1200px] mt-2">
         {orderedCards.length === 0 ? (
           <div className="text-center p-8 bg-slate-100/50 dark:bg-slate-800/30 rounded-3xl border border-slate-200 dark:border-slate-800">
             <h3 className="text-xl font-black text-slate-400 dark:text-slate-500 mb-2">Deck Empty</h3>
@@ -431,20 +455,20 @@ export default function MobileSwipeDeck({
         )}
       </div>
 
-      <div className="flex w-full items-center justify-center gap-4 shrink-0 pb-8 pt-4 bg-white/70 dark:bg-slate-900/70 backdrop-blur-lg border-t border-slate-200/60 dark:border-white/10 z-40 relative rounded-t-[2.5rem]">
+      <div className="flex w-full items-center justify-center gap-4 shrink-0 pb-4 pt-3 bg-white/70 dark:bg-slate-900/70 backdrop-blur-lg border-t border-slate-200/60 dark:border-white/10 z-40 relative rounded-t-[2.5rem]">
         <button
           onClick={handleLocalUndo}
           disabled={swipedHistory.length === 0}
-          className="w-12 h-12 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+          className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-amber-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
         >
-          <Undo2 size={22} />
+          <Undo2 size={20} />
         </button>
         <button
           onClick={handlePrevCard}
           disabled={skippedToBack.length === 0}
-          className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+          className="w-12 h-12 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
         >
-          <ArrowLeft size={24} />
+          <ArrowLeft size={22} />
         </button>
         <button
           onClick={handleNextCard}
@@ -452,16 +476,16 @@ export default function MobileSwipeDeck({
           onPointerDown={startPress}
           onPointerUp={cancelPress}
           onPointerLeave={cancelPress}
-          className="w-14 h-14 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+          className="w-12 h-12 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-slate-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
         >
-          <ArrowRight size={24} />
+          <ArrowRight size={22} />
         </button>
         <button
           onClick={handleLocalRedo}
           disabled={cardRedoStack.length === 0}
-          className="w-12 h-12 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-sky-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
+          className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-800 rounded-full shadow-lg text-sky-500 disabled:opacity-40 disabled:shadow-none transition-transform active:scale-95"
         >
-          <Redo2 size={22} />
+          <Redo2 size={20} />
         </button>
       </div>
 
