@@ -109,4 +109,27 @@ describe('getSnappedCoordinate', () => {
     expect(result.pctX).toBeCloseTo(0.501);
     expect(result.pctY).toBeCloseTo(0.5);
   });
+
+  it('projects onto a segment edge when no vertex is within the radius', () => {
+    // snapRadiusX = 0.015. Both endpoints are 0.2 away (no corner gravity),
+    // but the perpendicular foot at (0.5, 0.5) is 0.005 away — snaps to the edge.
+    const tree = fakeTree([
+      { lineData: { start: { pctX: 0.3, pctY: 0.5 }, end: { pctX: 0.7, pctY: 0.5 } } },
+    ]);
+    const result = getSnappedCoordinate(0.5, 0.505, tree, aspect, drawW, stageScale);
+    expect(result.snapped).toBe(true);
+    expect(result.pctX).toBeCloseTo(0.5);
+    expect(result.pctY).toBeCloseTo(0.5);
+  });
+
+  it('does not snap when the nearest edge is outside the radius', () => {
+    const tree = fakeTree([
+      { lineData: { start: { pctX: 0.3, pctY: 0.5 }, end: { pctX: 0.7, pctY: 0.5 } } },
+    ]);
+    // 0.1 away vertically, well beyond snapRadiusX (0.015).
+    const result = getSnappedCoordinate(0.5, 0.6, tree, aspect, drawW, stageScale);
+    expect(result.snapped).toBe(false);
+    expect(result.pctX).toBeCloseTo(0.5);
+    expect(result.pctY).toBeCloseTo(0.6);
+  });
 });

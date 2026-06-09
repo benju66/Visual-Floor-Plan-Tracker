@@ -538,9 +538,6 @@ function App() {
                   activeStatuses={mapDisplayStatuses}
                   rawStatuses={activeStatuses}
                   imageUrl={activeSheet.base_image_url}
-                  tileManifestUrl={activeSheet.tile_manifest_url || null}
-                  tileImageWidth={activeSheet.tile_image_width || null}
-                  tileImageHeight={activeSheet.tile_image_height || null}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
                   onUpdateUnitIconOffset={handleUpdateUnitIconOffset}
                   onDuplicateUnit={handleDuplicateUnit}

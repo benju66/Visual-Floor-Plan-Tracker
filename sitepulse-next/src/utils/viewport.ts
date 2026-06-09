@@ -1,0 +1,88 @@
+/**
+ * Pure viewport helpers for the Konva floor-plan stage.
+ *
+ * Extracted from FloorplanCanvas so the load-bearing zoom/pan logic is unit-testable
+ * (AGENTS §9) and the canvas component stays lean (AGENTS §3). These functions are
+ * stateless: they take primitives and return primitives, never touch Konva or React.
+ */
+
+/** Minimal layout shape used for screen<->content math (subset of FloorplanCanvas `layout`). */
+export interface ViewportLayout {
+  offsetX: number;
+  offsetY: number;
+  drawW: number;
+  drawH: number;
+}
+
+export type WheelIntent = 'zoom-pinch' | 'zoom-wheel' | 'pan';
+
+/** Just the wheel-event fields we classify on — keeps the helper trivially testable. */
+export type WheelLike = Pick<WheelEvent, 'ctrlKey' | 'metaKey' | 'deltaMode' | 'deltaX' | 'deltaY'>;
+
+/**
+ * Hybrid scroll model (user-chosen): mouse wheel zooms, trackpad two-finger scroll pans,
+ * Ctrl/⌘+wheel and trackpad pinch zoom.
+ *
+ * Detection is anchored on the one fully reliable, cross-browser signal: a standard mouse
+ * wheel can only scroll vertically (`deltaX === 0`), whereas a trackpad two-finger scroll
+ * produces a horizontal pixel-mode component. So we pan ONLY for pixel-mode events that carry
+ * a horizontal delta; everything vertical zooms. This guarantees mouse-wheel zoom always works,
+ * regardless of the mouse's delta magnitude or pixel/line mode (which varies by OS/driver).
+ *
+ * - `ctrlKey`/`metaKey` → 'zoom-pinch' (browsers report trackpad pinch as ctrl+wheel).
+ * - pixel mode with a horizontal delta → 'pan' (trackpad two-finger scroll).
+ * - anything else (any vertical wheel) → 'zoom-wheel'.
+ *
+ * Tradeoff: a purely-vertical trackpad two-finger scroll zooms rather than pans. This is the
+ * deliberate cost of never breaking mouse-wheel zoom; horizontal/diagonal trackpad scrolls pan.
+ */
+export function classifyWheelIntent(evt: WheelLike): WheelIntent {
+  if (evt.ctrlKey || evt.metaKey) return 'zoom-pinch';
+  if (evt.deltaMode === 0 && evt.deltaX !== 0) return 'pan';
+  return 'zoom-wheel';
+}
+
+/**
+ * Clamp a proposed stage position so the sheet can never be panned/zoomed fully off-screen.
+ *
+ * Guarantees at least `marginRatio` of the viewport's smaller dimension stays covered by the
+ * sheet on each axis. Works whether the content is larger than the viewport (zoomed in) or
+ * smaller (zoomed out) — in both cases the leading content edge is kept within
+ * `[margin - contentSize, stageDim - margin]`.
+ *
+ * @param pos    Proposed stage position in screen pixels (`{ x, y }`).
+ * @param scale  Current stage scale.
+ * @param layout Sheet layout (offset + drawn size, unscaled stage coords).
+ */
+export function clampStagePosition(
+  pos: { x: number; y: number },
+  scale: number,
+  layout: ViewportLayout,
+  stageW: number,
+  stageH: number,
+  marginRatio = 0.15,
+): { x: number; y: number } {
+  const { offsetX, offsetY, drawW, drawH } = layout;
+  if (!drawW || !drawH || !stageW || !stageH) return pos;
+
+  const margin = Math.min(stageW, stageH) * marginRatio;
+
+  const clampAxis = (
+    posCoord: number,
+    offset: number,
+    drawSize: number,
+    stageDim: number,
+  ): number => {
+    const contentSize = drawSize * scale;
+    const edge = posCoord + offset * scale; // content leading edge in screen px
+    const lo = Math.min(margin - contentSize, stageDim - margin);
+    const hi = Math.max(margin - contentSize, stageDim - margin);
+    const clampedEdge = Math.max(lo, Math.min(edge, hi));
+    return clampedEdge - offset * scale;
+  };
+
+  return {
+    x: clampAxis(pos.x, offsetX, drawW, stageW),
+    y: clampAxis(pos.y, offsetY, drawH, stageH),
+  };
+}

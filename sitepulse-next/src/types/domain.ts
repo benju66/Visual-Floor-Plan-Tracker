@@ -27,9 +27,6 @@ export type UnitWithStatus = Unit & { status_logs?: StatusLog[] };
 // Canvas layout computed from image dimensions
 export type CanvasLayout = { offsetX: number; offsetY: number; drawW: number; drawH: number };
 
-// RBush vector tree for snap-to-edge
-export type VectorTree = any; // RBush<RBushItem> — typed loosely to avoid rbush import in domain
-
 // Runtime-augmented StatusLog (outOfSequence is computed in-memory, not a DB column)
 export type StatusLogAugmented = StatusLog & { outOfSequence?: BottleneckSequence[] };
 export type BottleneckSequence = { milestone: string; status_color: string; temporal_state: string };

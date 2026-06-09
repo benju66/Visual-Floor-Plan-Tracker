@@ -1,7 +1,6 @@
 import React from 'react';
 import { Line, Circle } from 'react-konva';
-import { getSnappedCoordinate } from '@/utils/geometry';
-import type { PercentPoint, CanvasLayout, VectorTree } from '@/types/domain';
+import type { PercentPoint, CanvasLayout } from '@/types/domain';
 import type { ToolMode } from '@/store/useMapStore';
 
 export interface DraftPolygonProps {
@@ -12,10 +11,8 @@ export interface DraftPolygonProps {
   stagePosition: { x: number; y: number };
   stageScale: number;
   layout: CanvasLayout;
-  vectorTree: VectorTree | null;
-  aspect: number;
+  snapPreviewPoint: PercentPoint | null;
   enableSnapping: boolean;
-  snappingStrength: number;
   isShiftDown: boolean;
   toPixels: (points: PercentPoint[]) => number[];
 }
@@ -28,10 +25,8 @@ export default function DraftPolygon({
   stagePosition,
   stageScale,
   layout,
-  vectorTree,
-  aspect,
+  snapPreviewPoint,
   enableSnapping,
-  snappingStrength,
   isShiftDown,
   toPixels
 }: DraftPolygonProps) {
@@ -41,8 +36,8 @@ export default function DraftPolygon({
     <React.Fragment>
       {/* Snap Preview & Ghost Node (Active even before first point is placed) */}
       {pointerPos && !boxOrigin && (() => {
-        let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
-        let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
+        const logicalX = (pointerPos.x - stagePosition.x) / stageScale;
+        const logicalY = (pointerPos.y - stagePosition.y) / stageScale;
         let pctX = (logicalX - layout.offsetX) / layout.drawW;
         let pctY = (logicalY - layout.offsetY) / layout.drawH;
         let isSnapped = false;
@@ -53,13 +48,10 @@ export default function DraftPolygon({
           const dy = Math.abs(pctY - last.pctY);
           if (dx > dy) pctY = last.pctY;
           else pctX = last.pctX;
-        } else if (enableSnapping) {
-          const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, snappingStrength || 15);
-          if (snap.snapped) {
-            pctX = snap.pctX;
-            pctY = snap.pctY;
-            isSnapped = true;
-          }
+        } else if (enableSnapping && snapPreviewPoint) {
+          pctX = snapPreviewPoint.pctX;
+          pctY = snapPreviewPoint.pctY;
+          isSnapped = true;
         }
         
         return (
@@ -91,10 +83,10 @@ export default function DraftPolygon({
 
       {/* Box drag preview */}
       {boxOrigin && pointerPos && (() => {
-        let logicalX = (pointerPos.x - stagePosition.x) / stageScale;
-        let logicalY = (pointerPos.y - stagePosition.y) / stageScale;
-        let pctX = (logicalX - layout.offsetX) / layout.drawW;
-        let pctY = (logicalY - layout.offsetY) / layout.drawH;
+        const logicalX = (pointerPos.x - stagePosition.x) / stageScale;
+        const logicalY = (pointerPos.y - stagePosition.y) / stageScale;
+        const pctX = (logicalX - layout.offsetX) / layout.drawW;
+        const pctY = (logicalY - layout.offsetY) / layout.drawH;
         
         return (
           <Line

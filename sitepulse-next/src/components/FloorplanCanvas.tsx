@@ -1,9 +1,8 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react';
-import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Path, Text } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Text } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
-import dynamic from 'next/dynamic';
 import { Check } from 'lucide-react';
 import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 import ViewportControls from '@/components/canvas/ViewportControls';
@@ -16,29 +15,23 @@ import PendingPolygon from '@/components/canvas/PendingPolygon';
 import MapLegend from '@/components/canvas/MapLegend';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha } from '@/utils/geometry';
-import { ICON_PATHS } from '@/utils/constants';
+import { classifyWheelIntent, clampStagePosition } from '@/utils/viewport';
+import RBush from 'rbush';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
-import RBush from 'rbush';
-import { useProject, useUnits, useStatuses, useMilestones, useSnappingVectors, useUpdateWalkSequence } from '@/hooks/useProjectQueries';
+import { useUnits, useMilestones, useUpdateWalkSequence } from '@/hooks/useProjectQueries';
+import { useSnappingVectors } from '@/hooks/useSnappingVectors';
+import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
-import type { StatusLog, Unit, PercentPoint as Point, Milestone } from '@/types/domain';
+import type { StatusLog, Unit, PercentPoint as Point } from '@/types/domain';
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
-import type { TileRendererHandle } from '@/components/canvas/TileRenderer';
-
-// Lazy-load TileRenderer to avoid SSR issues with OpenSeadragon
-const TileRenderer = dynamic(() => import('@/components/canvas/TileRenderer'), { ssr: false });
 
 interface FloorplanCanvasProps {
   activeStatuses: StatusLog[];
   rawStatuses: StatusLog[];
   imageUrl: string;
-  /** Tile pyramid metadata — when present, TileRenderer is used instead of KonvaImage */
-  tileManifestUrl?: string | null;
-  tileImageWidth?: number | null;
-  tileImageHeight?: number | null;
   onUpdateUnitPolygon?: (unitId: string, points: Point[]) => void;
   onUpdateUnitIconOffset?: (unitId: string, offsetX: number, offsetY: number) => void;
   onDuplicateUnit?: (unitId: string | null) => void;
@@ -58,9 +51,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   activeStatuses,
   rawStatuses,
   imageUrl,
-  tileManifestUrl,
-  tileImageWidth,
-  tileImageHeight,
   onUpdateUnitPolygon,
   onUpdateUnitIconOffset,
   onDuplicateUnit,
@@ -70,8 +60,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onInstantStamp,
   pendingPolygonPoints,
   onPendingPolygonMove,
-  onAddNodeToSegment,
-  onPendingPolygonComplete,
   onOpenMilestoneModal,
   onOpenStatusModal,
 }, ref) => {
@@ -100,19 +88,23 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const params = useParams();
   const projectId = params?.projectId as string;
 
-  const { data: project } = useProject(projectId);
   const { data: allMilestones = [] } = useMilestones(projectId);
   const milestones = allMilestones.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
-  const { data: rawVectors = [] } = useSnappingVectors(activeSheetId);
-  
+  // Synchronous main-thread snapping engine. The hook returns raw JSON vectors;
+  // we instantiate the RBush spatial index here in a deferred effect (never in the
+  // Query cache — see AGENTS.md §5). getSnappedCoordinate() is then called inline,
+  // synchronously, which is required by Konva's dragBoundFunc and guarantees the
+  // committed point matches the visual snap ring.
+  const { vectors: rawVectors } = useSnappingVectors(activeSheetId);
+
   const [vectorTree, setVectorTree] = useState<RBush<any> | null>(null);
   useEffect(() => {
     if (!rawVectors || rawVectors.length === 0) {
       setVectorTree(null);
       return;
     }
-    // Defer the heavy spatial indexing calculation to prevent blocking the React render cycle
+    // Defer the heavy spatial-index build off the render path.
     const timeoutId = setTimeout(() => {
       const tree = new RBush();
       tree.load(rawVectors);
@@ -120,17 +112,34 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }, 10);
     return () => clearTimeout(timeoutId);
   }, [rawVectors]);
-  const unitIds = units.map(u => u.id);
-  
-  // activeStatuses is now provided by props and bottleneck resolution
-  const [image] = useImage(tileManifestUrl ? '' : imageUrl, 'anonymous');
 
-  // Feature flag: use tile renderer when tile metadata is available
-  const useTiles = !!(tileManifestUrl && tileImageWidth && tileImageHeight);
+  const [snapPreviewPoint, setSnapPreviewPoint] = useState<Point | null>(null);
+
+  const [originalWidth, setOriginalWidth] = useState(1000);
+  const [originalHeight, setOriginalHeight] = useState(1000);
+
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfRetry, setPdfRetry] = useState<(() => void) | null>(null);
+
+
+  
+  // activeStatuses is now provided by props and bottleneck resolution.
+  // The raster image is only the legacy fallback for sheets without a PDF; when
+  // activeSheetId is present, PdfBaseLayer.onDimensionsReady is the single source
+  // of truth for dimensions (avoids a race between the two writers).
+  const [image] = useImage(activeSheetId ? '' : imageUrl, 'anonymous');
+
+  useEffect(() => {
+    if (activeSheetId) return; // PDF path owns dimensions
+    if (image && image.naturalWidth && image.naturalHeight) {
+      setOriginalWidth(image.naturalWidth);
+      setOriginalHeight(image.naturalHeight);
+    }
+  }, [image, activeSheetId]);
 
   const stageRef = useRef<any>(null);
   const zoomDebounceRef = useRef<any>(null);
-  const tileRendererRef = useRef<TileRendererHandle | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const spaceWasPanRef = useRef<ToolMode | null>(null);
 
@@ -188,6 +197,13 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const [stageScale, setStageScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
+
+  // Live viewport transform — the single freshest source of truth for the Stage's own
+  // x/y/scale, updated synchronously at every mutation site (wheel, animation, drag). The
+  // Stage props read from this ref instead of the debounced React state, so a re-render that
+  // lands during the 100ms zoom-sync window never reconciles the stage back to a stale value
+  // (fixes the wheel-zoom "snap-back"). React state (above) stays the source for derived math.
+  const liveViewportRef = useRef({ scale: 1, x: 0, y: 0 });
 
   // Callback refs for functions defined later in the component — used by keyboard shortcuts
   // inside the useEffect (which runs before those functions are declared).
@@ -349,17 +365,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       return { offsetX: 0, offsetY: 0, drawW: 0, drawH: 0, stageW: 0, stageH: 0 };
     }
 
-    // Use tile dimensions if available, otherwise fall back to image natural dimensions
-    let nw: number, nh: number;
-    if (useTiles && tileImageWidth && tileImageHeight) {
-      nw = tileImageWidth;
-      nh = tileImageHeight;
-    } else if (image) {
-      nw = image.naturalWidth || image.width;
-      nh = image.naturalHeight || image.height;
-    } else {
-      return { offsetX: 0, offsetY: 0, drawW: stageW, drawH: stageH, stageW, stageH };
-    }
+    const nw = originalWidth;
+    const nh = originalHeight;
 
     if (!nw || !nh) {
       return { offsetX: 0, offsetY: 0, drawW: stageW, drawH: stageH, stageW, stageH };
@@ -370,7 +377,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     const offsetX = (stageW - drawW) / 2;
     const offsetY = (stageH - drawH) / 2;
     return { offsetX, offsetY, drawW, drawH, stageW, stageH };
-  }, [image, dimensions.width, dimensions.height, useTiles, tileImageWidth, tileImageHeight]);
+  }, [originalWidth, originalHeight, dimensions.width, dimensions.height]);
 
   useEffect(() => { layoutRef.current = layout; }, [layout]);
 
@@ -414,17 +421,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       
       const stage = stageRef.current;
 
-      // Determine source dimensions — from tile metadata or loaded image
-      let nw: number, nh: number;
-      if (useTiles && tileImageWidth && tileImageHeight) {
-        nw = tileImageWidth;
-        nh = tileImageHeight;
-      } else if (image) {
-        nw = image.naturalWidth || image.width;
-        nh = image.naturalHeight || image.height;
-      } else {
-        return null;
-      }
+      const nw = originalWidth;
+      const nh = originalHeight;
+      if (!nw || !nh) return null;
       
       const oldScale = stage.scaleX();
       const oldPosition = stage.position();
@@ -472,6 +471,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
     const stage = stageRef.current;
     if (!stage) {
+      liveViewportRef.current = { scale: targetScale, x: targetPosition.x, y: targetPosition.y };
       setStageScale(targetScale);
       setStagePosition(targetPosition);
       return;
@@ -497,15 +497,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       stage.scale({ x: currentScale, y: currentScale });
       stage.position(currentPos);
       stage.batchDraw();
-
-      // Frame-aligned OSD sync
-      tileRendererRef.current?.syncViewport(currentScale, currentPos);
+      liveViewportRef.current = { scale: currentScale, x: currentPos.x, y: currentPos.y };
 
       if (progress < 1) {
         animationFrameRef.current = requestAnimationFrame(step);
       } else {
         // Animation complete — set final React state
         animationFrameRef.current = null;
+        liveViewportRef.current = { scale: targetScale, x: targetPosition.x, y: targetPosition.y };
         setStageScale(targetScale);
         setStagePosition(targetPosition);
       }
@@ -526,21 +525,42 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }
     
     const oldScale = stage.scaleX();
-    const pointer = stage.getPointerPosition();
+    const intent = classifyWheelIntent(e.evt);
 
+    // Hybrid scroll model: trackpad two-finger scroll pans; mouse wheel and pinch zoom.
+    if (intent === 'pan') {
+      const panPos = clampStagePosition(
+        { x: stage.x() - e.evt.deltaX, y: stage.y() - e.evt.deltaY },
+        oldScale,
+        layoutRef.current,
+        dimensions.width,
+        dimensions.height,
+      );
+      stage.position(panPos);
+      stage.batchDraw();
+      liveViewportRef.current = { scale: oldScale, x: panPos.x, y: panPos.y };
+
+      if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
+      zoomDebounceRef.current = setTimeout(() => {
+        setStagePosition(panPos);
+      }, 100);
+      return;
+    }
+
+    const pointer = stage.getPointerPosition();
     const mousePointTo = {
       x: (pointer.x - stage.x()) / oldScale,
       y: (pointer.y - stage.y()) / oldScale,
     };
 
     let newScale;
-    if (e.evt.ctrlKey) {
+    if (intent === 'zoom-pinch') {
       // True trackpad sensitivity
       newScale = oldScale * Math.exp(-e.evt.deltaY / 100);
     } else {
-      // Smoother inertial friction, capping the max delta
-      const delta = Math.min(Math.abs(e.evt.deltaY), 50); 
-      const stretch = Math.pow(1.05, delta / 25); 
+      // Mouse wheel: smoother inertial friction, capping the max delta
+      const delta = Math.min(Math.abs(e.evt.deltaY), 50);
+      const stretch = Math.pow(1.05, delta / 25);
       newScale = e.evt.deltaY > 0 ? oldScale / stretch : oldScale * stretch;
     }
 
@@ -549,18 +569,22 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     const MAX_SCALE = 15;
     newScale = Math.max(MIN_SCALE, Math.min(newScale, MAX_SCALE));
 
-    const newPos = {
-      x: pointer.x - mousePointTo.x * newScale,
-      y: pointer.y - mousePointTo.y * newScale,
-    };
+    const newPos = clampStagePosition(
+      {
+        x: pointer.x - mousePointTo.x * newScale,
+        y: pointer.y - mousePointTo.y * newScale,
+      },
+      newScale,
+      layoutRef.current,
+      dimensions.width,
+      dimensions.height,
+    );
 
     // Direct Konva Mutation (bypasses React loop for 60fps)
     stage.scale({ x: newScale, y: newScale });
     stage.position(newPos);
     stage.batchDraw();
-
-    // Frame-aligned OSD sync — zero lag between tiles and markup overlay
-    tileRendererRef.current?.syncViewport(newScale, newPos);
+    liveViewportRef.current = { scale: newScale, x: newPos.x, y: newPos.y };
 
     // Sync back to React state debounced
     if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
@@ -823,13 +847,23 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }
   };
 
-  const handleAnchorDragEnd = (e: any, unitId: string, index: number) => {
+  const handleAnchorDragEnd = (e: any, unitId: string, index: number, overridePct?: Point) => {
     if (!['select', 'add_node'].includes(toolMode)) return;
     const node = e.target;
-    
-    let pctX = (node.x() - layout.offsetX) / layout.drawW;
-    let pctY = (node.y() - layout.offsetY) / layout.drawH;
-    
+
+    // MappedUnit computes the snapped position synchronously and passes it as
+    // overridePct; fall back to the raw node position otherwise.
+    let pctX = overridePct ? overridePct.pctX : (node.x() - layout.offsetX) / layout.drawW;
+    let pctY = overridePct ? overridePct.pctY : (node.y() - layout.offsetY) / layout.drawH;
+
+    if (!overridePct && mapSettings?.enableSnapping) {
+      const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15);
+      if (snap.snapped) {
+        pctX = snap.pctX;
+        pctY = snap.pctY;
+      }
+    }
+
     const unit = units.find(u => u.id === unitId);
     if (!unit || !unit.polygon_coordinates) return;
     
@@ -953,6 +987,16 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     computedCursor = isHoveringAnchor ? removeNodeCursor : 'default';
   }
 
+  // Synchronize Konva stage container cursor with computedCursor immediately
+  useEffect(() => {
+    if (stageRef.current) {
+      const container = stageRef.current.container();
+      if (container) {
+        container.style.cursor = computedCursor;
+      }
+    }
+  }, [computedCursor]);
+
   const isZoomedOut = stageScale < 1.5;
 
   if (isLoadingUnits) {
@@ -978,6 +1022,35 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         boxShadow: 'var(--glass-shadow)',
       }}
     >
+      {/* PDF Loading overlay — shown during initial download+render */}
+      {pdfLoading && !pdfError && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <div className="flex items-center gap-3 bg-white/85 dark:bg-slate-900/85 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm border border-slate-200/60 dark:border-white/10">
+            <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full" />
+            <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Loading drawing...</span>
+          </div>
+        </div>
+      )}
+
+      {/* PDF Error overlay — shown when download/render fails */}
+      {pdfError && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="flex flex-col items-center gap-3 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm px-6 py-4 rounded-xl shadow-lg border border-red-200/30 dark:border-red-900/30">
+            <p className="text-sm text-red-500 font-bold">Failed to load drawing</p>
+            <p className="text-xs text-slate-500 max-w-64 text-center">{pdfError}</p>
+            {pdfRetry && (
+              <button 
+                type="button"
+                onClick={pdfRetry}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-1.5 rounded-lg shadow-sm font-medium transition-all"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <ViewportControls 
         resetView={resetView} 
         handleZoom={handleZoom} 
@@ -1040,21 +1113,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
       {dimensions.width > 0 && dimensions.height > 0 && (
         <>
-        {/* Tile background layer — renders DZI tiles via OpenSeadragon when available */}
-        {useTiles && tileManifestUrl && tileImageWidth && tileImageHeight && (
-          <TileRenderer
-            forwardedRef={tileRendererRef}
-            tileManifestUrl={tileManifestUrl}
-            tilesBaseUrl={tileManifestUrl.replace('/output.dzi', '/output_files/')}
-            imageWidth={tileImageWidth}
-            imageHeight={tileImageHeight}
-            containerWidth={dimensions.width}
-            containerHeight={dimensions.height}
-            stageScale={stageScale}
-            stagePosition={stagePosition}
-            layout={layout}
-          />
-        )}
         <Stage
           ref={stageRef}
           width={dimensions.width}
@@ -1103,7 +1161,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // NEW: Handle Route Midpoint Drop
             if (activeRouteDrag && activeRouteDrag.type === 'midpoint') {
               if (routeDropTarget) {
-                let newRoute = [...pendingRoute];
+                const newRoute = [...pendingRoute];
                 const existingIdx = newRoute.indexOf(routeDropTarget);
                 
                 // If it already exists in the route, remove it first to prevent duplicates
@@ -1161,14 +1219,21 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             const pos = stage.getPointerPosition();
             if (stage) setPointerPos(pos);
 
-            // Update lastSnapRef so handleStageClick consumes the same snap result as the visual ring
+            // Synchronous snap for the DraftPolygon cursor ghost. Computing this
+            // inline (no debounce/await) guarantees lastSnapRef is fresh when
+            // handleStageClick commits the point on the very next event.
             if (toolMode === 'draw' && mapSettings?.enableSnapping && pos) {
               const logX = (pos.x - stage.x()) / stageScale;
               const logY = (pos.y - stage.y()) / stageScale;
-              const px = (logX - layout.offsetX) / layout.drawW;
-              const py = (logY - layout.offsetY) / layout.drawH;
-              lastSnapRef.current = getSnappedCoordinate(px, py, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15);
+              if (layout.drawW > 0 && layout.drawH > 0) {
+                const px = (logX - layout.offsetX) / layout.drawW;
+                const py = (logY - layout.offsetY) / layout.drawH;
+                const snap = getSnappedCoordinate(px, py, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15);
+                lastSnapRef.current = snap;
+                setSnapPreviewPoint(snap.snapped ? { pctX: snap.pctX, pctY: snap.pctY } : null);
+              }
             } else {
+              setSnapPreviewPoint(null);
               lastSnapRef.current = null;
             }
             
@@ -1198,10 +1263,17 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               }
             }
           }}
-          x={stagePosition.x}
-          y={stagePosition.y}
-          scaleX={stageScale}
-          scaleY={stageScale}
+          x={liveViewportRef.current.x}
+          y={liveViewportRef.current.y}
+          scaleX={liveViewportRef.current.scale}
+          scaleY={liveViewportRef.current.scale}
+          dragBoundFunc={(pos) => clampStagePosition(
+            pos,
+            stageRef.current?.scaleX() ?? 1,
+            layoutRef.current,
+            dimensions.width,
+            dimensions.height,
+          )}
           onDragStart={(e) => {
             if (e.target === stageRef.current) {
               const evt = e.evt;
@@ -1214,17 +1286,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             if (e.target === stageRef.current) {
                setIsDraggingCanvas(false);
                const newPos = { x: e.target.x(), y: e.target.y() };
+               liveViewportRef.current = { scale: e.target.scaleX(), x: newPos.x, y: newPos.y };
                setStagePosition(newPos);
-               tileRendererRef.current?.syncViewport(stageScale, newPos);
-            }
-          }}
-          onDragMove={(e) => {
-            // Frame-aligned OSD sync during pan drag — prevents tile background freezing
-            if (e.target === stageRef.current) {
-              tileRendererRef.current?.syncViewport(
-                stageScale,
-                { x: e.target.x(), y: e.target.y() }
-              );
             }
           }}
         >
@@ -1237,15 +1300,30 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               }
             }}
           >
-            {/* Background: Tile renderer for tiled sheets, KonvaImage fallback for legacy */}
-            {!useTiles && image && layout.drawW > 0 && layout.drawH > 0 && (
-              <KonvaImage
-                image={image}
-                x={layout.offsetX}
-                y={layout.offsetY}
-                width={layout.drawW}
-                height={layout.drawH}
-              />
+            {/* Background: PDF vector layer, or standard Image fallback */}
+            {layout.drawW > 0 && layout.drawH > 0 && (
+              activeSheetId ? (
+                <PdfBaseLayer
+                  sheetId={activeSheetId}
+                  offsetX={layout.offsetX}
+                  offsetY={layout.offsetY}
+                  drawW={layout.drawW}
+                  drawH={layout.drawH}
+                  stageScale={stageScale}
+                  onLoadingChange={setPdfLoading}
+                  onError={(err, retry) => { setPdfError(err); setPdfRetry(() => retry); }}
+                  onDimensionsReady={(w, h) => { setOriginalWidth(w); setOriginalHeight(h); }}
+                  viewportRect={visibleBoundingBox}
+                />
+              ) : image && (
+                <KonvaImage
+                  image={image}
+                  x={layout.offsetX}
+                  y={layout.offsetY}
+                  width={layout.drawW}
+                  height={layout.drawH}
+                />
+              )
             )}
 
             {visibleUnits &&
@@ -1297,10 +1375,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               stagePosition={stagePosition}
               stageScale={stageScale}
               layout={layout}
-              vectorTree={vectorTree}
-              aspect={aspect}
+              snapPreviewPoint={snapPreviewPoint}
               enableSnapping={mapSettings?.enableSnapping}
-              snappingStrength={mapSettings?.snappingStrength || 15}
               isShiftDown={isShiftDown}
               toPixels={toPixels}
             />

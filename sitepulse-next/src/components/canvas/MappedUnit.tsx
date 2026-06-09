@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Group, Line, Circle, Path } from 'react-konva';
 import { getCentroid, getSnappedCoordinate } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
-import type { Unit, StatusLog, PercentPoint, CanvasLayout, VectorTree } from '@/types/domain';
+import type RBush from 'rbush';
+import type { Unit, StatusLog, PercentPoint, CanvasLayout } from '@/types/domain';
 import type { ToolMode } from '@/store/useMapStore';
 
 const stripeCache: Record<string, HTMLCanvasElement> = {};
@@ -37,7 +38,7 @@ export interface MappedUnitProps {
   toolMode: ToolMode;
   layout: CanvasLayout;
   stageScale: number;
-  vectorTree: VectorTree | null;
+  vectorTree: RBush<any> | null;
   aspect: number;
   enableSnapping: boolean;
   snappingStrength: number;
@@ -59,7 +60,7 @@ export interface MappedUnitProps {
   onUpdateUnitIconOffset?: (id: string, offsetX: number, offsetY: number) => void;
   setIsHoveringAnchor: (hovering: boolean) => void;
   setActiveDragNode: (payload: { unitId: string; index: number; pctX: number; pctY: number; isSnapped?: boolean } | null) => void;
-  handleAnchorDragEnd: (e: any, unitId: string, index: number) => void;
+  handleAnchorDragEnd: (e: any, unitId: string, index: number, overridePct?: PercentPoint) => void;
   handleAnchorClick: (e: any, unitId: string, index: number) => void;
 }
 
@@ -82,7 +83,6 @@ export const MappedUnitComponent = ({
   activeDragNode,
   activeDragPolygon,
   isShiftDown,
-  isZoomedOut,
   computedCursor,
   mixAlpha,
   toPixels,
@@ -99,11 +99,13 @@ export const MappedUnitComponent = ({
   handleAnchorDragEnd,
   handleAnchorClick
 }: MappedUnitProps) => {
+  const [prevCoordinates, setPrevCoordinates] = useState(unit.polygon_coordinates);
   const [optimisticCoords, setOptimisticCoords] = useState<PercentPoint[] | null>(null);
 
-  useEffect(() => {
+  if (unit.polygon_coordinates !== prevCoordinates) {
+    setPrevCoordinates(unit.polygon_coordinates);
     setOptimisticCoords(null);
-  }, [unit.polygon_coordinates]);
+  }
 
   const activeStatus = activeStatuses.find((s) => s.unit_id === unit.id);
   const tState = activeStatus?.temporal_state || 'completed';
@@ -372,9 +374,12 @@ export const MappedUnitComponent = ({
                  return { x: origX, y: pos.y };
                }
              }
+             // Synchronous snap: dragBoundFunc is the ONLY place that can constrain
+             // the node's visual position in real time during the drag. getSnappedCoordinate
+             // must be synchronous for this — which is why snapping lives on the main thread.
              if (enableSnapping) {
-               let pctX = (pos.x - layout.offsetX) / layout.drawW;
-               let pctY = (pos.y - layout.offsetY) / layout.drawH;
+               const pctX = (pos.x - layout.offsetX) / layout.drawW;
+               const pctY = (pos.y - layout.offsetY) / layout.drawH;
                const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, snappingStrength || 15);
                if (snap.snapped) {
                  return {
@@ -386,9 +391,11 @@ export const MappedUnitComponent = ({
              return pos;
            }}
            onDragMove={(e) => {
+             // node.x()/y() already reflect the snapped position applied by dragBoundFunc,
+             // so the indicator ring tracks the locked point with no extra computation.
              const node = e.target;
-             let pctX = (node.x() - layout.offsetX) / layout.drawW;
-             let pctY = (node.y() - layout.offsetY) / layout.drawH;
+             const pctX = (node.x() - layout.offsetX) / layout.drawW;
+             const pctY = (node.y() - layout.offsetY) / layout.drawH;
              let isSnapped = false;
              if (enableSnapping && !isShiftDown) {
                const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, snappingStrength || 15);
@@ -398,8 +405,8 @@ export const MappedUnitComponent = ({
            }}
            onDragEnd={(e) => {
              const node = e.target;
-             let pctX = (node.x() - layout.offsetX) / layout.drawW;
-             let pctY = (node.y() - layout.offsetY) / layout.drawH;
+             const pctX = (node.x() - layout.offsetX) / layout.drawW;
+             const pctY = (node.y() - layout.offsetY) / layout.drawH;
              const newPoints = [...basePolygon];
              newPoints[i] = { pctX, pctY };
              setOptimisticCoords(newPoints);
