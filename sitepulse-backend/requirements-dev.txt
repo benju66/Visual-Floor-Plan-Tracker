@@ -1,0 +1,6 @@
+# Test-only dependencies for the SitePulse backend.
+# Install into the backend venv alongside requirements.txt:
+#   pip install -r requirements.txt -r requirements-dev.txt
+# Run the suite:
+#   pytest
+pytest==8.3.4

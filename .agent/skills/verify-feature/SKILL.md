@@ -1,27 +1,32 @@
 # TASK: Post-Implementation Verification & Teardown
 
-Execute these steps sequentially. Stop and ask for clarification if any step fails or encounters an unexpected state.
+Execute these steps sequentially. Stop and ask for clarification if any step fails or hits an unexpected state.
+
+> This repo's architectural source of truth is `sitepulse-next/AGENTS.md`. There is no `ARCHITECTURE.md` and no C4 docs — do not look for or write them.
 
 **Step 1: Intent vs. Execution Audit**
-Review the original Implementation Plan and compare it directly against the current state of the file system, independent of version control.
+Compare the original Implementation Plan against the actual file system, independent of version control.
+* Identify every file you created, modified, or deleted this session.
+* Read the current contents of those files into context.
+* Evaluate the written code against the plan:
+  * Did the execution satisfy every requirement?
+  * Were any changes made outside the plan's scope?
+Flag all discrepancies.
 
-* Identify all files you created, modified, or deleted during this current implementation session.
-* Read the current contents of those specific files into your context.
-* Evaluate the actual written code against the plan to answer:
-  * Did the execution satisfy every requirement? 
-  * Were any unauthorized changes made outside the scope of the original plan? 
-Flag any discrepancies.
+**Step 2: Cross-Surface Verification — prove it works**
+This project has **no unit/e2e test framework** (no Jest/Vitest/Playwright). Verification is type-checking, linting, a production build, and live browser checks. Run from `sitepulse-next/` and report the exact commands and their output:
+* `npm run typecheck` — `tsc --noEmit`. This is the primary gate. **Zero new type errors.** No file may merge to `main` still carrying `// @ts-nocheck`.
+* `npm run lint` — ESLint.
+* `npm run build` — must compile cleanly (catches App Router / server-component / bundling errors).
+* If you changed the **backend** (`sitepulse-backend/`), confirm `uvicorn main:app` starts and the affected endpoint responds; watch for startup `lifespan` validation failures.
+* If you changed **UI/canvas/UX**, launch `npm run dev` (http://localhost:3000) and visually verify: Konva map interactions (draw/snap/pan/zoom), the field table ↔ map sync, and — for mobile work — the `MobileSwipeDeck` gesture/swipe flow and `SyncIndicator` state.
+* If you changed **sync logic**, verify the offline path: apply changes offline, confirm they persist to IndexedDB (project-scoped key `sitepulse-pending-changes-${projectId}`), reload, and confirm they replay without duplicate `status_logs` rows.
 
-**Step 2: Cross-Surface Verification**
-Do not just read the code—prove it works. 
-* Run the relevant test suites in the terminal.
-* If UI/UX components were altered, launch the browser environment and visually verify the changes (e.g., mobile swipe-card interactions, routing flows). 
-Report the exact terminal commands run and their outputs.
-
-**Step 3: Architecture & Rule Sync**
-Review the newly written code against `ARCHITECTURE.md` and `AGENTS.md`. 
-* Did this feature introduce new containers, alter database schemas, or change external data flows? If yes, automatically draft the required updates to `ARCHITECTURE.md` using the C4 Model structure.
-* Are there new standard operating procedures or reusable patterns created here that should be added to `AGENTS.md`?
+**Step 3: Documentation Sync**
+Review the new code against `AGENTS.md`.
+* Did this work add a new table, RPC, trigger, or migration? Then `src/types/database.types.ts` and `src/types/domain.ts` must reflect it, the migration must live in `sitepulse-next/supabase/migrations/`, and the migration table in the root `README.md` should be updated.
+* Did it establish a new reusable pattern, hook, or invariant — or change a sync/auth/serialization rule? Draft the corresponding update to the relevant section of `AGENTS.md`.
+* If file references in `AGENTS.md` drifted (e.g. a `.js` file you converted to `.ts`), fix them.
 
 **Step 4: The Merge Gate**
-Present a final "Definition of Done" report summarizing the test results and documentation updates. **Stop entirely.** Do not attempt to commit, push, or merge this worktree into the main branch until I explicitly reply with "Approved."
+Present a final "Definition of Done" report: the exact verification commands run, their output, what you verified in the browser, and any docs updated. **Then stop entirely.** Do not commit, push, or merge until I explicitly reply with "Approved."

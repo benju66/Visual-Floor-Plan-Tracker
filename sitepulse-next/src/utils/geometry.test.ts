@@ -1,0 +1,112 @@
+import { describe, it, expect } from 'vitest';
+import {
+  sqr,
+  dist2,
+  distToSegment,
+  distToSegmentSquared,
+  getCentroid,
+  getSnappedCoordinate,
+  mixAlpha,
+} from './geometry';
+import type { PercentPoint } from '@/types/domain';
+
+describe('mixAlpha — single source of truth for CSS color → rgba()', () => {
+  it('expands 3-digit hex to rgba', () => {
+    expect(mixAlpha('#f00', 0.5)).toBe('rgba(255,0,0,0.5)');
+  });
+
+  it('converts 6-digit hex to rgba', () => {
+    expect(mixAlpha('#00ff00', 1)).toBe('rgba(0,255,0,1)');
+  });
+
+  it('upgrades rgb(...) to rgba with the alpha appended', () => {
+    expect(mixAlpha('rgb(10, 20, 30)', 0.25)).toBe('rgba(10, 20, 30, 0.25)');
+  });
+
+  it('rewrites the alpha of an existing rgba(...)', () => {
+    expect(mixAlpha('rgba(10, 20, 30, 0.9)', 0.1)).toBe('rgba(10, 20, 30, 0.1)');
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(mixAlpha('', 0.5)).toBe('');
+  });
+
+  it('passes through unrecognized color formats unchanged', () => {
+    expect(mixAlpha('hotpink', 0.5)).toBe('hotpink');
+  });
+});
+
+describe('getCentroid', () => {
+  it('returns the origin for an empty list', () => {
+    expect(getCentroid([])).toEqual({ pctX: 0, pctY: 0 });
+  });
+
+  it('averages the points', () => {
+    const pts: PercentPoint[] = [
+      { pctX: 0, pctY: 0 },
+      { pctX: 10, pctY: 0 },
+      { pctX: 10, pctY: 10 },
+      { pctX: 0, pctY: 10 },
+    ];
+    expect(getCentroid(pts)).toEqual({ pctX: 5, pctY: 5 });
+  });
+});
+
+describe('distance helpers', () => {
+  it('sqr squares its input', () => {
+    expect(sqr(4)).toBe(16);
+  });
+
+  it('dist2 is the squared euclidean distance', () => {
+    expect(dist2({ pctX: 0, pctY: 0 }, { pctX: 3, pctY: 4 })).toBe(25);
+  });
+
+  it('distToSegment projects onto the segment and clamps to endpoints', () => {
+    const v: PercentPoint = { pctX: 0, pctY: 0 };
+    const w: PercentPoint = { pctX: 10, pctY: 0 };
+    // Point above the middle of the segment: perpendicular distance is 5.
+    expect(distToSegment({ pctX: 5, pctY: 5 }, v, w)).toBeCloseTo(5);
+    // Point beyond the end clamps to w (distance 5, not the line projection).
+    expect(distToSegment({ pctX: 15, pctY: 0 }, v, w)).toBeCloseTo(5);
+  });
+
+  it('distToSegmentSquared collapses to point distance for a zero-length segment', () => {
+    const p: PercentPoint = { pctX: 3, pctY: 4 };
+    const v: PercentPoint = { pctX: 0, pctY: 0 };
+    expect(distToSegmentSquared(p, v, v)).toBe(25);
+  });
+});
+
+// getSnappedCoordinate only needs an object with a `.search()` method, so we
+// stub RBush instead of pulling in the real spatial index. `as never` keeps the
+// stub assignable to the RBush<RBushItem> parameter without importing rbush.
+function fakeTree(items: { lineData: { start: PercentPoint; end: PercentPoint } }[]) {
+  return { search: () => items } as never;
+}
+
+describe('getSnappedCoordinate', () => {
+  const aspect = 1;
+  const drawW = 1000;
+  const stageScale = 1;
+
+  it('returns the cursor untouched when there is no vector tree', () => {
+    const result = getSnappedCoordinate(0.5, 0.5, null, aspect, drawW, stageScale);
+    expect(result).toEqual({ pctX: 0.5, pctY: 0.5, snapped: false });
+  });
+
+  it('does not snap when no lines are nearby', () => {
+    const result = getSnappedCoordinate(0.5, 0.5, fakeTree([]), aspect, drawW, stageScale);
+    expect(result.snapped).toBe(false);
+  });
+
+  it('applies corner gravity: snaps to a vertex within the snap radius', () => {
+    // strength 15 / (1000 * 1) => snapRadiusX = 0.015. Vertex 0.001 away.
+    const tree = fakeTree([
+      { lineData: { start: { pctX: 0.501, pctY: 0.5 }, end: { pctX: 0.8, pctY: 0.5 } } },
+    ]);
+    const result = getSnappedCoordinate(0.5, 0.5, tree, aspect, drawW, stageScale);
+    expect(result.snapped).toBe(true);
+    expect(result.pctX).toBeCloseTo(0.501);
+    expect(result.pctY).toBeCloseTo(0.5);
+  });
+});

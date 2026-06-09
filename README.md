@@ -78,6 +78,27 @@ uvicorn main:app --reload
 ```
 *Your backend will be running on `http://localhost:8000`*
 
+## 🧪 Testing
+
+**Frontend (`sitepulse-next/`) — Vitest + React Testing Library**
+```bash
+cd sitepulse-next
+npm run test            # run once
+npm run test:watch      # watch mode
+npm run test:coverage   # coverage report (src/utils, src/types)
+```
+Tests are co-located next to the code (`foo.ts` → `foo.test.ts`). Seed coverage targets the pure-logic and serialization layers — geometry/snapping math, the JSONB type guards, and the project-scoped IndexedDB pending-changes store.
+
+**Backend (`sitepulse-backend/`) — pytest**
+```bash
+cd sitepulse-backend
+pip install -r requirements-dev.txt   # one-time
+python -m pytest -q
+```
+Tests live in `tests/` and run hermetically — `conftest.py` injects test `SUPABASE_*` env vars before importing `main`, so no real Supabase project is needed. Seed coverage pins the local-JWT auth path (valid/expired/wrong-role/tampered tokens) and the public-vs-protected route boundary.
+
+> There is no E2E framework yet (Playwright deferred); canvas and mobile swipe-deck flows are verified manually against `npm run dev`. See `.agent/skills/` for the `write-tests`, `verify-feature`, and related agent skills.
+
 ## 📖 Key Architecture Concepts
 
 * **Map vs Table Sync:** The application features deep integration between the `Canvas` elements and the `FieldStatusTable`. Updates made visually immediately reflect in the table, and vice-versa.
