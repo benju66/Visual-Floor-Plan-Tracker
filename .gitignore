@@ -66,3 +66,9 @@ Thumbs.db
 # Misc
 *.bak
 .cache/
+
+# Agent tooling (local Render skills install; not shared)
+# NOTE: .agent/ (singular) holds repo-specific skills and IS tracked — do not ignore it.
+.agents/
+.claude/
+skills-lock.json
