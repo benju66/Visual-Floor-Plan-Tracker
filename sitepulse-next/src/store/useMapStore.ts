@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import type { PercentPoint } from '@/types/domain';
 import type { Updater } from '@/types/utils';
 
-export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'node' | 'add_node' | 'delete_node';
+export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node';
 export type RouteSubMode = 'move' | 'add' | 'remove';
 
 export interface MapState {

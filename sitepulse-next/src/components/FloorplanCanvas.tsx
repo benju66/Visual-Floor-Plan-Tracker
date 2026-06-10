@@ -16,6 +16,7 @@ import MapLegend from '@/components/canvas/MapLegend';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha } from '@/utils/geometry';
 import { classifyWheelIntent, clampStagePosition } from '@/utils/viewport';
+import { getToolCursor } from '@/utils/cursor';
 import RBush from 'rbush';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -177,7 +178,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const [hoveredRouteNode, setHoveredRouteNode] = useState<string | null>(null);
   const [activeRouteDrag, setActiveRouteDrag] = useState<any>(null);
   const [routeDropTarget, setRouteDropTarget] = useState<string | null>(null);
-  const [isHoveringAnchor, setIsHoveringAnchor] = useState(false);
+  // Cursor hover state — the single set of inputs that drive computedCursor.
+  // hoveredAnchor is keyed by `${unitId}:${index}` (or `PENDING:${index}`) so that
+  // interleaved enter/leave events between adjacent anchors can't leave it stuck.
+  const [hoveredAnchor, setHoveredAnchor] = useState<string | null>(null);
+  const [hoveredIcon, setHoveredIcon] = useState(false);
+  const [hoveredPendingPolygon, setHoveredPendingPolygon] = useState(false);
+  const [hoveredRouteSegment, setHoveredRouteSegment] = useState<number | null>(null);
+  const [isDraggingRouteNode, setIsDraggingRouteNode] = useState(false);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [activeDragNode, setActiveDragNode] = useState<any>(null);
   const [activeDragPolygon, setActiveDragPolygon] = useState<any>(null);
@@ -960,34 +968,31 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const addNodeCursor = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(addSvg)}") 12 12, crosshair`;
   const removeNodeCursor = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(removeSvg)}") 12 12, crosshair`;
 
-  let computedCursor = 'grab';
-  if (isDraggingCanvas) {
-    computedCursor = 'grabbing';
-  } else if (activeDragPolygon || activeDragNode) {
-    computedCursor = 'grabbing';
-  } else if (toolMode === 'draw') {
-    computedCursor = 'crosshair';
-  } else if (toolMode === 'stamp') {
-    computedCursor = 'copy';
-  } else if (toolMode === 'add_node') {
-    computedCursor = isHoveringAnchor ? 'grab' : addNodeCursor;
-  } else if (toolMode === 'route') {
-    if (routeSubMode === 'add') {
-      computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? 'not-allowed' : addNodeCursor;
-    } else if (routeSubMode === 'remove') {
-      computedCursor = (hoveredUnit && pendingRoute.includes(hoveredUnit)) ? removeNodeCursor : 'default';
-    } else {
-      computedCursor = 'default';
-    }
-  } else if (['select', 'multi_select'].includes(toolMode)) {
-    if (isHoveringAnchor) computedCursor = 'pointer';
-    else if (hoveredUnit) computedCursor = selectedUnitIds?.includes(hoveredUnit) ? 'grab' : 'pointer';
-    else computedCursor = 'default';
-  } else if (toolMode === 'delete_node') {
-    computedCursor = isHoveringAnchor ? removeNodeCursor : 'default';
-  }
+  // computedCursor is the SINGLE source of truth for the cursor. All hover/drag
+  // affordances feed in here as React state — no shape handler mutates the cursor
+  // imperatively, so a shape that unmounts under the pointer can't strand a stale
+  // cursor (the value simply recomputes from the remaining state).
+  const computedCursor = getToolCursor({
+    toolMode,
+    routeSubMode,
+    isDragging: isDraggingCanvas || !!activeDragPolygon || !!activeDragNode || isDraggingRouteNode || !!activeRouteDrag,
+    hoveredAnchor: hoveredAnchor !== null,
+    hoveredIcon,
+    hoveredPendingPolygon,
+    hoveredUnit,
+    hoveredRouteNode,
+    hoveredRouteSegment,
+    isShiftDown,
+    selectedUnitIds: selectedUnitIds ?? [],
+    pendingRoute,
+    addNodeCursor,
+    removeNodeCursor,
+  });
 
-  // Synchronize Konva stage container cursor with computedCursor immediately
+  // Apply computedCursor to the Konva-generated container (it sits above the outer
+  // wrapper div for the canvas area). This effect is now the ONLY writer of the
+  // container cursor, so re-running on string change is sufficient — nothing else
+  // can leave a value behind for it to miss.
   useEffect(() => {
     if (stageRef.current) {
       const container = stageRef.current.container();
@@ -996,6 +1001,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       }
     }
   }, [computedCursor]);
+
+  // Anchor hover tracking by id. Leave only clears if it still owns the hover,
+  // so a stale `leave` arriving after the next anchor's `enter` can't unset it.
+  const handleAnchorEnter = useCallback((id: string) => setHoveredAnchor(id), []);
+  const handleAnchorLeave = useCallback(
+    (id: string) => setHoveredAnchor(prev => (prev === id ? null : prev)),
+    [],
+  );
 
   const isZoomedOut = stageScale < 1.5;
 
@@ -1349,7 +1362,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   activeDragNode={activeDragNode}
                   activeDragPolygon={activeDragPolygon}
                   isShiftDown={isShiftDown}
-                  computedCursor={computedCursor}
                   mixAlpha={mixAlpha}
                   toPixels={toPixels}
                   setHoveredUnit={setHoveredUnit}
@@ -1360,7 +1372,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   onToolModeChange={onToolModeChange}
                   setContextMenu={setContextMenu}
                   onUpdateUnitIconOffset={onUpdateUnitIconOffset}
-                  setIsHoveringAnchor={setIsHoveringAnchor}
+                  onAnchorEnter={handleAnchorEnter}
+                  onAnchorLeave={handleAnchorLeave}
+                  setHoveredIcon={setHoveredIcon}
                   setActiveDragNode={setActiveDragNode}
                   handleAnchorDragEnd={handleAnchorDragEnd}
                   handleAnchorClick={handleAnchorClick}
@@ -1405,7 +1419,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               setActiveDragPolygon={setActiveDragPolygon}
               onPendingPolygonMove={onPendingPolygonMove}
               setActiveDragNode={setActiveDragNode}
-              setIsHoveringAnchor={setIsHoveringAnchor}
+              onAnchorEnter={handleAnchorEnter}
+              onAnchorLeave={handleAnchorLeave}
+              setHoveredPendingPolygon={setHoveredPendingPolygon}
             />
 
             {(toolMode === 'route' || mapSettings?.showWalkSequence) && (() => {
@@ -1456,22 +1472,22 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                         // FIX: Listen for both add and remove modes
                         listening={toolMode === 'route' && (routeSubMode === 'add' || routeSubMode === 'remove')}
                         onMouseEnter={(e) => {
-                          // FIX: Apply correct color and cursor based on mode
+                          // Visual emphasis only — the cursor is derived from
+                          // hoveredRouteSegment via computedCursor.
                           if (routeSubMode === 'add') {
                             (e.target as any).stroke("#10b981"); // Emerald
-                            e.target.getStage()!.container().style.cursor = addNodeCursor;
                           } else if (routeSubMode === 'remove') {
                             (e.target as any).stroke("#ef4444"); // Red
-                            e.target.getStage()!.container().style.cursor = removeNodeCursor;
                           }
                           (e.target as any).strokeWidth(6 / stageScale);
                           e.target.getLayer()!.batchDraw();
+                          setHoveredRouteSegment(i);
                         }}
                         onMouseLeave={(e) => {
                           (e.target as any).stroke("#3b82f6");
                           (e.target as any).strokeWidth(4 / stageScale);
                           e.target.getLayer()!.batchDraw();
-                          e.target.getStage()!.container().style.cursor = computedCursor;
+                          setHoveredRouteSegment(prev => (prev === i ? null : prev));
                         }}
                         onMouseDown={(e) => {
                           e.cancelBubble = true;
@@ -1533,10 +1549,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                         onClick={(e) => {
                           e.cancelBubble = true;
                           if (toolMode === 'route' && routeSubMode === 'remove') {
-                            const newRoute = pendingRoute.filter(id => id !== p.id);
-                            setPendingRoute(newRoute);
-                            // FIX: Manually reset the cursor because the unmounted element cannot fire onMouseLeave
-                            e.target.getStage()!.container().style.cursor = 'default';
+                            // Clearing hover state recomputes the cursor; no manual
+                            // reset needed even though this node is about to unmount.
+                            setHoveredRouteNode(null);
+                            setPendingRoute(pendingRoute.filter(id => id !== p.id));
                           }
                         }}
                         onTap={(e) => {
@@ -1546,21 +1562,16 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                             setPendingRoute(prev => prev.filter(id => id !== p.id));
                           }
                         }}
-                        onMouseEnter={(e) => {
+                        onMouseEnter={() => {
+                          // Cursor follows from hoveredRouteNode via computedCursor.
                           setHoveredRouteNode(p.id);
-                          if (toolMode === 'route') {
-                            if (routeSubMode === 'move') e.target.getStage()!.container().style.cursor = 'grab';
-                            else if (routeSubMode === 'remove') e.target.getStage()!.container().style.cursor = removeNodeCursor;
-                            else if (routeSubMode === 'add') e.target.getStage()!.container().style.cursor = 'not-allowed';
-                          }
                         }}
-                        onMouseLeave={(e) => {
+                        onMouseLeave={() => {
                           setHoveredRouteNode(null);
-                          e.target.getStage()!.container().style.cursor = computedCursor;
                         }}
                         onDragStart={(e) => {
                           e.cancelBubble = true;
-                          e.target.getStage()!.container().style.cursor = 'grabbing';
+                          setIsDraggingRouteNode(true);
                           e.target.scale({ x: 1.2, y: 1.2 });
                           const circle = (e.target as any).findOne('Circle');
                           if (circle) {
@@ -1594,7 +1605,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                         }}
                         onDragEnd={(e) => {
                           e.cancelBubble = true;
-                          e.target.getStage()!.container().style.cursor = 'grab';
+                          setIsDraggingRouteNode(false);
                           e.target.scale({ x: 1, y: 1 });
                           const circle = (e.target as any).findOne?.('Circle');
                           if (circle) {

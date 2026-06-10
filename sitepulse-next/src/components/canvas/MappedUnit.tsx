@@ -47,7 +47,6 @@ export interface MappedUnitProps {
   activeDragPolygon: { unitId: string; dx: number; dy: number } | null;
   isShiftDown: boolean;
   isZoomedOut: boolean;
-  computedCursor: string;
   mixAlpha: (color: string, alpha: number) => string;
   toPixels: (points: PercentPoint[]) => number[];
   setHoveredUnit: (id: string | null) => void;
@@ -58,7 +57,9 @@ export interface MappedUnitProps {
   onToolModeChange?: (mode: ToolMode) => void;
   setContextMenu: (payload: { x: number; y: number; unitId: string }) => void;
   onUpdateUnitIconOffset?: (id: string, offsetX: number, offsetY: number) => void;
-  setIsHoveringAnchor: (hovering: boolean) => void;
+  onAnchorEnter: (id: string) => void;
+  onAnchorLeave: (id: string) => void;
+  setHoveredIcon: (hovered: boolean) => void;
   setActiveDragNode: (payload: { unitId: string; index: number; pctX: number; pctY: number; isSnapped?: boolean } | null) => void;
   handleAnchorDragEnd: (e: any, unitId: string, index: number, overridePct?: PercentPoint) => void;
   handleAnchorClick: (e: any, unitId: string, index: number) => void;
@@ -83,7 +84,6 @@ export const MappedUnitComponent = ({
   activeDragNode,
   activeDragPolygon,
   isShiftDown,
-  computedCursor,
   mixAlpha,
   toPixels,
   setHoveredUnit,
@@ -94,7 +94,9 @@ export const MappedUnitComponent = ({
   onToolModeChange,
   setContextMenu,
   onUpdateUnitIconOffset,
-  setIsHoveringAnchor,
+  onAnchorEnter,
+  onAnchorLeave,
+  setHoveredIcon,
   setActiveDragNode,
   handleAnchorDragEnd,
   handleAnchorClick
@@ -305,16 +307,8 @@ export const MappedUnitComponent = ({
               
               onUpdateUnitIconOffset?.(unit.id, newOffsetX, newOffsetY);
             }}
-            onMouseEnter={(e) => {
-              if (toolMode === 'select' && isShiftDown) {
-                const stage = e.target.getStage();
-                if (stage) stage.container().style.cursor = 'grab';
-              }
-            }}
-            onMouseLeave={(e) => {
-              const stage = e.target.getStage();
-              if (stage) stage.container().style.cursor = computedCursor;
-            }}
+            onMouseEnter={() => setHoveredIcon(true)}
+            onMouseLeave={() => setHoveredIcon(false)}
             onClick={(e) => handlePolygonClick(e, unit)}
             onTap={(e) => handlePolygonClick(e, unit)}
           >
@@ -416,8 +410,8 @@ export const MappedUnitComponent = ({
            }}
            onClick={(e) => handleAnchorClick(e, unit.id, i)}
            onTap={(e) => handleAnchorClick(e, unit.id, i)}
-           onMouseEnter={() => setIsHoveringAnchor(true)}
-           onMouseLeave={() => setIsHoveringAnchor(false)}
+           onMouseEnter={() => onAnchorEnter(`${unit.id}:${i}`)}
+           onMouseLeave={() => onAnchorLeave(`${unit.id}:${i}`)}
          />
       ))}
       

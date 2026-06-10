@@ -14,7 +14,9 @@ export interface PendingPolygonProps {
   setActiveDragPolygon: (payload: { unitId: string; dx: number; dy: number } | null) => void;
   onPendingPolygonMove?: (points: PercentPoint[]) => void;
   setActiveDragNode: (payload: { unitId: string; index: number; pctX: number; pctY: number } | null) => void;
-  setIsHoveringAnchor: (hovering: boolean) => void;
+  onAnchorEnter: (id: string) => void;
+  onAnchorLeave: (id: string) => void;
+  setHoveredPendingPolygon: (hovered: boolean) => void;
 }
 
 export default function PendingPolygon({
@@ -29,7 +31,9 @@ export default function PendingPolygon({
   setActiveDragPolygon,
   onPendingPolygonMove,
   setActiveDragNode,
-  setIsHoveringAnchor
+  onAnchorEnter,
+  onAnchorLeave,
+  setHoveredPendingPolygon
 }: PendingPolygonProps) {
   if (!pendingPolygonPoints || pendingPolygonPoints.length <= 2) return null;
 
@@ -65,14 +69,8 @@ export default function PendingPolygon({
             pendingPolygonPoints.map(p => ({ pctX: p.pctX + dx, pctY: p.pctY + dy }))
           );
         }}
-        onMouseEnter={(e) => {
-          const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = 'grab';
-        }}
-        onMouseLeave={(e) => {
-          const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = '';
-        }}
+        onMouseEnter={() => setHoveredPendingPolygon(true)}
+        onMouseLeave={() => setHoveredPendingPolygon(false)}
       />
       {pendingPolygonPoints.map((pt, i) => (
         <Circle
@@ -109,8 +107,8 @@ export default function PendingPolygon({
             newPoints[i] = { pctX, pctY };
             onPendingPolygonMove?.(newPoints);
           }}
-          onMouseEnter={() => setIsHoveringAnchor(true)}
-          onMouseLeave={() => setIsHoveringAnchor(false)}
+          onMouseEnter={() => onAnchorEnter(`PENDING:${i}`)}
+          onMouseLeave={() => onAnchorLeave(`PENDING:${i}`)}
         />
       ))}
     </React.Fragment>
