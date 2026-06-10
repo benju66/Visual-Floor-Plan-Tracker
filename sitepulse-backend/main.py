@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import fitz  # PyMuPDF for fast PDF to Image conversion
 import jwt  # PyJWT — local JWT validation, no network round-trip
+from datetime import datetime, timezone
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 
@@ -153,6 +154,22 @@ class ExportRequest(BaseModel):
     sheet_name: str
     legend_data: Optional[Dict] = None
 
+# Storage objects are addressed by versioned public URLs on the frontend
+# (?v=<sheets.pdf_version>), so browsers/CDN may cache them long-term. The
+# frontend falls back to revalidating fetches when no version is available.
+STORAGE_CACHE_SECONDS = "604800"  # 7 days
+
+def bump_pdf_version(sheet_id: str):
+    """Best-effort bump of sheets.pdf_version — cache-busts the public PDF/PNG
+    URLs after an upload or re-attach. Non-fatal if the column does not exist
+    yet (pre-migration deploys)."""
+    try:
+        supabase.table("sheets").update(
+            {"pdf_version": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", sheet_id).execute()
+    except Exception as e:
+        print(f"[WARN] pdf_version bump skipped for {sheet_id}: {e}")
+
 def hex_to_rgb(color_str: str):
     import re
     rgba_match = re.search(r'rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)', color_str)
@@ -198,7 +215,7 @@ async def upload_and_convert_floorplan(
             supabase.storage.from_("floorplans").upload(
                 path=file_path,
                 file=img_bytes,
-                file_options={"content-type": "image/png"},
+                file_options={"content-type": "image/png", "cache-control": STORAGE_CACHE_SECONDS},
             )
 
             # Extract and store single-page PDF for vector extraction + PDF export
@@ -211,11 +228,12 @@ async def upload_and_convert_floorplan(
             supabase.storage.from_("floorplans").upload(
                 path=pdf_path,
                 file=single_page_pdf_bytes,
-                file_options={"content-type": "application/pdf"},
+                file_options={"content-type": "application/pdf", "cache-control": STORAGE_CACHE_SECONDS},
             )
 
             public_url = supabase.storage.from_("floorplans").get_public_url(file_path)
             supabase.table("sheets").update({"base_image_url": public_url}).eq("id", sheet_id).execute()
+            bump_pdf_version(sheet_id)
 
             # Pre-extract snapping vectors and populate the cache (non-fatal).
             # Note: tile-pyramid generation was removed — the frontend renders the
@@ -262,8 +280,9 @@ async def attach_original_pdf(
             supabase.storage.from_("floorplans").upload(
                 path=pdf_path,
                 file=pdf_bytes,
-                file_options={"content-type": "application/pdf"},
+                file_options={"content-type": "application/pdf", "cache-control": STORAGE_CACHE_SECONDS},
             )
+            bump_pdf_version(sheet_id)
             # Pre-extract vectors from the new PDF (non-fatal)
             try:
                 vectors = extract_vectors_from_pdf(pdf_bytes)
@@ -273,7 +292,23 @@ async def attach_original_pdf(
                 ).execute()
             except Exception as vec_err:
                 print(f"[WARN] Vector pre-extraction from attached PDF skipped: {vec_err}")
-            
+            # Regenerate the converted preview PNG so the canvas placeholder and
+            # dashboard preload reflect the new drawing (non-fatal; previously the
+            # stale PNG from the original upload was left in place forever).
+            try:
+                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                page = doc.load_page(0)
+                pix = page.get_pixmap(matrix=fitz.Matrix(4.0, 4.0), alpha=False)
+                png_path = f"converted/{sheet_id}.png"
+                supabase.storage.from_("floorplans").remove([png_path])
+                supabase.storage.from_("floorplans").upload(
+                    path=png_path,
+                    file=pix.tobytes("png"),
+                    file_options={"content-type": "image/png", "cache-control": STORAGE_CACHE_SECONDS},
+                )
+            except Exception as png_err:
+                print(f"[WARN] Preview PNG regeneration skipped: {png_err}")
+
         import asyncio
         await asyncio.to_thread(process_attach)
         return {"status": "success", "message": "Original PDF attached successfully!"}
