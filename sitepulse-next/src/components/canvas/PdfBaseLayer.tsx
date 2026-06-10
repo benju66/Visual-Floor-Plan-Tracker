@@ -6,12 +6,17 @@ import { usePdfRenderer, type ViewportRect } from '@/hooks/usePdfRenderer';
 
 export interface PdfBaseLayerProps {
   sheetId: string;
+  /** Public URL of the server-rendered preview PNG — instant placeholder */
+  baseImageUrl?: string | null;
+  /** sheets.pdf_version — cache-busts the public PDF/PNG URLs */
+  pdfVersion?: string | null;
   offsetX: number;
   offsetY: number;
   drawW: number;
   drawH: number;
   stageScale: number;
   onLoadingChange?: (isLoading: boolean) => void;
+  onSharpeningChange?: (isSharpening: boolean) => void;
   onError?: (error: string | null, retry: () => void) => void;
   onDimensionsReady?: (width: number, height: number) => void;
   viewportRect: ViewportRect | null;
@@ -21,12 +26,15 @@ const BASE_RENDER_SCALE = 2.0;
 
 function PdfBaseLayerInner({
   sheetId,
+  baseImageUrl,
+  pdfVersion,
   offsetX,
   offsetY,
   drawW,
   drawH,
   stageScale,
   onLoadingChange,
+  onSharpeningChange,
   onError,
   onDimensionsReady,
   viewportRect,
@@ -38,6 +46,7 @@ function PdfBaseLayerInner({
     pageWidth,
     pageHeight,
     isLoading,
+    isSharpening,
     error,
     retry,
     viewportBitmap,
@@ -47,6 +56,8 @@ function PdfBaseLayerInner({
     BASE_RENDER_SCALE,
     stageScale,
     viewportRect,
+    baseImageUrl,
+    pdfVersion,
   );
 
   // Bubble loading state
@@ -57,6 +68,15 @@ function PdfBaseLayerInner({
       onLoadingChange?.(isLoading);
     }
   }, [isLoading, onLoadingChange]);
+
+  // Bubble sharpening state (preview shown, base LOD still rendering)
+  const prevSharpeningRef = useRef(false);
+  useEffect(() => {
+    if (prevSharpeningRef.current !== isSharpening) {
+      prevSharpeningRef.current = isSharpening;
+      onSharpeningChange?.(isSharpening);
+    }
+  }, [isSharpening, onSharpeningChange]);
 
   // Bubble error state
   const prevErrorRef = useRef<string | null>(null);

@@ -130,6 +130,8 @@ export default function MapLegend({
           });
         }}
       >
+        {/* Background rect is the group's sole hit target — everything inside is
+            decorative and excluded from the hit graph. */}
         <Rect
           width={legendWidth}
           height={legendHeight}
@@ -139,6 +141,7 @@ export default function MapLegend({
           shadowBlur={10}
           shadowOffsetX={0}
           shadowOffsetY={4}
+          perfectDrawEnabled={false}
         />
 
         {activeMilestones.length > 0 && (
@@ -149,13 +152,15 @@ export default function MapLegend({
             fontSize={16}
             fontStyle="bold"
             fill="#334155"
+            listening={false}
+            perfectDrawEnabled={false}
           />
         )}
 
         {activeMilestones.map((item, idx) => {
           const itemY = padding + titleHeight + (idx * itemHeight);
           return (
-            <Group key={item.name as string} y={itemY}>
+            <Group key={item.name as string} y={itemY} listening={false}>
               <Rect
                 x={padding}
                 y={0}
@@ -165,6 +170,7 @@ export default function MapLegend({
                 cornerRadius={3}
                 stroke="#cbd5e1"
                 strokeWidth={1}
+                perfectDrawEnabled={false}
               />
               <Text
                 x={padding + 22}
@@ -174,13 +180,14 @@ export default function MapLegend({
                 fill="#475569"
                 verticalAlign="middle"
                 height={14}
+                perfectDrawEnabled={false}
               />
             </Group>
           );
         })}
 
         {activeTemporalStates.length > 0 && (
-          <Group y={padding + milestonesHeight + (activeMilestones.length > 0 ? padding : 0)}>
+          <Group y={padding + milestonesHeight + (activeMilestones.length > 0 ? padding : 0)} listening={false}>
             <Text
               x={padding}
               y={0}
@@ -188,6 +195,7 @@ export default function MapLegend({
               fontSize={16}
               fontStyle="bold"
               fill="#334155"
+              perfectDrawEnabled={false}
             />
             {activeTemporalStates.map((state, idx) => {
               const itemY = titleHeight + (idx * itemHeight);
@@ -203,6 +211,8 @@ export default function MapLegend({
                       shadowColor="rgba(0,0,0,0.4)"
                       shadowBlur={4}
                       shadowOffset={{ x: 0, y: 2 }}
+                      perfectDrawEnabled={false}
+                      shadowForStrokeEnabled={false}
                     />
                     <Path
                       x={-8}
@@ -214,6 +224,7 @@ export default function MapLegend({
                       strokeLineCap="round"
                       strokeLineJoin="round"
                       scale={{ x: 0.65, y: 0.65 }}
+                      perfectDrawEnabled={false}
                     />
                   </Group>
                   <Text
@@ -224,6 +235,7 @@ export default function MapLegend({
                     fill="#475569"
                     verticalAlign="middle"
                     height={14}
+                    perfectDrawEnabled={false}
                   />
                 </Group>
               );

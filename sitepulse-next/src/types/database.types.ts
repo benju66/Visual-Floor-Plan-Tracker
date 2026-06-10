@@ -48,6 +48,7 @@ export interface Database {
           active_scopes: Json | null
           milestone_schedules: Json | null
           created_at: string | null
+          pdf_version: string | null
         }
         Insert: {
           id?: string
@@ -63,6 +64,7 @@ export interface Database {
           active_scopes?: Json | null
           milestone_schedules?: Json | null
           created_at?: string | null
+          pdf_version?: string | null
         }
         Update: {
           id?: string
@@ -78,6 +80,7 @@ export interface Database {
           active_scopes?: Json | null
           milestone_schedules?: Json | null
           created_at?: string | null
+          pdf_version?: string | null
         }
         Relationships: []
       }

@@ -7,6 +7,7 @@ import { uploadFloorplanService, attachOriginalService } from '@/services/api';
 import { useUpdateMilestone, useReorderSheets } from '@/hooks/useProjectQueries';
 import type { Project, Sheet, Milestone } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
+import { invalidatePdfBytes } from '@/utils/pdfByteCache';
 
 export function useProjectActions(project: Project | null | undefined, sheets: Sheet[], projectId: string) {
   const queryClient = useQueryClient();
@@ -131,6 +132,11 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       const token = session?.access_token;
       if (!token) throw new Error('Missing token');
       await attachOriginalService(activeSheetId, file, token);
+      // Drop cached PDF bytes so the canvas re-downloads the new original
+      invalidatePdfBytes(activeSheetId);
+      // Refetch sheets so the bumped pdf_version flows to the canvas — the
+      // versioned URL cache-busts browser/CDN and reloads the drawing.
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets(project?.id || projectId) });
       // F7: Invalidate cached vectors so snapping re-extracts from new PDF
       queryClient.invalidateQueries({ queryKey: queryKeys.snappingVectors(activeSheetId) });
       showToast('Successfully attached original PDF!', 'success');
@@ -159,6 +165,7 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
         `converted/${sheetId}.png`,
         `originals/${sheetId}.pdf`
       ]);
+      invalidatePdfBytes(sheetId);
 
       // F4: Clean up tile folder — list and remove all tile files
       try {

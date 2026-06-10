@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react';
-import { Stage, Layer, Image as KonvaImage, Line, Group, Circle, Text } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
 import { Check } from 'lucide-react';
@@ -13,9 +13,12 @@ import DraftPolygon from '@/components/canvas/DraftPolygon';
 import StampPreview from '@/components/canvas/StampPreview';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import MapLegend from '@/components/canvas/MapLegend';
+import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
+import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
-import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha } from '@/utils/geometry';
-import { classifyWheelIntent, clampStagePosition } from '@/utils/viewport';
+import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
+import { classifyWheelIntent, clampStagePosition, createViewportSync } from '@/utils/viewport';
+import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
 import RBush from 'rbush';
 import { useMapStore } from '@/store/useMapStore';
@@ -29,10 +32,18 @@ import type { StatusLog, Unit, PercentPoint as Point } from '@/types/domain';
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
+// Custom cursors for add/remove-node modes — static, so built once at module scope.
+const ADD_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#10b981' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='8' x2='12' y2='16'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
+const REMOVE_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
+const ADD_NODE_CURSOR = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(ADD_SVG)}") 12 12, crosshair`;
+const REMOVE_NODE_CURSOR = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(REMOVE_SVG)}") 12 12, crosshair`;
+
 interface FloorplanCanvasProps {
   activeStatuses: StatusLog[];
   rawStatuses: StatusLog[];
   imageUrl: string;
+  /** sheets.pdf_version of the active sheet — cache-busts public PDF/PNG URLs */
+  pdfVersion?: string | null;
   onUpdateUnitPolygon?: (unitId: string, points: Point[]) => void;
   onUpdateUnitIconOffset?: (unitId: string, offsetX: number, offsetY: number) => void;
   onDuplicateUnit?: (unitId: string | null) => void;
@@ -52,6 +63,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   activeStatuses,
   rawStatuses,
   imageUrl,
+  pdfVersion,
   onUpdateUnitPolygon,
   onUpdateUnitIconOffset,
   onDuplicateUnit,
@@ -114,12 +126,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     return () => clearTimeout(timeoutId);
   }, [rawVectors]);
 
-  const [snapPreviewPoint, setSnapPreviewPoint] = useState<Point | null>(null);
-
   const [originalWidth, setOriginalWidth] = useState(1000);
   const [originalHeight, setOriginalHeight] = useState(1000);
 
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfSharpening, setPdfSharpening] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfRetry, setPdfRetry] = useState<(() => void) | null>(null);
 
@@ -140,7 +151,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   }, [image, activeSheetId]);
 
   const stageRef = useRef<any>(null);
-  const zoomDebounceRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
   const spaceWasPanRef = useRef<ToolMode | null>(null);
 
@@ -190,8 +200,24 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const [activeDragNode, setActiveDragNode] = useState<any>(null);
   const [activeDragPolygon, setActiveDragPolygon] = useState<any>(null);
   const [contextMenu, setContextMenu] = useState<any>(null);
-  const [pointerPos, setPointerPos] = useState<any>(null);
   const [isLegendSelected, setIsLegendSelected] = useState(false);
+
+  // Pointer position lives OUTSIDE React state — a per-mousemove setState here
+  // re-rendered the entire canvas tree every frame during panning. Leaf consumers
+  // (draft ghost, stamp preview, crosshair, route ghost) subscribe to this store
+  // and re-render at most once per animation frame; plain pan/zoom has zero
+  // subscribers mounted, so mouse movement causes zero React work.
+  const pointerStoreRef = useRef<ReturnType<typeof createPointerStore> | null>(null);
+  if (!pointerStoreRef.current) pointerStoreRef.current = createPointerStore();
+  const pointerStore = pointerStoreRef.current;
+  useEffect(() => () => pointerStore.dispose(), [pointerStore]);
+
+  // Lazy pointer read for HoverHistoryTooltip — it anchors once per hovered unit,
+  // so it pulls the position on demand instead of subscribing to every move.
+  const getTooltipPointerPos = useCallback(() => {
+    const s = pointerStore.get();
+    return s ? { x: s.screenX, y: s.screenY } : null;
+  }, [pointerStore]);
   const routeMutation = useUpdateWalkSequence(activeSheetId);
 
   const [isShiftDown, setIsShiftDown] = useState(false);
@@ -212,6 +238,18 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // lands during the 100ms zoom-sync window never reconciles the stage back to a stale value
   // (fixes the wheel-zoom "snap-back"). React state (above) stays the source for derived math.
   const liveViewportRef = useRef({ scale: 1, x: 0, y: 0 });
+
+  // Leading+trailing throttle pacing the React-state commits of the live transform.
+  // Leading commit = instant LOD/culling response at gesture start; one commit per
+  // ~120ms mid-gesture keeps them fresh; the flush/trailing commit lands the final
+  // value. Every mutation site writes liveViewportRef BEFORE pushing, so a re-render
+  // triggered by any commit reconciles the Stage to the value it already has
+  // (preserving the snap-back fix).
+  const viewportSync = useMemo(() => createViewportSync(({ scale, x, y }) => {
+    setStageScale(scale);
+    setStagePosition({ x, y });
+  }), []);
+  useEffect(() => () => viewportSync.cancel(), [viewportSync]);
 
   // Callback refs for functions defined later in the component — used by keyboard shortcuts
   // inside the useEffect (which runs before those functions are declared).
@@ -506,20 +544,21 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       stage.position(currentPos);
       stage.batchDraw();
       liveViewportRef.current = { scale: currentScale, x: currentPos.x, y: currentPos.y };
+      viewportSync.push(liveViewportRef.current);
 
       if (progress < 1) {
         animationFrameRef.current = requestAnimationFrame(step);
       } else {
-        // Animation complete — set final React state
+        // Animation complete — commit the final transform immediately
         animationFrameRef.current = null;
         liveViewportRef.current = { scale: targetScale, x: targetPosition.x, y: targetPosition.y };
-        setStageScale(targetScale);
-        setStagePosition(targetPosition);
+        viewportSync.push(liveViewportRef.current);
+        viewportSync.flush();
       }
     };
 
     animationFrameRef.current = requestAnimationFrame(step);
-  }, []);
+  }, [viewportSync]);
 
   const handleWheel = (e: any) => {
     e.evt.preventDefault();
@@ -547,11 +586,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       stage.position(panPos);
       stage.batchDraw();
       liveViewportRef.current = { scale: oldScale, x: panPos.x, y: panPos.y };
-
-      if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
-      zoomDebounceRef.current = setTimeout(() => {
-        setStagePosition(panPos);
-      }, 100);
+      viewportSync.push(liveViewportRef.current);
       return;
     }
 
@@ -594,12 +629,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     stage.batchDraw();
     liveViewportRef.current = { scale: newScale, x: newPos.x, y: newPos.y };
 
-    // Sync back to React state debounced
-    if (zoomDebounceRef.current) clearTimeout(zoomDebounceRef.current);
-    zoomDebounceRef.current = setTimeout(() => {
-      setStageScale(newScale);
-      setStagePosition(newPos);
-    }, 100);
+    // Throttled sync into React state (leading + trailing) so LOD selection and
+    // visible-unit culling stay fresh during a sustained gesture.
+    viewportSync.push(liveViewportRef.current);
   };
 
   const handleZoom = (direction: number) => {
@@ -891,13 +923,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     onUpdateUnitPolygon?.(unitId, newPoints);
   };
 
-  const toPixels = (pointsArray: Point[]) => {
+  // Stable identity (keyed on layout) so memoized children don't re-render on
+  // unrelated parent renders.
+  const toPixels = useCallback((pointsArray: Point[]) => {
     const { offsetX, offsetY, drawW, drawH } = layout;
     return pointsArray.flatMap((p) => [
       offsetX + p.pctX * drawW,
       offsetY + p.pctY * drawH,
     ]);
-  };
+  }, [layout]);
 
   const resetView = () => {
     animateViewport(1, { x: 0, y: 0 }, 300);
@@ -962,12 +996,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   resetViewRef.current = resetView;
   zoomToFitRef.current = zoomToFit;
 
-  const addSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#10b981' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='8' x2='12' y2='16'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
-  const removeSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
-
-  const addNodeCursor = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(addSvg)}") 12 12, crosshair`;
-  const removeNodeCursor = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(removeSvg)}") 12 12, crosshair`;
-
   // computedCursor is the SINGLE source of truth for the cursor. All hover/drag
   // affordances feed in here as React state — no shape handler mutates the cursor
   // imperatively, so a shape that unmounts under the pointer can't strand a stale
@@ -985,8 +1013,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     isShiftDown,
     selectedUnitIds: selectedUnitIds ?? [],
     pendingRoute,
-    addNodeCursor,
-    removeNodeCursor,
+    addNodeCursor: ADD_NODE_CURSOR,
+    removeNodeCursor: REMOVE_NODE_CURSOR,
   });
 
   // Apply computedCursor to the Konva-generated container (it sits above the outer
@@ -1041,6 +1069,16 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           <div className="flex items-center gap-3 bg-white/85 dark:bg-slate-900/85 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm border border-slate-200/60 dark:border-white/10">
             <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full" />
             <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Loading drawing...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Sharpening chip — preview visible and interactive, base LOD still rendering */}
+      {!pdfLoading && !pdfError && pdfSharpening && (
+        <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
+          <div className="flex items-center gap-2 bg-white/85 dark:bg-slate-900/85 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-sm border border-slate-200/60 dark:border-white/10">
+            <div className="animate-spin h-3.5 w-3.5 border-2 border-blue-500 border-t-transparent rounded-full" />
+            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Sharpening…</span>
           </div>
         </div>
       )}
@@ -1198,7 +1236,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             if (toolMode === 'draw' && boxOrigin) {
               const stage = e.target.getStage();
               if (!stage) return;
-              const pointer = stage.getPointerPosition() || pointerPos;
+              const lastSample = pointerStore.get();
+              const pointer = stage.getPointerPosition()
+                || (lastSample ? { x: lastSample.screenX, y: lastSample.screenY } : null);
               if (!pointer) {
                 setBoxOrigin(null);
                 return;
@@ -1230,47 +1270,37 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             const stage = e.target.getStage();
             if (!stage) return;
             const pos = stage.getPointerPosition();
-            if (stage) setPointerPos(pos);
+            if (!pos) return;
+
+            // Convert with the LIVE transform (not the debounced React state) so
+            // previews track the cursor exactly even mid-gesture.
+            const liveScale = stage.scaleX();
+            const logX = (pos.x - stage.x()) / liveScale;
+            const logY = (pos.y - stage.y()) / liveScale;
+            const { offsetX, offsetY, drawW, drawH } = layoutRef.current;
+            const pctX = drawW > 0 ? (logX - offsetX) / drawW : 0;
+            const pctY = drawH > 0 ? (logY - offsetY) / drawH : 0;
 
             // Synchronous snap for the DraftPolygon cursor ghost. Computing this
             // inline (no debounce/await) guarantees lastSnapRef is fresh when
             // handleStageClick commits the point on the very next event.
-            if (toolMode === 'draw' && mapSettings?.enableSnapping && pos) {
-              const logX = (pos.x - stage.x()) / stageScale;
-              const logY = (pos.y - stage.y()) / stageScale;
-              if (layout.drawW > 0 && layout.drawH > 0) {
-                const px = (logX - layout.offsetX) / layout.drawW;
-                const py = (logY - layout.offsetY) / layout.drawH;
-                const snap = getSnappedCoordinate(px, py, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15);
-                lastSnapRef.current = snap;
-                setSnapPreviewPoint(snap.snapped ? { pctX: snap.pctX, pctY: snap.pctY } : null);
-              }
+            let snap: { pctX: number; pctY: number; snapped: boolean } | null = null;
+            if (toolMode === 'draw' && mapSettings?.enableSnapping && drawW > 0 && drawH > 0) {
+              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15);
+              lastSnapRef.current = snap;
             } else {
-              setSnapPreviewPoint(null);
               lastSnapRef.current = null;
             }
-            
-            // NEW: Routing midpoint drag targeting
-            if (activeRouteDrag && pos) {
-              const dropX = (pos.x - stagePosition.x) / stageScale;
-              const dropY = (pos.y - stagePosition.y) / stageScale;
-              
-              let closestId: string | null = null;
-              let minDist = Infinity;
 
-              units.forEach(u => {
-                if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) return;
-                const centroid = getCentroid(u.polygon_coordinates);
-                const targetX = layout.offsetX + centroid.pctX * layout.drawW;
-                const targetY = layout.offsetY + centroid.pctY * layout.drawH;
-                
-                const d = Math.sqrt(Math.pow(targetX - dropX, 2) + Math.pow(targetY - dropY, 2));
-                if (d < (40 / stageScale) && d < minDist) {
-                  minDist = d;
-                  closestId = u.id;
-                }
-              });
+            // Single synchronous store write; listeners are notified once per frame.
+            // No React state is touched on the plain pan/zoom path.
+            pointerStore.set({ screenX: pos.x, screenY: pos.y, pctX, pctY, snap });
 
+            // Routing midpoint drag targeting
+            if (activeRouteDrag) {
+              const closestId = nearestCentroidWithin(
+                units, logX, logY, 40 / liveScale, layoutRef.current,
+              );
               if (closestId !== routeDropTarget) {
                 setRouteDropTarget(closestId);
               }
@@ -1295,35 +1325,45 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               }
             }
           }}
+          onDragMove={(e) => {
+            if (e.target !== stageRef.current) return;
+            // Keep the live ref fresh DURING the drag — throttled commits below
+            // re-render mid-drag, and the Stage props must reconcile to the value
+            // the stage already has (snap-back invariant). Also keeps culling and
+            // the deep-zoom settle timer tracking long pans.
+            const s = e.target;
+            liveViewportRef.current = { scale: s.scaleX(), x: s.x(), y: s.y() };
+            viewportSync.push(liveViewportRef.current);
+          }}
           onDragEnd={(e) => {
             if (e.target === stageRef.current) {
                setIsDraggingCanvas(false);
-               const newPos = { x: e.target.x(), y: e.target.y() };
-               liveViewportRef.current = { scale: e.target.scaleX(), x: newPos.x, y: newPos.y };
-               setStagePosition(newPos);
+               liveViewportRef.current = { scale: e.target.scaleX(), x: e.target.x(), y: e.target.y() };
+               viewportSync.push(liveViewportRef.current);
+               viewportSync.flush();
             }
           }}
         >
-          <Layer
-            ref={(node: any) => {
-              // Disable image smoothing for crisp construction drawing lines at deep zoom
-              if (node) {
-                const ctx = node.getCanvas()?.getContext();
-                if (ctx) ctx.imageSmoothingEnabled = false;
-              }
-            }}
-          >
+          {/* Base layer: the giant PDF bitmap lives alone here, excluded from the
+              hit graph (listening=false) and never redrawn by overlay/hover churn
+              on the layers above. imageSmoothingEnabled=false keeps construction
+              drawing lines crisp at deep zoom (persisted by Konva across resizes,
+              replacing the old per-commit ref hack). */}
+          <Layer listening={false} imageSmoothingEnabled={false}>
             {/* Background: PDF vector layer, or standard Image fallback */}
             {layout.drawW > 0 && layout.drawH > 0 && (
               activeSheetId ? (
                 <PdfBaseLayer
                   sheetId={activeSheetId}
+                  baseImageUrl={imageUrl}
+                  pdfVersion={pdfVersion}
                   offsetX={layout.offsetX}
                   offsetY={layout.offsetY}
                   drawW={layout.drawW}
                   drawH={layout.drawH}
                   stageScale={stageScale}
                   onLoadingChange={setPdfLoading}
+                  onSharpeningChange={setPdfSharpening}
                   onError={(err, retry) => { setPdfError(err); setPdfRetry(() => retry); }}
                   onDimensionsReady={(w, h) => { setOriginalWidth(w); setOriginalHeight(h); }}
                   viewportRect={visibleBoundingBox}
@@ -1335,10 +1375,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   y={layout.offsetY}
                   width={layout.drawW}
                   height={layout.drawH}
+                  listening={false}
+                  perfectDrawEnabled={false}
                 />
               )
             )}
+          </Layer>
 
+          {/* Units layer: interactive content (unit polygons, status icons, legend). */}
+          <Layer>
             {visibleUnits &&
               visibleUnits.map((unit) => (
                 <MappedUnit
@@ -1380,32 +1425,36 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   handleAnchorClick={handleAnchorClick}
                 />
               ))}
+          </Layer>
 
-            <DraftPolygon
-              toolMode={toolMode}
-              draftPoints={draftPoints}
-              pointerPos={pointerPos}
-              boxOrigin={boxOrigin}
-              stagePosition={stagePosition}
-              stageScale={stageScale}
-              layout={layout}
-              snapPreviewPoint={snapPreviewPoint}
-              enableSnapping={mapSettings?.enableSnapping}
-              isShiftDown={isShiftDown}
-              toPixels={toPixels}
-            />
+          {/* Overlay layer: ephemeral, high-churn previews and editing chrome.
+              Per-frame redraws here never touch the units or PDF layers. */}
+          <Layer>
+            {/* Pointer-following previews are mounted only in their tool mode, so
+                the pointer store has zero subscribers during plain pan/zoom. */}
+            {toolMode === 'draw' && (
+              <DraftPolygon
+                draftPoints={draftPoints}
+                pointerStore={pointerStore}
+                boxOrigin={boxOrigin}
+                stageScale={stageScale}
+                layout={layout}
+                enableSnapping={!!mapSettings?.enableSnapping}
+                isShiftDown={isShiftDown}
+                toPixels={toPixels}
+              />
+            )}
 
-            <StampPreview
-              toolMode={toolMode}
-              selectedUnitId={selectedUnitIds?.length === 1 ? selectedUnitIds[0] : null}
-              pointerPos={pointerPos}
-              stagePosition={stagePosition}
-              stageScale={stageScale}
-              layout={layout}
-              units={units}
-              activeStatuses={activeStatuses}
-              toPixels={toPixels}
-            />
+            {toolMode === 'stamp' && (
+              <StampPreview
+                selectedUnitId={selectedUnitIds?.length === 1 ? selectedUnitIds[0] : null}
+                pointerStore={pointerStore}
+                stageScale={stageScale}
+                units={units}
+                activeStatuses={activeStatuses}
+                toPixels={toPixels}
+              />
+            )}
 
             <PendingPolygon
               pendingPolygonPoints={pendingPolygonPoints ?? null}
@@ -1424,291 +1473,27 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               setHoveredPendingPolygon={setHoveredPendingPolygon}
             />
 
-            {(toolMode === 'route' || mapSettings?.showWalkSequence) && (() => {
-              let orderedIds: string[] = [];
-              if (toolMode === 'route') {
-                orderedIds = pendingRoute;
-              } else {
-                orderedIds = [...units]
-                  .filter(u => typeof (u as any).walk_sequence === 'number')
-                  .sort((a,b) => ((a as any).walk_sequence as number) - ((b as any).walk_sequence as number))
-                  .map(u => u.id);
-              }
-              if (orderedIds.length === 0) return null;
-
-              const routePoints = orderedIds
-                .map(id => units.find(u => u.id === id))
-                .filter(u => u && u.polygon_coordinates && u.polygon_coordinates.length > 0)
-                .map(u => {
-                  const c = getCentroid(u!.polygon_coordinates!);
-                  return { id: u!.id, pctX: c.pctX, pctY: c.pctY };
-                });
-              
-              if (routePoints.length === 0) return null;
-
-              const lineOpacity = toolMode === 'route' ? 0.8 : 0.4;
-              const dotOpacity = toolMode === 'route' ? 1 : 0.6;
-
-              return (
-                <Group>
-                  {/* Render segmented lines to allow individual midpoint insertion */}
-                  {routePoints.slice(0, -1).map((p1, i) => {
-                    const p2 = routePoints[i + 1];
-                    const startX = layout.offsetX + p1.pctX * layout.drawW;
-                    const startY = layout.offsetY + p1.pctY * layout.drawH;
-                    const endX = layout.offsetX + p2.pctX * layout.drawW;
-                    const endY = layout.offsetY + p2.pctY * layout.drawH;
-                    
-                    return (
-                      <Line
-                        key={`route-segment-${i}`}
-                        points={[startX, startY, endX, endY]}
-                        stroke="#3b82f6"
-                        strokeWidth={4 / stageScale}
-                        dash={[10 / stageScale, 10 / stageScale]}
-                        lineCap="round"
-                        lineJoin="round"
-                        opacity={lineOpacity}
-                        // FIX: Listen for both add and remove modes
-                        listening={toolMode === 'route' && (routeSubMode === 'add' || routeSubMode === 'remove')}
-                        onMouseEnter={(e) => {
-                          // Visual emphasis only — the cursor is derived from
-                          // hoveredRouteSegment via computedCursor.
-                          if (routeSubMode === 'add') {
-                            (e.target as any).stroke("#10b981"); // Emerald
-                          } else if (routeSubMode === 'remove') {
-                            (e.target as any).stroke("#ef4444"); // Red
-                          }
-                          (e.target as any).strokeWidth(6 / stageScale);
-                          e.target.getLayer()!.batchDraw();
-                          setHoveredRouteSegment(i);
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.target as any).stroke("#3b82f6");
-                          (e.target as any).strokeWidth(4 / stageScale);
-                          e.target.getLayer()!.batchDraw();
-                          setHoveredRouteSegment(prev => (prev === i ? null : prev));
-                        }}
-                        onMouseDown={(e) => {
-                          e.cancelBubble = true;
-                          // FIX: Only trigger midpoint drag in add mode
-                          if (routeSubMode === 'add') {
-                            setActiveRouteDrag({ type: 'midpoint', sourceIndex: i });
-                          }
-                        }}
-                      />
-                    );
-                  })}
-
-                  {/* Ghost Node for Midpoint Insertion */}
-                  {activeRouteDrag && activeRouteDrag.type === 'midpoint' && pointerPos && (() => {
-                    const ghostX = (pointerPos.x - stagePosition.x) / stageScale;
-                    const ghostY = (pointerPos.y - stagePosition.y) / stageScale;
-                    
-                    const p1 = routePoints[activeRouteDrag.sourceIndex];
-                    const p2 = routePoints[activeRouteDrag.sourceIndex + 1];
-                    
-                    if (!p1 || !p2) return null;
-
-                    const startX = layout.offsetX + p1.pctX * layout.drawW;
-                    const startY = layout.offsetY + p1.pctY * layout.drawH;
-                    const endX = layout.offsetX + p2.pctX * layout.drawW;
-                    const endY = layout.offsetY + p2.pctY * layout.drawH;
-
-                    return (
-                      <Group listening={false}>
-                        <Line
-                          points={[startX, startY, ghostX, ghostY, endX, endY]}
-                          stroke="#10b981"
-                          strokeWidth={4 / stageScale}
-                          dash={[10 / stageScale, 10 / stageScale]}
-                          opacity={0.8}
-                        />
-                        <Circle
-                          x={ghostX}
-                          y={ghostY}
-                          radius={12 / stageScale}
-                          fill="#10b981"
-                          opacity={0.5}
-                        />
-                      </Group>
-                    );
-                  })()}
-                  {routePoints.map((p, idx) => {
-                    const x = layout.offsetX + p.pctX * layout.drawW;
-                    const y = layout.offsetY + p.pctY * layout.drawH;
-                    const isHoveredNode = hoveredRouteNode === p.id;
-                    return (
-                      <Group 
-                        key={`route-${p.id}`} 
-                        x={x} 
-                        y={y} 
-                        opacity={dotOpacity}
-                        draggable={toolMode === 'route' && routeSubMode === 'move'}
-                        listening={toolMode === 'route'}
-                        onClick={(e) => {
-                          e.cancelBubble = true;
-                          if (toolMode === 'route' && routeSubMode === 'remove') {
-                            // Clearing hover state recomputes the cursor; no manual
-                            // reset needed even though this node is about to unmount.
-                            setHoveredRouteNode(null);
-                            setPendingRoute(pendingRoute.filter(id => id !== p.id));
-                          }
-                        }}
-                        onTap={(e) => {
-                          if (toolMode === 'route' && routeSubMode === 'remove') {
-                            e.cancelBubble = true;
-                            setHoveredRouteNode(null);
-                            setPendingRoute(prev => prev.filter(id => id !== p.id));
-                          }
-                        }}
-                        onMouseEnter={() => {
-                          // Cursor follows from hoveredRouteNode via computedCursor.
-                          setHoveredRouteNode(p.id);
-                        }}
-                        onMouseLeave={() => {
-                          setHoveredRouteNode(null);
-                        }}
-                        onDragStart={(e) => {
-                          e.cancelBubble = true;
-                          setIsDraggingRouteNode(true);
-                          e.target.scale({ x: 1.2, y: 1.2 });
-                          const circle = (e.target as any).findOne('Circle');
-                          if (circle) {
-                            circle.shadowOpacity(0.6);
-                            circle.shadowBlur(8 / stageScale);
-                          }
-                        }}
-                        onDragMove={(e) => {
-                          const dragX = e.target.x();
-                          const dragY = e.target.y();
-                          
-                          let closestId: string | null = null;
-                          let minDist = Infinity;
-
-                          units.forEach(u => {
-                            if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) return;
-                            const centroid = getCentroid(u.polygon_coordinates);
-                            const targetX = layout.offsetX + centroid.pctX * layout.drawW;
-                            const targetY = layout.offsetY + centroid.pctY * layout.drawH;
-                            
-                            const d = Math.sqrt(Math.pow(targetX - dragX, 2) + Math.pow(targetY - dragY, 2));
-                            if (d < (40 / stageScale) && d < minDist) {
-                              minDist = d;
-                              closestId = u.id;
-                            }
-                          });
-
-                          if (closestId !== routeDropTarget) {
-                            setRouteDropTarget(closestId);
-                          }
-                        }}
-                        onDragEnd={(e) => {
-                          e.cancelBubble = true;
-                          setIsDraggingRouteNode(false);
-                          e.target.scale({ x: 1, y: 1 });
-                          const circle = (e.target as any).findOne?.('Circle');
-                          if (circle) {
-                            circle.shadowOpacity(0.3);
-                            circle.shadowBlur(4 / stageScale);
-                          }
-                          
-                          const dropX = e.target.x();
-                          const dropY = e.target.y();
-
-                          setRouteDropTarget(null);
-
-                          let closestId: string | null = null;
-                          let minDist = Infinity;
-
-                          // 1. Check for Node Replacement (Dropping on a unit)
-                          units.forEach(u => {
-                            if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) return;
-                            const centroid = getCentroid(u.polygon_coordinates);
-                            const targetX = layout.offsetX + centroid.pctX * layout.drawW;
-                            const targetY = layout.offsetY + centroid.pctY * layout.drawH;
-
-                            const d = Math.sqrt(Math.pow(targetX - dropX, 2) + Math.pow(targetY - dropY, 2));
-
-                            if (d < (40 / stageScale) && d < minDist) {
-                              minDist = d;
-                              closestId = u.id;
-                            }
-                          });
-
-                          // 2. Check for Line Segment Insertion (Dropping on the dotted line)
-                          let insertIndex = -1;
-                          if (!closestId) {
-                            let minLineDist = Infinity;
-                            for (let i = 0; i < routePoints.length - 1; i++) {
-                              const p1 = { x: layout.offsetX + routePoints[i].pctX * layout.drawW, y: layout.offsetY + routePoints[i].pctY * layout.drawH };
-                              const p2 = { x: layout.offsetX + routePoints[i+1].pctX * layout.drawW, y: layout.offsetY + routePoints[i+1].pctY * layout.drawH };
-                              
-                              const l2 = Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2);
-                              let t = l2 === 0 ? 0 : ((dropX - p1.x) * (p2.x - p1.x) + (dropY - p1.y) * (p2.y - p1.y)) / l2;
-                              t = Math.max(0, Math.min(1, t));
-                              
-                              const proj = { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
-                              const d = Math.sqrt(Math.pow(dropX - proj.x, 2) + Math.pow(dropY - proj.y, 2));
-
-                              // 30 pixel snap radius to the line
-                              if (d < (30 / stageScale) && d < minLineDist) {
-                                minLineDist = d;
-                                insertIndex = i + 1; // Insert after the first node of the segment
-                              }
-                            }
-                          }
-
-                          // 3. Apply Array Mutations
-                          if (closestId && closestId !== p.id) {
-                            const newRoute = [...pendingRoute];
-                            const dragIndex = newRoute.indexOf(p.id);
-                            
-                            if (pendingRoute.includes(closestId)) {
-                              // NODE SHIFT LOGIC (Swap/Shift)
-                              const dropIndex = newRoute.indexOf(closestId);
-                              const [draggedItem] = newRoute.splice(dragIndex, 1);
-                              newRoute.splice(dropIndex, 0, draggedItem);
-                            } else {
-                              // NODE REPLACEMENT LOGIC (Assignment Change)
-                              newRoute[dragIndex] = closestId;
-                            }
-                            
-                            setPendingRoute(newRoute);
-                          } else if (insertIndex !== -1) {
-                            // LINE INSERTION LOGIC (New)
-                            const newRoute = [...pendingRoute];
-                            const dragIndex = newRoute.indexOf(p.id);
-                            
-                            const [draggedItem] = newRoute.splice(dragIndex, 1);
-                            // Adjust insertion index if we removed an item from earlier in the array
-                            const adjustedInsertIndex = dragIndex < insertIndex ? insertIndex - 1 : insertIndex;
-                            newRoute.splice(adjustedInsertIndex, 0, draggedItem);
-                            
-                            setPendingRoute(newRoute);
-                          }
-
-                          e.target.x(x);
-                          e.target.y(y);
-                        }}
-                      >
-                        <Circle 
-                          radius={12 / stageScale} 
-                          fill={isHoveredNode ? "#2563eb" : "#3b82f6"} 
-                          stroke={isHoveredNode ? "#ffffff" : "transparent"} 
-                          strokeWidth={2 / stageScale}
-                          shadowColor="black" 
-                          shadowBlur={(isHoveredNode ? 8 : 4) / stageScale} 
-                          shadowOpacity={isHoveredNode ? 0.5 : 0.3} 
-                          shadowOffset={{x: 0, y: 2/stageScale}} 
-                        />
-                        <Text text={(idx + 1).toString()} fontSize={14 / stageScale} fill="white" fontStyle="bold" align="center" verticalAlign="middle" width={24 / stageScale} height={24 / stageScale} offsetX={12 / stageScale} offsetY={12 / stageScale} />
-                      </Group>
-                    );
-                  })}
-                </Group>
-              );
-            })()}
+            {(toolMode === 'route' || mapSettings?.showWalkSequence) && (
+              <WalkRouteOverlay
+                units={units}
+                pendingRoute={pendingRoute}
+                setPendingRoute={setPendingRoute}
+                toolMode={toolMode}
+                routeSubMode={routeSubMode}
+                showWalkSequence={!!mapSettings?.showWalkSequence}
+                layout={layout}
+                stageScale={stageScale}
+                hoveredRouteNode={hoveredRouteNode}
+                setHoveredRouteNode={setHoveredRouteNode}
+                setHoveredRouteSegment={setHoveredRouteSegment}
+                setIsDraggingRouteNode={setIsDraggingRouteNode}
+                activeRouteDrag={activeRouteDrag}
+                setActiveRouteDrag={setActiveRouteDrag}
+                routeDropTarget={routeDropTarget}
+                setRouteDropTarget={setRouteDropTarget}
+                pointerStore={pointerStore}
+              />
+            )}
 
             <MapLegend
               isVisible={legendPosition?.isVisible}
@@ -1732,17 +1517,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         </>
       )}
 
-      {mapSettings?.showCrosshair && pointerPos && (
-        <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden mix-blend-difference opacity-40">
-          <div className="absolute top-0 bottom-0 border-l border-dashed border-white" style={{ left: pointerPos.x }} />
-          <div className="absolute left-0 right-0 border-t border-dashed border-white" style={{ top: pointerPos.y }} />
-        </div>
+      {mapSettings?.showCrosshair && (
+        <CrosshairOverlay pointerStore={pointerStore} />
       )}
 
       {settings?.showHistoryHover && (
          <HoverHistoryTooltip
             hoveredUnit={hoveredUnit}
-            pointerPos={pointerPos}
+            getPointerPos={getTooltipPointerPos}
             units={units}
             rawStatuses={rawStatuses}
             trackingMode={trackingMode}

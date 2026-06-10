@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 
 export default function HoverHistoryTooltip({
   hoveredUnit,
-  pointerPos,
+  getPointerPos,
   units,
   rawStatuses,
   trackingMode,
@@ -42,14 +42,18 @@ export default function HoverHistoryTooltip({
     return () => clearTimeout(timeoutRef.current);
   }, [hoveredUnit, contextMenu, toolMode]);
 
-  // Update position ONLY ONCE per hovered unit to prevent the "runaway tooltip" bug
-  // and eliminate 60FPS React state re-renders for a massive performance win.
+  // Anchor the position ONLY ONCE per hovered unit. The pointer position is read
+  // lazily from the pointer store (no React state behind it), so mouse movement
+  // never re-renders this component — only a change of hovered unit does.
   useEffect(() => {
-     if (hoveredUnit && pointerPos && anchoredUnitRef.current !== hoveredUnit) {
-        setActivePos(pointerPos);
-        anchoredUnitRef.current = hoveredUnit;
+     if (hoveredUnit && anchoredUnitRef.current !== hoveredUnit) {
+        const pos = getPointerPos?.();
+        if (pos) {
+          setActivePos(pos);
+          anchoredUnitRef.current = hoveredUnit;
+        }
      }
-  }, [pointerPos, hoveredUnit]);
+  }, [getPointerPos, hoveredUnit]);
 
   // Native DOM event listener for bulletproof scroll isolation
   // React's synthetic onWheel e.stopPropagation() does not prevent native bubbling to Konva

@@ -28,6 +28,7 @@ import ConfirmModal from '@/components/ConfirmModal';
 import QuickStatusModal from '@/components/QuickStatusModal';
 import QuickMilestoneModal from '@/components/QuickMilestoneModal';
 import { exportToPDFService, uploadFloorplanService, attachOriginalService } from '@/services/api';
+import { prefetchOriginalPdfs } from '@/utils/pdfSource';
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
@@ -211,6 +212,14 @@ function App() {
   }, [sheets, activeSheetId, setActiveSheetId, isSheetsLoaded, isMounted]);
 
   const activeSheet = sheets.find((s) => s.id === activeSheetId);
+
+  // Warm the browser HTTP cache with sibling levels' PDFs once the active
+  // sheet has had time to load, so switching levels is fast on first visit.
+  useEffect(() => {
+    if (!activeSheetId || sheets.length < 2) return;
+    const timer = setTimeout(() => prefetchOriginalPdfs(sheets, activeSheetId), 4000);
+    return () => clearTimeout(timer);
+  }, [sheets, activeSheetId]);
 
   // Auto-select valid tracking mode if the active sheet changes and doesn't contain it
   useEffect(() => {
@@ -538,6 +547,7 @@ function App() {
                   activeStatuses={mapDisplayStatuses}
                   rawStatuses={activeStatuses}
                   imageUrl={activeSheet.base_image_url}
+                  pdfVersion={activeSheet.pdf_version ?? null}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
                   onUpdateUnitIconOffset={handleUpdateUnitIconOffset}
                   onDuplicateUnit={handleDuplicateUnit}

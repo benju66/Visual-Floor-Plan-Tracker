@@ -7,8 +7,45 @@ import {
   getCentroid,
   getSnappedCoordinate,
   mixAlpha,
+  nearestCentroidWithin,
+  type CentroidTarget,
 } from './geometry';
 import type { PercentPoint } from '@/types/domain';
+
+describe('nearestCentroidWithin — walk-route drop targeting', () => {
+  const layout = { offsetX: 0, offsetY: 0, drawW: 1000, drawH: 1000 };
+  // Square units centered at (100, 100) and (500, 500) logical px.
+  const square = (cx: number, cy: number): PercentPoint[] => [
+    { pctX: cx - 0.05, pctY: cy - 0.05 },
+    { pctX: cx + 0.05, pctY: cy - 0.05 },
+    { pctX: cx + 0.05, pctY: cy + 0.05 },
+    { pctX: cx - 0.05, pctY: cy + 0.05 },
+  ];
+  const units: CentroidTarget[] = [
+    { id: 'a', polygon_coordinates: square(0.1, 0.1) },
+    { id: 'b', polygon_coordinates: square(0.5, 0.5) },
+    { id: 'unmapped', polygon_coordinates: null },
+  ];
+
+  it('returns the unit whose centroid is within the radius', () => {
+    expect(nearestCentroidWithin(units, 110, 95, 40, layout)).toBe('a');
+  });
+
+  it('returns the closest unit when several are in range', () => {
+    // (320,320) → distance ~311 to a's centroid (100,100), ~255 to b's (500,500).
+    expect(nearestCentroidWithin(units, 320, 320, 1000, layout)).toBe('b');
+    // (280,280) → ~255 to a, ~311 to b.
+    expect(nearestCentroidWithin(units, 280, 280, 1000, layout)).toBe('a');
+  });
+
+  it('returns null when nothing is within the radius', () => {
+    expect(nearestCentroidWithin(units, 800, 100, 40, layout)).toBeNull();
+  });
+
+  it('skips units without polygon coordinates', () => {
+    expect(nearestCentroidWithin([{ id: 'x', polygon_coordinates: [] }], 0, 0, 1e9, layout)).toBeNull();
+  });
+});
 
 describe('mixAlpha — single source of truth for CSS color → rgba()', () => {
   it('expands 3-digit hex to rgba', () => {
