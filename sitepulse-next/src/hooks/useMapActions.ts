@@ -7,8 +7,9 @@ import {
   useCreateUnit, useUpdateUnitGeometry, useUpdateUnitFields,
   useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateMilestone, useBulkUpdateStatus
 } from '@/hooks/useProjectQueries';
-import type { Project, Unit, PercentPoint, StatusLog, Milestone, TemporalState, Sheet } from '@/types/domain';
+import type { Project, Unit, PercentPoint, StatusLog, Milestone, TemporalState, Sheet, MilestoneOverride } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
+import { buildApplicabilityIndex, hasSequenceGaps, nextApplicableIndex } from '@/utils/applicability';
 
 export function useMapActions(project: Project | null | undefined) {
   const queryClient = useQueryClient();
@@ -303,24 +304,22 @@ export function useMapActions(project: Project | null | undefined) {
       
       const autoAdvanceEnabled = settings.auto_advance_tracks?.[milestone.track as string] === true;
       if (currentTemporalState === 'completed' && autoAdvanceEnabled && !isUndoRedo) {
+        const overrides = queryClient.getQueryData<MilestoneOverride[]>(queryKeys.milestoneOverrides(project?.id as string)) || [];
+        const applicabilityIndex = buildApplicabilityIndex(milestones, overrides);
         const trackMilestones = milestones.filter(m => m.track === milestone.track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
         const currentIndex = trackMilestones.findIndex(m => m.name === newLogData.milestone);
-        
-        // Defensive Auto-Advance: Only advance if the backlog track sequence is flawless
-        let hasGaps = false;
-        if (currentIndex > 0) {
-           for (let i = 0; i < currentIndex; i++) {
-              const m = trackMilestones[i];
-              const logForM = activeStatuses.find(s => s.unit_id === unit.id && s.milestone === m.name);
-              if (!logForM || logForM.temporal_state !== 'completed') {
-                  hasGaps = true;
-                  break;
-              }
-           }
-        }
 
-        if (!hasGaps && currentIndex !== -1 && currentIndex < trackMilestones.length - 1) {
-          const nextMilestone = trackMilestones[currentIndex + 1];
+        // Defensive Auto-Advance: Only advance if the backlog track sequence is
+        // flawless. Milestones not applicable to this unit are not gaps.
+        const hasGaps = currentIndex > 0 && hasSequenceGaps(
+          trackMilestones, unit, currentIndex, applicabilityIndex,
+          (name) => activeStatuses.find(s => s.unit_id === unit.id && s.milestone === name)
+        );
+
+        // Walk PAST inapplicable milestones — never land auto-advance on an N/A slot
+        const nextIndex = currentIndex === -1 ? -1 : nextApplicableIndex(trackMilestones, unit, currentIndex, applicabilityIndex);
+        if (!hasGaps && nextIndex !== -1) {
+          const nextMilestone = trackMilestones[nextIndex];
           const nextMilestoneName = nextMilestone.name;
           const nextSheetSchedule = (activeSheet?.milestone_schedules as Record<string, any>)?.[nextMilestoneName] || {};
           
@@ -399,42 +398,59 @@ export function useMapActions(project: Project | null | undefined) {
       await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks });
       
       const autoAdvanceEnabled = settings.auto_advance_tracks?.[track] === true;
-      let usedTemporalState = temporal_state;
-      let usedMilestone = milestone;
-      let usedColor = color;
 
+      // Auto-advance: each unit walks to ITS next applicable milestone, so a
+      // milestone that is N/A for some units never receives a 'planned' stamp.
+      const advancedLogs: any[] = [];
       if (temporal_state === 'completed' && autoAdvanceEnabled && milestone !== '__KEEP_EXISTING__' && milestone !== null && !isUndoRedo) {
         const milestones = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project?.id as string)) || [];
+        const overrides = queryClient.getQueryData<MilestoneOverride[]>(queryKeys.milestoneOverrides(project?.id as string)) || [];
+        const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
+        const applicabilityIndex = buildApplicabilityIndex(milestones, overrides);
         const trackMilestones = milestones.filter(m => m.track === track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
         const currentIndex = trackMilestones.findIndex(m => m.name === milestone);
-        
-        if (currentIndex !== -1 && currentIndex < trackMilestones.length - 1) {
-          const nextMilestone = trackMilestones[currentIndex + 1];
-          usedMilestone = nextMilestone.name;
-          usedColor = nextMilestone.color;
-          usedTemporalState = 'planned';
-          
-          await bulkUpdateStatusMutation.mutateAsync({
-             unitIds,
-             milestone: usedMilestone,
-             color: usedColor,
-             temporal_state: usedTemporalState,
-             track,
-             planned_start_date: null,
-             planned_end_date: null
-          });
+
+        if (currentIndex !== -1) {
+          const targetGroups: Record<number, string[]> = {};
+          for (const id of unitIds as string[]) {
+            const unit = units.find(u => u.id === id);
+            if (!unit) continue;
+            const nextIndex = nextApplicableIndex(trackMilestones, unit, currentIndex, applicabilityIndex);
+            if (nextIndex === -1) continue;
+            (targetGroups[nextIndex] ||= []).push(id);
+          }
+
+          for (const [idxStr, groupIds] of Object.entries(targetGroups)) {
+            const nextMilestone = trackMilestones[Number(idxStr)];
+            await bulkUpdateStatusMutation.mutateAsync({
+               unitIds: groupIds,
+               milestone: nextMilestone.name,
+               color: nextMilestone.color,
+               temporal_state: 'planned',
+               track,
+               planned_start_date: null,
+               planned_end_date: null
+            });
+            groupIds.forEach(id => advancedLogs.push({ unit_id: id, milestone: nextMilestone.name, status_color: nextMilestone.color, temporal_state: 'planned', track }));
+          }
         }
       }
 
       let newLogs: any[] = [];
-      if (usedMilestone === '__KEEP_EXISTING__') {
-        if (usedTemporalState !== '__KEEP_EXISTING__') {
-          newLogs = oldLogs.map(s => ({ ...s, temporal_state: usedTemporalState }));
+      if (milestone === '__KEEP_EXISTING__') {
+        if (temporal_state !== '__KEEP_EXISTING__') {
+          newLogs = oldLogs.map(s => ({ ...s, temporal_state }));
         } else {
           newLogs = oldLogs;
         }
-      } else if (usedMilestone !== null && usedTemporalState !== 'none' && usedTemporalState !== '__KEEP_EXISTING__') {
-        newLogs = unitIds.map((id: string) => ({ unit_id: id, milestone: usedMilestone, status_color: usedColor, temporal_state: usedTemporalState, track }));
+      } else if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
+        // Units that advanced are represented by their new 'planned' slot;
+        // the rest keep the milestone/state this bulk action applied.
+        const advancedUnitIds = new Set(advancedLogs.map(l => l.unit_id));
+        newLogs = [
+          ...(unitIds as string[]).filter(id => !advancedUnitIds.has(id)).map(id => ({ unit_id: id, milestone, status_color: color, temporal_state, track })),
+          ...advancedLogs
+        ];
       }
       
       if (!isUndoRedo) {

@@ -3,10 +3,11 @@ import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, Gri
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useBulkInsertStatusLogs, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useBulkInsertStatusLogs, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useUpdateMilestoneRules } from '@/hooks/useProjectQueries';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
+import { getAppliesTo } from '@/types/domain';
 import type { Milestone, Sheet } from '@/types/domain';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
@@ -17,15 +18,42 @@ interface SortableMilestoneItemProps {
   setEditMilestoneName: (name: string) => void;
   editMilestoneColor: string;
   setEditMilestoneColor: (color: string) => void;
+  editMilestoneAppliesTo: string[] | null;
+  setEditMilestoneAppliesTo: (val: string[] | null) => void;
+  projectUnitTypes: string[];
   setEditingMilestoneId: (id: string | null) => void;
   onUpdateMilestone?: (id: string, oldName: string, newName: string, newColor: string) => void;
+  onUpdateMilestoneRules?: (id: string, appliesTo: string[] | null) => void;
   onDeleteMilestone?: (id: string) => void;
 }
 
-function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEditMilestoneName, editMilestoneColor, setEditMilestoneColor, setEditingMilestoneId, onUpdateMilestone, onDeleteMilestone }: SortableMilestoneItemProps) {
+function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEditMilestoneName, editMilestoneColor, setEditMilestoneColor, editMilestoneAppliesTo, setEditMilestoneAppliesTo, projectUnitTypes, setEditingMilestoneId, onUpdateMilestone, onUpdateMilestoneRules, onDeleteMilestone }: SortableMilestoneItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: m.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
-  
+
+  const savedRule = getAppliesTo(m);
+  // null = applies to all unit types; chips show the effective selection
+  const effectiveSelection = editMilestoneAppliesTo ?? projectUnitTypes;
+
+  const toggleAppliesTo = (type: string) => {
+    const next = effectiveSelection.includes(type)
+      ? effectiveSelection.filter(t => t !== type)
+      : [...effectiveSelection, type];
+    // All selected (or none) collapses back to the "applies to all" rule
+    if (next.length === 0 || next.length === projectUnitTypes.length) {
+      setEditMilestoneAppliesTo(null);
+    } else {
+      setEditMilestoneAppliesTo(next);
+    }
+  };
+
+  const handleSave = () => {
+    onUpdateMilestone?.(m.id, m.name, editMilestoneName, editMilestoneColor);
+    const changed = JSON.stringify(editMilestoneAppliesTo) !== JSON.stringify(savedRule);
+    if (changed) onUpdateMilestoneRules?.(m.id, editMilestoneAppliesTo);
+    setEditingMilestoneId(null);
+  };
+
   return (
     <li ref={setNodeRef} style={style} className="flex items-center justify-between bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-2 pl-2 shadow-sm">
       <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -33,22 +61,54 @@ function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEd
           <GripVertical size={16} />
         </button>
         {editingMilestoneId === m.id ? (
-          <div className="flex bg-white dark:bg-black/30 border border-slate-300 dark:border-white/10 rounded-lg p-1 w-full gap-2 items-center flex-1">
-             <input type="text" value={editMilestoneName} onChange={(e) => setEditMilestoneName(e.target.value)} autoFocus className="w-full bg-transparent text-sm font-medium outline-none px-2 text-slate-900 dark:text-white" />
-             <input type="color" value={editMilestoneColor} onChange={(e) => setEditMilestoneColor(e.target.value)} className="w-7 h-7 border-0 cursor-pointer bg-transparent shrink-0" />
-             <button type="button" onClick={() => { onUpdateMilestone?.(m.id, m.name, editMilestoneName, editMilestoneColor); setEditingMilestoneId(null); }} className="px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-md text-sm font-bold h-7 transition-colors">Save</button>
+          <div className="flex flex-col bg-white dark:bg-black/30 border border-slate-300 dark:border-white/10 rounded-lg p-1 w-full gap-2 flex-1">
+             <div className="flex gap-2 items-center w-full">
+               <input type="text" value={editMilestoneName} onChange={(e) => setEditMilestoneName(e.target.value)} autoFocus className="w-full bg-transparent text-sm font-medium outline-none px-2 text-slate-900 dark:text-white" />
+               <input type="color" value={editMilestoneColor} onChange={(e) => setEditMilestoneColor(e.target.value)} className="w-7 h-7 border-0 cursor-pointer bg-transparent shrink-0" />
+               <button type="button" onClick={handleSave} className="px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-md text-sm font-bold h-7 transition-colors">Save</button>
+             </div>
+             <div className="px-2 pb-1">
+               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
+                 Applies to {editMilestoneAppliesTo === null ? 'all space types' : `${effectiveSelection.length} of ${projectUnitTypes.length} space types`}
+               </div>
+               <div className="flex flex-wrap gap-1.5">
+                 {projectUnitTypes.map(type => {
+                   const active = effectiveSelection.includes(type);
+                   return (
+                     <button
+                       key={type}
+                       type="button"
+                       onClick={() => toggleAppliesTo(type)}
+                       className={`px-2 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                         active
+                           ? 'bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700'
+                           : 'bg-slate-100 text-slate-400 border-slate-200 line-through dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700'
+                       }`}
+                     >
+                       {type}
+                     </button>
+                   );
+                 })}
+               </div>
+               <div className="text-[10px] text-slate-400 italic mt-1.5">Deselected types are tracked as N/A for this milestone.</div>
+             </div>
           </div>
         ) : (
           <div className="flex items-center gap-3 flex-1 min-w-0">
              <span className="w-4 h-4 rounded-full shadow-sm shrink-0" style={{ backgroundColor: m.color }} />
              <span className="font-semibold text-sm truncate text-slate-800 dark:text-slate-200">{m.name}</span>
+             {savedRule && (
+               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 bg-slate-200/70 dark:bg-slate-800 px-1.5 py-0.5 rounded-full shrink-0" title={`Applies only to: ${savedRule.join(', ')}`}>
+                 {savedRule.length} type{savedRule.length === 1 ? '' : 's'}
+               </span>
+             )}
           </div>
         )}
       </div>
-      
+
       {editingMilestoneId !== m.id && (
         <div className="flex items-center gap-1 shrink-0 ml-2">
-          <button type="button" onClick={() => { setEditingMilestoneId(m.id); setEditMilestoneName(m.name); setEditMilestoneColor(m.color); }} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Edit">
+          <button type="button" onClick={() => { setEditingMilestoneId(m.id); setEditMilestoneName(m.name); setEditMilestoneColor(m.color); setEditMilestoneAppliesTo(savedRule); }} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Edit">
             <Pencil size={14} />
           </button>
           <button type="button" onClick={() => onDeleteMilestone?.(m.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Delete">
@@ -127,6 +187,7 @@ export default function SettingsMenu({
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
   const [editMilestoneName, setEditMilestoneName] = useState('');
   const [editMilestoneColor, setEditMilestoneColor] = useState('');
+  const [editMilestoneAppliesTo, setEditMilestoneAppliesTo] = useState<string[] | null>(null);
   const [expandedSchedules, setExpandedSchedules] = useState<Record<string, boolean>>({});
   const [newUnitTypeAdd, setNewUnitTypeAdd] = useState('');
   
@@ -144,6 +205,7 @@ export default function SettingsMenu({
   }, [sheets, scheduleLevelId]);
 
   const reorderMilestonesMutation = useReorderMilestones(projectId);
+  const updateMilestoneRulesMutation = useUpdateMilestoneRules(projectId);
   const updateSheetScopesMutation = useUpdateSheetScopes(projectId);
   const updateSheetScaleMutation = useUpdateSheetScale(projectId);
   const updateSheetScheduleMutation = useUpdateSheetSchedule(projectId);
@@ -564,8 +626,12 @@ export default function SettingsMenu({
                           setEditMilestoneName={setEditMilestoneName}
                           editMilestoneColor={editMilestoneColor}
                           setEditMilestoneColor={setEditMilestoneColor}
+                          editMilestoneAppliesTo={editMilestoneAppliesTo}
+                          setEditMilestoneAppliesTo={setEditMilestoneAppliesTo}
+                          projectUnitTypes={projectUnitTypes}
                           setEditingMilestoneId={setEditingMilestoneId}
                           onUpdateMilestone={onUpdateMilestone}
+                          onUpdateMilestoneRules={(id, appliesTo) => updateMilestoneRulesMutation.mutate({ id, applies_to_unit_types: appliesTo })}
                           onDeleteMilestone={onDeleteMilestone}
                         />
                       ))}

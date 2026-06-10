@@ -134,6 +134,7 @@ export interface Database {
           name: string
           color: string
           track: string
+          applies_to_unit_types: Json | null
           created_at: string | null
         }
         Insert: {
@@ -143,6 +144,7 @@ export interface Database {
           name: string
           color: string
           track?: string
+          applies_to_unit_types?: Json | null
           created_at?: string | null
         }
         Update: {
@@ -152,9 +154,53 @@ export interface Database {
           name?: string
           color?: string
           track?: string
+          applies_to_unit_types?: Json | null
           created_at?: string | null
         }
         Relationships: []
+      }
+      milestone_applicability_overrides: {
+        Row: {
+          id: string
+          milestone_id: string
+          unit_id: string
+          is_applicable: boolean
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          milestone_id: string
+          unit_id: string
+          is_applicable: boolean
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          milestone_id?: string
+          unit_id?: string
+          is_applicable?: boolean
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "milestone_applicability_overrides_milestone_id_fkey"
+            columns: ["milestone_id"]
+            referencedRelation: "project_milestones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "milestone_applicability_overrides_unit_id_fkey"
+            columns: ["unit_id"]
+            referencedRelation: "units"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       status_logs: {
         Row: {

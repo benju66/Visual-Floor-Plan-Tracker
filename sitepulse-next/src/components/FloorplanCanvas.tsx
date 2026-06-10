@@ -29,6 +29,7 @@ import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point } from '@/types/domain';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
@@ -57,6 +58,7 @@ interface FloorplanCanvasProps {
   onPendingPolygonComplete?: () => void;
   onOpenMilestoneModal?: (unitId: string | null) => void;
   onOpenStatusModal?: (unitId: string | null) => void;
+  applicabilityIndex?: ApplicabilityIndex;
 }
 
 const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
@@ -75,6 +77,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onPendingPolygonMove,
   onOpenMilestoneModal,
   onOpenStatusModal,
+  applicabilityIndex,
 }, ref) => {
   const activeSheetId = useMapStore(s => s.activeSheetId);
   const toolMode = useMapStore(s => s.toolMode);
@@ -1532,6 +1535,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             dimensions={dimensions}
             toolMode={toolMode}
             contextMenu={contextMenu}
+            applicabilityIndex={applicabilityIndex}
          />
       )}
 

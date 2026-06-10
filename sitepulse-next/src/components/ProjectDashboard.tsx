@@ -5,6 +5,8 @@ import { eachDayOfInterval, parseISO, format, startOfWeek } from 'date-fns';
 import { Target, Activity, PauseCircle, Info, TrendingUp, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/hooks/useProjectQueries';
+import { isMilestoneApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Unit, Milestone, StatusLog, Sheet, TrackingMode } from '@/types/domain';
 
 // Lazy-load recharts via next/dynamic — prevents SSR hydration crash
@@ -75,9 +77,10 @@ interface ProjectDashboardProps {
   trackingMode: TrackingMode;
   sheets?: Sheet[];
   activeSheet?: Sheet | null;
+  applicabilityIndex?: ApplicabilityIndex;
 }
 
-export default function ProjectDashboard({ units, activeStatuses, milestones, trackingMode, sheets, activeSheet }: ProjectDashboardProps) {
+export default function ProjectDashboard({ units, activeStatuses, milestones, trackingMode, sheets, activeSheet, applicabilityIndex = EMPTY_APPLICABILITY_INDEX }: ProjectDashboardProps) {
   const [allSheets, setAllSheets] = useState(false);
   const [isChartExpanded, setIsChartExpanded] = useState(true);
 
@@ -112,16 +115,23 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
     let notStartedCount = 0;
 
     displayUnits.forEach(unit => {
-      const unitStatuses = currentTrackStatuses.filter(s => s.unit_id === unit.id);
+      // Only milestones applicable to this unit count toward its state —
+      // a fully-N/A unit is neither active nor not-started.
+      const unitMilestones = currentTrackMilestones.filter(m => isMilestoneApplicable(m, unit, applicabilityIndex));
+      if (unitMilestones.length === 0) return;
+
+      const unitStatuses = currentTrackStatuses.filter(s =>
+        s.unit_id === unit.id && unitMilestones.some(m => m.name === s.milestone)
+      );
       if (unitStatuses.length === 0) {
         notStartedCount++;
       } else {
         // Evaluate unit-level operational state
-        const isFullyCompleted = currentTrackMilestones.every(m => {
+        const isFullyCompleted = unitMilestones.every(m => {
            const log = unitStatuses.find(s => s.milestone === m.name);
            return log && log.temporal_state === 'completed';
         });
-        
+
         if (isFullyCompleted) {
            completedCount++;
         } else {
@@ -145,10 +155,15 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
       let completedUnits: string[] = [];
       let ongoingUnits: string[] = [];
       let notStartedUnits: string[] = [];
+      let naUnits: string[] = [];
 
       displayUnits.forEach(unit => {
+        if (!isMilestoneApplicable(milestone, unit, applicabilityIndex)) {
+          naUnits.push(unit.unit_number);
+          return;
+        }
         const status = currentTrackStatuses.find(s => s.unit_id === unit.id && s.milestone === milestone.name);
-        
+
         if (!status || status.temporal_state === 'none') {
           tNotStarted++;
           notStartedUnits.push(unit.unit_number);
@@ -170,11 +185,14 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
         ongoingUnits,
         notStarted: tNotStarted,
         notStartedUnits,
-        total: totalDisplayUnits
+        naCount: naUnits.length,
+        naUnits,
+        // N/A slots leave the denominator — the bar represents work that exists
+        total: totalDisplayUnits - naUnits.length
       };
     });
 
-    const totalPossibleTasks = totalDisplayUnits * currentTrackMilestones.length;
+    const totalPossibleTasks = stats.reduce((sum, stat) => sum + stat.total, 0);
     const totalCompletedTasks = stats.reduce((sum, stat) => sum + stat.completed, 0);
     const totalNotStartedTasks = stats.reduce((sum, stat) => sum + stat.notStarted, 0);
     const progress = totalPossibleTasks > 0 ? Math.round((totalCompletedTasks / totalPossibleTasks) * 100) : 0;
@@ -186,14 +204,14 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
       milestoneStats: stats,
       totalUnits: totalDisplayUnits
     };
-  }, [displayUnits, displayStatuses, currentTrackMilestones, trackingMode]);
+  }, [displayUnits, displayStatuses, currentTrackMilestones, trackingMode, applicabilityIndex]);
 
   // ----- Velocity Chart Data Engine -----
   const chartData = useMemo(() => {
     const trackHistory = rawHistory.filter((log: any) => log.track === trackingMode);
     if (trackHistory.length === 0) return [];
 
-    const totalScope = displayUnits.length * currentTrackMilestones.length;
+    const totalScope = applicableSlotCount(displayUnits, currentTrackMilestones, applicabilityIndex);
     if (totalScope === 0) return [];
 
     const byDay: Record<string, number> = {};
@@ -226,7 +244,7 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
         totalScope,
       };
     });
-  }, [rawHistory, trackingMode, displayUnits, currentTrackMilestones]);
+  }, [rawHistory, trackingMode, displayUnits, currentTrackMilestones, applicabilityIndex]);
 
   if (!units || units.length === 0) {
     return (
@@ -393,6 +411,9 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
                     <span className="text-slate-700 dark:text-slate-200">{stat.name}</span>
                     <span className="text-slate-500">
                       {stat.completed} / {stat.total}
+                      {stat.naCount > 0 && (
+                        <span className="ml-2 text-xs text-slate-400 italic">N/A: {stat.naCount}</span>
+                      )}
                     </span>
                   </div>
                   <div className="relative w-full h-3 flex rounded-full bg-slate-100 dark:bg-slate-800">
@@ -473,7 +494,7 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
                     <span className="group relative flex items-center gap-1 cursor-default">
                       <div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
                       Not Started ({stat.notStarted})
-                      
+
                       <div className="hidden group-hover:flex absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 flex-col bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 p-3 rounded-xl shadow-2xl z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20">
                         <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900/95 dark:bg-slate-100/95 rotate-45 border-r border-b border-slate-700 dark:border-white/20" />
                         <div className="font-bold text-[10px] uppercase tracking-widest opacity-80 mb-1 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" /> Not Started ({stat.notStarted})</div>
@@ -482,6 +503,20 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
                         </div>
                       </div>
                     </span>
+                    {stat.naCount > 0 && (
+                      <span className="group relative flex items-center gap-1 cursor-default italic text-slate-400">
+                        <div className="w-2 h-2 rounded-full border border-dashed border-slate-400 dark:border-slate-500" />
+                        N/A ({stat.naCount})
+
+                        <div className="hidden group-hover:flex absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 flex-col bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 p-3 rounded-xl shadow-2xl z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20">
+                          <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900/95 dark:bg-slate-100/95 rotate-45 border-r border-b border-slate-700 dark:border-white/20" />
+                          <div className="font-bold text-[10px] uppercase tracking-widest opacity-80 mb-1 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full border border-dashed border-slate-400" /> Not Applicable ({stat.naCount})</div>
+                          <div className="text-xs font-medium leading-relaxed normal-case tracking-normal not-italic">
+                            {stat.naUnits.length > 20 ? stat.naUnits.slice(0, 20).join(', ') + ` ...and ${stat.naUnits.length - 20} more` : stat.naUnits.join(', ')}
+                          </div>
+                        </div>
+                      </span>
+                    )}
                   </div>
                 </div>
               );

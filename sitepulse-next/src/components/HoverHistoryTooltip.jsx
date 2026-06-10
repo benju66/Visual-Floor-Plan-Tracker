@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { isMilestoneApplicable } from '@/utils/applicability';
 
 export default function HoverHistoryTooltip({
   hoveredUnit,
@@ -9,7 +10,8 @@ export default function HoverHistoryTooltip({
   milestones,
   dimensions,
   toolMode,
-  contextMenu
+  contextMenu,
+  applicabilityIndex
 }) {
   const [activeUnit, setActiveUnit] = useState(null);
   const [activePos, setActivePos] = useState(null);
@@ -121,14 +123,29 @@ export default function HoverHistoryTooltip({
            <div className="text-xs italic opacity-50">No milestones configured for this track.</div>
         ) : (
            milestones.map(m => {
+              const notApplicable = u && applicabilityIndex && !isMilestoneApplicable(m, u, applicabilityIndex);
+              if (notApplicable) {
+                return (
+                   <div key={m.id} className="flex items-center justify-between gap-4 text-xs opacity-40 italic">
+                     <div className="flex items-center gap-2 truncate">
+                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-dashed border-slate-400" />
+                       <span className="truncate font-medium">{m.name}</span>
+                     </div>
+                     <span className="text-[9px] uppercase tracking-widest font-bold shrink-0 text-slate-400">
+                       N/A
+                     </span>
+                   </div>
+                );
+              }
+
               const log = unitRawLogs.find(s => s.milestone === m.name);
               const state = log ? log.temporal_state : 'none';
-              
+
               let stateColor = 'text-slate-400';
               if (state === 'completed') stateColor = 'text-emerald-400 dark:text-emerald-600';
               if (state === 'ongoing') stateColor = 'text-amber-400 dark:text-amber-600';
               if (state === 'planned') stateColor = 'text-blue-400 dark:text-blue-600';
-              
+
               return (
                  <div key={m.id} className={`flex items-center justify-between gap-4 text-xs ${state === 'none' ? 'opacity-40' : 'opacity-100'}`}>
                    <div className="flex items-center gap-2 truncate">

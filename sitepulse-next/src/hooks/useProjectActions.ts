@@ -66,8 +66,21 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       if (fetchErr) throw fetchErr;
 
       if (milestoneData?.name) {
-        const { error: logErr } = await supabase.from('status_logs').delete().eq('milestone', milestoneData.name);
-        if (logErr) throw logErr;
+        // Scope the name-match to THIS project's units — milestones are linked
+        // by name string, and other projects may have a same-named milestone.
+        const { data: logs, error: fetchErr } = await supabase
+          .from('status_logs')
+          .select('id, units!inner(sheets!inner(project_id))')
+          .eq('milestone', milestoneData.name)
+          .eq('units.sheets.project_id', project?.id || projectId);
+        if (fetchErr) throw fetchErr;
+
+        const logIds = (logs || []).map(l => l.id);
+        const CHUNK_SIZE = 800;
+        for (let i = 0; i < logIds.length; i += CHUNK_SIZE) {
+          const { error: logErr } = await supabase.from('status_logs').delete().in('id', logIds.slice(i, i + CHUNK_SIZE));
+          if (logErr) throw logErr;
+        }
       }
 
       const { error } = await supabase.from('project_milestones').delete().eq('id', id);

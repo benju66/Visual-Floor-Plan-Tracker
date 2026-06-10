@@ -1,9 +1,10 @@
 "use client";
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle } from '@/components/ui/FieldStatusAtoms';
 import StatusTrigger from '@/components/ui/StatusTrigger';
+import { isMilestoneApplicable } from '@/utils/applicability';
 
 /**
  * StatusTable — traditional data table presenter (viewStyle === 'table', isDesktop).
@@ -49,6 +50,8 @@ export default function StatusTable({
   currentMilestones,
   pendingTimelineChanges,
   trackingMode,
+  applicabilityIndex,
+  onToggleApplicability,
 }) {
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState(new Set());
@@ -334,7 +337,43 @@ export default function StatusTable({
               </tr>
               {expandedUnitIds.has(unit.id) && currentMilestones?.map(milestone => {
                 if (milestone.name === log?.milestone) return null;
-                
+
+                const notApplicable = applicabilityIndex && !isMilestoneApplicable(milestone, unit, applicabilityIndex);
+                if (notApplicable) {
+                  return (
+                    <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 last:border-none opacity-60">
+                      <td className="px-5 py-2"></td>
+                      <td className="px-5 py-2 text-sm font-medium text-slate-500 dark:text-slate-400 align-middle pl-10">
+                        <div className="flex items-center gap-2 italic">
+                          <span className="text-slate-400 font-bold">↳</span>
+                          {milestone.name}
+                        </div>
+                      </td>
+                      <td className="px-5 py-2"></td>
+                      <td className="px-5 py-2 align-middle">
+                        <span className={`inline-block rounded-lg border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider italic ${getTemporalStateStyle('none')}`}>
+                          N/A
+                        </span>
+                      </td>
+                      <td className="px-5 py-2 align-middle"><span className="text-slate-400 text-xs italic">—</span></td>
+                      <td className="px-5 py-2 align-middle"><span className="text-slate-400 text-xs italic">—</span></td>
+                      <td className="px-5 py-3 text-xs text-right align-middle"><span className="text-slate-400 italic">—</span></td>
+                      <td className="px-5 py-3 align-middle text-right">
+                        {onToggleApplicability && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, milestone, true); }}
+                            className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors cursor-pointer"
+                            title="Restore — mark this milestone applicable for this location"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }
+
                 const childLog = logMap.get(`${unit.id}_${milestone.name}`) || {
                   unit_id: unit.id,
                   milestone: milestone.name,
@@ -344,7 +383,7 @@ export default function StatusTable({
                 };
                 const childPending = pendingTimelineChanges[`${unit.id}_${milestone.name}`];
                 const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
-                
+
                 return (
                   <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 last:border-none">
                     <td className="px-5 py-2"></td>
@@ -461,7 +500,18 @@ export default function StatusTable({
                         <span className="text-slate-400 text-xs italic">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 align-middle text-right"></td>
+                    <td className="px-5 py-3 align-middle text-right">
+                      {onToggleApplicability && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, milestone, false, dChildLog.temporal_state); }}
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer"
+                          title="Mark Not Applicable for this location"
+                        >
+                          <Ban size={14} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
