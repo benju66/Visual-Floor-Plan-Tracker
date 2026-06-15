@@ -8,7 +8,6 @@ export interface AppSettings {
   enableToasts: boolean;
   showHistoryHover: boolean;
   defaultViewMode: string;
-  defaultFieldView?: string;
   includeExportData?: boolean;
   pdfPaperSize?: string;
   markupThickness?: number;
@@ -23,6 +22,8 @@ export interface MapSettings {
   showWalkSequence: boolean;
   pinnedTools: string[];
   snappingStrength?: number;
+  /** Lag Mode: color unit polygons by schedule variance instead of milestone color. */
+  colorByVariance?: boolean;
 }
 
 export interface SettingsState {
@@ -59,7 +60,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, colorByVariance: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),
@@ -94,7 +95,11 @@ export function useHydratedStore<T>(
   const [isHydrated, setIsHydrated] = useState(false);
   const result = useSettingsStore(selector);
 
+  // Flip to hydrated exactly once after mount: this is the intentional SSR
+  // hydration guard (see "CRITICAL DIRECTIVE A"). The one-shot setState is the
+  // pattern's whole point, so the set-state-in-effect rule is a false positive here.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsHydrated(true);
   }, []);
 

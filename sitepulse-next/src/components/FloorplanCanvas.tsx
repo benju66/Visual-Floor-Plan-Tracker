@@ -15,6 +15,7 @@ import PendingPolygon from '@/components/canvas/PendingPolygon';
 import MapLegend from '@/components/canvas/MapLegend';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha } from '@/utils/geometry';
+import { computeUnitVariance, varianceFill } from '@/utils/progressAnalytics';
 import { classifyWheelIntent, clampStagePosition } from '@/utils/viewport';
 import { getToolCursor } from '@/utils/cursor';
 import RBush from 'rbush';
@@ -92,6 +93,31 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const { data: allMilestones = [] } = useMilestones(projectId);
   const milestones = allMilestones.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
+
+  // ── Lag Mode: re-skin bottleneck statuses with schedule-variance colors ──
+  // Purely visual: only the copies passed to the canvas renderers are recolored,
+  // so write paths (BulkActionDock bottlenecks, quick modals) never see lag colors.
+  const lagMode = !!mapSettings?.colorByVariance;
+  // Stable for the component's lifetime — matches how the dashboard modules and
+  // history modal source "today", and keeps the memo dep array honest.
+  const today = useMemo(() => new Date(), []);
+  const displayStatuses = useMemo(() => {
+    if (!lagMode) return activeStatuses;
+    const logsByUnit = new Map<string, StatusLog[]>();
+    for (const log of rawStatuses) {
+      if (log.track !== trackingMode || !log.unit_id) continue;
+      const arr = logsByUnit.get(log.unit_id);
+      if (arr) arr.push(log);
+      else logsByUnit.set(log.unit_id, [log]);
+    }
+    return activeStatuses.map(s => {
+      const info = computeUnitVariance(logsByUnit.get(s.unit_id as string) || [], milestones, today);
+      return { ...s, status_color: varianceFill(info) };
+    });
+  // `milestones` is derived from allMilestones+trackingMode (both in deps); listing
+  // the derived array would change identity every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lagMode, activeStatuses, rawStatuses, allMilestones, trackingMode, today]);
   // Synchronous main-thread snapping engine. The hook returns raw JSON vectors;
   // we instantiate the RBush spatial index here in a deferred effect (never in the
   // Query cache — see AGENTS.md §5). getSnappedCoordinate() is then called inline,
@@ -1345,7 +1371,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   key={unit.id}
                   unit={unit}
                   isRouteDropTarget={routeDropTarget === unit.id || (toolMode === 'route' && routeSubMode === 'add' && hoveredUnit === unit.id && !pendingRoute.includes(unit.id))}
-                  activeStatuses={activeStatuses}
+                  activeStatuses={displayStatuses}
+                  lagMode={lagMode}
                   legendFilter={legendFilter}
                   isSelected={selectedUnitIds?.includes(unit.id)}
                   isHovered={hoveredUnit === unit.id}
@@ -1721,6 +1748,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               units={units}
               milestones={milestones}
               activeStatuses={activeStatuses}
+              lagMode={lagMode}
               isSelected={isLegendSelected}
               onSelect={() => setIsLegendSelected(true)}
               onUpdate={(payload: any) => {

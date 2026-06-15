@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useEffect } from 'react';
 import { Group, Rect, Text, Transformer, Circle, Path } from 'react-konva';
 import { ICON_PATHS } from '@/utils/constants';
+import { VARIANCE_LEGEND } from '@/utils/progressAnalytics';
 import type { Unit, StatusLog, Milestone, TemporalState, CanvasLayout } from '@/types/domain';
 
 export interface MapLegendProps {
@@ -13,6 +14,8 @@ export interface MapLegendProps {
   units: Unit[];
   milestones: Milestone[];
   activeStatuses: StatusLog[];
+  /** Lag Mode: show the fixed schedule-variance scale instead of milestone colors. */
+  lagMode?: boolean;
   isVisible: boolean;
   onUpdate?: (updates: { pctX?: number; pctY?: number; scaleX?: number; scaleY?: number; rotation?: number }) => void;
   isSelected?: boolean;
@@ -29,6 +32,7 @@ export default function MapLegend({
   units,
   milestones,
   activeStatuses,
+  lagMode,
   isVisible,
   onUpdate,
   isSelected,
@@ -77,16 +81,22 @@ export default function MapLegend({
     return [...new Set(states)];
   }, [isVisible, activeStatuses, units]);
 
-  if (!isVisible || (activeMilestones.length === 0 && activeTemporalStates.length === 0)) return null;
+  // Lag Mode renders a fixed variance scale; milestone colors are not on the map.
+  const legendSwatches: { name: string; color: string }[] = lagMode
+    ? VARIANCE_LEGEND.map(v => ({ name: v.label, color: v.color }))
+    : activeMilestones.map(m => ({ name: m.name as string, color: m.color as string }));
+  const swatchTitle = lagMode ? 'Schedule Lag' : 'Milestones';
+
+  if (!isVisible || (legendSwatches.length === 0 && activeTemporalStates.length === 0)) return null;
 
   const itemHeight = 24;
   const padding = 16;
   const legendWidth = 200;
   const titleHeight = 30;
-  
-  const milestonesHeight = activeMilestones.length > 0 ? titleHeight + (activeMilestones.length * itemHeight) : 0;
+
+  const milestonesHeight = legendSwatches.length > 0 ? titleHeight + (legendSwatches.length * itemHeight) : 0;
   const statusesHeight = activeTemporalStates.length > 0 ? titleHeight + (activeTemporalStates.length * itemHeight) : 0;
-  const totalItemsHeight = milestonesHeight + statusesHeight + (activeMilestones.length > 0 && activeTemporalStates.length > 0 ? padding : 0);
+  const totalItemsHeight = milestonesHeight + statusesHeight + (legendSwatches.length > 0 && activeTemporalStates.length > 0 ? padding : 0);
   
   const legendHeight = padding * 2 + totalItemsHeight;
 
@@ -141,18 +151,18 @@ export default function MapLegend({
           shadowOffsetY={4}
         />
 
-        {activeMilestones.length > 0 && (
+        {legendSwatches.length > 0 && (
           <Text
             x={padding}
             y={padding}
-            text="Milestones"
+            text={swatchTitle}
             fontSize={16}
             fontStyle="bold"
             fill="#334155"
           />
         )}
 
-        {activeMilestones.map((item, idx) => {
+        {legendSwatches.map((item, idx) => {
           const itemY = padding + titleHeight + (idx * itemHeight);
           return (
             <Group key={item.name as string} y={itemY}>
@@ -180,7 +190,7 @@ export default function MapLegend({
         })}
 
         {activeTemporalStates.length > 0 && (
-          <Group y={padding + milestonesHeight + (activeMilestones.length > 0 ? padding : 0)}>
+          <Group y={padding + milestonesHeight + (legendSwatches.length > 0 ? padding : 0)}>
             <Text
               x={padding}
               y={0}

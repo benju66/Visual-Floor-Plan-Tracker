@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
 
@@ -191,6 +191,19 @@ export default function MapHorizontalToolbar({
         title={`${mapSettings?.showWalkSequence ? 'Hide' : 'Show'} Route Path`}
       >
         <Footprints size={18} />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onUpdateMapSettings?.({ ...mapSettings, colorByVariance: !mapSettings?.colorByVariance })}
+        className={`p-2 rounded-full flex items-center justify-center transition-all ${
+          mapSettings?.colorByVariance
+            ? 'bg-amber-500 text-white shadow-sm scale-110'
+            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+        }`}
+        title={mapSettings?.colorByVariance ? 'Lag Mode on — coloring by schedule variance' : 'Lag Mode — color by schedule variance'}
+      >
+        <Gauge size={18} />
       </button>
 
       <button
