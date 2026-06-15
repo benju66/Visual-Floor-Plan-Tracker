@@ -11,15 +11,14 @@ import {
   clearPersistedPendingChanges,
   persistCurrentQueue,
 } from '@/utils/pendingChangesStore';
-import type { Unit, StatusLog, PendingChangesMap, PendingChange, TemporalState, Milestone } from '@/types/domain';
+import type { Unit, StatusLog, PendingChangesMap, PendingChange, TemporalState } from '@/types/domain';
 
 interface UseFieldDataProps {
   activeStatuses: StatusLog[];
-  defaultView: string;
   onApplyPendingChanges?: (changes: PendingChange[]) => Promise<void>;
 }
 
-export function useFieldData({ activeStatuses, defaultView, onApplyPendingChanges }: UseFieldDataProps) {
+export function useFieldData({ activeStatuses, onApplyPendingChanges }: UseFieldDataProps) {
   // --- Store subscriptions (read-only) ---
   const activeSheetId = useMapStore((s) => s.activeSheetId);
   const trackingMode = useMapStore((s) => s.trackingMode);
@@ -53,10 +52,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [typeFilter, setTypeFilter] = useState<string>('All');
 
-  const [viewStyle, setViewStyle] = useState<string>(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768) return 'card';
-    return defaultView;
-  });
+  const [isMobile, setIsMobile] = useState<boolean>(false);
 
   const [pendingChanges, setPendingChanges] = useState<PendingChangesMap>({});
   const [pendingTimelineChanges, setPendingTimelineChanges] = useState<PendingChangesMap>({});
@@ -98,18 +94,17 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     persistPendingTimelineChanges(projectId, pendingTimelineChanges);
   }, [pendingTimelineChanges, hasRehydrated, projectId]);
 
-  // Sync viewStyle when the defaultView prop changes (e.g. settings updated)
+  // Track the mobile breakpoint — the swipe deck hides the global header elements.
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
-      setViewStyle('card');
-    } else {
-      setViewStyle(defaultView);
-    }
-  }, [defaultView]);
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
-  // Hide global header elements while in card/swipe mode
+  // Hide global header elements while in the mobile swipe deck
   useEffect(() => {
-    if (viewStyle === 'card') {
+    if (isMobile) {
       document.documentElement.classList.add('hide-header-elements');
     } else {
       document.documentElement.classList.remove('hide-header-elements');
@@ -117,7 +112,7 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     return () => {
       document.documentElement.classList.remove('hide-header-elements');
     };
-  }, [viewStyle]);
+  }, [isMobile]);
 
   // --- Handlers ---
 
@@ -233,9 +228,10 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     let failed = 0;
     const failedChanges: PendingChange[] = [];
 
-    // Work against live snapshots so we can write directly to IDB on each checkpoint
-    let livePending = { ...pendingChanges };
-    let liveTimeline = { ...pendingTimelineChanges };
+    // Work against live snapshots so we can write directly to IDB on each checkpoint.
+    // const: the bindings are never reassigned — items are removed via `delete` (mutation).
+    const livePending = { ...pendingChanges };
+    const liveTimeline = { ...pendingTimelineChanges };
 
     try {
       for (const change of finalChanges) {
@@ -367,8 +363,6 @@ export function useFieldData({ activeStatuses, defaultView, onApplyPendingChange
     handleSort,
     typeFilter,
     setTypeFilter,
-    viewStyle,
-    setViewStyle,
     pendingChanges,
     pendingTimelineChanges,
     pendingCount,
