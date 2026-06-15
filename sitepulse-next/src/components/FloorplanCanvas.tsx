@@ -17,7 +17,7 @@ import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
-import { classifyWheelIntent, clampStagePosition, createViewportSync } from '@/utils/viewport';
+import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
 import RBush from 'rbush';
@@ -38,6 +38,12 @@ const ADD_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' 
 const REMOVE_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='8' y1='12' x2='16' y2='12'/></svg>`;
 const ADD_NODE_CURSOR = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(ADD_SVG)}") 12 12, crosshair`;
 const REMOVE_NODE_CURSOR = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(REMOVE_SVG)}") 12 12, crosshair`;
+
+// Wheel-zoom scale bounds (shared by instant + smooth paths) and the glide time
+// constant for smooth-wheel-zoom. ~70ms reads as a glide without feeling laggy.
+const MIN_SCALE = 0.1;
+const MAX_SCALE = 15;
+const WHEEL_SMOOTH_TAU = 0.07;
 
 interface FloorplanCanvasProps {
   activeStatuses: StatusLog[];
@@ -156,6 +162,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const stageRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
   const spaceWasPanRef = useRef<ToolMode | null>(null);
+
+  // Smooth-wheel-zoom glide state (default-on; mapSettings.smoothWheelZoom !== false). Each
+  // wheel notch updates a target scale + cursor anchor; a single rAF loop eases the
+  // live transform toward it via dampToward(). Refs (not state) so the loop never
+  // triggers a React render — same direct-Konva-mutation pattern as handleWheel.
+  const wheelTargetScaleRef = useRef<number | null>(null);
+  const wheelAnchorRef = useRef<{ screenX: number; screenY: number; contentX: number; contentY: number } | null>(null);
+  const wheelRafRef = useRef<number | null>(null);
+  const wheelLastFrameRef = useRef(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -389,6 +404,28 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     };
   }, [imageUrl, toolMode, onPolygonComplete, onToolModeChange]);
 
+  // Re-measure when the CONTAINER resizes (e.g. dragging the side panel), not just
+  // on window resize. Without this the Stage/layout stay stale after a container
+  // resize, so the floor plan and its markups don't refit until a refresh.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const width = el.offsetWidth;
+        const height = el.offsetHeight;
+        setDimensions(prev => (prev.width === width && prev.height === height ? prev : { width, height }));
+      });
+    });
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
+
   useEffect(() => {
     if (toolMode !== 'draw') setDraftPoints([]);
     if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
@@ -505,18 +542,78 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
+      if (wheelRafRef.current != null) {
+        cancelAnimationFrame(wheelRafRef.current);
+        wheelRafRef.current = null;
+      }
     };
   }, [activeSheetId]);
 
   // Animate the viewport from current state to a target scale/position over durationMs.
   // Uses requestAnimationFrame with ease-out interpolation. Syncs OSD on every frame.
   // Cancellable via animationFrameRef — any new viewport mutation cancels the running animation.
+  // Stop any in-flight smooth-wheel glide and clear its target/anchor.
+  const cancelSmoothWheel = useCallback(() => {
+    if (wheelRafRef.current != null) {
+      cancelAnimationFrame(wheelRafRef.current);
+      wheelRafRef.current = null;
+    }
+    wheelTargetScaleRef.current = null;
+    wheelAnchorRef.current = null;
+  }, []);
+
+  // One rAF loop that eases the live stage transform toward wheelTargetScaleRef,
+  // re-anchored at the cursor every frame so the point under the pointer stays put.
+  const stepSmoothWheel = useCallback(() => {
+    const stage = stageRef.current;
+    const anchor = wheelAnchorRef.current;
+    const target = wheelTargetScaleRef.current;
+    if (!stage || !anchor || target == null) {
+      wheelRafRef.current = null;
+      return;
+    }
+
+    const now = performance.now();
+    const dt = (now - wheelLastFrameRef.current) / 1000;
+    wheelLastFrameRef.current = now;
+
+    const current = stage.scaleX();
+    let next = dampToward(current, target, dt, WHEEL_SMOOTH_TAU);
+    // Snap home once within 0.1% so the loop terminates instead of crawling.
+    const done = Math.abs(next - target) / target < 0.001;
+    if (done) next = target;
+
+    const pos = clampStagePosition(
+      { x: anchor.screenX - anchor.contentX * next, y: anchor.screenY - anchor.contentY * next },
+      next,
+      layoutRef.current,
+      layoutRef.current.stageW,
+      layoutRef.current.stageH,
+    );
+
+    stage.scale({ x: next, y: next });
+    stage.position(pos);
+    stage.batchDraw();
+    liveViewportRef.current = { scale: next, x: pos.x, y: pos.y };
+    viewportSync.push(liveViewportRef.current);
+
+    if (done) {
+      wheelRafRef.current = null;
+      wheelTargetScaleRef.current = null;
+      wheelAnchorRef.current = null;
+      viewportSync.flush();
+    } else {
+      wheelRafRef.current = requestAnimationFrame(stepSmoothWheel);
+    }
+  }, [viewportSync]);
+
   const animateViewport = useCallback((targetScale: number, targetPosition: { x: number; y: number }, durationMs: number) => {
-    // Cancel any running animation
+    // Cancel any running animation (rAF tween and/or smooth-wheel glide)
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    cancelSmoothWheel();
 
     const stage = stageRef.current;
     if (!stage) {
@@ -579,6 +676,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
     // Hybrid scroll model: trackpad two-finger scroll pans; mouse wheel and pinch zoom.
     if (intent === 'pan') {
+      cancelSmoothWheel();
       const panPos = clampStagePosition(
         { x: stage.x() - e.evt.deltaX, y: stage.y() - e.evt.deltaY },
         oldScale,
@@ -594,6 +692,34 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }
 
     const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    // Smooth glide path — opt-in, MOUSE WHEEL ONLY. Each notch nudges a target
+    // scale (compounding off the live target, not the mid-glide scale) and re-anchors
+    // at the cursor; stepSmoothWheel eases toward it. Trackpad pinch stays on the
+    // instant path below — its deltas are already small and continuous.
+    if (intent === 'zoom-wheel' && mapSettings?.smoothWheelZoom !== false) {
+      const base = wheelTargetScaleRef.current ?? oldScale;
+      const delta = Math.min(Math.abs(e.evt.deltaY), 50);
+      const stretch = Math.pow(1.05, delta / 25);
+      let target = e.evt.deltaY > 0 ? base / stretch : base * stretch;
+      target = Math.max(MIN_SCALE, Math.min(target, MAX_SCALE));
+      wheelTargetScaleRef.current = target;
+      wheelAnchorRef.current = {
+        screenX: pointer.x,
+        screenY: pointer.y,
+        contentX: (pointer.x - stage.x()) / oldScale,
+        contentY: (pointer.y - stage.y()) / oldScale,
+      };
+      if (wheelRafRef.current == null) {
+        wheelLastFrameRef.current = performance.now();
+        wheelRafRef.current = requestAnimationFrame(stepSmoothWheel);
+      }
+      return;
+    }
+
+    // Instant path (trackpad pinch, or mouse wheel with smoothing off).
+    cancelSmoothWheel();
     const mousePointTo = {
       x: (pointer.x - stage.x()) / oldScale,
       y: (pointer.y - stage.y()) / oldScale,
@@ -611,8 +737,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }
 
     // Scale Clamping
-    const MIN_SCALE = 0.1;
-    const MAX_SCALE = 15;
     newScale = Math.max(MIN_SCALE, Math.min(newScale, MAX_SCALE));
 
     const newPos = clampStagePosition(

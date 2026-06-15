@@ -28,6 +28,7 @@ export function useMapActions(project: Project | null | undefined) {
   const setQuickStatusUnitId = useMapStore(s => s.setQuickStatusUnitId);
   const quickMilestoneUnitId = useMapStore(s => s.quickMilestoneUnitId);
   const setQuickMilestoneUnitId = useMapStore(s => s.setQuickMilestoneUnitId);
+  const clearSelectedUnits = useMapStore(s => s.clearSelectedUnits);
 
   const newUnitName = useUIStore(s => s.newUnitName);
   const setNewUnitName = useUIStore(s => s.setNewUnitName);
@@ -221,12 +222,12 @@ export function useMapActions(project: Project | null | undefined) {
         const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
         const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
         const unitToDelete = units.find(u => u.id === unitId);
-        const statusToDelete = activeStatuses.find(s => s.unit_id === unitId);
-        
+        const statusesToDelete = activeStatuses.filter(s => s.unit_id === unitId);
+
         try {
           await deleteUnitMutation.mutateAsync(unitId);
           setUndoStack(prev => {
-            const next = [...prev, { actionType: 'DELETE_UNIT' as const, unitData: unitToDelete, statusData: statusToDelete }];
+            const next = [...prev, { actionType: 'DELETE_UNIT' as const, unitData: unitToDelete, statusLogs: statusesToDelete }];
             return next.length > 50 ? next.slice(next.length - 50) : next;
           });
           setRedoStack([]);
@@ -236,6 +237,54 @@ export function useMapActions(project: Project | null | undefined) {
         } finally {
           setConfirmModal(null);
         }
+      },
+    });
+  };
+
+  const handleDeleteUnits = (unitIds: string[]) => {
+    if (!unitIds || unitIds.length === 0) return;
+    if (unitIds.length === 1) {
+      handleDeleteUnit(unitIds[0]);
+      return;
+    }
+    setConfirmModal({
+      message: `Delete ${unitIds.length} selected locations? This removes their markups and recorded status.`,
+      onConfirm: async () => {
+        const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
+        const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
+        const deleted: { unitData?: Unit; statusLogs?: StatusLog[] }[] = [];
+        let failed = 0;
+
+        for (const unitId of unitIds) {
+          const unitToDelete = units.find(u => u.id === unitId);
+          const statusesToDelete = activeStatuses.filter(s => s.unit_id === unitId);
+          try {
+            await deleteUnitMutation.mutateAsync(unitId);
+            deleted.push({ unitData: unitToDelete, statusLogs: statusesToDelete });
+          } catch {
+            failed++;
+          }
+        }
+
+        if (deleted.length > 0) {
+          setUndoStack(prev => {
+            const next = [
+              ...prev,
+              ...deleted.map(d => ({ actionType: 'DELETE_UNIT' as const, unitData: d.unitData, statusLogs: d.statusLogs })),
+            ];
+            return next.length > 50 ? next.slice(next.length - 50) : next;
+          });
+          setRedoStack([]);
+        }
+
+        clearSelectedUnits();
+
+        if (failed === 0) {
+          showToast(`${deleted.length} locations deleted.`, 'success');
+        } else {
+          showToast(`Deleted ${deleted.length} location(s); ${failed} failed.`, 'error');
+        }
+        setConfirmModal(null);
       },
     });
   };
@@ -484,6 +533,7 @@ export function useMapActions(project: Project | null | undefined) {
     saveNewUnitFromPopover,
     cancelUnitNaming,
     handleDeleteUnit,
+    handleDeleteUnits,
     handleUpdateUnitIconOffset,
     commitUnitMilestone,
     handleQuickUpdate,

@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Settings, FolderEdit, Trash2, Pencil, X } from 'lucide-react';
+import { Settings, FolderEdit, Trash2, Pencil, X, GripVertical } from 'lucide-react';
 import FloorplanCanvas from '@/components/FloorplanCanvas';
 import FieldStatusTable from '@/components/FieldStatusTable';
 import BulkActionDock from '@/components/BulkActionDock';
@@ -35,6 +35,7 @@ function App() {
   const [isMounted, setIsMounted] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const isResizingRef = useRef(false);
+  const lastWidthRef = useRef(320);
 
   const toolMode = useMapStore(s => s.toolMode);
   const setToolMode = useMapStore(s => s.setToolMode);
@@ -75,12 +76,16 @@ function App() {
       const newWidth = window.innerWidth - e.clientX - 24;
       if (newWidth >= 250 && newWidth <= 600) {
         setSidebarWidth(newWidth);
+        lastWidthRef.current = newWidth;
       }
     };
     const handleMouseUp = () => {
+      if (!isResizingRef.current) return;
       isResizingRef.current = false;
       document.body.style.cursor = 'default';
       document.body.style.userSelect = 'auto';
+      // Persist the chosen width once, at the end of the drag (not per mousemove).
+      setMapSettings({ sidebarWidth: lastWidthRef.current });
     };
     
     document.addEventListener('mousemove', handleMouseMove);
@@ -98,12 +103,26 @@ function App() {
     document.body.style.userSelect = 'none';
   };
   const setSettings = useSettingsStore(s => s.setSettings);
-  const mapSettings = useHydratedStore(s => s.mapSettings, { showHorizontalToolbar: true, pinnedTools: ['undo', 'redo', 'select', 'multi_select', 'pan', 'draw', 'add_node'] });
+  const mapSettings = useHydratedStore(s => s.mapSettings, { showHorizontalToolbar: true, sidebarWidth: 320, pinnedTools: ['undo', 'redo', 'select', 'multi_select', 'pan', 'draw', 'add_node'] });
   const setMapSettings = useSettingsStore(s => s.setMapSettings);
   const legendPosition = useHydratedStore(s => s.legendPosition, { pctX: 0.05, pctY: 0.05, scaleX: 1, scaleY: 1, rotation: 0, isVisible: false });
   const setLegendPosition = useSettingsStore(s => s.setLegendPosition);
   const colorMode = useHydratedStore(s => s.colorMode, 'system');
   const setColorMode = useSettingsStore(s => s.setColorMode);
+
+  // Seed the live sidebar width from the persisted value once the store hydrates.
+  useEffect(() => {
+    if (!isResizingRef.current && typeof mapSettings.sidebarWidth === 'number') {
+      setSidebarWidth(mapSettings.sidebarWidth);
+      lastWidthRef.current = mapSettings.sidebarWidth;
+    }
+  }, [mapSettings.sidebarWidth]);
+
+  const handleResetSidebarWidth = () => {
+    setSidebarWidth(320);
+    lastWidthRef.current = 320;
+    setMapSettings({ sidebarWidth: 320 });
+  };
 
   const params = useParams();
   const projectId = params?.projectId;
@@ -267,6 +286,7 @@ function App() {
     saveNewUnitFromPopover,
     cancelUnitNaming,
     handleDeleteUnit,
+    handleDeleteUnits,
     handleUpdateUnitIconOffset,
     commitUnitMilestone,
     handleQuickUpdate,
@@ -309,10 +329,7 @@ function App() {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (document.activeElement?.tagName === 'INPUT') return;
         if (selectedUnitIds.length > 0) {
-          setConfirmModal({
-            message: `Delete ${selectedUnitIds.length} selected unit(s)?`,
-            onConfirm: () => handleDeleteUnits(selectedUnitIds)
-          });
+          handleDeleteUnits(selectedUnitIds);
         }
       }
     };
@@ -595,7 +612,7 @@ function App() {
                   onDuplicateUnit={handleDuplicateUnit}
                   onPolygonComplete={handlePolygonComplete}
                   onRenameUnit={handleRenameUnitInitiate}
-                  onDeleteUnit={handleDeleteUnit}
+                  onDeleteUnit={(ids) => { if (Array.isArray(ids)) handleDeleteUnits(ids); else if (ids) handleDeleteUnit(ids); }}
                   onInstantStamp={handleInstantStamp}
                   pendingPolygonPoints={pendingPolygonPoints}
                   onPendingPolygonMove={setPendingPolygonPoints}
@@ -630,11 +647,15 @@ function App() {
               )}
             </div>
 
-            <div 
+            <div
               className="hidden lg:flex w-5 items-center justify-center cursor-col-resize flex-shrink-0 bg-transparent group relative z-10"
               onMouseDown={handleMouseDownResize}
+              onDoubleClick={handleResetSidebarWidth}
+              title="Drag to resize · double-click to reset"
             >
-               <div className="w-1 h-32 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-blue-400 transition-colors" />
+               <div className="flex items-center justify-center w-full h-16 rounded-full bg-slate-200/70 dark:bg-white/10 group-hover:bg-blue-500 transition-colors shadow-sm">
+                 <GripVertical size={14} className="text-slate-400 dark:text-slate-300 group-hover:text-white transition-colors" />
+               </div>
             </div>
 
             <div 
@@ -642,20 +663,21 @@ function App() {
               style={{ '--sidebar-width': `${sidebarWidth}px` }}
             >
               <MapSidebar
-              trackingMode={trackingMode}
               milestones={milestones}
               filterMilestone={filterMilestone}
               setFilterMilestone={setFilterMilestone}
               temporalFilters={temporalFilters}
               setTemporalFilters={setTemporalFilters}
               activeSheet={activeSheet}
-              setToolMode={setToolMode}
-              selectedUnitIds={selectedUnitIds}
-              setSelectedUnitIds={setSelectedUnitIds}
-              setListRef={(id, el) => listRefs.current[id] = el}
+              activeStatuses={activeStatuses}
+              applicabilityIndex={applicabilityIndex}
+              savingUnitId={savingUnitId}
               onRenameUnitInitiate={handleRenameUnitInitiate}
               onDeleteUnit={handleDeleteUnit}
               onLocateUnit={(unitId) => floorplanRef.current?.zoomToFit(unitId)}
+              onCommitStatus={(unit, milestone, state, extraProps) => commitUnitMilestone(unit, milestone, state, false, extraProps)}
+              onToggleApplicability={handleToggleApplicability}
+              onOpenHistory={setHistoryModalUnitId}
             />
             </div>
           </div>

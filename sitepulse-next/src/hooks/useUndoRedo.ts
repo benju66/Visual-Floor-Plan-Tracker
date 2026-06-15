@@ -9,7 +9,7 @@ export interface UndoAction {
   actionType: 'UPDATE_GEOMETRY' | 'DELETE_UNIT' | 'UPDATE_STATUS' | 'BULK_UPDATE_STATUS' | 'CREATE_UNIT';
   unitId?: string;
   unitData?: Unit;
-  statusData?: StatusLog;
+  statusLogs?: StatusLog[];
   oldData?: any;
   newData?: any;
   oldLog?: StatusLog | null;
@@ -46,21 +46,30 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         await supabase.from('units').update({ polygon_coordinates: action.oldData as any }).eq('id', action.unitId as string);
         break;
 
-      case 'DELETE_UNIT':
-        queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => old && action.unitData ? [...old, action.unitData] : (action.unitData ? [action.unitData] : old));
-        if (action.statusData) {
-          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
-            const withoutTargetTrack = (old || []).filter(s => !(s.unit_id === action.unitData?.id && s.track === action.statusData?.track));
-            return [...withoutTargetTrack, action.statusData!];
+      case 'DELETE_UNIT': {
+        const unit = action.unitData;
+        const logs = action.statusLogs;
+        if (unit) {
+          queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => {
+            const without = (old || []).filter(u => u.id !== unit.id);
+            return [...without, unit];
           });
         }
-        if (action.unitData) {
-          await supabase.from('units').insert([action.unitData as any]);
+        if (unit && logs?.length) {
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+            const without = (old || []).filter(s => s.unit_id !== unit.id);
+            return [...without, ...logs];
+          });
         }
-        if (action.statusData) {
-          await supabase.from('status_logs').upsert([action.statusData as any], { onConflict: 'unit_id,track,milestone' });
+        // Insert the unit before its status rows (status_logs.unit_id references units.id).
+        if (unit) {
+          await supabase.from('units').insert([unit as any]);
+        }
+        if (logs?.length) {
+          await supabase.from('status_logs').upsert(logs as any, { onConflict: 'unit_id,track,milestone' });
         }
         break;
+      }
 
       case 'UPDATE_STATUS':
         queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
@@ -163,13 +172,17 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         await supabase.from('units').update({ polygon_coordinates: action.newData as any }).eq('id', action.unitId as string);
         break;
 
-      case 'DELETE_UNIT':
-        queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => old ? old.filter(u => u.id !== action.unitData?.id) : old);
-        queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => old ? old.filter(s => s.unit_id !== action.unitData?.id) : old);
-        if (action.unitData) {
-          await supabase.from('units').delete().eq('id', action.unitData.id);
+      case 'DELETE_UNIT': {
+        const unit = action.unitData;
+        if (unit) {
+          queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => old ? old.filter(u => u.id !== unit.id) : old);
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => old ? old.filter(s => s.unit_id !== unit.id) : old);
+          // Remove status rows before the unit (mirror useDeleteUnit; FK-safe).
+          await supabase.from('status_logs').delete().eq('unit_id', unit.id);
+          await supabase.from('units').delete().eq('id', unit.id);
         }
         break;
+      }
 
       case 'UPDATE_STATUS':
         queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {

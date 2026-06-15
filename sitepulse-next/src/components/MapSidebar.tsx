@@ -1,8 +1,16 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Pencil, Trash2, ChevronDown, ChevronRight, Crosshair } from 'lucide-react';
+import { ChevronDown, ChevronRight, Crosshair, Search, X, ListChecks } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUnits } from '@/hooks/useProjectQueries';
-import type { Milestone, Unit, Sheet } from '@/types/domain';
+import {
+  summarizeUnit,
+  summarizeSheetProgress,
+  countUnitsByCurrentMilestone,
+  type UnitSummary,
+} from '@/utils/unitProgress';
+import type { ApplicabilityIndex } from '@/utils/applicability';
+import UnitInspector from './UnitInspector';
+import type { Milestone, Unit, Sheet, StatusLog, TemporalState } from '@/types/domain';
 
 export interface MapSidebarProps {
   milestones?: Milestone[];
@@ -11,99 +19,251 @@ export interface MapSidebarProps {
   temporalFilters: string[];
   setTemporalFilters: React.Dispatch<React.SetStateAction<string[]>>;
   activeSheet: Sheet | null | undefined;
+  activeStatuses: StatusLog[];
+  applicabilityIndex: ApplicabilityIndex;
+  savingUnitId?: string | null;
   onRenameUnitInitiate: (id: string) => void;
   onDeleteUnit: (id: string) => void;
   onLocateUnit?: (unitId: string) => void;
+  onCommitStatus: (unit: Unit, milestone: Milestone, state: TemporalState, extraProps?: Record<string, unknown>) => void;
+  onToggleApplicability: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState) => void;
+  onOpenHistory: (unitId: string) => void;
 }
 
+const STAGE_DOT: Record<string, string> = {
+  done: 'bg-emerald-500',
+  completed: 'bg-emerald-500',
+  ongoing: 'bg-blue-500',
+  planned: 'bg-amber-500',
+  none: 'bg-slate-300 dark:bg-slate-600',
+};
+
+type SortMode = 'number' | 'progress';
+
 function MapSidebar({
-  milestones = [], filterMilestone, setFilterMilestone,
-  temporalFilters, setTemporalFilters,
+  milestones = [],
+  filterMilestone,
+  setFilterMilestone,
+  temporalFilters,
+  setTemporalFilters,
   activeSheet,
-  onRenameUnitInitiate, onDeleteUnit, onLocateUnit
+  activeStatuses,
+  applicabilityIndex,
+  savingUnitId,
+  onRenameUnitInitiate,
+  onDeleteUnit,
+  onLocateUnit,
+  onCommitStatus,
+  onToggleApplicability,
+  onOpenHistory,
 }: MapSidebarProps) {
   const activeSheetId = useMapStore(s => s.activeSheetId);
   const trackingMode = useMapStore(s => s.trackingMode);
   const selectedUnitIds = useMapStore(s => s.selectedUnitIds);
   const setToolMode = useMapStore(s => s.setToolMode);
   const setSelectedUnitIds = useMapStore(s => s.setSelectedUnitIds);
-  
+  const clearSelectedUnits = useMapStore(s => s.clearSelectedUnits);
+
   const [isLegendExpanded, setIsLegendExpanded] = useState(true);
   const [isStatusExpanded, setIsStatusExpanded] = useState(true);
+  const [search, setSearch] = useState('');
+  const [sortMode, setSortMode] = useState<SortMode>('number');
 
   const { data: units = [] } = useUnits(activeSheetId);
-  
-  const sortedUnits = useMemo(() => {
-    return [...units].sort((a, b) => 
-      a.unit_number.localeCompare(b.unit_number, undefined, { numeric: true, sensitivity: 'base' })
-    );
-  }, [units]);
+
+  const trackMilestones = useMemo(
+    () =>
+      milestones
+        .filter(m => m.track === trackingMode)
+        .sort((a, b) => (a.sequence_order || 0) - (b.sequence_order || 0)),
+    [milestones, trackingMode],
+  );
+
+  // One summary per unit — drives row dots, sort, and the roll-up.
+  const summaries = useMemo(() => {
+    const map = new Map<string, UnitSummary>();
+    for (const u of units) {
+      map.set(u.id, summarizeUnit(u, activeStatuses, trackMilestones, applicabilityIndex, trackingMode));
+    }
+    return map;
+  }, [units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode]);
+
+  const sheetProgress = useMemo(
+    () => summarizeSheetProgress(units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode),
+    [units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode],
+  );
+
+  const milestoneCounts = useMemo(
+    () => countUnitsByCurrentMilestone(units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode),
+    [units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode],
+  );
+
+  const visibleUnits = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? units.filter(
+          u =>
+            u.unit_number.toLowerCase().includes(q) ||
+            (u.unit_type || '').toLowerCase().includes(q),
+        )
+      : units;
+    const sorted = [...filtered];
+    if (sortMode === 'progress') {
+      sorted.sort((a, b) => {
+        const sa = summaries.get(a.id);
+        const sb = summaries.get(b.id);
+        const pa = sa && sa.totalCount ? sa.doneCount / sa.totalCount : 1;
+        const pb = sb && sb.totalCount ? sb.doneCount / sb.totalCount : 1;
+        if (pa !== pb) return pa - pb; // least complete first
+        return a.unit_number.localeCompare(b.unit_number, undefined, { numeric: true, sensitivity: 'base' });
+      });
+    } else {
+      sorted.sort((a, b) =>
+        a.unit_number.localeCompare(b.unit_number, undefined, { numeric: true, sensitivity: 'base' }),
+      );
+    }
+    return sorted;
+  }, [units, search, sortMode, summaries]);
 
   const listRefs = useRef<Record<string, HTMLLIElement | null>>({});
-
   useEffect(() => {
-    if (selectedUnitIds?.length === 1 && listRefs.current[selectedUnitIds[0]]) {
+    if (selectedUnitIds?.length && listRefs.current[selectedUnitIds[0]]) {
       listRefs.current[selectedUnitIds[0]]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [selectedUnitIds]);
 
+  // ---- Inspector mode (exactly one selected) ----
+  const singleUnit =
+    selectedUnitIds?.length === 1 ? units.find(u => u.id === selectedUnitIds[0]) : undefined;
+
+  if (singleUnit) {
+    return (
+      <div className="w-full h-full p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel">
+        <UnitInspector
+          unit={singleUnit}
+          milestones={milestones}
+          trackingMode={trackingMode}
+          activeStatuses={activeStatuses}
+          applicabilityIndex={applicabilityIndex}
+          savingUnitId={savingUnitId}
+          onBack={clearSelectedUnits}
+          onLocateUnit={onLocateUnit}
+          onRenameUnitInitiate={onRenameUnitInitiate}
+          onDeleteUnit={onDeleteUnit}
+          onCommitStatus={onCommitStatus}
+          onToggleApplicability={onToggleApplicability}
+          onOpenHistory={onOpenHistory}
+        />
+      </div>
+    );
+  }
+
+  const multiCount = selectedUnitIds?.length ?? 0;
+
+  // ---- Overview / multi mode ----
   return (
-    <div
-      className="w-full h-full p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel"
-    >
-      <button
-        onClick={() => setIsLegendExpanded(p => !p)}
-        className="w-full font-bold text-lg mb-3 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0 text-slate-800 dark:text-slate-100 flex items-center justify-between hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-      >
-        Live legend
-        {isLegendExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
-      </button>
-      
-      {isLegendExpanded && (
-        <>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
-            Click a milestone to highlight matching locations on the map. “All” clears the filter.
-          </p>
-          <div className="flex flex-wrap gap-1.5 mb-4 max-h-[120px] overflow-y-auto pr-1">
-            <button
-              type="button"
-              onClick={() => setFilterMilestone(null)}
-          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
-            !filterMilestone
-              ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 border-transparent hover:opacity-90'
-              : 'bg-white/50 dark:bg-black/20 border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
-          }`}
-        >
-          All
-        </button>
-        {milestones.filter(m => m.track === trackingMode).map((m) => (
+    <div className="w-full h-full p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel">
+      {multiCount >= 2 && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-purple-100/60 dark:bg-purple-900/30 border border-purple-200/70 dark:border-purple-800/40 flex-shrink-0">
+          <ListChecks size={16} className="text-purple-600 dark:text-purple-300 shrink-0" />
+          <span className="text-xs font-semibold text-purple-800 dark:text-purple-200 flex-1">
+            {multiCount} locations selected
+          </span>
           <button
-            key={m.id}
             type="button"
-            onClick={() => setFilterMilestone((prev) => (prev === m.name ? null : m.name as string))}
-            className={`px-2.5 py-1 rounded-full text-[10px] font-medium border max-w-[140px] truncate transition-all cursor-pointer hover:opacity-80 ${
-              filterMilestone === m.name
-                ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900 scale-[1.02]'
-                : 'hover:scale-[1.02]'
-            }`}
-            style={{
-              background: m.color,
-              borderColor: 'var(--glass-border)',
-            }}
-            title={m.name}
+            onClick={clearSelectedUnits}
+            className="text-[11px] font-semibold text-purple-600 hover:text-purple-800 dark:text-purple-300 dark:hover:text-white transition-colors"
           >
-            {m.name.length > 22 ? `${m.name.slice(0, 20)}…` : m.name}
+            Clear
           </button>
-        ))}
-          </div>
-        </>
+        </div>
       )}
 
+      {/* Sheet progress roll-up */}
+      <div className="flex-shrink-0 mb-4">
+        <div className="flex items-baseline justify-between mb-1.5">
+          <span className="font-bold text-lg text-slate-800 dark:text-slate-100 truncate" title={activeSheet?.sheet_name || 'Level'}>
+            {activeSheet?.sheet_name || 'Level'}
+          </span>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums shrink-0">
+            {sheetProgress.totalUnits} {sheetProgress.totalUnits === 1 ? 'unit' : 'units'}
+          </span>
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono tabular-nums leading-none">
+            {sheetProgress.percentComplete}%
+          </span>
+          <span className="text-[11px] text-slate-400 dark:text-slate-500">complete</span>
+        </div>
+        {/* segmented bar by current stage */}
+        <div className="flex h-2 mt-2 rounded-full overflow-hidden bg-slate-200/70 dark:bg-white/10">
+          {(['done', 'ongoing', 'planned'] as const).map(k => {
+            const w = sheetProgress.totalUnits ? (sheetProgress.buckets[k] / sheetProgress.totalUnits) * 100 : 0;
+            if (w <= 0) return null;
+            return <div key={k} className={STAGE_DOT[k]} style={{ width: `${w}%` }} />;
+          })}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />{sheetProgress.buckets.done} done</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />{sheetProgress.buckets.ongoing} ongoing</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />{sheetProgress.buckets.planned} planned</span>
+        </div>
+      </div>
+
+      {/* Live legend (milestone filter) */}
+      <button
+        onClick={() => setIsLegendExpanded(p => !p)}
+        className="w-full font-bold text-sm mb-2 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0 text-slate-800 dark:text-slate-100 flex items-center justify-between hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+      >
+        Live legend
+        {isLegendExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+      </button>
+
+      {isLegendExpanded && (
+        <div className="flex flex-wrap gap-1.5 mb-4 max-h-[120px] overflow-y-auto pr-1">
+          <button
+            type="button"
+            onClick={() => setFilterMilestone(null)}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
+              !filterMilestone
+                ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 border-transparent hover:opacity-90'
+                : 'bg-white/50 dark:bg-black/20 border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
+            }`}
+          >
+            All
+          </button>
+          {trackMilestones.map(m => {
+            const count = milestoneCounts[m.name] || 0;
+            const active = filterMilestone === m.name;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setFilterMilestone(prev => (prev === m.name ? null : (m.name as string)))}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-medium border max-w-[150px] flex items-center gap-1.5 transition-all cursor-pointer hover:opacity-80 ${
+                  active ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900 scale-[1.02]' : 'hover:scale-[1.02]'
+                }`}
+                style={{ background: m.color, borderColor: 'var(--glass-border)' }}
+                title={`${m.name}${count ? ` — ${count} here now` : ''}`}
+              >
+                <span className="truncate">{m.name.length > 18 ? `${m.name.slice(0, 16)}…` : m.name}</span>
+                {count > 0 && (
+                  <span className="shrink-0 px-1 rounded-full bg-black/15 dark:bg-white/20 text-[9px] font-bold tabular-nums">
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Status toggles */}
       <button
         onClick={() => setIsStatusExpanded(p => !p)}
         className="w-full font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2 flex items-center justify-between hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
       >
-        Progress Status Toggles
+        Progress status toggles
         {isStatusExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
       </button>
 
@@ -111,125 +271,121 @@ function MapSidebar({
         <div className="flex flex-wrap gap-2 mb-4">
           {[
             { value: 'none', label: 'No Status' },
-          { value: 'planned', label: 'Planned' },
-          { value: 'ongoing', label: 'Ongoing' },
-          { value: 'completed', label: 'Completed' }
-        ].map(({ value, label }) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => {
-              setTemporalFilters((prev) => 
-                prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
-              );
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-              temporalFilters.includes(value)
-                ? 'bg-blue-600/90 text-white border-blue-600 hover:bg-blue-700/90'
-                : 'bg-white/50 dark:bg-black/20 text-slate-500 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
-          >
-            {label}
-          </button>
+            { value: 'planned', label: 'Planned' },
+            { value: 'ongoing', label: 'Ongoing' },
+            { value: 'completed', label: 'Completed' },
+          ].map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => {
+                setTemporalFilters(prev => (prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]));
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                temporalFilters.includes(value)
+                  ? 'bg-blue-600/90 text-white border-blue-600 hover:bg-blue-700/90'
+                  : 'bg-white/50 dark:bg-black/20 text-slate-500 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
+            >
+              {label}
+            </button>
           ))}
         </div>
       )}
 
-      <h4 className="font-bold text-sm mb-2 text-slate-800 dark:text-slate-100 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0">
-        Mapped locations
-      </h4>
+      {/* Search + sort */}
+      <div className="flex items-center gap-2 mb-2 flex-shrink-0">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Find a location…"
+            className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-slate-200/80 dark:border-white/10 bg-white/50 dark:bg-black/20 text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/40"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              title="Clear"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        <select
+          value={sortMode}
+          onChange={e => setSortMode(e.target.value as SortMode)}
+          className="py-1.5 px-2 text-xs rounded-lg border border-slate-200/80 dark:border-white/10 bg-white/50 dark:bg-black/20 text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer"
+          title="Sort locations"
+        >
+          <option value="number">Number</option>
+          <option value="progress">Least done</option>
+        </select>
+      </div>
 
-      <div className="overflow-y-auto flex-1 pr-2">
-        {sortedUnits.length === 0 ? (
+      {/* Locations list */}
+      <div className="overflow-y-auto flex-1 -mr-1 pr-1 min-h-0">
+        {units.length === 0 ? (
           <p className="text-slate-500 text-sm italic">
             No locations mapped on this level yet. Use Draw on the map dock to begin.
           </p>
+        ) : visibleUnits.length === 0 ? (
+          <p className="text-slate-500 text-sm italic">No locations match “{search}”.</p>
         ) : (
-          <div className="border border-slate-200/60 dark:border-white/10 rounded-lg overflow-hidden shadow-sm flex flex-col">
-            <div className="bg-slate-800/95 dark:bg-white/10 text-white dark:text-slate-100 p-3 font-semibold text-sm flex items-center gap-2 backdrop-blur-sm">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-              </svg>
-              {activeSheet?.sheet_name || 'Level'}
-              <span className="ml-auto text-xs font-normal text-slate-300 dark:text-slate-400 tabular-nums">
-                {sortedUnits.length} {sortedUnits.length === 1 ? 'unit' : 'units'}
-              </span>
-            </div>
-
-            <ul className="flex flex-col bg-white/40 dark:bg-black/15">
-              {sortedUnits.map((unit, index) => (
+          <ul className="flex flex-col gap-1">
+            {visibleUnits.map(unit => {
+              const summary = summaries.get(unit.id);
+              const stage = summary?.stage ?? 'none';
+              const isSelected = selectedUnitIds?.includes(unit.id);
+              return (
                 <li
                   key={unit.id}
-                  ref={(el) => { listRefs.current[unit.id] = el; }}
+                  ref={el => {
+                    listRefs.current[unit.id] = el;
+                  }}
                   onClick={() => {
                     setToolMode('select');
                     setSelectedUnitIds([unit.id]);
                   }}
-                  className={`cursor-pointer relative pl-10 pr-3 py-3 border-b border-slate-100/80 dark:border-white/5 last:border-0 hover:bg-white/50 dark:hover:bg-white/5 flex justify-between items-center group transition-colors ${
-                    selectedUnitIds?.includes(unit.id) ? 'bg-purple-100/50 dark:bg-purple-900/30' : ''
+                  className={`group cursor-pointer flex items-center gap-2.5 pl-2.5 pr-2 py-2 rounded-lg border transition-colors ${
+                    isSelected
+                      ? 'bg-purple-100/60 dark:bg-purple-900/30 border-purple-200/70 dark:border-purple-800/40'
+                      : 'border-transparent hover:bg-white/60 dark:hover:bg-white/5'
                   }`}
                 >
-                  <div
-                    className={`absolute left-4 top-0 w-px bg-slate-300/80 dark:bg-white/20 ${
-                      index === sortedUnits.length - 1 ? 'h-1/2' : 'h-full'
-                    }`}
-                  />
-                  <div className="absolute left-4 top-1/2 w-4 h-px bg-slate-300/80 dark:bg-white/20" />
-
-                  <span className={`text-sm ${selectedUnitIds?.includes(unit.id) ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-200'}`}>
-                    Location: {unit.unit_number}
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${STAGE_DOT[stage]}`} title={stage} />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200 font-mono">
+                    {unit.unit_number}
                   </span>
-                  <div className="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                  {unit.unit_type && (
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{unit.unit_type}</span>
+                  )}
+                  <span className="ml-auto flex items-center gap-2 shrink-0">
+                    {summary && summary.totalCount > 0 && (
+                      <span className="text-[11px] tabular-nums text-slate-400 dark:text-slate-500 font-mono">
+                        {summary.doneCount}/{summary.totalCount}
+                      </span>
+                    )}
                     {onLocateUnit && (
                       <button
                         type="button"
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           onLocateUnit(unit.id);
                         }}
-                        className="text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 p-1.5 border border-slate-200/80 dark:border-slate-700/50 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors bg-white/50 dark:bg-black/20"
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded transition-all"
                         title="Locate on map"
                       >
-                        <Crosshair size={14} />
+                        <Crosshair size={13} />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRenameUnitInitiate(unit.id);
-                      }}
-                      className="text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 p-1.5 border border-slate-200/80 dark:border-slate-700/50 rounded-lg hover:bg-sky-50 dark:hover:bg-sky-900/30 transition-colors bg-white/50 dark:bg-black/20"
-                      title="Rename Location"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteUnit(unit.id);
-                      }}
-                      className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1.5 border border-red-200/80 dark:border-red-900/50 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors bg-white/50 dark:bg-black/20"
-                      title="Delete Location"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  </span>
                 </li>
-              ))}
-            </ul>
-          </div>
+              );
+            })}
+          </ul>
         )}
       </div>
     </div>

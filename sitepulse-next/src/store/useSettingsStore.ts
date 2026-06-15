@@ -23,6 +23,11 @@ export interface MapSettings {
   showWalkSequence: boolean;
   pinnedTools: string[];
   snappingStrength?: number;
+  /** Glide mouse-wheel zoom toward a target scale instead of stepping instantly.
+   *  On by default; only an explicit `false` (user toggled it off) disables it. */
+  smoothWheelZoom?: boolean;
+  /** Persisted width (px) of the interactive-map right side panel. Desktop only. */
+  sidebarWidth?: number;
 }
 
 export interface SettingsState {
@@ -59,7 +64,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, sidebarWidth: 320, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),
