@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SitePulse · Concept 02 — Unit Journey Timeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#edeae0; --card:#fbf9f3; --ink:#20262b; --ink-soft:#5d6770;
+    --line:#d6d1c2; --line-strong:#a9a392; --brand:#e96f1f; --blue:#2e6fb0;
+    --done:#7d9b56; --going:#d99a45; --ghost:#b9b29d; --red:#c0392b;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    font-family:'Archivo',sans-serif;color:var(--ink);min-height:100vh;
+    display:flex;align-items:center;justify-content:center;padding:30px 16px;
+    background:
+      repeating-linear-gradient(0deg,transparent 0 39px,rgba(46,111,176,.06) 39px 40px),
+      repeating-linear-gradient(90deg,transparent 0 39px,rgba(46,111,176,.06) 39px 40px),
+      var(--paper);
+  }
+  /* dimmed-map suggestion behind the modal */
+  body::before{content:"";position:fixed;inset:0;background:rgba(32,38,43,.38);pointer-events:none}
+
+  .modal{
+    position:relative;width:min(940px,100%);background:var(--card);
+    border:1.5px solid var(--ink);border-radius:10px;overflow:hidden;
+    box-shadow:0 24px 60px rgba(20,24,28,.45), 6px 6px 0 rgba(32,38,43,.18);
+  }
+  .m-head{display:flex;align-items:baseline;gap:14px;padding:18px 26px 0}
+  .m-unit{font-family:'Big Shoulders',sans-serif;font-size:38px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+  .m-meta{font-size:13px;color:var(--ink-soft)}
+  .m-close{margin-left:auto;font-size:20px;color:var(--ink-soft);cursor:pointer;border:0;background:none;line-height:1}
+
+  .verdict{
+    margin:12px 26px 0;display:inline-flex;align-items:center;gap:10px;
+    background:#f6e3d3;border:1.5px solid var(--red);border-radius:6px;
+    padding:7px 14px;font-size:13.5px;font-weight:600;
+  }
+  .verdict b{font-family:'Big Shoulders',sans-serif;font-size:19px;color:var(--red);letter-spacing:.03em}
+
+  .tabs{display:flex;gap:2px;padding:16px 26px 0;border-bottom:1.5px solid var(--ink)}
+  .tab{
+    font-family:'Archivo',sans-serif;font-size:13px;font-weight:600;letter-spacing:.04em;
+    padding:9px 22px;border:1.5px solid var(--ink);border-bottom:0;border-radius:7px 7px 0 0;
+    background:#e4dfd0;color:var(--ink-soft);cursor:pointer;
+  }
+  .tab.active{background:var(--card);color:var(--ink);position:relative;top:1.5px}
+
+  /* ── journey chart ── */
+  .chart{padding:26px 26px 10px;position:relative}
+  .axis{position:relative;height:22px;margin-left:148px;margin-right:10px}
+  .axis span{position:absolute;transform:translateX(-50%);font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;color:var(--ink-soft)}
+  .rows{position:relative}
+  .gridlines{position:absolute;top:0;bottom:0;left:148px;right:10px;pointer-events:none}
+  .gridlines i{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
+  .today{position:absolute;top:-26px;bottom:0;width:2px;background:var(--brand);z-index:3}
+  .today em{
+    position:absolute;top:-1px;left:50%;transform:translateX(-50%);
+    font-style:normal;font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.1em;
+    background:var(--brand);color:#fff;padding:2px 7px;border-radius:3px;white-space:nowrap;
+  }
+  .row{display:flex;align-items:center;height:52px;position:relative}
+  .row:nth-child(even){background:rgba(32,38,43,.025)}
+  .row-label{width:148px;flex-shrink:0;padding-right:14px;text-align:right}
+  .row-label b{display:block;font-size:13px;font-weight:600}
+  .row-label span{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-soft)}
+  .track{position:relative;flex:1;height:100%;margin-right:10px}
+  .bar{position:absolute;border-radius:4px}
+  .planned{top:31px;height:8px;border:1.5px dashed var(--ghost);background:rgba(185,178,157,.18)}
+  .actual{top:13px;height:16px;border:1.5px solid var(--ink)}
+  .actual.done{background:var(--done)}
+  .actual.going{background:repeating-linear-gradient(45deg,var(--going) 0 6px,#c08338 6px 12px)}
+  .dur{
+    position:absolute;top:14px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;
+    color:#fff;padding:0 6px;line-height:14px;white-space:nowrap;pointer-events:none;
+  }
+  .idle{
+    position:absolute;top:16px;height:10px;
+    background:repeating-linear-gradient(90deg,transparent 0 4px,rgba(192,57,43,.55) 4px 7px);
+  }
+  .idle b{
+    position:absolute;top:-15px;left:50%;transform:translateX(-50%);
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;color:var(--red);white-space:nowrap;
+  }
+  .callout{
+    position:absolute;z-index:4;background:var(--ink);color:#f0ece1;border-radius:6px;
+    padding:7px 11px;font-size:11.5px;line-height:1.4;box-shadow:0 6px 16px rgba(20,24,28,.35);width:188px;
+  }
+  .callout::before{content:"";position:absolute;top:-7px;left:22px;border:7px solid transparent;border-bottom-color:var(--ink);border-top:0}
+  .callout b{color:#f0a884}
+
+  .m-foot{
+    display:flex;gap:26px;align-items:center;padding:14px 26px 18px;border-top:1px dashed var(--line-strong);
+    font-size:12.5px;color:var(--ink-soft);
+  }
+  .m-foot b{color:var(--ink)}
+  .chip{display:inline-block;background:#e4dfd0;border:1px solid var(--line-strong);border-radius:20px;padding:2px 11px;font-size:11.5px;font-weight:600;color:var(--ink)}
+
+  /* ── log tab (the old flat table, for contrast) ── */
+  #pane-log{display:none;padding:22px 26px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:7px 10px;border-bottom:1.5px solid var(--ink)}
+  td{padding:7px 10px;border-bottom:1px solid var(--line)}
+  .old-note{margin-top:12px;font-size:11.5px;color:var(--ink-soft);font-style:italic}
+
+  .note{
+    position:relative;width:min(940px,100%);margin-top:14px;
+    background:var(--ink);color:#cfc9ba;font-size:12.5px;line-height:1.5;
+    padding:13px 18px;border-radius:8px;
+  }
+  .note b{color:#f0ece1}
+  .note .k{color:var(--brand);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-right:10px}
+  .page{display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;width:100%}
+</style>
+</head>
+<body>
+<div class="page">
+<div class="modal">
+  <div class="m-head">
+    <div class="m-unit">Unit 304</div>
+    <div class="m-meta">Apartment · Level 3 · walk seq 4 · Track: Finishes</div>
+    <button class="m-close">✕</button>
+  </div>
+
+  <div class="verdict">⚠ <b>38 days behind</b> &nbsp;bottleneck: Drywall (in progress)</div>
+
+  <div class="tabs">
+    <button class="tab active" id="tab-j" onclick="show('j')">Journey</button>
+    <button class="tab" id="tab-l" onclick="show('l')">Log</button>
+  </div>
+
+  <div id="pane-journey">
+    <div class="chart">
+      <div class="axis" id="axis"></div>
+      <div class="rows" id="rows">
+        <div class="gridlines" id="grid"></div>
+      </div>
+    </div>
+    <div class="m-foot">
+      <div>Next up: <b>Paint</b> <span class="chip">unassigned</span></div>
+      <div>Current crew: <b>Delgado Drywall</b></div>
+      <div style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.06em">SOURCE: STATUS_AUDIT_LOG · 23 ENTRIES</div>
+    </div>
+  </div>
+
+  <div id="pane-log">
+    <table>
+      <tr><th>Milestone</th><th>Status</th><th>Planned</th><th>Actual</th><th>Logged</th><th>By</th></tr>
+      <tr><td>Drywall</td><td>Ongoing</td><td>Apr 12 – May 2</td><td>May 27 –</td><td>May 27, 7:41a</td><td>R. Delgado</td></tr>
+      <tr><td>Plumbing Rough</td><td>Completed</td><td>Mar 21 – Apr 8</td><td>Apr 24</td><td>Apr 24, 3:12p</td><td>M. Okafor</td></tr>
+      <tr><td>Electrical Rough</td><td>Completed</td><td>Mar 21 – Apr 8</td><td>Apr 14</td><td>Apr 14, 4:55p</td><td>M. Okafor</td></tr>
+      <tr><td>Framing</td><td>Completed</td><td>Mar 2 – Mar 20</td><td>Mar 25</td><td>Mar 25, 8:02a</td><td>J. Reyes</td></tr>
+    </table>
+    <div class="old-note">↑ This is today's experience — the same data as the Journey tab, but the reader has to do all the date math. Toggle back to Journey to compare.</div>
+  </div>
+</div>
+
+<div class="note">
+  <span class="k">What's mocked</span>
+  The <b>UnitHistoryModal</b> upgraded from a flat audit table to a story: ghost bars = planned windows, solid bars = actuals from the audit log,
+  red ticking = idle gap (the lost 33 days are now <i>visible space</i>, not subtraction homework), and the dwell-time callout compares against the project median.
+  The old table survives as the <b>Log</b> tab — click it to feel the difference.
+</div>
+</div>
+
+<script>
+  // date scale: Mar 1 – Sep 1
+  const T0 = new Date('2026-03-01').getTime();
+  const T1 = new Date('2026-09-01').getTime();
+  const pct = d => ((new Date(d).getTime()-T0)/(T1-T0)*100).toFixed(2)+'%';
+  const span = (a,b) => ((new Date(b)-new Date(a))/(T1-T0)*100).toFixed(2)+'%';
+  const TODAY = '2026-06-10';
+
+  const ROWS = [
+    {name:'Framing',          seq:1, p:['2026-03-02','2026-03-20'], a:['2026-03-04','2026-03-25'], state:'done'},
+    {name:'Electrical Rough', seq:2, p:['2026-03-21','2026-04-08'], a:['2026-03-26','2026-04-14'], state:'done'},
+    {name:'Plumbing Rough',   seq:3, p:['2026-03-21','2026-04-08'], a:['2026-04-02','2026-04-24'], state:'done'},
+    {name:'Drywall',          seq:4, p:['2026-04-12','2026-05-02'], a:['2026-05-27', TODAY],       state:'going',
+      idle:['2026-04-24','2026-05-27'], callout:'<b>14 days in Drywall</b> — project median is 6. Started 45 days after planned.'},
+    {name:'Paint',            seq:5, p:['2026-05-05','2026-05-19'], a:null},
+    {name:'Trim & Doors',     seq:6, p:['2026-05-20','2026-06-06'], a:null},
+    {name:'Punch',            seq:7, p:['2026-06-09','2026-06-16'], a:null},
+  ];
+
+  // month axis + gridlines
+  const months=[['2026-03-01','MAR'],['2026-04-01','APR'],['2026-05-01','MAY'],['2026-06-01','JUN'],['2026-07-01','JUL'],['2026-08-01','AUG']];
+  const axis=document.getElementById('axis'), grid=document.getElementById('grid');
+  months.forEach(([d,l])=>{
+    axis.insertAdjacentHTML('beforeend',`<span style="left:${pct(d)}">${l}</span>`);
+    grid.insertAdjacentHTML('beforeend',`<i style="left:${pct(d)}"></i>`);
+  });
+
+  const rows=document.getElementById('rows');
+  ROWS.forEach(r=>{
+    const days = r.a ? Math.round((new Date(r.a[1])-new Date(r.a[0]))/864e5) : null;
+    rows.insertAdjacentHTML('beforeend',`
+      <div class="row">
+        <div class="row-label"><b>${r.name}</b><span>SEQ ${r.seq}</span></div>
+        <div class="track">
+          <div class="bar planned" style="left:${pct(r.p[0])};width:${span(r.p[0],r.p[1])}"></div>
+          ${r.idle?`<div class="idle" style="left:${pct(r.idle[0])};width:${span(r.idle[0],r.idle[1])}"><b>idle 33d</b></div>`:''}
+          ${r.a?`<div class="bar actual ${r.state}" style="left:${pct(r.a[0])};width:${span(r.a[0],r.a[1])}"></div>
+                 <div class="dur" style="left:calc(${pct(r.a[0])} + 4px)">${days}d${r.state==='going'?' →':''}</div>`:''}
+        </div>
+      </div>`);
+  });
+  // today line spans all rows
+  rows.insertAdjacentHTML('beforeend',
+    `<div class="today" style="left:calc(148px + (100% - 158px) * ${((new Date(TODAY)-T0)/(T1-T0)).toFixed(4)})"><em>TODAY · JUN 10</em></div>`);
+  // dwell callout under the drywall row
+  rows.insertAdjacentHTML('beforeend',
+    `<div class="callout" style="left:calc(148px + (100% - 158px) * .42);top:218px">${ROWS[3].callout}</div>`);
+
+  function show(which){
+    document.getElementById('pane-journey').style.display = which==='j'?'block':'none';
+    document.getElementById('pane-log').style.display     = which==='l'?'block':'none';
+    document.getElementById('tab-j').classList.toggle('active',which==='j');
+    document.getElementById('tab-l').classList.toggle('active',which==='l');
+  }
+</script>
+</body>
+</html>

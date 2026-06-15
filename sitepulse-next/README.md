@@ -12,8 +12,10 @@ This is the primary user interface for the SitePulse Visual Floor-Plan Tracker.
 
 ## 🚀 Key Directories
 - `src/components`: UI components, including the heavy `<FloorplanCanvas />`.
+- `src/components/dashboard`: Progress-visualization modules (`FloorPulse`, `TypeScorecard`).
 - `src/hooks`: Custom TanStack Query hooks for high-performance data fetching.
 - `src/store`: Zustand stores for local and persisted state.
+- `src/utils/progressAnalytics.ts`: Single source of truth for schedule-variance math, the lag color scale, and group rollups/forecasts (used by map Lag Mode, the Journey timeline, and the dashboard modules). See the root `README.md` → "Progress Visualization Views" for behavior and data requirements.
 - `src/app/api/auth/procore`: SSO integration endpoints.
 
 ## 🛠️ Getting Started

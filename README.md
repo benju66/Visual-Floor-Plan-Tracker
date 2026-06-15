@@ -30,6 +30,70 @@ SitePulse is an enterprise-grade construction project management platform focuse
 * **Procore SSO Integration:** Native deep-linking from the Procore App Marketplace directly into project canvases, with automated domain-restricted user provisioning and project auto-enrollment.
 * **Mobile Field Experience (Swipe Deck):** An enterprise-grade, gesture-driven mobile interface optimized for high-speed field triage. Features "Smart Confirm" swipe navigation, inline segmented controls for exact status assignment, proactive out-of-sequence bottleneck detection (with persistent UI banners), and a robust multi-layer Snapshot Undo queue to ensure absolute data integrity.
 * **Enterprise RBAC Wrapper:** Multi-tenant project data access ensuring subcontractors, managers, and admins only see what they are authorized to manage.
+* **Progress Visualization Suite:** Four views that turn raw statuses into schedule insight — map Lag Mode, per-unit Journey timelines, the per-level Floor Pulse rail, and the Type Scorecard. See [Progress Visualization Views](#-progress-visualization-views).
+
+## 📊 Progress Visualization Views
+
+All four views are computed client-side from data the app already captures. The shared math lives in `sitepulse-next/src/utils/progressAnalytics.ts` — one source of truth for bottleneck variance, the color scale, and group rollups/forecasts.
+
+The common building block is the **bottleneck variance** of a unit: its bottleneck is the earliest incomplete milestone (by `sequence_order`) in the active track, and its variance is that milestone's planned window measured against today:
+
+| Condition | Verdict | Color |
+|---|---|---|
+| All milestones completed | **Complete** | emerald |
+| Planned finish has passed | **Behind** (ramped: 1–3d amber → 15+d red) | amber → red |
+| Planned start still in the future | **Ahead / not due** | blue |
+| Today inside the planned window | **On pace** | gray |
+| No planned dates, work started | **No plan dates** (shows days idle instead) | dark slate |
+| No planned dates, nothing logged | **Not started** | light slate |
+
+A unit is **stalled** when it has work in flight but no status write in 14+ days (last activity comes from `status_logs.client_timestamp`, which is restamped on every write — no extra queries needed).
+
+### 1. Map Lag Mode (floor-plan canvas)
+
+**What it does:** A toolbar toggle (gauge icon) that recolors every unit polygon by its schedule variance instead of its bottleneck-milestone color. The floor plan flips from "what trade is each unit on" to "how late is each unit" — lag clusters jump out spatially. The on-canvas legend swaps to the fixed variance scale automatically, and the hover tooltip leads with the verdict (e.g. *"8d behind plan · Drywall"*) in both modes. Out-of-sequence hatching is unaffected.
+
+**Needed to work correctly:**
+* **Planned dates on status logs** (`planned_start_date` / `planned_end_date`). Units whose bottleneck has no dates fall back to days-idle coloring — honest, but coarser. The more slots carry planned dates, the more the map means.
+* The toggle is per-browser (persisted in `mapSettings.colorByVariance`).
+* ⚠️ Lag colors are **display-only**: the recoloring happens on copies inside `FloorplanCanvas`. Never feed variance-colored statuses into write paths (bulk actions, quick modals) — see `AGENTS.md` §3.
+
+### 2. Unit Journey Timeline (location history modal)
+
+**What it does:** Opening a unit's history now shows a **Journey** tab by default: one swimlane per milestone with the planned window as a dashed ghost bar, the actual work as a solid bar (built from the append-only `status_audit_log`), red-ticked **idle gaps** between milestones with day counts, a today line, and the unit's variance verdict in the header. The old flat audit table survives as the **Log** tab for dispute/audit use.
+
+**Needed to work correctly:**
+* **The audit trail** (`status_audit_log` — created by the `20260518` migration). Actual bars derive from each milestone's first `ongoing` entry and its completion's `logged_date`. Projects with history only in `status_logs` (pre-migration) will show completion points but not durations.
+* **Honest logging in the field:** a milestone marked straight to `completed` without ever passing through `ongoing` renders as a point-in-time completion, not a duration bar.
+* Planned ghost bars need planned dates on the current status logs (same requirement as Lag Mode).
+
+### 3. Floor Pulse (dashboard, per-level rail)
+
+**What it does:** One row per sheet, stacked in building order (top floor first). Each row: a completion bar with a **plan tick** (where the level *should* be today, from planned finish dates) and a "−N pts vs plan" flag when the gap is large; **pace** (completions in the last 7 days vs. the trailing 4-week average); a **forecast chip** (*"→ ~wk of Aug 24"*) projected at the **median** weekly pace of the last 6 full weeks; and a stalled count. Clicking a row scopes the whole dashboard (KPIs, velocity chart, milestone breakdown) to that level — this rail replaced the old Active Level / All Levels toggle and the Active Locations / Not Started KPI cards. The map button on each row jumps straight to that level's floor plan. (The Completion Velocity chart below it also gained a dashed **planned** line from the same dates, so the burn-up finally shows ahead/behind, not just motion.)
+
+**Needed to work correctly:**
+* **Sheet `sequence_order`** set sensibly (it drives the building-stack ordering).
+* **Completions logged with real dates** — pace and forecasts bucket `status_audit_log` completions by `logged_date`. Median weekly pace (not mean) keeps one bulk back-dating session from wrecking the forecast, but garbage dates still mean garbage pace.
+* **Enough signal:** forecasts and trends are deliberately **suppressed, not faked** — levels with fewer than 12 task slots show *"too few tasks"*, and levels with zero recent completions show *"no pace to project"* instead of an invented date. A level showing "—" is the feature working, not broken.
+
+### 4. Type Scorecard (dashboard, comparative leaderboard)
+
+**What it does:** One row per `unit_type` across **all levels**, sorted worst-first so "which type is dragging the schedule?" is answered by the first row (tagged `RISK 1`). Each row: completion bar with plan tick, an **average variance chip** (mean bottleneck variance across the type's units, − = behind), a weekly-completions sparkline with trend arrow, and a stalled count. Clicking a row expands its **burn-up** — actual cumulative completions vs. the planned cumulative line.
+
+**Needed to work correctly:**
+* **Meaningful `unit_type` values** on units (set when tracing/naming spaces). Types you never assigned land in "Unspecified"; the module hides itself entirely if the project has only one type — there's nothing to compare.
+* Variance chips need planned dates (types with none show *"no plan dates"* instead of a number).
+* Sparklines/trends are suppressed for types with fewer than 8 units — small groups produce noisy, misleading trends.
+
+### Data-quality summary
+
+| You get… | …when you maintain |
+|---|---|
+| Lag Mode + plan ticks + variance chips | `planned_start_date` / `planned_end_date` on status logs |
+| Journey duration bars + idle gaps | the `status_audit_log` migration applied; statuses moved through `ongoing` before `completed` |
+| Pace, forecasts, sparklines | completions logged with accurate `logged_date` |
+| Floor ordering | `sequence_order` on sheets |
+| Type comparisons | `unit_type` assigned on units |
 
 ## 🛠️ Local Development Setup
 

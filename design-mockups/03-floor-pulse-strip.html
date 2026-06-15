@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SitePulse · Concept 03 — Floor Pulse Strip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#edeae0; --card:#fbf9f3; --ink:#20262b; --ink-soft:#5d6770;
+    --line:#d6d1c2; --line-strong:#a9a392; --brand:#e96f1f; --blue:#2e6fb0;
+    --done:#7d9b56; --going:#d99a45; --notstarted:#ddd7c6;
+    --red:#c0392b; --amber:#c98a1d; --ahead:#4f88c2;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    font-family:'Archivo',sans-serif;background:var(--paper);color:var(--ink);
+    min-height:100vh;display:flex;flex-direction:column;
+  }
+  .appbar{display:flex;align-items:center;gap:18px;padding:10px 22px;background:var(--ink);color:#efece1}
+  .wordmark{font-family:'Big Shoulders',sans-serif;font-weight:800;font-size:22px;letter-spacing:.04em;text-transform:uppercase}
+  .wordmark span{color:var(--brand)}
+  .crumb{font-size:13px;opacity:.75}
+  .concept-tag{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;color:var(--brand);text-transform:uppercase}
+
+  .page{width:min(1060px,94%);margin:26px auto;flex:1}
+  h1{font-family:'Big Shoulders',sans-serif;font-size:32px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+  .sub{font-size:13px;color:var(--ink-soft);margin-bottom:20px}
+
+  /* ── the module ── */
+  .module{
+    background:var(--card);border:1.5px solid var(--ink);border-radius:10px;
+    box-shadow:5px 5px 0 rgba(32,38,43,.13);overflow:hidden;
+  }
+  .mod-head{
+    display:flex;align-items:baseline;gap:12px;padding:15px 22px 12px;
+    border-bottom:1.5px solid var(--ink);
+  }
+  .mod-head h2{font-family:'Big Shoulders',sans-serif;font-size:23px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+  .mod-head .meta{font-size:12px;color:var(--ink-soft)}
+  .mod-head .forecast-all{
+    margin-left:auto;font-size:12.5px;color:var(--ink-soft);
+  }
+  .mod-head .forecast-all b{font-family:'Big Shoulders',sans-serif;font-size:19px;color:var(--ink);letter-spacing:.02em}
+
+  .floor{
+    display:grid;grid-template-columns:128px 1fr 120px 168px 96px 84px;
+    align-items:center;gap:18px;padding:13px 22px;border-bottom:1px solid var(--line);
+    position:relative;cursor:pointer;transition:background .14s;
+  }
+  .floor:hover{background:#f2eee1}
+  .floor:hover .openmap{opacity:1;transform:translateX(0)}
+  .floor:last-child{border-bottom:0}
+  .floor.risk::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--red)}
+  .floor.warn::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--amber)}
+
+  .f-label b{font-family:'Big Shoulders',sans-serif;font-size:21px;font-weight:700;letter-spacing:.04em;display:block;text-transform:uppercase}
+  .f-label span{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-soft)}
+
+  .bar-wrap{position:relative;height:26px}
+  .bar{display:flex;height:100%;border:1.5px solid var(--ink);border-radius:5px;overflow:hidden;background:var(--notstarted)}
+  .seg-done{background:var(--done)}
+  .seg-going{background:repeating-linear-gradient(45deg,var(--going) 0 6px,#c08338 6px 12px)}
+  .pct{
+    position:absolute;left:8px;top:50%;transform:translateY(-50%);
+    font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;color:#fff;
+    text-shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+  .plan-tick{position:absolute;top:-5px;bottom:-5px;width:2.5px;background:var(--ink);z-index:2}
+  .plan-tick::after{
+    content:"plan";position:absolute;top:-13px;left:50%;transform:translateX(-50%);
+    font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase;
+  }
+  .gap-flag{
+    position:absolute;top:50%;transform:translateY(-50%);right:8px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:var(--red);
+  }
+
+  .pace{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;white-space:nowrap}
+  .pace.up{color:#3e7a35}.pace.downp{color:var(--red)}.pace.flat{color:var(--amber)}.pace.na{color:var(--ink-soft);font-weight:400}
+  .pace small{display:block;font-size:9.5px;font-weight:400;color:var(--ink-soft);letter-spacing:.04em;white-space:normal}
+
+  .fcast{font-size:12.5px;white-space:nowrap}
+  .fcast b{font-weight:600}
+  .fcast.late b{color:var(--red)}
+  .fcast.ok b{color:#3e7a35}
+  .fcast small{display:block;font-size:9.5px;color:var(--ink-soft)}
+
+  .stalled{justify-self:start}
+  .stalled .badge{
+    display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+    border:1.5px solid var(--red);color:var(--red);border-radius:14px;padding:2px 10px;
+  }
+  .stalled .zero{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft)}
+
+  .openmap{
+    opacity:0;transform:translateX(-6px);transition:.15s;
+    font-size:11.5px;font-weight:600;color:var(--blue);white-space:nowrap;
+  }
+  .floor.done-row{opacity:.62}
+  .done-check{font-size:15px;color:var(--done);font-weight:700}
+
+  /* ghosted rest-of-dashboard for placement context */
+  .ghost-zone{margin-top:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;opacity:.38;pointer-events:none}
+  .ghost{background:var(--card);border:1.5px dashed var(--line-strong);border-radius:10px;padding:18px;min-height:86px}
+  .ghost h5{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:8px}
+  .ghost .big{font-family:'Big Shoulders',sans-serif;font-size:30px;font-weight:800}
+  .ghost.wide{grid-column:1/-1;min-height:120px;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:12px}
+
+  .note{padding:13px 22px;background:var(--ink);color:#cfc9ba;font-size:12.5px;line-height:1.5}
+  .note b{color:#f0ece1}
+  .note .k{color:var(--brand);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-right:10px}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="wordmark">Site<span>Pulse</span></div>
+  <div class="crumb">Maple &amp; 5th — Building A · Dashboard</div>
+  <div class="concept-tag">Concept 03 / Floor Pulse Strip</div>
+</header>
+
+<div class="page">
+  <h1>Dashboard</h1>
+  <div class="sub">Track: Finishes · 6 levels · 141 units · today Jun 10</div>
+
+  <div class="module">
+    <div class="mod-head">
+      <h2>Floor Pulse</h2>
+      <span class="meta">stacked like the building — top floor first · click a row to open its map</span>
+      <div class="forecast-all">building at current pace → <b>~wk of Oct 6</b></div>
+    </div>
+
+    <!-- L6 : just started, small sample -->
+    <div class="floor">
+      <div class="f-label"><b>Level 6</b><span>18 UNITS · PENTHOUSE</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:8%"></div><div class="seg-going" style="width:7%"></div></div>
+        <div class="plan-tick" style="left:12%"></div>
+        <span class="pct">8%</span>
+      </div>
+      <div class="pace na">— <small>too few tasks for a trend</small></div>
+      <div class="fcast"><b>—</b><small>forecast after 2 wks of data</small></div>
+      <div class="stalled"><span class="zero">0 stalled</span></div>
+      <div class="openmap">open map →</div>
+    </div>
+
+    <!-- L5 : healthy, rising -->
+    <div class="floor">
+      <div class="f-label"><b>Level 5</b><span>24 UNITS</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:31%"></div><div class="seg-going" style="width:12%"></div></div>
+        <div class="plan-tick" style="left:34%"></div>
+        <span class="pct">31%</span>
+      </div>
+      <div class="pace up">▲ 18/wk <small>vs 13 trailing avg</small></div>
+      <div class="fcast ok">→ <b>~wk of Aug 24</b><small>at current pace</small></div>
+      <div class="stalled"><span class="badge">1 stalled</span></div>
+      <div class="openmap">open map →</div>
+    </div>
+
+    <!-- L4 : flatline -->
+    <div class="floor warn">
+      <div class="f-label"><b>Level 4</b><span>24 UNITS</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:47%"></div><div class="seg-going" style="width:4%"></div></div>
+        <div class="plan-tick" style="left:60%"></div>
+        <span class="pct">47%</span>
+        <span class="gap-flag">−13 vs plan</span>
+      </div>
+      <div class="pace flat">— flat <small>no movement 2 wks</small></div>
+      <div class="fcast"><b>—</b><small>no pace to project</small></div>
+      <div class="stalled"><span class="badge">4 stalled</span></div>
+      <div class="openmap">open map →</div>
+    </div>
+
+    <!-- L3 : the problem floor (matches Concept 01) -->
+    <div class="floor risk">
+      <div class="f-label"><b>Level 3</b><span>24 UNITS</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:58%"></div><div class="seg-going" style="width:9%"></div></div>
+        <div class="plan-tick" style="left:74%"></div>
+        <span class="pct">58%</span>
+        <span class="gap-flag">−16 vs plan</span>
+      </div>
+      <div class="pace downp">▼ 9/wk <small>vs 16 trailing avg</small></div>
+      <div class="fcast late">→ <b>~wk of Sep 8</b><small>was due Jul 31</small></div>
+      <div class="stalled"><span class="badge">6 stalled</span></div>
+      <div class="openmap">open map →</div>
+    </div>
+
+    <!-- L2 : healthy -->
+    <div class="floor">
+      <div class="f-label"><b>Level 2</b><span>24 UNITS</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:76%"></div><div class="seg-going" style="width:8%"></div></div>
+        <div class="plan-tick" style="left:72%"></div>
+        <span class="pct">76%</span>
+      </div>
+      <div class="pace up">▲ 11/wk <small>vs 10 trailing avg</small></div>
+      <div class="fcast ok">→ <b>~wk of Jul 28</b><small>at current pace</small></div>
+      <div class="stalled"><span class="badge">1 stalled</span></div>
+      <div class="openmap">open map →</div>
+    </div>
+
+    <!-- L1 : done -->
+    <div class="floor done-row">
+      <div class="f-label"><b>Level 1</b><span>27 UNITS · LOBBY + AMENITY</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:100%"></div></div>
+        <span class="pct">100%</span>
+      </div>
+      <div class="pace na"><span class="done-check">✓</span></div>
+      <div class="fcast">completed <b>May 21</b><small>4 days early</small></div>
+      <div class="stalled"><span class="zero">—</span></div>
+      <div class="openmap">open map →</div>
+    </div>
+  </div>
+
+  <!-- placement context: existing dashboard, ghosted -->
+  <div class="ghost-zone">
+    <div class="ghost"><h5>Overall progress</h5><div class="big">54%</div></div>
+    <div class="ghost"><h5>Active locations</h5><div class="big">37</div></div>
+    <div class="ghost"><h5>Not started</h5><div class="big">28</div></div>
+    <div class="ghost wide">existing VelocityChart + per-milestone bars live here, unchanged</div>
+  </div>
+</div>
+
+<footer class="note">
+  <span class="k">What's mocked</span>
+  A per-sheet rollup rail at the top of <b>ProjectDashboard</b>, stacked in building order so it reads like an elevation.
+  Each row: completion bar with a <b>"plan" tick</b> (where you should be today), pace vs. trailing average, a forecast chip, and a stalled count.
+  Note the honest failure states: Level 6 suppresses its trend (too few tasks), Level 4 shows a flatline instead of a fake forecast. Level 3 matches the lag-mode map in Concept 01.
+</footer>
+</body>
+</html>
