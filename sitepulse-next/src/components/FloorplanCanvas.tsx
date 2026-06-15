@@ -1559,7 +1559,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         <CrosshairOverlay pointerStore={pointerStore} />
       )}
 
-      {settings?.showHistoryHover && (
+      {/* Lag Mode auto-enables the hover card so the schedule verdict is reachable
+          without separately turning on "Show hover history". */}
+      {(settings?.showHistoryHover || lagMode) && (
          <HoverHistoryTooltip
             hoveredUnit={hoveredUnit}
             getPointerPos={getTooltipPointerPos}
