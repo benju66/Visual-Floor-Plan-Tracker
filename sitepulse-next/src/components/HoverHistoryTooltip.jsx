@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { computeUnitVariance, varianceFill, varianceLabel } from '@/utils/progressAnalytics';
-import { isMilestoneApplicable } from '@/utils/applicability';
+import { isMilestoneApplicable, applicableMilestones } from '@/utils/applicability';
 
 export default function HoverHistoryTooltip({
   hoveredUnit,
@@ -74,7 +74,9 @@ export default function HoverHistoryTooltip({
 
   const u = units.find(x => x.id === activeUnit);
   const unitRawLogs = rawStatuses?.filter(s => s.unit_id === activeUnit && s.track === trackingMode) || [];
-  const variance = computeUnitVariance(unitRawLogs, milestones, new Date());
+  // Bottleneck/variance skips milestones that are N/A for this unit.
+  const unitMilestones = u && applicabilityIndex ? applicableMilestones(milestones, u, applicabilityIndex) : milestones;
+  const variance = computeUnitVariance(unitRawLogs, unitMilestones, new Date());
 
   // Base positioning
   let top = activePos.y + 20;

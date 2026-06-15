@@ -10,6 +10,8 @@ import {
   parseDay,
   dayDiff,
 } from '@/utils/progressAnalytics';
+import { applicableMilestones } from '@/utils/applicability';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Milestone, StatusLog } from '@/types/domain';
 
 /** Audit rows come back through useUnitHistory typed as StatusLog but carry changed_at. */
@@ -24,6 +26,9 @@ interface UnitHistoryModalProps {
   trackingMode?: string;
   /** Current-state logs (status_logs) for the active sheet — supplies planned windows. */
   currentStatuses?: StatusLog[];
+  /** Unit type + applicability index drop N/A milestones from the journey. */
+  unitType?: string | null;
+  applicabilityIndex?: ApplicabilityIndex;
 }
 
 interface JourneyRow {
@@ -58,6 +63,8 @@ export default function UnitHistoryModal({
   milestones = [],
   trackingMode = '',
   currentStatuses = [],
+  unitType = null,
+  applicabilityIndex,
 }: UnitHistoryModalProps) {
   const { data: rawLogs, isPending } = useUnitHistory(unitId || '');
   const [tab, setTab] = useState<'journey' | 'log'>('journey');
@@ -82,12 +89,13 @@ export default function UnitHistoryModal({
     return deduped;
   }, [rawLogs]);
 
-  // --- Journey tab: one swimlane per milestone in sequence order ---
+  // --- Journey tab: one swimlane per applicable milestone in sequence order ---
   const today = useMemo(() => new Date(), []);
-  const trackMilestones = useMemo(
-    () => orderedTrackMilestones(milestones, trackingMode),
-    [milestones, trackingMode]
-  );
+  const trackMilestones = useMemo(() => {
+    const ordered = orderedTrackMilestones(milestones, trackingMode);
+    if (!unitId || !applicabilityIndex) return ordered;
+    return applicableMilestones(ordered, { id: unitId, unit_type: unitType }, applicabilityIndex);
+  }, [milestones, trackingMode, unitId, unitType, applicabilityIndex]);
   const unitCurrentLogs = useMemo(
     () => currentStatuses.filter(s => s.unit_id === unitId && s.track === trackingMode),
     [currentStatuses, unitId, trackingMode]

@@ -1,4 +1,6 @@
-import type { Milestone, StatusLog } from '@/types/domain';
+import type { Milestone, StatusLog, Unit } from '@/types/domain';
+import { applicableMilestones, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 
 /**
  * progressAnalytics — pure schedule-variance and rollup math shared by
@@ -8,6 +10,11 @@ import type { Milestone, StatusLog } from '@/types/domain';
  * 'YYYY-MM-DD' strings; they are parsed at UTC noon so day arithmetic is
  * timezone-stable. `today` is always passed in explicitly so the functions
  * stay deterministic and testable.
+ *
+ * Milestone applicability (N/A): callers must pass each unit's APPLICABLE
+ * track-milestones. `computeUnitVariance` takes the already-filtered list;
+ * `summarizeGroup` filters internally via the optional `applicabilityIndex`.
+ * N/A milestones are excluded from bottleneck detection and every denominator.
  */
 
 const DAY_MS = 86_400_000;
@@ -235,8 +242,8 @@ function mondayOf(d: Date): string {
 }
 
 export interface GroupRollupInput {
-  /** Unit ids in the group. */
-  unitIds: string[];
+  /** Units in the group — `unit_type` is needed to resolve applicability. */
+  units: Pick<Unit, 'id' | 'unit_type'>[];
   /** Current-state logs for (at least) those units, single project. */
   statuses: StatusLog[];
   milestones: Milestone[];
@@ -246,13 +253,16 @@ export interface GroupRollupInput {
   today: Date;
   /** How many weekly buckets to return (default 8). */
   weeks?: number;
+  /** N/A milestones are dropped from every denominator + bottleneck. Defaults to all-applicable. */
+  applicabilityIndex?: ApplicabilityIndex;
 }
 
 export function summarizeGroup({
-  unitIds, statuses, milestones, track, history, today, weeks = 8,
+  units, statuses, milestones, track, history, today, weeks = 8,
+  applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
 }: GroupRollupInput): GroupRollup {
   const trackMilestones = orderedTrackMilestones(milestones, track);
-  const idSet = new Set(unitIds);
+  const idSet = new Set(units.map(u => u.id));
   const trackStatuses = statuses.filter(s => s.track === track && s.unit_id && idSet.has(s.unit_id));
 
   const logsByUnit = new Map<string, StatusLog[]>();
@@ -262,27 +272,34 @@ export function summarizeGroup({
     else logsByUnit.set(s.unit_id as string, [s]);
   }
 
-  const totalSlots = unitIds.length * trackMilestones.length;
+  // One pass per unit over its APPLICABLE milestones — N/A slots never enter
+  // the denominator, the completion/ongoing counts, or the bottleneck.
+  let totalSlots = 0;
   let completedSlots = 0;
   let ongoingSlots = 0;
   let plannedDatedSlots = 0;
   let plannedDueSlots = 0;
-  for (const s of trackStatuses) {
-    if (s.temporal_state === 'completed') completedSlots++;
-    else if (s.temporal_state === 'ongoing') ongoingSlots++;
-    const end = parseDay(s.planned_end_date);
-    if (end) {
-      plannedDatedSlots++;
-      if (end <= today) plannedDueSlots++;
-    }
-  }
-
   const stalledUnitIds: string[] = [];
   let varianceSum = 0;
   let varianceCount = 0;
-  for (const id of unitIds) {
-    const unitLogs = logsByUnit.get(id) || [];
-    const info = computeUnitVariance(unitLogs, trackMilestones, today);
+
+  for (const unit of units) {
+    const appMs = applicableMilestones(trackMilestones, unit, applicabilityIndex);
+    const unitLogs = logsByUnit.get(unit.id) || [];
+
+    totalSlots += appMs.length;
+    for (const m of appMs) {
+      const log = unitLogs.find(s => s.milestone === m.name);
+      if (log?.temporal_state === 'completed') completedSlots++;
+      else if (log?.temporal_state === 'ongoing') ongoingSlots++;
+      const end = log ? parseDay(log.planned_end_date) : null;
+      if (end) {
+        plannedDatedSlots++;
+        if (end <= today) plannedDueSlots++;
+      }
+    }
+
+    const info = computeUnitVariance(unitLogs, appMs, today);
     if (info.kind === 'behind') { varianceSum += info.days; varianceCount++; }
     else if (info.kind === 'ahead') { varianceSum -= info.days; varianceCount++; }
     else if (info.kind === 'onpace') { varianceCount++; }
@@ -291,7 +308,7 @@ export function summarizeGroup({
       const started = unitLogs.some(s => s.temporal_state === 'ongoing' || s.temporal_state === 'completed');
       const last = lastActivityAt(unitLogs);
       if (started && last && dayDiff(last, today) >= STALL_THRESHOLD_DAYS) {
-        stalledUnitIds.push(id);
+        stalledUnitIds.push(unit.id);
       }
     }
   }
@@ -347,7 +364,7 @@ export function summarizeGroup({
   }
 
   return {
-    unitCount: unitIds.length,
+    unitCount: units.length,
     totalSlots,
     completedSlots,
     ongoingSlots,

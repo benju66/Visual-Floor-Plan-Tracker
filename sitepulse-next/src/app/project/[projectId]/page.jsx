@@ -750,9 +750,11 @@ function App() {
         onClose={() => setHistoryModalUnitId(null)}
         unitId={historyModalUnitId}
         unitNumber={targetHistoryUnit?.unit_number}
+        unitType={targetHistoryUnit?.unit_type}
         milestones={milestones}
         trackingMode={trackingMode}
         currentStatuses={activeStatuses}
+        applicabilityIndex={applicabilityIndex}
       />
 
       {toast && (

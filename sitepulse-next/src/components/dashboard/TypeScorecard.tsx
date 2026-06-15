@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE } from '@/utils/progressAnalytics';
 import type { CompletionEvent, GroupRollup } from '@/utils/progressAnalytics';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Unit, Milestone, StatusLog } from '@/types/domain';
 
 /**
@@ -22,11 +23,12 @@ export interface TypeScorecardProps {
   milestones: Milestone[];
   track: string;
   history: CompletionEvent[];
+  applicabilityIndex?: ApplicabilityIndex;
 }
 
 interface TypeRow {
   type: string;
-  unitIds: string[];
+  units: Unit[];
   rollup: GroupRollup;
 }
 
@@ -73,7 +75,7 @@ function BurnUp({ row, statuses, track, history, today }: {
   row: TypeRow; statuses: StatusLog[]; track: string; history: CompletionEvent[]; today: Date;
 }) {
   const data = useMemo(() => {
-    const idSet = new Set(row.unitIds);
+    const idSet = new Set(row.units.map(u => u.id));
     const actualDates = history
       .filter(h => h.unit_id && idSet.has(h.unit_id) && h.logged_date)
       .map(h => parseDay(h.logged_date)!.getTime())
@@ -139,21 +141,21 @@ function BurnUp({ row, statuses, track, history, today }: {
   );
 }
 
-export default function TypeScorecard({ allUnits, statuses, milestones, track, history }: TypeScorecardProps) {
+export default function TypeScorecard({ allUnits, statuses, milestones, track, history, applicabilityIndex }: TypeScorecardProps) {
   const today = useMemo(() => new Date(), []);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const rows = useMemo<TypeRow[]>(() => {
-    const byType = new Map<string, string[]>();
+    const byType = new Map<string, Unit[]>();
     for (const u of allUnits) {
       const type = u.unit_type || 'Unspecified';
       const arr = byType.get(type);
-      if (arr) arr.push(u.id);
-      else byType.set(type, [u.id]);
+      if (arr) arr.push(u);
+      else byType.set(type, [u]);
     }
     const out: TypeRow[] = [];
-    for (const [type, unitIds] of byType) {
-      out.push({ type, unitIds, rollup: summarizeGroup({ unitIds, statuses, milestones, track, history, today }) });
+    for (const [type, units] of byType) {
+      out.push({ type, units, rollup: summarizeGroup({ units, statuses, milestones, track, history, today, applicabilityIndex }) });
     }
     // Worst first: most behind on average, then most stalled, then least complete.
     out.sort((a, b) => {
@@ -169,7 +171,7 @@ export default function TypeScorecard({ allUnits, statuses, milestones, track, h
       return a.rollup.completionPct - b.rollup.completionPct;
     });
     return out;
-  }, [allUnits, statuses, milestones, track, history, today]);
+  }, [allUnits, statuses, milestones, track, history, today, applicabilityIndex]);
 
   if (rows.length <= 1) return null; // a single type has nothing to compare
 
@@ -195,7 +197,7 @@ export default function TypeScorecard({ allUnits, statuses, milestones, track, h
           const completedPct = r.completionPct;
           const ongoingPct = r.totalSlots > 0 ? (r.ongoingSlots / r.totalSlots) * 100 : 0;
           const isExpanded = expanded === row.type;
-          const suppressSpark = row.unitIds.length < SPARK_SUPPRESS_UNITS;
+          const suppressSpark = row.units.length < SPARK_SUPPRESS_UNITS;
           return (
             <div key={row.type} className={idx === 0 && (r.avgBehindDays ?? 0) >= 1 ? 'bg-red-50/40 dark:bg-red-900/5' : ''}>
               <div
@@ -212,7 +214,7 @@ export default function TypeScorecard({ allUnits, statuses, milestones, track, h
                       <span className="text-[8px] font-bold text-red-600 border border-red-400 rounded px-1 py-px tracking-widest shrink-0">RISK 1</span>
                     )}
                   </div>
-                  <div className="text-[10px] text-slate-400 font-medium tracking-wide">{row.unitIds.length} LOCATIONS</div>
+                  <div className="text-[10px] text-slate-400 font-medium tracking-wide">{row.units.length} LOCATIONS</div>
                 </div>
 
                 <div className="relative h-5 self-center">

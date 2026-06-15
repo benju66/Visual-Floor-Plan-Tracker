@@ -30,6 +30,7 @@ import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point } from '@/types/domain';
+import { applicableMilestones } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
@@ -125,14 +126,20 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       if (arr) arr.push(log);
       else logsByUnit.set(log.unit_id, [log]);
     }
+    const unitById = new Map(units.map(u => [u.id, u]));
     return activeStatuses.map(s => {
-      const info = computeUnitVariance(logsByUnit.get(s.unit_id as string) || [], milestones, today);
+      // Variance skips milestones that are N/A for this unit, matching the bottleneck.
+      const unit = unitById.get(s.unit_id as string);
+      const unitMilestones = unit && applicabilityIndex
+        ? applicableMilestones(milestones, unit, applicabilityIndex)
+        : milestones;
+      const info = computeUnitVariance(logsByUnit.get(s.unit_id as string) || [], unitMilestones, today);
       return { ...s, status_color: varianceFill(info) };
     });
   // `milestones` is derived from allMilestones+trackingMode (both in deps); listing
   // the derived array would change identity every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lagMode, activeStatuses, rawStatuses, allMilestones, trackingMode, today]);
+  }, [lagMode, activeStatuses, rawStatuses, allMilestones, trackingMode, today, units, applicabilityIndex]);
   // Synchronous main-thread snapping engine. The hook returns raw JSON vectors;
   // we instantiate the RBush spatial index here in a deferred effect (never in the
   // Query cache — see AGENTS.md §5). getSnappedCoordinate() is then called inline,

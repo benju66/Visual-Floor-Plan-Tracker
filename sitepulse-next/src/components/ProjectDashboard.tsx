@@ -126,13 +126,14 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
 
   // Rollup for the scoped selection — drives the KPI cards.
   const scopeRollup = useMemo(() => summarizeGroup({
-    unitIds: displayUnits.map(u => u.id),
+    units: displayUnits,
     statuses: allProjectStatuses,
     milestones,
     track: trackingMode,
     history: trackHistory,
     today,
-  }), [displayUnits, allProjectStatuses, milestones, trackingMode, trackHistory, today]);
+    applicabilityIndex,
+  }), [displayUnits, allProjectStatuses, milestones, trackingMode, trackHistory, today, applicabilityIndex]);
 
   const { overallProgress, milestoneStats, totalUnits, totalCompletedTasks, totalPossibleTasks } = useMemo(() => {
     if (!displayUnits || displayUnits.length === 0) {
@@ -302,6 +303,7 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
         milestones={milestones}
         track={trackingMode}
         history={trackHistory}
+        applicabilityIndex={applicabilityIndex}
         scope={scope}
         onScopeChange={setScope}
         onOpenMap={openMap}
@@ -401,6 +403,7 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
         milestones={milestones}
         track={trackingMode}
         history={trackHistory}
+        applicabilityIndex={applicabilityIndex}
       />
 
       <div className="glass-panel rounded-2xl border p-6 shadow-sm">

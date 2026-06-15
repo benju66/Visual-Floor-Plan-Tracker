@@ -8,6 +8,7 @@ import {
   summarizeGroup,
   VARIANCE_COLORS,
 } from './progressAnalytics';
+import { buildApplicabilityIndex } from './applicability';
 import type { Milestone, StatusLog } from '@/types/domain';
 
 const TODAY = parseDay('2026-06-12') as Date;
@@ -142,7 +143,7 @@ describe('varianceFill / varianceLabel', () => {
 });
 
 describe('summarizeGroup', () => {
-  const unitIds = Array.from({ length: 6 }, (_, i) => `u${i + 1}`);
+  const units = Array.from({ length: 6 }, (_, i) => ({ id: `u${i + 1}`, unit_type: 'Apartment' }));
 
   function buildStatuses(): StatusLog[] {
     const out: StatusLog[] = [];
@@ -167,7 +168,7 @@ describe('summarizeGroup', () => {
 
   it('counts slots, completion %, and stalled units', () => {
     const r = summarizeGroup({
-      unitIds, statuses: buildStatuses(), milestones: MILESTONES,
+      units, statuses: buildStatuses(), milestones: MILESTONES,
       track: 'Production', history, today: TODAY,
     });
     expect(r.totalSlots).toBe(18);
@@ -178,7 +179,7 @@ describe('summarizeGroup', () => {
 
   it('computes pace and weekly buckets from history', () => {
     const r = summarizeGroup({
-      unitIds, statuses: buildStatuses(), milestones: MILESTONES,
+      units, statuses: buildStatuses(), milestones: MILESTONES,
       track: 'Production', history, today: TODAY,
     });
     expect(r.paceThisWeek).toBe(2); // both u1 events within 7 days
@@ -187,12 +188,12 @@ describe('summarizeGroup', () => {
 
   it('suppresses forecast for small samples', () => {
     const r = summarizeGroup({
-      unitIds: ['u1'], statuses: buildStatuses(), milestones: MILESTONES,
+      units: [{ id: 'u1', unit_type: 'Apartment' }], statuses: buildStatuses(), milestones: MILESTONES,
       track: 'Production', history, today: TODAY,
     });
     expect(r.forecastSuppressed).toBe('complete'); // u1 alone is fully complete
     const r2 = summarizeGroup({
-      unitIds: ['u4', 'u5'], statuses: buildStatuses(), milestones: MILESTONES,
+      units: [{ id: 'u4', unit_type: 'Apartment' }, { id: 'u5', unit_type: 'Apartment' }], statuses: buildStatuses(), milestones: MILESTONES,
       track: 'Production', history: [], today: TODAY,
     });
     expect(r2.forecastSuppressed).toBe('small-sample');
@@ -201,7 +202,7 @@ describe('summarizeGroup', () => {
 
   it('suppresses forecast when there is no pace', () => {
     const r = summarizeGroup({
-      unitIds, statuses: buildStatuses(), milestones: MILESTONES,
+      units, statuses: buildStatuses(), milestones: MILESTONES,
       track: 'Production', history: [], today: TODAY,
     });
     expect(r.forecastSuppressed).toBe('no-pace');
@@ -219,7 +220,7 @@ describe('summarizeGroup', () => {
       '2026-04-27', '2026-04-28',
     ].map(d => ({ unit_id: 'u1', logged_date: d }));
     const r = summarizeGroup({
-      unitIds, statuses: buildStatuses(), milestones: MILESTONES,
+      units, statuses: buildStatuses(), milestones: MILESTONES,
       track: 'Production', history: steadyHistory, today: TODAY,
     });
     expect(r.forecastSuppressed).toBeNull();
@@ -229,7 +230,7 @@ describe('summarizeGroup', () => {
   it('reports planned-by-today percentage on the same denominator as completion', () => {
     const statuses = buildStatuses();
     const r = summarizeGroup({
-      unitIds, statuses, milestones: MILESTONES,
+      units, statuses, milestones: MILESTONES,
       track: 'Production', history, today: TODAY,
     });
     // only u4 Drywall has a planned_end (past) → 1 of 18 slots — same denominator
@@ -241,16 +242,55 @@ describe('summarizeGroup', () => {
 
   it('reports full coverage when every slot is dated', () => {
     const statuses: StatusLog[] = [];
-    for (const id of unitIds) {
+    for (const u of units) {
       for (const m of MILESTONES) {
-        statuses.push(log({ unit_id: id, milestone: m.name, temporal_state: 'planned', planned_end_date: '2026-06-30' }));
+        statuses.push(log({ unit_id: u.id, milestone: m.name, temporal_state: 'planned', planned_end_date: '2026-06-30' }));
       }
     }
     const r = summarizeGroup({
-      unitIds, statuses, milestones: MILESTONES,
+      units, statuses, milestones: MILESTONES,
       track: 'Production', history: [], today: TODAY,
     });
     expect(r.plannedCoverage).toBe(1);
     expect(r.plannedByTodayPct).toBe(0); // all planned ends are in the future
+  });
+});
+
+describe('summarizeGroup / computeUnitVariance — milestone applicability (N/A)', () => {
+  // Drywall applies only to Apartments, so it is N/A for the Corridor.
+  const ruleMilestones: Milestone[] = MILESTONES.map(m =>
+    m.name === 'Drywall' ? ({ ...m, applies_to_unit_types: ['Apartment'] } as Milestone) : m
+  );
+  const naUnits = [
+    { id: 'c1', unit_type: 'Corridor' },
+    { id: 'a1', unit_type: 'Apartment' },
+  ];
+  const index = buildApplicabilityIndex(ruleMilestones, []);
+
+  it('drops N/A slots from the denominator', () => {
+    const r = summarizeGroup({
+      units: naUnits, statuses: [], milestones: ruleMilestones,
+      track: 'Production', history: [], today: TODAY, applicabilityIndex: index,
+    });
+    // Corridor: Framing + Paint = 2 applicable; Apartment: 3 → 5 slots, not 6
+    expect(r.totalSlots).toBe(5);
+  });
+
+  it('does not count completions on N/A milestones', () => {
+    // A stale completed log on the now-N/A Drywall slot for the Corridor must not count.
+    const statuses = [log({ unit_id: 'c1', milestone: 'Drywall', temporal_state: 'completed' })];
+    const r = summarizeGroup({
+      units: [naUnits[0]], statuses, milestones: ruleMilestones,
+      track: 'Production', history: [], today: TODAY, applicabilityIndex: index,
+    });
+    expect(r.totalSlots).toBe(2);     // Framing + Paint only
+    expect(r.completedSlots).toBe(0); // Drywall completion excluded
+  });
+
+  it('skips the N/A milestone in the bottleneck (caller passes applicable list)', () => {
+    const statuses = [log({ unit_id: 'c1', milestone: 'Framing', temporal_state: 'completed' })];
+    const applicable = [MILESTONES[0], MILESTONES[2]]; // Framing, Paint (Drywall N/A)
+    const info = computeUnitVariance(statuses, applicable, TODAY);
+    expect(info.bottleneck).toBe('Paint'); // not Drywall
   });
 });

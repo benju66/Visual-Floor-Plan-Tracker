@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { TrendingUp, TrendingDown, Check, Map as MapIcon } from 'lucide-react';
 import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE } from '@/utils/progressAnalytics';
 import type { CompletionEvent, GroupRollup } from '@/utils/progressAnalytics';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Sheet, Unit, Milestone, StatusLog } from '@/types/domain';
 
 /**
@@ -23,6 +24,7 @@ export interface FloorPulseProps {
   milestones: Milestone[];
   track: string;
   history: CompletionEvent[];
+  applicabilityIndex?: ApplicabilityIndex;
   /** 'all' or a sheet id. */
   scope: string;
   onScopeChange: (scope: string) => void;
@@ -97,7 +99,7 @@ function PaceCell({ pace }: { pace: Pace }) {
 }
 
 export default function FloorPulse({
-  sheets, allUnits, statuses, milestones, track, history,
+  sheets, allUnits, statuses, milestones, track, history, applicabilityIndex,
   scope, onScopeChange, onOpenMap,
 }: FloorPulseProps) {
   const today = useMemo(() => new Date(), []);
@@ -105,16 +107,15 @@ export default function FloorPulse({
   const rows = useMemo(() => {
     const ordered = [...sheets].sort((a, b) => (b.sequence_order || 0) - (a.sequence_order || 0));
     return ordered.map(sheet => {
-      const unitIds = allUnits.filter(u => u.sheet_id === sheet.id).map(u => u.id);
-      const rollup = summarizeGroup({ unitIds, statuses, milestones, track, history, today });
+      const sheetUnits = allUnits.filter(u => u.sheet_id === sheet.id);
+      const rollup = summarizeGroup({ units: sheetUnits, statuses, milestones, track, history, today, applicabilityIndex });
       return { sheet, rollup, pace: paceOf(rollup) };
     });
-  }, [sheets, allUnits, statuses, milestones, track, history, today]);
+  }, [sheets, allUnits, statuses, milestones, track, history, today, applicabilityIndex]);
 
   const building = useMemo(() => {
-    const unitIds = allUnits.map(u => u.id);
-    return summarizeGroup({ unitIds, statuses, milestones, track, history, today });
-  }, [allUnits, statuses, milestones, track, history, today]);
+    return summarizeGroup({ units: allUnits, statuses, milestones, track, history, today, applicabilityIndex });
+  }, [allUnits, statuses, milestones, track, history, today, applicabilityIndex]);
 
   if (sheets.length === 0) return null;
 
