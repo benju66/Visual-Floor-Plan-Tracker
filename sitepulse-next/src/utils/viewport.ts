@@ -86,3 +86,83 @@ export function clampStagePosition(
     y: clampAxis(pos.y, offsetY, drawH, stageH),
   };
 }
+
+/** Snapshot of the live Konva transform to commit into React state. */
+export interface ViewportCommitValue {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+export interface ViewportSync {
+  /** Report the latest live transform. Commits leading, then at most once per interval. */
+  push(value: ViewportCommitValue): void;
+  /** Commit any pending value immediately (gesture end). */
+  flush(): void;
+  /** Discard any pending value and timer (unmount). */
+  cancel(): void;
+}
+
+/**
+ * Leading+trailing throttle for syncing the live Konva transform into React state.
+ *
+ * The stage itself is mutated directly (60fps) and `liveViewportRef` always holds the
+ * freshest transform; this only paces the `setStageScale`/`setStagePosition` commits that
+ * drive derived math (LOD bitmap selection, visible-unit culling). A leading commit gives
+ * instant response at gesture start, intermediate pushes coalesce to one commit per
+ * `intervalMs` so culling/LOD stay fresh during a sustained gesture, and the trailing
+ * commit guarantees the final React state matches the live transform.
+ *
+ * (Replaces a pure trailing 100ms debounce, under which React state stayed frozen for the
+ * whole gesture and everything landed as one re-render spike after it ended.)
+ *
+ * @param commit     Receives the value to commit into React state.
+ * @param intervalMs Minimum spacing between commits (~8/s at the 120ms default).
+ * @param now        Clock, injectable for tests.
+ */
+export function createViewportSync(
+  commit: (value: ViewportCommitValue) => void,
+  intervalMs = 120,
+  now: () => number = () => performance.now(),
+): ViewportSync {
+  let lastCommit = -Infinity;
+  let trailing: ReturnType<typeof setTimeout> | null = null;
+  let pending: ViewportCommitValue | null = null;
+
+  const fire = (value: ViewportCommitValue) => {
+    lastCommit = now();
+    pending = null;
+    commit(value);
+  };
+
+  return {
+    push(value) {
+      pending = value;
+      const elapsed = now() - lastCommit;
+      if (elapsed >= intervalMs) {
+        if (trailing) {
+          clearTimeout(trailing);
+          trailing = null;
+        }
+        fire(value);
+      } else if (!trailing) {
+        trailing = setTimeout(() => {
+          trailing = null;
+          if (pending) fire(pending);
+        }, intervalMs - elapsed);
+      }
+    },
+    flush() {
+      if (trailing) {
+        clearTimeout(trailing);
+        trailing = null;
+      }
+      if (pending) fire(pending);
+    },
+    cancel() {
+      if (trailing) clearTimeout(trailing);
+      trailing = null;
+      pending = null;
+    },
+  };
+}

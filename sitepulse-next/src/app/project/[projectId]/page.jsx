@@ -13,7 +13,8 @@ import { supabase } from '@/supabaseClient';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
-import { useProject, useSheets, useMilestones, useUnits, useStatuses, useCurrentUserRole, useSnappingVectors } from '@/hooks/useProjectQueries';
+import { useProject, useSheets, useMilestones, useUnits, useStatuses, useCurrentUserRole, useSnappingVectors, useMilestoneOverrides, useSetMilestoneApplicability, useBulkSetApplicability } from '@/hooks/useProjectQueries';
+import { buildApplicabilityIndex, isMilestoneApplicable } from '@/utils/applicability';
 import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
@@ -28,6 +29,7 @@ import ConfirmModal from '@/components/ConfirmModal';
 import QuickStatusModal from '@/components/QuickStatusModal';
 import QuickMilestoneModal from '@/components/QuickMilestoneModal';
 import { exportToPDFService, uploadFloorplanService, attachOriginalService } from '@/services/api';
+import { prefetchOriginalPdfs } from '@/utils/pdfSource';
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
@@ -135,6 +137,17 @@ function App() {
   const { data: units = [] } = useUnits(activeSheetId);
   const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), milestones);
   const { isFetching: isSnappingLoading } = useSnappingVectors(activeSheetId);
+  const { data: milestoneOverrides = [] } = useMilestoneOverrides(projectId);
+
+  // Single source of truth for "does milestone M apply to unit U" —
+  // unit-type rules + per-unit overrides resolved via src/utils/applicability.ts
+  const applicabilityIndex = useMemo(
+    () => buildApplicabilityIndex(milestones, milestoneOverrides),
+    [milestones, milestoneOverrides]
+  );
+
+  const setApplicabilityMutation = useSetMilestoneApplicability(projectId);
+  const bulkApplicabilityMutation = useBulkSetApplicability(projectId);
 
   const mapDisplayStatuses = useMemo(() => {
     const currentTrackMilestones = milestones
@@ -148,31 +161,36 @@ function App() {
       const unitStatuses = activeStatuses.filter(s => s.unit_id === unit.id && s.track === trackingMode);
       if (unitStatuses.length === 0) return null;
 
-      let primaryMasterIdx = currentTrackMilestones.length - 1; // Default to end
+      // Only milestones applicable to THIS unit participate in the bottleneck
+      // sequence — an N/A milestone must never become the permanent "current work".
+      const unitMilestones = currentTrackMilestones.filter(m => isMilestoneApplicable(m, unit, applicabilityIndex));
+      if (unitMilestones.length === 0) return null;
+
+      let primaryMasterIdx = unitMilestones.length - 1; // Default to end
       let masterFurthestCompletedIdx = -1;
 
-      // 1. Find the FIRST milestone in the sequence that is NOT completed
-      for (let i = 0; i < currentTrackMilestones.length; i++) {
-         const m = currentTrackMilestones[i];
+      // 1. Find the FIRST applicable milestone in the sequence that is NOT completed
+      for (let i = 0; i < unitMilestones.length; i++) {
+         const m = unitMilestones[i];
          const log = unitStatuses.find(s => s.milestone === m.name);
-         
+
          if (log && log.temporal_state === 'completed') {
              masterFurthestCompletedIdx = Math.max(masterFurthestCompletedIdx, i);
          } else {
              // This is the bottleneck (planned, ongoing, or missing)
              primaryMasterIdx = i;
-             break; 
+             break;
          }
       }
 
       // 2. Reconstruct the structural active status block for the renderer
-      const primaryMilestone = currentTrackMilestones[primaryMasterIdx];
-      
+      const primaryMilestone = unitMilestones[primaryMasterIdx];
+
       // FIX 2: Safeguard against undefined array indexes
-      if (!primaryMilestone) return null; 
+      if (!primaryMilestone) return null;
 
       const existingLog = unitStatuses.find(s => s.milestone === primaryMilestone.name);
-      
+
       const primaryStatus = existingLog || {
          unit_id: unit.id,
          milestone: primaryMilestone.name,
@@ -180,11 +198,12 @@ function App() {
          temporal_state: (primaryMasterIdx === masterFurthestCompletedIdx && existingLog?.temporal_state === 'completed') ? 'completed' : 'planned',
          track: trackingMode
       };
-      
+
       // 3. Find Out-of-Sequence work existing AFTER the bottleneck sequentially
+      // (status rows on inapplicable milestones get sIdx -1 and are excluded)
       const outOfSequence = unitStatuses.filter(s => {
           if (s.temporal_state !== 'completed' && s.temporal_state !== 'ongoing') return false;
-          const sIdx = currentTrackMilestones.findIndex(m => m.name === s.milestone);
+          const sIdx = unitMilestones.findIndex(m => m.name === s.milestone);
           return sIdx > primaryMasterIdx;
       });
 
@@ -194,7 +213,7 @@ function App() {
           outOfSequence
       };
     }).filter(Boolean);
-  }, [units, activeStatuses, milestones, trackingMode]);
+  }, [units, activeStatuses, milestones, trackingMode, applicabilityIndex]);
 
   // Auto-select first available sheet to prevent invalid UI mounting or empty cache fallbacks
   useEffect(() => {
@@ -211,6 +230,14 @@ function App() {
   }, [sheets, activeSheetId, setActiveSheetId, isSheetsLoaded, isMounted]);
 
   const activeSheet = sheets.find((s) => s.id === activeSheetId);
+
+  // Warm the browser HTTP cache with sibling levels' PDFs once the active
+  // sheet has had time to load, so switching levels is fast on first visit.
+  useEffect(() => {
+    if (!activeSheetId || sheets.length < 2) return;
+    const timer = setTimeout(() => prefetchOriginalPdfs(sheets, activeSheetId), 4000);
+    return () => clearTimeout(timer);
+  }, [sheets, activeSheetId]);
 
   // Auto-select valid tracking mode if the active sheet changes and doesn't contain it
   useEffect(() => {
@@ -336,6 +363,27 @@ function App() {
   };
 
   const floorplanRef = useRef(null);
+
+  // Per-unit N/A toggle. Marking a slot N/A when it already has recorded
+  // status asks for confirmation — history is kept but leaves all progress math.
+  const handleToggleApplicability = (unit, milestone, isApplicable, currentState) => {
+    const commit = () => setApplicabilityMutation.mutate({ milestoneId: milestone.id, unitId: unit.id, isApplicable });
+    if (!isApplicable && currentState && currentState !== 'none') {
+      setConfirmModal({
+        message: `"${milestone.name}" already has recorded status for ${unit.unit_number}. Mark it Not Applicable anyway? Existing history is kept but excluded from progress.`,
+        onConfirm: () => { commit(); setConfirmModal(null); }
+      });
+    } else {
+      commit();
+    }
+  };
+
+  const handleBulkApplicability = (milestoneId, unitIds, isApplicable) => {
+    bulkApplicabilityMutation.mutate({ milestoneId, unitIds, isApplicable }, {
+      onSuccess: () => showToast(`${unitIds.length} location(s) updated.`, 'success'),
+      onError: (err) => showToast('Error updating applicability: ' + err.message, 'error')
+    });
+  };
 
   const exportToPDF = async () => {
     if (!activeSheetId || !activeSheet) return;
@@ -493,6 +541,7 @@ function App() {
               trackingMode={trackingMode}
               sheets={sheets}
               activeSheet={activeSheet}
+              applicabilityIndex={applicabilityIndex}
             />
           </div>
         ) : viewMode === 'list' ? (
@@ -510,6 +559,8 @@ function App() {
               sheets={sheets}
               activeSheetId={activeSheetId}
               setActiveSheetId={setActiveSheetId}
+              applicabilityIndex={applicabilityIndex}
+              onToggleApplicability={handleToggleApplicability}
             />
           </div>
         ) : (
@@ -537,6 +588,7 @@ function App() {
                   activeStatuses={mapDisplayStatuses}
                   rawStatuses={activeStatuses}
                   imageUrl={activeSheet.base_image_url}
+                  pdfVersion={activeSheet.pdf_version ?? null}
                   onUpdateUnitPolygon={handleUpdateUnitPolygon}
                   onUpdateUnitIconOffset={handleUpdateUnitIconOffset}
                   onDuplicateUnit={handleDuplicateUnit}
@@ -550,6 +602,7 @@ function App() {
                   showTooltip={settings.showTooltips}
                   onOpenStatusModal={(id) => setQuickStatusUnitId(id)}
                   onOpenMilestoneModal={(id) => setQuickMilestoneUnitId(id)}
+                  applicabilityIndex={applicabilityIndex}
                 />
                 </>
               ) : (
@@ -633,7 +686,8 @@ function App() {
           const bottlenecks = selectedUnitIds.map(id => mapDisplayStatuses.find(s => s.unit_id === id && s.track === trackingMode)).filter(Boolean);
           handleApplyBulkStatus({ ...params, bottlenecks });
         }}
-        isPending={isPendingBulk}
+        onApplyBulkApplicability={handleBulkApplicability}
+        isPending={isPendingBulk || bulkApplicabilityMutation.isPending}
       />
 
       {isModalOpen && (

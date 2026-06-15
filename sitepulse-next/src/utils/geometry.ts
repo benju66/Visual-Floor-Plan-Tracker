@@ -110,6 +110,51 @@ export const getSnappedCoordinate = (
   return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
 };
 
+/** Minimal layout shape for pct → logical-pixel conversion. */
+interface CentroidLayout {
+  offsetX: number;
+  offsetY: number;
+  drawW: number;
+  drawH: number;
+}
+
+/** Minimal unit shape for centroid hit-testing (subset of domain `Unit`). */
+export interface CentroidTarget {
+  id: string;
+  polygon_coordinates?: PercentPoint[] | null;
+}
+
+/**
+ * Find the unit whose polygon centroid is closest to (x, y) — logical stage
+ * pixels — within `radius`. Single pass, squared-distance compare (no sqrt).
+ * Returns null when nothing is in range. Used for walk-route drop targeting.
+ */
+export const nearestCentroidWithin = (
+  units: CentroidTarget[],
+  x: number,
+  y: number,
+  radius: number,
+  layout: CentroidLayout,
+): string | null => {
+  const radiusSq = radius * radius;
+  let closestId: string | null = null;
+  let minDistSq = Infinity;
+
+  for (const u of units) {
+    if (!u.polygon_coordinates || u.polygon_coordinates.length === 0) continue;
+    const centroid = getCentroid(u.polygon_coordinates);
+    const dx = layout.offsetX + centroid.pctX * layout.drawW - x;
+    const dy = layout.offsetY + centroid.pctY * layout.drawH - y;
+    const dSq = dx * dx + dy * dy;
+    if (dSq < radiusSq && dSq < minDistSq) {
+      minDistSq = dSq;
+      closestId = u.id;
+    }
+  }
+
+  return closestId;
+};
+
 /**
  * Converts any CSS color string to rgba() with the given alpha.
  * Handles: hex (#RGB or #RRGGBB), rgb(...), rgba(...).

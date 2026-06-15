@@ -254,6 +254,7 @@ export const MappedUnitComponent = ({
               closed={true}
               opacity={0.6}
               listening={false}
+              perfectDrawEnabled={false}
             />
           );
         })()}
@@ -329,6 +330,9 @@ export const MappedUnitComponent = ({
                 shadowColor="#ef4444"
                 shadowBlur={8}
                 opacity={0.8}
+                listening={false}
+                perfectDrawEnabled={false}
+                shadowForStrokeEnabled={false}
               />
             )}
             <Circle
@@ -339,6 +343,8 @@ export const MappedUnitComponent = ({
               shadowColor={isDelayed ? "rgba(239, 68, 68, 0.4)" : "rgba(0,0,0,0.4)"}
               shadowBlur={isDelayed ? 8 : 4}
               shadowOffset={{ x: 0, y: 2 }}
+              perfectDrawEnabled={false}
+              shadowForStrokeEnabled={false}
             />
             <Path
               x={-8}
@@ -351,6 +357,7 @@ export const MappedUnitComponent = ({
               strokeLineJoin="round"
               scale={{ x: 0.65, y: 0.65 }}
               listening={false}
+              perfectDrawEnabled={false}
             />
           </Group>
         );
@@ -365,6 +372,7 @@ export const MappedUnitComponent = ({
            fill={toolMode === 'delete_node' ? '#ef4444' : '#fff'}
            stroke={toolMode === 'delete_node' ? '#fff' : '#8b5cf6'}
            strokeWidth={2 / stageScale}
+           perfectDrawEnabled={false}
            draggable={['select', 'add_node'].includes(toolMode)}
            dragBoundFunc={(pos) => {
              if (isShiftDown) {
@@ -432,6 +440,7 @@ export const MappedUnitComponent = ({
            strokeWidth={2 / stageScale}
            fill="transparent"
            listening={false}
+           perfectDrawEnabled={false}
          />
       )}
     </React.Fragment>

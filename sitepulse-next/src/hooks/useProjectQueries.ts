@@ -2,9 +2,9 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { supabase } from '@/supabaseClient';
 import { extractVectorsService } from '@/services/api';
 import { queryKeys } from '@/types/queryKeys';
-import type { 
+import type {
   Project, Sheet, Unit, Milestone, StatusLog, Profile, ProjectMember,
-  TemporalState
+  TemporalState, MilestoneOverride
 } from '@/types/domain';
 import type { 
   UpdateUnitGeometryVars, BulkUpdateStatusVars, UpdateStatusVars 
@@ -143,6 +143,24 @@ export function useMilestones(projectId: string) {
         .order('created_at', { ascending: true });
       if (error) throw error;
       return data;
+    },
+    enabled: !!projectId
+  });
+}
+
+export function useMilestoneOverrides(projectId: string) {
+  return useQuery({
+    queryKey: queryKeys.milestoneOverrides(projectId),
+    queryFn: async (): Promise<MilestoneOverride[]> => {
+      if (!projectId) return [];
+      // Inner-join filter scopes the fetch to this project's milestones.
+      const { data, error } = await supabase
+        .from('milestone_applicability_overrides')
+        .select('*, project_milestones!inner(project_id)')
+        .eq('project_milestones.project_id', projectId);
+      if (error) throw error;
+      // Strip the embedded join object so the cache stays a flat Row array.
+      return (data || []).map(({ project_milestones, ...row }: any) => row as MilestoneOverride);
     },
     enabled: !!projectId
   });
@@ -508,7 +526,13 @@ export function useUpdateMilestone(projectId: string, sheetId: string) {
       if (error) throw error;
 
       if (oldName !== newName || newColor) {
-        const { data: logs, error: fetchErr } = await supabase.from('status_logs').select('id').eq('milestone', oldName);
+        // Scope the name-match to THIS project's units — milestones are linked
+        // by name string, and other projects may have a same-named milestone.
+        const { data: logs, error: fetchErr } = await supabase
+          .from('status_logs')
+          .select('id, units!inner(sheets!inner(project_id))')
+          .eq('milestone', oldName)
+          .eq('units.sheets.project_id', projectId);
         if (fetchErr) throw fetchErr;
 
         if (logs && logs.length > 0) {
@@ -528,6 +552,121 @@ export function useUpdateMilestone(projectId: string, sheetId: string) {
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
       queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
     }
+  });
+}
+
+export function useSetMilestoneApplicability(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ milestoneId, unitId, isApplicable }: { milestoneId: string, unitId: string, isApplicable: boolean }) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      // Idempotent slot upsert — safe for offline mutation replay.
+      const { data, error } = await supabase
+        .from('milestone_applicability_overrides')
+        .upsert({
+          milestone_id: milestoneId,
+          unit_id: unitId,
+          is_applicable: isApplicable,
+          created_by: session?.user?.id || null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'milestone_id,unit_id' })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as MilestoneOverride;
+    },
+    onMutate: async ({ milestoneId, unitId, isApplicable }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.milestoneOverrides(projectId) });
+      queryClient.setQueriesData<MilestoneOverride[]>({ queryKey: queryKeys.milestoneOverrides(projectId) }, old => {
+        if (!old) return old;
+        const filtered = old.filter(o => !(o.milestone_id === milestoneId && o.unit_id === unitId));
+        const optimistic = {
+          id: `temp_${Date.now()}`,
+          milestone_id: milestoneId,
+          unit_id: unitId,
+          is_applicable: isApplicable,
+          created_by: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        } as MilestoneOverride;
+        return [...filtered, optimistic];
+      });
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestoneOverrides(projectId) })
+  });
+}
+
+export function useBulkSetApplicability(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ milestoneId, unitIds, isApplicable }: { milestoneId: string, unitIds: string[], isApplicable: boolean }) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const now = new Date().toISOString();
+      const rows = unitIds.map(unitId => ({
+        milestone_id: milestoneId,
+        unit_id: unitId,
+        is_applicable: isApplicable,
+        created_by: session?.user?.id || null,
+        updated_at: now
+      }));
+      const CHUNK_SIZE = 800;
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const { error } = await supabase
+          .from('milestone_applicability_overrides')
+          .upsert(rows.slice(i, i + CHUNK_SIZE), { onConflict: 'milestone_id,unit_id' });
+        if (error) throw error;
+      }
+    },
+    onMutate: async ({ milestoneId, unitIds, isApplicable }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.milestoneOverrides(projectId) });
+      queryClient.setQueriesData<MilestoneOverride[]>({ queryKey: queryKeys.milestoneOverrides(projectId) }, old => {
+        if (!old) return old;
+        const unitSet = new Set(unitIds);
+        const filtered = old.filter(o => !(o.milestone_id === milestoneId && unitSet.has(o.unit_id)));
+        const now = new Date().toISOString();
+        const optimistic = unitIds.map((unitId, idx) => ({
+          id: `temp_${Date.now()}_${idx}`,
+          milestone_id: milestoneId,
+          unit_id: unitId,
+          is_applicable: isApplicable,
+          created_by: null,
+          created_at: now,
+          updated_at: now
+        } as MilestoneOverride));
+        return [...filtered, ...optimistic];
+      });
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestoneOverrides(projectId) })
+  });
+}
+
+export function useUpdateMilestoneRules(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, applies_to_unit_types }: { id: string, applies_to_unit_types: string[] | null }) => {
+      const { data, error } = await supabase
+        .from('project_milestones')
+        .update({ applies_to_unit_types })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as Milestone;
+    },
+    onMutate: async ({ id, applies_to_unit_types }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.milestones(projectId) });
+      queryClient.setQueriesData<Milestone[]>({ queryKey: queryKeys.milestones(projectId) }, old => {
+        if (!old) return old;
+        return old.map(m => m.id === id ? { ...m, applies_to_unit_types } as Milestone : m);
+      });
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestones(projectId) })
   });
 }
 

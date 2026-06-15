@@ -8,6 +8,7 @@ export type StatusLog  = Database['public']['Tables']['status_logs']['Row'];
 export type Profile    = Database['public']['Tables']['profiles']['Row'];
 export type ProjectMember = Database['public']['Tables']['project_members']['Row'];
 export type StatusAuditLog = Database['public']['Tables']['status_audit_log']['Row'];
+export type MilestoneOverride = Database['public']['Tables']['milestone_applicability_overrides']['Row'];
 
 export type StatusLogInsert = Database['public']['Tables']['status_logs']['Insert'];
 export type UnitInsert      = Database['public']['Tables']['units']['Insert'];
@@ -53,4 +54,15 @@ export function isPercentPointArray(val: unknown): val is PercentPoint[] {
     Array.isArray(val) &&
     val.every(p => typeof (p as PercentPoint).pctX === 'number' && typeof (p as PercentPoint).pctY === 'number')
   );
+}
+
+/**
+ * Narrows a milestone's `applies_to_unit_types` JSONB to a string array.
+ * Returns null for null/empty/malformed values — meaning "applies to all unit types".
+ */
+export function getAppliesTo(milestone: Pick<Milestone, 'applies_to_unit_types'>): string[] | null {
+  const val = milestone.applies_to_unit_types;
+  if (!Array.isArray(val) || val.length === 0) return null;
+  const strings = val.filter((t): t is string => typeof t === 'string');
+  return strings.length > 0 ? strings : null;
 }

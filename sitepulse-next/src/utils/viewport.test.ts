@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { classifyWheelIntent, clampStagePosition, type WheelLike, type ViewportLayout } from './viewport';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import {
+  classifyWheelIntent,
+  clampStagePosition,
+  createViewportSync,
+  type WheelLike,
+  type ViewportLayout,
+  type ViewportCommitValue,
+} from './viewport';
 
 const wheel = (over: Partial<WheelLike>): WheelLike => ({
   ctrlKey: false,
@@ -74,5 +81,108 @@ describe('clampStagePosition', () => {
     const clamped = clampStagePosition(centered, scale, layout, stageW, stageH);
     expect(clamped.x).toBeCloseTo(centered.x, 6);
     expect(clamped.y).toBeCloseTo(centered.y, 6);
+  });
+});
+
+describe('createViewportSync', () => {
+  // Fake timers + a clock that follows them, so interval math matches setTimeout firing.
+  let clock: number;
+  const now = () => clock;
+  const advance = (ms: number) => {
+    clock += ms;
+    vi.advanceTimersByTime(ms);
+  };
+  const v = (scale: number): ViewportCommitValue => ({ scale, x: scale * 10, y: scale * 20 });
+
+  beforeEach(() => {
+    clock = 0;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('commits the first push immediately (leading)', () => {
+    const commit = vi.fn();
+    const sync = createViewportSync(commit, 120, now);
+    sync.push(v(1));
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith(v(1));
+  });
+
+  it('coalesces pushes within the interval into one trailing commit with the last value', () => {
+    const commit = vi.fn();
+    const sync = createViewportSync(commit, 120, now);
+
+    sync.push(v(1)); // leading
+    advance(30);
+    sync.push(v(2));
+    advance(30);
+    sync.push(v(3));
+    expect(commit).toHaveBeenCalledTimes(1);
+
+    // Trailing fires at interval boundary (120ms after the leading commit).
+    advance(60);
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(commit).toHaveBeenLastCalledWith(v(3));
+  });
+
+  it('keeps committing ~once per interval during a sustained gesture', () => {
+    const commit = vi.fn();
+    const sync = createViewportSync(commit, 120, now);
+
+    // Push every 30ms for 480ms: leading at t=0, trailing at 120/240/360/480.
+    for (let t = 0; t < 480; t += 30) {
+      sync.push(v(t));
+      advance(30);
+    }
+    expect(commit.mock.calls.length).toBe(5);
+  });
+
+  it('flush commits the pending value immediately', () => {
+    const commit = vi.fn();
+    const sync = createViewportSync(commit, 120, now);
+
+    sync.push(v(1)); // leading
+    advance(10);
+    sync.push(v(2)); // pending
+    sync.flush();
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(commit).toHaveBeenLastCalledWith(v(2));
+
+    // Nothing left pending — the trailing timer was cleared.
+    advance(500);
+    expect(commit).toHaveBeenCalledTimes(2);
+  });
+
+  it('flush with nothing pending is a no-op', () => {
+    const commit = vi.fn();
+    const sync = createViewportSync(commit, 120, now);
+    sync.flush();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('cancel discards the pending value', () => {
+    const commit = vi.fn();
+    const sync = createViewportSync(commit, 120, now);
+
+    sync.push(v(1)); // leading
+    advance(10);
+    sync.push(v(2)); // pending
+    sync.cancel();
+    advance(500);
+    expect(commit).toHaveBeenCalledTimes(1); // only the leading commit
+  });
+
+  it('a push after an idle interval is leading again', () => {
+    const commit = vi.fn();
+    const sync = createViewportSync(commit, 120, now);
+
+    sync.push(v(1));
+    advance(200); // past the interval, no pending work
+    sync.push(v(2));
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(commit).toHaveBeenLastCalledWith(v(2));
   });
 });

@@ -5,6 +5,8 @@ import { ArrowRight, X, ListTodo, AlertTriangle, Eye, EyeOff } from 'lucide-reac
 import type { Unit, StatusLog, Milestone, PendingChange, TemporalState, StatusLogAugmented, BottleneckSequence } from '@/types/domain';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { useUIStore } from '@/store/useUIStore';
+import { isMilestoneApplicable } from '@/utils/applicability';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 
 const getBadgeStyle = (state: TemporalState) => {
   switch (state) {
@@ -48,6 +50,8 @@ interface SwipeCardProps {
   hasPendingUpdate: boolean;
   swipeRightLabel: string;
   entryDirection?: 'left' | 'right' | 'none';
+  applicabilityIndex?: ApplicabilityIndex;
+  onToggleApplicability?: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
 }
 
 const SwipeCard = ({
@@ -67,6 +71,8 @@ const SwipeCard = ({
   hasPendingUpdate,
   swipeRightLabel,
   entryDirection,
+  applicabilityIndex,
+  onToggleApplicability,
 }: SwipeCardProps) => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const hideCompletedTimeline = useUIStore(s => s.hideCompletedTimeline);
@@ -135,7 +141,12 @@ const SwipeCard = ({
   const hasBottleneck = !!log?.outOfSequence?.length;
   const bottleneckCount = log?.outOfSequence?.length || 0;
   
-  const completedCount = milestones.filter(m => {
+  // Only milestones applicable to this unit count toward the card's progress
+  const applicableUnitMilestones = applicabilityIndex
+    ? milestones.filter(m => isMilestoneApplicable(m, unit, applicabilityIndex))
+    : milestones;
+
+  const completedCount = applicableUnitMilestones.filter(m => {
     const mLog = unitRawLogs.find(l => l.milestone === m.name);
     const ptc = pendingTimelineChanges?.[`${unit.id}_${m.name}`];
     const state = ptc?.state || (log?.milestone === m.name ? pendingState : mLog?.temporal_state || 'none');
@@ -218,7 +229,7 @@ const SwipeCard = ({
         <div className="relative z-10 flex flex-col h-full w-full">
           <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-2 min-h-0 overflow-y-auto no-scrollbar touch-pan-y overscroll-contain">
             <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 inline-block shadow-sm">
-              {unit.unit_type || 'Unknown'} · {completedCount}/{milestones.length}
+              {unit.unit_type || 'Unknown'} · {completedCount}/{applicableUnitMilestones.length}
             </span>
 
             <div className="flex items-center justify-center gap-2 mb-1 relative">
@@ -437,10 +448,36 @@ const SwipeCard = ({
                 )}
 
                 {milestones.map((m) => {
+                  const notApplicable = applicabilityIndex && !isMilestoneApplicable(m, unit, applicabilityIndex);
+                  if (notApplicable) {
+                    return (
+                      <div key={m.name} className="border-b border-slate-100 dark:border-white/6 last:border-b-0 px-4 py-2.5 opacity-50">
+                        <div className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-sm shrink-0 border border-dashed border-slate-400" />
+                          <span className="flex-1 truncate text-[13px] font-bold italic text-slate-400 dark:text-slate-500">
+                            {m.name}
+                          </span>
+                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">
+                            N/A
+                          </span>
+                          {onToggleApplicability && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, m, true); }}
+                              className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-500 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 active:scale-95 transition-all shrink-0"
+                            >
+                              Restore
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
                   const pendingTimeline = pendingTimelineChanges?.[`${unit.id}_${m.name}`];
                   const mLog = unitRawLogs.find((l) => l.milestone === m.name);
                   const isCurrentMilestone = log?.milestone === m.name;
-                  const state = pendingTimeline 
+                  const state = pendingTimeline
                     ? pendingTimeline.state
                     : isCurrentMilestone
                       ? pendingState
@@ -462,6 +499,16 @@ const SwipeCard = ({
                           <span className="text-[9px] font-black uppercase tracking-widest text-sky-500 shrink-0">
                             Active
                           </span>
+                        )}
+                        {onToggleApplicability && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, m, false, state); }}
+                            aria-label={`Mark ${m.name} not applicable for this location`}
+                            className="text-[9px] font-bold uppercase tracking-widest text-slate-300 dark:text-slate-600 hover:text-red-500 px-1.5 py-1 rounded active:scale-95 transition-all shrink-0"
+                          >
+                            N/A
+                          </button>
                         )}
                       </div>
 

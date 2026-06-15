@@ -9,6 +9,7 @@ import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 import SyncIndicator from '@/components/ui/SyncIndicator';
 import { useUIStore } from '@/store/useUIStore';
 import type { Unit, StatusLog, Milestone, Sheet, PendingChangesMap, PendingChange, TemporalState, StatusLogAugmented } from '@/types/domain';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 
 interface MobileSwipeDeckProps {
   visible: Array<{ unit: Unit; log: StatusLog | undefined | null }>;
@@ -38,6 +39,8 @@ interface MobileSwipeDeckProps {
   sheets: Sheet[];
   activeSheetId: string;
   setActiveSheetId: (id: string) => void;
+  applicabilityIndex?: ApplicabilityIndex;
+  onToggleApplicability?: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
 }
 
 type HistoryEntry = {
@@ -74,6 +77,8 @@ export default function MobileSwipeDeck({
   sheets,
   activeSheetId,
   setActiveSheetId,
+  applicabilityIndex,
+  onToggleApplicability,
 }: MobileSwipeDeckProps) {
   const router = useRouter();
   const [swipedHistory, setSwipedHistory] = useState<HistoryEntry[]>([]);
@@ -493,6 +498,8 @@ export default function MobileSwipeDeck({
                 onChooseStatus={() => onChooseStatus?.(unit.id, log?.milestone || '', log?.temporal_state || '', '')}
                 onStageUpdate={handleLocalUpdate}
                 onTimelineUpdate={handleTimelineUpdate}
+                applicabilityIndex={applicabilityIndex}
+                onToggleApplicability={onToggleApplicability}
               />
             );
           })}

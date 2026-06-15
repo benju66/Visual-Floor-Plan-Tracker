@@ -7,6 +7,7 @@ import { uploadFloorplanService, attachOriginalService } from '@/services/api';
 import { useUpdateMilestone, useReorderSheets } from '@/hooks/useProjectQueries';
 import type { Project, Sheet, Milestone } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
+import { invalidatePdfBytes } from '@/utils/pdfByteCache';
 
 export function useProjectActions(project: Project | null | undefined, sheets: Sheet[], projectId: string) {
   const queryClient = useQueryClient();
@@ -65,8 +66,21 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       if (fetchErr) throw fetchErr;
 
       if (milestoneData?.name) {
-        const { error: logErr } = await supabase.from('status_logs').delete().eq('milestone', milestoneData.name);
-        if (logErr) throw logErr;
+        // Scope the name-match to THIS project's units — milestones are linked
+        // by name string, and other projects may have a same-named milestone.
+        const { data: logs, error: fetchErr } = await supabase
+          .from('status_logs')
+          .select('id, units!inner(sheets!inner(project_id))')
+          .eq('milestone', milestoneData.name)
+          .eq('units.sheets.project_id', project?.id || projectId);
+        if (fetchErr) throw fetchErr;
+
+        const logIds = (logs || []).map(l => l.id);
+        const CHUNK_SIZE = 800;
+        for (let i = 0; i < logIds.length; i += CHUNK_SIZE) {
+          const { error: logErr } = await supabase.from('status_logs').delete().in('id', logIds.slice(i, i + CHUNK_SIZE));
+          if (logErr) throw logErr;
+        }
       }
 
       const { error } = await supabase.from('project_milestones').delete().eq('id', id);
@@ -131,6 +145,11 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       const token = session?.access_token;
       if (!token) throw new Error('Missing token');
       await attachOriginalService(activeSheetId, file, token);
+      // Drop cached PDF bytes so the canvas re-downloads the new original
+      invalidatePdfBytes(activeSheetId);
+      // Refetch sheets so the bumped pdf_version flows to the canvas — the
+      // versioned URL cache-busts browser/CDN and reloads the drawing.
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets(project?.id || projectId) });
       // F7: Invalidate cached vectors so snapping re-extracts from new PDF
       queryClient.invalidateQueries({ queryKey: queryKeys.snappingVectors(activeSheetId) });
       showToast('Successfully attached original PDF!', 'success');
@@ -159,6 +178,7 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
         `converted/${sheetId}.png`,
         `originals/${sheetId}.pdf`
       ]);
+      invalidatePdfBytes(sheetId);
 
       // F4: Clean up tile folder — list and remove all tile files
       try {

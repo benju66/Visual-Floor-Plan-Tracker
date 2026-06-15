@@ -17,7 +17,8 @@ const MobileSwipeDeck = dynamic(() => import('./MobileSwipeDeck'), {
   ),
 });
 import StatusTable from './StatusTable';
-import type { Sheet } from '@/types/domain';
+import type { Sheet, Unit, Milestone, TemporalState } from '@/types/domain';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 
 // Re-export BottleneckIndicator so any existing consumers of the named export
 // from this file don't break during the transition period.
@@ -32,6 +33,8 @@ interface FieldStatusTableProps {
   sheets?: Sheet[];
   activeSheetId: string;
   setActiveSheetId: (id: string) => void;
+  applicabilityIndex?: ApplicabilityIndex;
+  onToggleApplicability?: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
 }
 
 export default function FieldStatusTable({
@@ -43,6 +46,8 @@ export default function FieldStatusTable({
   sheets = [],
   activeSheetId,
   setActiveSheetId,
+  applicabilityIndex,
+  onToggleApplicability,
 }: FieldStatusTableProps) {
   // --- Zustand store subscriptions (global state — stays in container) ---
   const selectedUnitIds = useMapStore((s) => s.selectedUnitIds);
@@ -215,6 +220,8 @@ export default function FieldStatusTable({
           sheets={sheets}
           activeSheetId={activeSheetId}
           setActiveSheetId={setActiveSheetId}
+          applicabilityIndex={applicabilityIndex}
+          onToggleApplicability={onToggleApplicability}
         />
       )}
 
@@ -237,6 +244,8 @@ export default function FieldStatusTable({
             currentMilestones={currentMilestones}
             pendingTimelineChanges={pendingTimelineChanges}
             trackingMode={trackingMode}
+            applicabilityIndex={applicabilityIndex}
+            onToggleApplicability={onToggleApplicability}
             {...sharedSelectionProps}
           />
         </div>

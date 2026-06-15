@@ -1,59 +1,58 @@
 import React from 'react';
 import { Line, Circle } from 'react-konva';
+import { usePointerSample, type PointerStore } from '@/utils/pointerStore';
 import type { PercentPoint, CanvasLayout } from '@/types/domain';
-import type { ToolMode } from '@/store/useMapStore';
 
 export interface DraftPolygonProps {
-  toolMode: ToolMode;
   draftPoints: PercentPoint[];
-  pointerPos: { x: number; y: number } | null;
+  pointerStore: PointerStore;
   boxOrigin: PercentPoint | null;
-  stagePosition: { x: number; y: number };
   stageScale: number;
   layout: CanvasLayout;
-  snapPreviewPoint: PercentPoint | null;
   enableSnapping: boolean;
   isShiftDown: boolean;
   toPixels: (points: PercentPoint[]) => number[];
 }
 
+/**
+ * Draw-mode preview: cursor ghost line, snap ring, box-drag preview, and the
+ * confirmed draft outline. Mounted only while toolMode === 'draw'; follows the
+ * cursor via the pointer store (per-frame re-renders confined to this subtree).
+ * The sample's pct coords and snap result are computed upstream in onMouseMove
+ * against the live stage transform — the same values handleStageClick commits.
+ */
 export default function DraftPolygon({
-  toolMode,
   draftPoints,
-  pointerPos,
+  pointerStore,
   boxOrigin,
-  stagePosition,
   stageScale,
   layout,
-  snapPreviewPoint,
   enableSnapping,
   isShiftDown,
   toPixels
 }: DraftPolygonProps) {
-  if (toolMode !== 'draw') return null;
+  const sample = usePointerSample(pointerStore);
 
   return (
     <React.Fragment>
       {/* Snap Preview & Ghost Node (Active even before first point is placed) */}
-      {pointerPos && !boxOrigin && (() => {
-        const logicalX = (pointerPos.x - stagePosition.x) / stageScale;
-        const logicalY = (pointerPos.y - stagePosition.y) / stageScale;
-        let pctX = (logicalX - layout.offsetX) / layout.drawW;
-        let pctY = (logicalY - layout.offsetY) / layout.drawH;
+      {sample && !boxOrigin && (() => {
+        let pctX = sample.pctX;
+        let pctY = sample.pctY;
         let isSnapped = false;
-        
+
         if (isShiftDown && draftPoints.length > 0) {
           const last = draftPoints[draftPoints.length - 1];
           const dx = Math.abs(pctX - last.pctX);
           const dy = Math.abs(pctY - last.pctY);
           if (dx > dy) pctY = last.pctY;
           else pctX = last.pctX;
-        } else if (enableSnapping && snapPreviewPoint) {
-          pctX = snapPreviewPoint.pctX;
-          pctY = snapPreviewPoint.pctY;
+        } else if (enableSnapping && sample.snap?.snapped) {
+          pctX = sample.snap.pctX;
+          pctY = sample.snap.pctY;
           isSnapped = true;
         }
-        
+
         return (
           <React.Fragment>
             {draftPoints.length > 0 && (
@@ -82,29 +81,22 @@ export default function DraftPolygon({
       })()}
 
       {/* Box drag preview */}
-      {boxOrigin && pointerPos && (() => {
-        const logicalX = (pointerPos.x - stagePosition.x) / stageScale;
-        const logicalY = (pointerPos.y - stagePosition.y) / stageScale;
-        const pctX = (logicalX - layout.offsetX) / layout.drawW;
-        const pctY = (logicalY - layout.offsetY) / layout.drawH;
-        
-        return (
-          <Line
-            points={toPixels([
-              { pctX: boxOrigin.pctX, pctY: boxOrigin.pctY },
-              { pctX: pctX, pctY: boxOrigin.pctY },
-              { pctX: pctX, pctY: pctY },
-              { pctX: boxOrigin.pctX, pctY: pctY }
-            ])}
-            stroke="rgba(59, 130, 246, 0.8)"
-            fill="rgba(59, 130, 246, 0.15)"
-            strokeWidth={2 / stageScale}
-            dash={[6 / stageScale, 6 / stageScale]}
-            closed={true}
-            listening={false}
-          />
-        );
-      })()}
+      {boxOrigin && sample && (
+        <Line
+          points={toPixels([
+            { pctX: boxOrigin.pctX, pctY: boxOrigin.pctY },
+            { pctX: sample.pctX, pctY: boxOrigin.pctY },
+            { pctX: sample.pctX, pctY: sample.pctY },
+            { pctX: boxOrigin.pctX, pctY: sample.pctY }
+          ])}
+          stroke="rgba(59, 130, 246, 0.8)"
+          fill="rgba(59, 130, 246, 0.15)"
+          strokeWidth={2 / stageScale}
+          dash={[6 / stageScale, 6 / stageScale]}
+          closed={true}
+          listening={false}
+        />
+      )}
 
       {/* Confirmed draft lines */}
       {draftPoints.length > 0 && (

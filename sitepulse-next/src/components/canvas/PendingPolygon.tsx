@@ -53,6 +53,7 @@ export default function PendingPolygon({
         globalCompositeOperation="multiply"
         dash={[10 / stageScale, 8 / stageScale]}
         closed={true}
+        perfectDrawEnabled={false}
         draggable={true}
         onDragMove={(e) => {
           const dx = e.target.x() / layout.drawW;
@@ -81,6 +82,7 @@ export default function PendingPolygon({
           fill="#fff"
           stroke="#8b5cf6"
           strokeWidth={2 / stageScale}
+          perfectDrawEnabled={false}
           draggable={true}
           dragBoundFunc={(pos) => {
             if (!isShiftDown) return pos;

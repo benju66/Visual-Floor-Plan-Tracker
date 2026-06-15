@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { computeUnitVariance, varianceFill, varianceLabel } from '@/utils/progressAnalytics';
+import { isMilestoneApplicable } from '@/utils/applicability';
 
 export default function HoverHistoryTooltip({
   hoveredUnit,
-  pointerPos,
+  getPointerPos,
   units,
   rawStatuses,
   trackingMode,
   milestones,
   dimensions,
   toolMode,
-  contextMenu
+  contextMenu,
+  applicabilityIndex
 }) {
   const [activeUnit, setActiveUnit] = useState(null);
   const [activePos, setActivePos] = useState(null);
@@ -43,14 +45,18 @@ export default function HoverHistoryTooltip({
     return () => clearTimeout(timeoutRef.current);
   }, [hoveredUnit, contextMenu, toolMode]);
 
-  // Update position ONLY ONCE per hovered unit to prevent the "runaway tooltip" bug
-  // and eliminate 60FPS React state re-renders for a massive performance win.
+  // Anchor the position ONLY ONCE per hovered unit. The pointer position is read
+  // lazily from the pointer store (no React state behind it), so mouse movement
+  // never re-renders this component — only a change of hovered unit does.
   useEffect(() => {
-     if (hoveredUnit && pointerPos && anchoredUnitRef.current !== hoveredUnit) {
-        setActivePos(pointerPos);
-        anchoredUnitRef.current = hoveredUnit;
+     if (hoveredUnit && anchoredUnitRef.current !== hoveredUnit) {
+        const pos = getPointerPos?.();
+        if (pos) {
+          setActivePos(pos);
+          anchoredUnitRef.current = hoveredUnit;
+        }
      }
-  }, [pointerPos, hoveredUnit]);
+  }, [getPointerPos, hoveredUnit]);
 
   // Native DOM event listener for bulletproof scroll isolation
   // React's synthetic onWheel e.stopPropagation() does not prevent native bubbling to Konva
@@ -128,14 +134,29 @@ export default function HoverHistoryTooltip({
            <div className="text-xs italic opacity-50">No milestones configured for this track.</div>
         ) : (
            milestones.map(m => {
+              const notApplicable = u && applicabilityIndex && !isMilestoneApplicable(m, u, applicabilityIndex);
+              if (notApplicable) {
+                return (
+                   <div key={m.id} className="flex items-center justify-between gap-4 text-xs opacity-40 italic">
+                     <div className="flex items-center gap-2 truncate">
+                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-dashed border-slate-400" />
+                       <span className="truncate font-medium">{m.name}</span>
+                     </div>
+                     <span className="text-[9px] uppercase tracking-widest font-bold shrink-0 text-slate-400">
+                       N/A
+                     </span>
+                   </div>
+                );
+              }
+
               const log = unitRawLogs.find(s => s.milestone === m.name);
               const state = log ? log.temporal_state : 'none';
-              
+
               let stateColor = 'text-slate-400';
               if (state === 'completed') stateColor = 'text-emerald-400 dark:text-emerald-600';
               if (state === 'ongoing') stateColor = 'text-amber-400 dark:text-amber-600';
               if (state === 'planned') stateColor = 'text-blue-400 dark:text-blue-600';
-              
+
               return (
                  <div key={m.id} className={`flex items-center justify-between gap-4 text-xs ${state === 'none' ? 'opacity-40' : 'opacity-100'}`}>
                    <div className="flex items-center gap-2 truncate">
