@@ -4,6 +4,7 @@ import {
   ComposedChart,
   Area,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -23,6 +24,7 @@ function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const cumulative = payload.find(p => p.dataKey === 'cumulativeCompleted')?.value ?? 0;
   const daily = payload.find(p => p.dataKey === 'dailyVelocity')?.value ?? 0;
+  const planned = payload[0]?.payload?.plannedCumulative;
   const totalScope = payload[0]?.payload?.totalScope ?? 0;
   const pct = totalScope > 0 ? Math.round((cumulative / totalScope) * 100) : 0;
 
@@ -37,6 +39,12 @@ function ChartTooltip({ active, payload, label }) {
         <span className="text-slate-400">{daily >= 0 ? "Day's output" : "Velocity"}</span>
         <span className="font-bold text-slate-200">+{daily}</span>
       </div>
+      {typeof planned === 'number' && planned > 0 && (
+        <div className="flex justify-between gap-4 mb-1">
+          <span className="text-slate-400">Planned by now</span>
+          <span className={`font-bold ${cumulative >= planned ? 'text-emerald-400' : 'text-red-400'}`}>{planned}</span>
+        </div>
+      )}
       <div className="flex justify-between gap-4">
         <span className="text-slate-400">Total scope</span>
         <span className="font-bold text-amber-400">{totalScope}</span>
@@ -110,6 +118,20 @@ export default function VelocityChart({ chartData }) {
           radius={[3, 3, 0, 0]}
           maxBarSize={32}
         />
+
+        {/* Planned cumulative — the schedule the burn-up is racing against */}
+        {chartData.some(d => typeof d.plannedCumulative === 'number' && d.plannedCumulative > 0) && (
+          <Line
+            type="stepAfter"
+            dataKey="plannedCumulative"
+            name="Planned"
+            stroke="#64748b"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            dot={false}
+            activeDot={false}
+          />
+        )}
 
         {/* Cumulative burn-up area — primary signal */}
         <Area

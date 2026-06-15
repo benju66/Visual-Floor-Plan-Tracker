@@ -2,9 +2,14 @@
 import React, { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { eachDayOfInterval, parseISO, format, startOfWeek } from 'date-fns';
-import { Target, Activity, PauseCircle, Info, TrendingUp, ChevronUp, ChevronDown } from 'lucide-react';
+import { Target, CalendarClock, Info, TrendingUp, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/hooks/useProjectQueries';
+import { useMapStore } from '@/store/useMapStore';
+import { useUIStore } from '@/store/useUIStore';
+import { summarizeGroup, parseDay } from '@/utils/progressAnalytics';
+import FloorPulse from '@/components/dashboard/FloorPulse';
+import TypeScorecard from '@/components/dashboard/TypeScorecard';
 import type { Unit, Milestone, StatusLog, Sheet, TrackingMode } from '@/types/domain';
 
 // Lazy-load recharts via next/dynamic — prevents SSR hydration crash
@@ -38,31 +43,35 @@ function ChartSkeleton() {
  * bucketByWeek — reduces daily data points into weekly buckets.
  * Used automatically when a project spans > 90 days to prevent
  * rendering 365+ SVG nodes and degrading chart performance.
- *
- * @param {Date[]} allDays — full eachDayOfInterval output
- * @param {Record<string, number>} byDay — { 'YYYY-MM-DD': count } map
- * @param {number} totalScope — total possible milestone completions
  */
-function bucketByWeek(allDays: Date[], byDay: Record<string, number>, totalScope: number) {
-  const weeks: Record<string, { dailyVelocity: number; label: string }> = {};
+function bucketByWeek(
+  allDays: Date[],
+  byDay: Record<string, number>,
+  totalScope: number,
+  plannedEnds: number[],
+) {
+  const weeks: Record<string, { dailyVelocity: number; label: string; lastDay: string }> = {};
   allDays.forEach(d => {
     const weekStart = format(startOfWeek(d, { weekStartsOn: 1 }), 'yyyy-MM-dd');
     const key = format(d, 'yyyy-MM-dd');
     if (!weeks[weekStart]) {
-      weeks[weekStart] = { dailyVelocity: 0, label: `w/o ${format(d, 'MMM d')}` };
+      weeks[weekStart] = { dailyVelocity: 0, label: `w/o ${format(d, 'MMM d')}`, lastDay: key };
     }
     weeks[weekStart].dailyVelocity += byDay[key] || 0;
+    if (key > weeks[weekStart].lastDay) weeks[weekStart].lastDay = key;
   });
 
   const sortedWeeks = Object.keys(weeks).sort();
   let cumulative = 0;
   return sortedWeeks.map(weekKey => {
     cumulative += weeks[weekKey].dailyVelocity;
+    const cutoff = parseDay(weeks[weekKey].lastDay)?.getTime() ?? 0;
     return {
       date: weekKey,
       label: weeks[weekKey].label,
       dailyVelocity: weeks[weekKey].dailyVelocity,
       cumulativeCompleted: cumulative,
+      plannedCumulative: plannedEnds.filter(t => t <= cutoff).length,
       totalScope,
     };
   });
@@ -77,78 +86,70 @@ interface ProjectDashboardProps {
   activeSheet?: Sheet | null;
 }
 
-export default function ProjectDashboard({ units, activeStatuses, milestones, trackingMode, sheets, activeSheet }: ProjectDashboardProps) {
-  const [allSheets, setAllSheets] = useState(false);
+export default function ProjectDashboard({ milestones, trackingMode, sheets = [] }: ProjectDashboardProps) {
+  // Scope replaces the old Active Level / All Levels toggle: Floor Pulse rows set it.
+  const [scope, setScope] = useState<string>('all');
   const [isChartExpanded, setIsChartExpanded] = useState(true);
 
-  const sheetIds = useMemo(() => sheets?.map(s => s.id) || [], [sheets]);
-  const { data: allProjectUnits = [] } = useAllProjectUnits(allSheets ? sheetIds : []);
+  const setActiveSheetId = useMapStore(s => s.setActiveSheetId);
+  const setViewMode = useUIStore(s => s.setViewMode);
+
+  const sheetIds = useMemo(() => sheets.map(s => s.id), [sheets]);
+  const { data: allProjectUnits = [] } = useAllProjectUnits(sheetIds);
   const allUnitIds = useMemo(() => allProjectUnits.map(u => u.id), [allProjectUnits]);
-  const { data: allProjectStatuses = [] } = useAllProjectStatuses(allSheets ? allUnitIds : []);
+  const { data: allProjectStatuses = [] } = useAllProjectStatuses(allUnitIds);
+  const { data: rawHistory = [] } = useStatusHistory(allUnitIds);
 
-  // Chart data: same unit ID scope as the allSheets toggle so KPIs and chart always match
-  const chartUnitIds = useMemo(
-    () => allSheets ? allUnitIds : units.map(u => u.id),
-    [allSheets, allUnitIds, units]
+  const today = useMemo(() => new Date(), []);
+  const trackHistory = useMemo(
+    () => rawHistory.filter((log) => log.track === trackingMode),
+    [rawHistory, trackingMode]
   );
-  const { data: rawHistory = [], isLoading: historyLoading } = useStatusHistory(chartUnitIds);
 
-  const displayUnits = allSheets ? allProjectUnits : units;
-  const displayStatuses = allSheets ? allProjectStatuses : activeStatuses;
+  const scopedSheet = scope === 'all' ? null : sheets.find(s => s.id === scope) || null;
+  const displayUnits = useMemo(
+    () => scope === 'all' ? allProjectUnits : allProjectUnits.filter(u => u.sheet_id === scope),
+    [scope, allProjectUnits]
+  );
+  const displayUnitIds = useMemo(() => new Set(displayUnits.map(u => u.id)), [displayUnits]);
+  const displayStatuses = useMemo(
+    () => allProjectStatuses.filter(s => s.unit_id && displayUnitIds.has(s.unit_id)),
+    [allProjectStatuses, displayUnitIds]
+  );
 
-  const currentTrackMilestones = useMemo(() => 
-    milestones.filter(m => m.track === trackingMode), 
+  const currentTrackMilestones = useMemo(() =>
+    milestones.filter(m => m.track === trackingMode),
   [milestones, trackingMode]);
 
-  const { overallProgress, activeLocations, notStarted, milestoneStats, totalUnits } = useMemo(() => {
+  // Rollup for the scoped selection — drives the KPI cards.
+  const scopeRollup = useMemo(() => summarizeGroup({
+    unitIds: displayUnits.map(u => u.id),
+    statuses: allProjectStatuses,
+    milestones,
+    track: trackingMode,
+    history: trackHistory,
+    today,
+  }), [displayUnits, allProjectStatuses, milestones, trackingMode, trackHistory, today]);
+
+  const { overallProgress, milestoneStats, totalUnits, totalCompletedTasks, totalPossibleTasks } = useMemo(() => {
     if (!displayUnits || displayUnits.length === 0) {
-      return { overallProgress: 0, activeLocations: 0, notStarted: 0, milestoneStats: [], totalUnits: 0 };
+      return { overallProgress: 0, milestoneStats: [] as any[], totalUnits: 0, totalCompletedTasks: 0, totalPossibleTasks: 0 };
     }
 
     const currentTrackStatuses = displayStatuses.filter(s => s.track === trackingMode);
-    
-    let completedCount = 0;
-    let ongoingCount = 0;
-    let notStartedCount = 0;
-
-    displayUnits.forEach(unit => {
-      const unitStatuses = currentTrackStatuses.filter(s => s.unit_id === unit.id);
-      if (unitStatuses.length === 0) {
-        notStartedCount++;
-      } else {
-        // Evaluate unit-level operational state
-        const isFullyCompleted = currentTrackMilestones.every(m => {
-           const log = unitStatuses.find(s => s.milestone === m.name);
-           return log && log.temporal_state === 'completed';
-        });
-        
-        if (isFullyCompleted) {
-           completedCount++;
-        } else {
-           // It's actively being worked on but not 100% finished
-           const hasActiveWork = unitStatuses.some(s => s.temporal_state !== 'none');
-           if (hasActiveWork) {
-             ongoingCount++;
-           } else {
-             notStartedCount++;
-           }
-        }
-      }
-    });
-
     const totalDisplayUnits = displayUnits.length;
 
     const stats = currentTrackMilestones.map(milestone => {
       let tCompleted = 0;
       let tOngoing = 0;
       let tNotStarted = 0;
-      let completedUnits: string[] = [];
-      let ongoingUnits: string[] = [];
-      let notStartedUnits: string[] = [];
+      const completedUnits: string[] = [];
+      const ongoingUnits: string[] = [];
+      const notStartedUnits: string[] = [];
 
       displayUnits.forEach(unit => {
         const status = currentTrackStatuses.find(s => s.unit_id === unit.id && s.milestone === milestone.name);
-        
+
         if (!status || status.temporal_state === 'none') {
           tNotStarted++;
           notStartedUnits.push(unit.unit_number);
@@ -174,30 +175,35 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
       };
     });
 
-    const totalPossibleTasks = totalDisplayUnits * currentTrackMilestones.length;
-    const totalCompletedTasks = stats.reduce((sum, stat) => sum + stat.completed, 0);
-    const totalNotStartedTasks = stats.reduce((sum, stat) => sum + stat.notStarted, 0);
-    const progress = totalPossibleTasks > 0 ? Math.round((totalCompletedTasks / totalPossibleTasks) * 100) : 0;
+    const possible = totalDisplayUnits * currentTrackMilestones.length;
+    const completed = stats.reduce((sum, stat) => sum + stat.completed, 0);
+    const progress = possible > 0 ? Math.round((completed / possible) * 100) : 0;
 
     return {
       overallProgress: progress,
-      activeLocations: ongoingCount,
-      notStarted: totalNotStartedTasks,
       milestoneStats: stats,
-      totalUnits: totalDisplayUnits
+      totalUnits: totalDisplayUnits,
+      totalCompletedTasks: completed,
+      totalPossibleTasks: possible,
     };
   }, [displayUnits, displayStatuses, currentTrackMilestones, trackingMode]);
 
   // ----- Velocity Chart Data Engine -----
   const chartData = useMemo(() => {
-    const trackHistory = rawHistory.filter((log: any) => log.track === trackingMode);
-    if (trackHistory.length === 0) return [];
+    const scopedHistory = trackHistory.filter(log => log.unit_id && displayUnitIds.has(log.unit_id as string));
+    if (scopedHistory.length === 0) return [];
 
     const totalScope = displayUnits.length * currentTrackMilestones.length;
     if (totalScope === 0) return [];
 
+    // Planned cumulative line: how many slots were planned to finish by each date.
+    const plannedEnds = displayStatuses
+      .filter(s => s.track === trackingMode && s.planned_end_date)
+      .map(s => parseDay(s.planned_end_date)!.getTime())
+      .sort((a, b) => a - b);
+
     const byDay: Record<string, number> = {};
-    trackHistory.forEach((log: any) => {
+    scopedHistory.forEach((log: any) => {
       byDay[log.logged_date] = (byDay[log.logged_date] || 0) + 1;
     });
 
@@ -210,7 +216,7 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
     });
 
     if (allDays.length > 90) {
-      return bucketByWeek(allDays, byDay, totalScope);
+      return bucketByWeek(allDays, byDay, totalScope, plannedEnds);
     }
 
     let cumulative = 0;
@@ -218,112 +224,113 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
       const key = format(d, 'yyyy-MM-dd');
       const daily = byDay[key] || 0;
       cumulative += daily;
+      const cutoff = parseDay(key)?.getTime() ?? 0;
       return {
         date: key,
         label: format(d, 'MMM d'),
         dailyVelocity: daily,
         cumulativeCompleted: cumulative,
+        plannedCumulative: plannedEnds.filter(t => t <= cutoff).length,
         totalScope,
       };
     });
-  }, [rawHistory, trackingMode, displayUnits, currentTrackMilestones]);
+  }, [trackHistory, displayUnitIds, displayUnits, displayStatuses, currentTrackMilestones, trackingMode]);
 
-  if (!units || units.length === 0) {
+  const openMap = (sheetId: string) => {
+    setActiveSheetId(sheetId);
+    setViewMode('map');
+  };
+
+  if (!sheets || sheets.length === 0) {
     return (
-      <div className="p-8 h-full flex flex-col items-center justify-center text-slate-500 glass-panel rounded-2xl border gap-4">
-        <span>No locations mapped on this level yet. Switch to Map view to draw locations to see metrics.</span>
-        {sheets && sheets.length > 1 && !allSheets && (
-           <button onClick={() => setAllSheets(true)} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow font-medium transition-colors">
-              View All Levels
-           </button>
-        )}
+      <div className="p-8 h-full flex items-center justify-center text-slate-500 glass-panel rounded-2xl border">
+        No levels yet. Add a level and draw locations to see progress metrics.
       </div>
     );
   }
 
+  const forecastLabel = scopeRollup.forecastDate
+    ? `~wk of ${parseDay(scopeRollup.forecastDate)?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+    : scopeRollup.forecastSuppressed === 'complete' ? 'Complete'
+    : '—';
+  const forecastHint = scopeRollup.forecastDate
+    ? 'At the median weekly completion pace of the last 6 weeks. A pace projection, not a commitment.'
+    : scopeRollup.forecastSuppressed === 'small-sample' ? 'Too few tasks in this scope to project a finish.'
+    : scopeRollup.forecastSuppressed === 'no-pace' ? 'No completions in recent weeks — no pace to project from.'
+    : scopeRollup.forecastSuppressed === 'complete' ? 'All tracked tasks in this scope are complete.'
+    : 'Log completions to see a projection.';
+
   return (
     <div className="w-full pb-6 space-y-6 overflow-y-auto h-full pr-2 p-2">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel rounded-2xl border p-4 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 glass-panel rounded-2xl border p-4 shadow-sm">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            Project Dashboard
-          </h2>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Project Dashboard</h2>
           <p className="text-sm text-slate-500 font-medium mt-1">
-            {allSheets ? `Tracking all ${totalUnits} locations across all levels.` : `Tracking ${totalUnits} locations on level "${activeSheet?.sheet_name || 'Active'}".`}
+            {scope === 'all'
+              ? `Tracking ${totalUnits} locations across all levels.`
+              : `Scoped to "${scopedSheet?.sheet_name || 'Level'}" — ${totalUnits} locations.`}
           </p>
         </div>
-        <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
+        {scope !== 'all' && (
           <button
             type="button"
-            onClick={() => setAllSheets(false)}
-            className={`px-4 py-2 text-sm font-semibold transition-colors ${
-              !allSheets
-                ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
+            onClick={() => setScope('all')}
+            className="self-start sm:self-auto px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/60 dark:bg-black/20 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
           >
-            Active Level
+            ← Back to all levels
           </button>
-          <button
-            type="button"
-            onClick={() => setAllSheets(true)}
-            className={`px-4 py-2 text-sm font-semibold border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-              allSheets
-                ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-            }`}
-          >
-            All Levels
-          </button>
-        </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* ── Floor Pulse — per-level rollup rail (also the dashboard's scope control) ── */}
+      <FloorPulse
+        sheets={sheets}
+        allUnits={allProjectUnits}
+        statuses={allProjectStatuses}
+        milestones={milestones}
+        track={trackingMode}
+        history={trackHistory}
+        scope={scope}
+        onScopeChange={setScope}
+        onOpenMap={openMap}
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="glass-panel rounded-2xl border p-6 flex items-center shadow-sm relative group">
           <div className="p-4 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full mr-4">
             <Target size={28} />
           </div>
           <div>
             <div className="flex items-center gap-1.5 cursor-help">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Overall Progress</h3>
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Tasks Complete</h3>
               <Info size={14} className="text-slate-400" />
             </div>
-            <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 mt-1">{overallProgress}%</p>
+            <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 mt-1">
+              {overallProgress}%
+              <span className="text-sm font-semibold text-slate-400 ml-2">{totalCompletedTasks}/{totalPossibleTasks}</span>
+            </p>
           </div>
           <div className="absolute left-6 bottom-full mb-3 hidden group-hover:block w-64 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20 z-50">
-            Percentage of all possible milestones completed across all tracked locations.
+            Completed milestone tasks out of all possible tasks in this scope. Counts tasks equally — it is not a schedule percentage.
           </div>
         </div>
 
         <div className="glass-panel rounded-2xl border p-6 flex items-center shadow-sm relative group">
           <div className="p-4 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full mr-4">
-            <Activity size={28} />
+            <CalendarClock size={28} />
           </div>
           <div>
             <div className="flex items-center gap-1.5 cursor-help">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Active Locations</h3>
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Projected Finish</h3>
               <Info size={14} className="text-slate-400" />
             </div>
-            <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 mt-1">{activeLocations}</p>
+            <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 mt-1">{forecastLabel}</p>
+            {scopeRollup.stalledUnitIds.length > 0 && (
+              <p className="text-xs font-semibold text-red-500 mt-0.5">{scopeRollup.stalledUnitIds.length} stalled location{scopeRollup.stalledUnitIds.length === 1 ? '' : 's'}</p>
+            )}
           </div>
           <div className="absolute left-6 bottom-full mb-3 hidden group-hover:block w-64 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20 z-50">
-            Total number of locations currently marked as "Ongoing" or "Planned".
-          </div>
-        </div>
-
-        <div className="glass-panel rounded-2xl border p-6 flex items-center shadow-sm relative group">
-          <div className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-full mr-4">
-            <PauseCircle size={28} />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5 cursor-help">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Not Started Tasks</h3>
-              <Info size={14} className="text-slate-400" />
-            </div>
-            <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 mt-1">{notStarted}</p>
-          </div>
-          <div className="absolute left-6 bottom-full mb-3 hidden group-hover:block w-64 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20 z-50">
-            Total number of milestone tasks across all locations that remain unstarted.
+            {forecastHint}
           </div>
         </div>
       </div>
@@ -338,7 +345,7 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               {chartData.length > 0
-                ? `${chartData[0].label} → ${chartData[chartData.length - 1].label} · ${chartData.length > 90 ? 'Weekly view' : 'Daily view'}`
+                ? `${chartData[0].label} → ${chartData[chartData.length - 1].label} · ${chartData.length > 90 ? 'Weekly view' : 'Daily view'} · dashed = planned`
                 : 'Mark milestones as Completed to see trends'}
             </p>
           </div>
@@ -348,7 +355,7 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
                 <div className="text-xs text-slate-400 mb-0.5">Progress</div>
                 <div className="text-lg font-bold text-emerald-500">{overallProgress}%</div>
               </div>
-              <button 
+              <button
                 onClick={() => setIsChartExpanded(!isChartExpanded)}
                 className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                 title={isChartExpanded ? "Collapse chart" : "Expand chart"}
@@ -375,11 +382,24 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
         </AnimatePresence>
       </div>
 
+      {/* ── Type Scorecard — which space type is dragging the schedule ── */}
+      <TypeScorecard
+        allUnits={allProjectUnits}
+        statuses={allProjectStatuses}
+        milestones={milestones}
+        track={trackingMode}
+        history={trackHistory}
+      />
+
       <div className="glass-panel rounded-2xl border p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6">Milestone Breakdown</h2>
         <div className="space-y-6">
           {milestoneStats.length === 0 ? (
-            <p className="text-slate-500">No milestones configured for {trackingMode}.</p>
+            <p className="text-slate-500">
+              {totalUnits === 0
+                ? 'No locations mapped in this scope yet. Switch to Map view to draw locations.'
+                : `No milestones configured for ${trackingMode}.`}
+            </p>
           ) : (
             milestoneStats.map(stat => {
               const bgOngoingColor = stat.color ? `${stat.color}80` : '#94a3b8'; // 50% opacity for ongoing
@@ -397,23 +417,23 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
                   </div>
                   <div className="relative w-full h-3 flex rounded-full bg-slate-100 dark:bg-slate-800">
                     <div className="absolute inset-0 rounded-full overflow-hidden flex">
-                      <div 
-                        className="h-full transition-all duration-500" 
-                        style={{ 
-                          width: `${completedPct}%`, 
-                          backgroundColor: bgCompletedColor 
-                        }} 
+                      <div
+                        className="h-full transition-all duration-500"
+                        style={{
+                          width: `${completedPct}%`,
+                          backgroundColor: bgCompletedColor
+                        }}
                       />
-                      <div 
-                        className="h-full transition-all duration-500 pattern-diagonal-lines sm:pattern-diagonal-lines-sm" 
-                        style={{ 
-                          width: `${ongoingPct}%`, 
+                      <div
+                        className="h-full transition-all duration-500 pattern-diagonal-lines sm:pattern-diagonal-lines-sm"
+                        style={{
+                          width: `${ongoingPct}%`,
                           backgroundColor: bgOngoingColor,
                           backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,0.2) 5px, rgba(255,255,255,0.2) 10px)'
-                        }} 
+                        }}
                       />
                     </div>
-                    
+
                     {/* Transparent hover targets layered over the bars */}
                     <div className="absolute inset-0 flex rounded-full">
                       <div className="group relative h-full" style={{ width: `${completedPct}%` }}>
@@ -446,41 +466,17 @@ export default function ProjectDashboard({ units, activeStatuses, milestones, tr
                     </div>
                   </div>
                   <div className="flex gap-4 text-xs font-medium text-slate-500 mt-2">
-                    <span className="group relative flex items-center gap-1 cursor-default">
+                    <span className="flex items-center gap-1">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: bgCompletedColor }} />
                       Completed ({stat.completed})
-                      
-                      <div className="hidden group-hover:flex absolute bottom-full left-0 mb-2 w-48 flex-col bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 p-3 rounded-xl shadow-2xl z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20">
-                        <div className="absolute -bottom-1.5 left-6 w-3 h-3 bg-slate-900/95 dark:bg-slate-100/95 rotate-45 border-r border-b border-slate-700 dark:border-white/20" />
-                        <div className="font-bold text-[10px] uppercase tracking-widest opacity-80 mb-1 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: bgCompletedColor }} /> Completed ({stat.completed})</div>
-                        <div className="text-xs font-medium leading-relaxed normal-case tracking-normal">
-                          {stat.completedUnits.length > 0 ? (stat.completedUnits.length > 20 ? stat.completedUnits.slice(0, 20).join(', ') + ` ...and ${stat.completedUnits.length - 20} more` : stat.completedUnits.join(', ')) : 'None'}
-                        </div>
-                      </div>
                     </span>
-                    <span className="group relative flex items-center gap-1 cursor-default">
+                    <span className="flex items-center gap-1">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: bgOngoingColor }} />
                       Ongoing ({stat.ongoing})
-                      
-                      <div className="hidden group-hover:flex absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 flex-col bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 p-3 rounded-xl shadow-2xl z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20">
-                        <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900/95 dark:bg-slate-100/95 rotate-45 border-r border-b border-slate-700 dark:border-white/20" />
-                        <div className="font-bold text-[10px] uppercase tracking-widest opacity-80 mb-1 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: bgOngoingColor }} /> Ongoing ({stat.ongoing})</div>
-                        <div className="text-xs font-medium leading-relaxed normal-case tracking-normal">
-                          {stat.ongoingUnits.length > 0 ? (stat.ongoingUnits.length > 20 ? stat.ongoingUnits.slice(0, 20).join(', ') + ` ...and ${stat.ongoingUnits.length - 20} more` : stat.ongoingUnits.join(', ')) : 'None'}
-                        </div>
-                      </div>
                     </span>
-                    <span className="group relative flex items-center gap-1 cursor-default">
+                    <span className="flex items-center gap-1">
                       <div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
                       Not Started ({stat.notStarted})
-                      
-                      <div className="hidden group-hover:flex absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 flex-col bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 p-3 rounded-xl shadow-2xl z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20">
-                        <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900/95 dark:bg-slate-100/95 rotate-45 border-r border-b border-slate-700 dark:border-white/20" />
-                        <div className="font-bold text-[10px] uppercase tracking-widest opacity-80 mb-1 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" /> Not Started ({stat.notStarted})</div>
-                        <div className="text-xs font-medium leading-relaxed normal-case tracking-normal">
-                          {stat.notStartedUnits.length > 0 ? (stat.notStartedUnits.length > 20 ? stat.notStartedUnits.slice(0, 20).join(', ') + ` ...and ${stat.notStartedUnits.length - 20} more` : stat.notStartedUnits.join(', ')) : 'None'}
-                        </div>
-                      </div>
                     </span>
                   </div>
                 </div>
