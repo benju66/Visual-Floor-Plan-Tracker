@@ -87,6 +87,30 @@ export function clampStagePosition(
   };
 }
 
+/**
+ * Frame-rate-independent exponential damping toward a target.
+ *
+ * Powers the optional smooth-wheel-zoom glide: each animation frame eases the live
+ * scale a fraction of the remaining distance to the target, where the fraction is
+ * derived from the elapsed time and a time constant `tau` (seconds). Using
+ * `exp(-dt/tau)` (rather than a fixed per-frame lerp factor) keeps the glide speed
+ * identical at 60Hz, 120Hz, or after a dropped frame — the curve depends on wall-clock
+ * time, not frame count.
+ *
+ * Smaller `tau` = snappier (reaches target sooner); larger `tau` = floatier. At
+ * `tau ≈ 0.07s` the gap closes to ~1% in ~5 frames @60Hz — fast enough to feel
+ * responsive, smooth enough to read as a glide rather than a step.
+ *
+ * @param current Current value (e.g. live stage scale).
+ * @param target  Value to approach (e.g. accumulated wheel target scale).
+ * @param dt      Elapsed seconds since the last frame.
+ * @param tau     Time constant in seconds. `<= 0` snaps straight to target.
+ */
+export function dampToward(current: number, target: number, dt: number, tau: number): number {
+  if (tau <= 0 || dt <= 0) return tau <= 0 ? target : current;
+  return target + (current - target) * Math.exp(-dt / tau);
+}
+
 /** Snapshot of the live Konva transform to commit into React state. */
 export interface ViewportCommitValue {
   scale: number;

@@ -8,6 +8,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 Welcome to the SitePulse codebase. Please follow these architectural rules strictly to maintain the integrity of the application.
 
+## 0. How to communicate with me (the user)
+The user is the product owner, not a trained developer. When responding:
+- **Lead with a 1-2 sentence plain-English summary** of what you did or found, before any technical detail.
+- **Explain jargon in passing** — e.g. "the mutation queue (the list of offline changes waiting to save)".
+- **Keep it short.** Prefer a few sentences over long essays. Only go deep when I ask, or when a decision genuinely needs it.
+- **Still be precise** — don't dumb down the actual technical work or hide trade-offs; just frame them in everyday terms.
+- When suggesting a change, say **what it does for the app/user**, not only how the code works.
+
 ## 1. Core Architecture
 - **Framework:** Next.js (App Router)
 - **Styling:** Tailwind CSS v4, Lucide React for icons

@@ -3,6 +3,7 @@ import {
   classifyWheelIntent,
   clampStagePosition,
   createViewportSync,
+  dampToward,
   type WheelLike,
   type ViewportLayout,
   type ViewportCommitValue,
@@ -81,6 +82,38 @@ describe('clampStagePosition', () => {
     const clamped = clampStagePosition(centered, scale, layout, stageW, stageH);
     expect(clamped.x).toBeCloseTo(centered.x, 6);
     expect(clamped.y).toBeCloseTo(centered.y, 6);
+  });
+});
+
+describe('dampToward', () => {
+  it('moves a fraction of the way toward the target each step (never overshoots)', () => {
+    const next = dampToward(1, 2, 1 / 60, 0.07);
+    expect(next).toBeGreaterThan(1);
+    expect(next).toBeLessThan(2);
+  });
+
+  it('converges to the target over repeated frames', () => {
+    let s = 1;
+    for (let i = 0; i < 30; i++) s = dampToward(s, 4, 1 / 60, 0.07);
+    expect(s).toBeCloseTo(4, 2);
+  });
+
+  it('is symmetric for zooming out (current above target)', () => {
+    const next = dampToward(4, 1, 1 / 60, 0.07);
+    expect(next).toBeLessThan(4);
+    expect(next).toBeGreaterThan(1);
+  });
+
+  it('is frame-rate independent: one big step ≈ two half-steps', () => {
+    const oneStep = dampToward(1, 5, 0.032, 0.07);
+    const halfA = dampToward(1, 5, 0.016, 0.07);
+    const halfB = dampToward(halfA, 5, 0.016, 0.07);
+    expect(halfB).toBeCloseTo(oneStep, 6);
+  });
+
+  it('snaps to target when tau <= 0, holds when dt <= 0', () => {
+    expect(dampToward(1, 9, 1 / 60, 0)).toBe(9);
+    expect(dampToward(3, 9, 0, 0.07)).toBe(3);
   });
 });
 
