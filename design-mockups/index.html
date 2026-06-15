@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SitePulse · Progress Visualization Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#edeae0; --card:#fbf9f3; --ink:#20262b; --ink-soft:#5d6770;
+    --line:#d6d1c2; --line-strong:#a9a392; --brand:#e96f1f; --blue:#2e6fb0;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    font-family:'Archivo',sans-serif;color:var(--ink);min-height:100vh;padding:48px 20px;
+    background:
+      repeating-linear-gradient(0deg,transparent 0 39px,rgba(46,111,176,.07) 39px 40px),
+      repeating-linear-gradient(90deg,transparent 0 39px,rgba(46,111,176,.07) 39px 40px),
+      var(--paper);
+  }
+  .wrap{width:min(880px,100%);margin:0 auto}
+  .kicker{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--brand);margin-bottom:6px}
+  h1{font-family:'Big Shoulders',sans-serif;font-size:clamp(40px,7vw,64px);font-weight:800;letter-spacing:.02em;text-transform:uppercase;line-height:.95}
+  h1 span{color:var(--brand)}
+  .lede{margin:14px 0 36px;font-size:15px;color:var(--ink-soft);max-width:560px;line-height:1.55}
+
+  .cards{display:flex;flex-direction:column;gap:14px}
+  a.card{
+    display:grid;grid-template-columns:84px 1fr auto;gap:20px;align-items:center;
+    background:var(--card);border:1.5px solid var(--ink);border-radius:10px;padding:20px 24px;
+    text-decoration:none;color:var(--ink);box-shadow:5px 5px 0 rgba(32,38,43,.13);
+    transition:transform .15s, box-shadow .15s;
+  }
+  a.card:hover{transform:translate(-2px,-2px);box-shadow:8px 8px 0 rgba(233,111,31,.45)}
+  .num{font-family:'Big Shoulders',sans-serif;font-size:46px;font-weight:800;color:var(--brand);line-height:1}
+  .card h2{font-family:'Big Shoulders',sans-serif;font-size:25px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+  .lens{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--line-strong);border-radius:12px;padding:2px 10px;color:var(--ink-soft);margin-left:10px;vertical-align:4px}
+  .card p{font-size:13px;color:var(--ink-soft);margin-top:5px;line-height:1.5;max-width:540px}
+  .arrow{font-size:22px;color:var(--ink-soft)}
+  a.card:hover .arrow{color:var(--brand)}
+  .pri{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.1em;color:#fff;background:var(--ink);border-radius:3px;padding:2px 7px;margin-left:10px;vertical-align:4px}
+
+  .foot{margin-top:34px;font-size:12px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Design exploration · Jun 2026</div>
+  <h1>Site<span>Pulse</span> Progress<br>Visualization Concepts</h1>
+  <p class="lede">Four mockups making progress <em>felt</em> instead of computed — same fictional project throughout (Maple &amp; 5th, Building A; Level 3 is the problem floor, corridors are the dragging type). All buildable from existing data: status logs, planned/actual dates, and the audit trail.</p>
+
+  <div class="cards">
+    <a class="card" href="01-map-lag-mode.html">
+      <div class="num">01</div>
+      <div>
+        <h2>Map Lag Mode<span class="lens">Floor / Area</span><span class="pri">SHIP FIRST</span></h2>
+        <p>The existing canvas, recolored by schedule variance instead of milestone. Working toggle — flip it to feel the difference between "what is each unit on" and "how late is it."</p>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="card" href="02-unit-journey-timeline.html">
+      <div class="num">02</div>
+      <div>
+        <h2>Unit Journey Timeline<span class="lens">Single Location</span></h2>
+        <p>The history modal as a story: planned ghost bars vs. actual bars, the 33 idle days rendered as visible space, dwell-time vs. project median. The old flat table survives as a "Log" tab — toggle to compare.</p>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="card" href="03-floor-pulse-strip.html">
+      <div class="num">03</div>
+      <div>
+        <h2>Floor Pulse Strip<span class="lens">Floor / Area</span></h2>
+        <p>Per-floor rollup rail stacked like the building. Completion vs. plan tick, pace vs. trailing average, forecast chips — with honest failure states (trend suppressed, flatline instead of fake forecast).</p>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+
+    <a class="card" href="04-type-scorecard.html">
+      <div class="num">04</div>
+      <div>
+        <h2>Type Scorecard<span class="lens">Group / Type</span></h2>
+        <p>Unit types ranked worst-first: variance chips, sparklines, stalled badges, and the small-multiple burn-up demoted to a drill-down on the risk row.</p>
+      </div>
+      <div class="arrow">→</div>
+    </a>
+  </div>
+
+  <div class="foot">design-mockups/ · static HTML, no build step — open any file in a browser</div>
+</div>
+</body>
+</html>

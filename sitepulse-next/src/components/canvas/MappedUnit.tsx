@@ -31,6 +31,8 @@ export interface MappedUnitProps {
   unit: Unit;
   isRouteDropTarget?: boolean;
   activeStatuses: StatusLog[];
+  /** Lag Mode: status_color already encodes schedule variance — render fills at full strength. */
+  lagMode?: boolean;
   legendFilter: string | null;
   isSelected: boolean;
   isHovered: boolean;
@@ -69,6 +71,7 @@ export const MappedUnitComponent = ({
   unit,
   isRouteDropTarget,
   activeStatuses,
+  lagMode,
   legendFilter,
   isSelected,
   isHovered,
@@ -124,7 +127,12 @@ export const MappedUnitComponent = ({
   let currentStroke = activeStatus ? activeStatus.status_color : (dim ? '#94a3b8' : '#475569');
 
   if (activeStatus && !highlight && !dim) {
-    if (tState === 'none') {
+    if (lagMode) {
+      // Variance IS the encoding — temporal-state alpha fades would hide exactly
+      // the units that are most behind. Uniform strength; planned keeps its dash.
+      currentFill = mixAlpha(activeStatus.status_color, 0.7);
+      if (tState === 'planned') strokeDash = [10, 6];
+    } else if (tState === 'none') {
       currentFill = mixAlpha(activeStatus.status_color, 0.05); // Super faint hint
     } else if (tState === 'planned') {
       currentFill = mixAlpha(activeStatus.status_color, 0.3); // Faint
@@ -454,6 +462,7 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
   if (prevStatus?.status_color !== nextStatus?.status_color) return false;
 
   return (
+    prevProps.lagMode === nextProps.lagMode &&
     prevProps.isRouteDropTarget === nextProps.isRouteDropTarget &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.isHovered === nextProps.isHovered &&

@@ -573,7 +573,6 @@ function App() {
                     await commitUnitMilestone(c.unit, c.extraProps?.milestoneObj || { name: c.log?.milestone, color: c.log?.status_color, track: trackingMode }, c.state, false, { ...c.extraProps, client_timestamp: c.capturedAt });
                  }
               }}
-              defaultView={settings.defaultFieldView || 'table'}
               sheets={sheets}
               activeSheetId={activeSheetId}
               setActiveSheetId={setActiveSheetId}
@@ -773,6 +772,11 @@ function App() {
         onClose={() => setHistoryModalUnitId(null)}
         unitId={historyModalUnitId}
         unitNumber={targetHistoryUnit?.unit_number}
+        unitType={targetHistoryUnit?.unit_type}
+        milestones={milestones}
+        trackingMode={trackingMode}
+        currentStatuses={activeStatuses}
+        applicabilityIndex={applicabilityIndex}
       />
 
       {toast && (

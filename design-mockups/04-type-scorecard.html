@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SitePulse · Concept 04 — Type Scorecard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#edeae0; --card:#fbf9f3; --ink:#20262b; --ink-soft:#5d6770;
+    --line:#d6d1c2; --line-strong:#a9a392; --brand:#e96f1f; --blue:#2e6fb0;
+    --done:#7d9b56; --going:#d99a45; --notstarted:#ddd7c6;
+    --red:#c0392b; --amber:#c98a1d; --ahead:#4f88c2;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    font-family:'Archivo',sans-serif;background:var(--paper);color:var(--ink);
+    min-height:100vh;display:flex;flex-direction:column;
+  }
+  .appbar{display:flex;align-items:center;gap:18px;padding:10px 22px;background:var(--ink);color:#efece1}
+  .wordmark{font-family:'Big Shoulders',sans-serif;font-weight:800;font-size:22px;letter-spacing:.04em;text-transform:uppercase}
+  .wordmark span{color:var(--brand)}
+  .crumb{font-size:13px;opacity:.75}
+  .concept-tag{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;color:var(--brand);text-transform:uppercase}
+
+  .page{width:min(980px,94%);margin:26px auto;flex:1}
+
+  .module{
+    background:var(--card);border:1.5px solid var(--ink);border-radius:10px;
+    box-shadow:5px 5px 0 rgba(32,38,43,.13);overflow:hidden;
+  }
+  .mod-head{display:flex;align-items:baseline;gap:12px;padding:15px 22px 12px;border-bottom:1.5px solid var(--ink)}
+  .mod-head h2{font-family:'Big Shoulders',sans-serif;font-size:23px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+  .mod-head .meta{font-size:12px;color:var(--ink-soft)}
+  .sortpill{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);border:1px solid var(--line-strong);border-radius:14px;padding:3px 12px}
+  .sortpill b{color:var(--red)}
+
+  .colhead{
+    display:grid;grid-template-columns:168px 1fr 104px 130px 96px;gap:18px;
+    padding:8px 22px;border-bottom:1px solid var(--line);
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft);
+  }
+  .trow{
+    display:grid;grid-template-columns:168px 1fr 104px 130px 96px;gap:18px;align-items:center;
+    padding:14px 22px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .14s;
+  }
+  .trow:hover{background:#f2eee1}
+
+  .t-label b{font-family:'Big Shoulders',sans-serif;font-size:20px;font-weight:700;letter-spacing:.04em;display:block;text-transform:uppercase}
+  .t-label span{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-soft)}
+  .rank{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;border:1px solid var(--red);color:var(--red);border-radius:3px;padding:1px 5px;margin-left:6px;vertical-align:3px;letter-spacing:.08em}
+
+  .bar-wrap{position:relative;height:24px}
+  .bar{display:flex;height:100%;border:1.5px solid var(--ink);border-radius:5px;overflow:hidden;background:var(--notstarted)}
+  .seg-done{background:var(--done)}
+  .seg-going{background:repeating-linear-gradient(45deg,var(--going) 0 6px,#c08338 6px 12px)}
+  .pct{position:absolute;left:8px;top:50%;transform:translateY(-50%);font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+  .plan-tick{position:absolute;top:-5px;bottom:-5px;width:2.5px;background:var(--ink);z-index:2}
+  .plan-tick::after{content:"plan";position:absolute;top:-13px;left:50%;transform:translateX(-50%);font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase}
+
+  .vchip{justify-self:start;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;border-radius:5px;padding:4px 10px;border:1.5px solid}
+  .vchip.bad{color:#fff;background:var(--red);border-color:var(--red)}
+  .vchip.warn{color:var(--red);background:#f6e3d3;border-color:var(--red)}
+  .vchip.near{color:var(--ink);background:#eee9da;border-color:var(--line-strong)}
+  .vchip.good{color:#fff;background:var(--ahead);border-color:var(--ahead)}
+
+  .spark{display:flex;align-items:center;gap:8px}
+  .spark svg{display:block}
+  .trend{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}
+  .trend.dn{color:var(--red)}.trend.up{color:#3e7a35}.trend.fl{color:var(--amber)}.trend.na{color:var(--ink-soft);font-weight:400;font-size:10px}
+
+  .stalled .badge{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;border:1.5px solid var(--red);color:var(--red);border-radius:14px;padding:2px 10px;transition:.12s}
+  .stalled .badge:hover{background:var(--red);color:#fff}
+  .stalled .zero{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft)}
+
+  /* drill-down burn-up (expanded on worst row) */
+  .drill{
+    grid-column:1/-1;background:#f4f0e3;border:1px dashed var(--line-strong);border-radius:8px;
+    padding:14px 18px 10px;margin-top:4px;
+  }
+  .drill h5{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:8px}
+  .drill .legendline{display:flex;gap:18px;font-size:11px;color:var(--ink-soft);margin-top:6px}
+  .drill .legendline i{display:inline-block;width:18px;height:3px;vertical-align:3px;margin-right:6px}
+
+  .foot-hint{padding:10px 22px;font-size:11.5px;color:var(--ink-soft);font-style:italic}
+
+  .note{padding:13px 22px;background:var(--ink);color:#cfc9ba;font-size:12.5px;line-height:1.5}
+  .note b{color:#f0ece1}
+  .note .k{color:var(--brand);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-right:10px}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="wordmark">Site<span>Pulse</span></div>
+  <div class="crumb">Maple &amp; 5th — Building A · Dashboard</div>
+  <div class="concept-tag">Concept 04 / Type Scorecard</div>
+</header>
+
+<div class="page">
+  <div class="module">
+    <div class="mod-head">
+      <h2>By Unit Type</h2>
+      <span class="meta">all levels · track: Finishes · today Jun 10</span>
+      <span class="sortpill">sorted by <b>schedule risk</b></span>
+    </div>
+
+    <div class="colhead">
+      <span>Type</span><span>Completion vs plan</span><span>Variance</span><span>14-day trend</span><span>Stalled</span>
+    </div>
+
+    <!-- CORRIDORS — worst, expanded with drill-down -->
+    <div class="trow" style="background:#f6f1e2">
+      <div class="t-label"><b>Corridors<span class="rank">RISK 1</span></b><span>12 UNITS · ALL LEVELS</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:41%"></div><div class="seg-going" style="width:8%"></div></div>
+        <div class="plan-tick" style="left:68%"></div>
+        <span class="pct">41%</span>
+      </div>
+      <div class="vchip bad">−6.2d avg</div>
+      <div class="spark">
+        <svg width="78" height="26" viewBox="0 0 78 26">
+          <polyline points="2,8 14,10 27,9 40,14 53,17 66,21 76,22" fill="none" stroke="#c0392b" stroke-width="2"/>
+        </svg>
+        <span class="trend dn">▼</span>
+      </div>
+      <div class="stalled"><span class="badge">5 stalled →</span></div>
+
+      <div class="drill">
+        <h5>Corridors · burn-up (drill-down on click)</h5>
+        <svg width="100%" height="92" viewBox="0 0 640 92" preserveAspectRatio="none">
+          <line x1="0" y1="84" x2="640" y2="84" stroke="#a9a392" stroke-width="1"/>
+          <!-- planned line -->
+          <polyline points="0,82 640,10" fill="none" stroke="#5d6770" stroke-width="1.6" stroke-dasharray="5 4"/>
+          <!-- actual cumulative -->
+          <path d="M0,82 L80,76 L160,68 L240,64 L320,55 L400,52 L480,50 L520,49 L520,84 L0,84 Z" fill="rgba(192,57,43,.14)"/>
+          <polyline points="0,82 80,76 160,68 240,64 320,55 400,52 480,50 520,49" fill="none" stroke="#c0392b" stroke-width="2.2"/>
+          <line x1="520" y1="6" x2="520" y2="84" stroke="#e96f1f" stroke-width="1.6"/>
+          <text x="526" y="14" font-family="IBM Plex Mono" font-size="9" fill="#e96f1f">TODAY</text>
+        </svg>
+        <div class="legendline">
+          <span><i style="background:#c0392b"></i>actual completions</span>
+          <span><i style="background:repeating-linear-gradient(90deg,#5d6770 0 5px,transparent 5px 9px)"></i>planned</span>
+          <span style="margin-left:auto;color:var(--red);font-weight:600">gap widening since mid-May — corridors are blocking 3 trades</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- STAIR CORES -->
+    <div class="trow">
+      <div class="t-label"><b>Stair Cores</b><span>4 UNITS</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:38%"></div><div class="seg-going" style="width:10%"></div></div>
+        <div class="plan-tick" style="left:55%"></div>
+        <span class="pct">38%</span>
+      </div>
+      <div class="vchip warn">−4.0d avg</div>
+      <div class="spark"><span class="trend na">— trend suppressed (4 units)</span></div>
+      <div class="stalled"><span class="badge">2 stalled →</span></div>
+    </div>
+
+    <!-- APARTMENTS -->
+    <div class="trow">
+      <div class="t-label"><b>Apartments</b><span>96 UNITS</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:63%"></div><div class="seg-going" style="width:11%"></div></div>
+        <div class="plan-tick" style="left:66%"></div>
+        <span class="pct">63%</span>
+      </div>
+      <div class="vchip near">−0.8d avg</div>
+      <div class="spark">
+        <svg width="78" height="26" viewBox="0 0 78 26">
+          <polyline points="2,20 14,18 27,19 40,15 53,12 66,10 76,7" fill="none" stroke="#3e7a35" stroke-width="2"/>
+        </svg>
+        <span class="trend up">▲</span>
+      </div>
+      <div class="stalled"><span class="badge">3 stalled →</span></div>
+    </div>
+
+    <!-- COMMON AREAS -->
+    <div class="trow">
+      <div class="t-label"><b>Common Areas</b><span>9 UNITS · AMENITY + LOBBY</span></div>
+      <div class="bar-wrap">
+        <div class="bar"><div class="seg-done" style="width:71%"></div><div class="seg-going" style="width:9%"></div></div>
+        <div class="plan-tick" style="left:62%"></div>
+        <span class="pct">71%</span>
+      </div>
+      <div class="vchip good">+3.5d avg</div>
+      <div class="spark">
+        <svg width="78" height="26" viewBox="0 0 78 26">
+          <polyline points="2,18 14,16 27,13 40,13 53,10 66,8 76,6" fill="none" stroke="#3e7a35" stroke-width="2"/>
+        </svg>
+        <span class="trend up">▲</span>
+      </div>
+      <div class="stalled"><span class="zero">0 stalled</span></div>
+    </div>
+
+    <div class="foot-hint">click a row to expand its burn-up · click a stalled badge to filter the map &amp; field list to those units</div>
+  </div>
+</div>
+
+<footer class="note">
+  <span class="k">What's mocked</span>
+  A dashboard module in <b>ProjectDashboard</b>, one row per <b>unit_type</b>, sorted worst-first so the answer to "which type is dragging?" is the first row.
+  Variance chips average bottleneck lag across the type; the "plan" tick inside each bar makes the schedule gap visible without reading a single date.
+  Corridors is shown expanded with its drill-down burn-up (the small-multiple, demoted to second level). Stair Cores demonstrates the small-sample hedge: trend suppressed at n=4.
+</footer>
+</body>
+</html>

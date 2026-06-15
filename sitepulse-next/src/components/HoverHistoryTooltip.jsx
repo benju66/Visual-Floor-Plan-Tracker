@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { isMilestoneApplicable } from '@/utils/applicability';
+import { computeUnitVariance, varianceFill, varianceLabel } from '@/utils/progressAnalytics';
+import { isMilestoneApplicable, applicableMilestones } from '@/utils/applicability';
 
 export default function HoverHistoryTooltip({
   hoveredUnit,
@@ -73,6 +74,9 @@ export default function HoverHistoryTooltip({
 
   const u = units.find(x => x.id === activeUnit);
   const unitRawLogs = rawStatuses?.filter(s => s.unit_id === activeUnit && s.track === trackingMode) || [];
+  // Bottleneck/variance skips milestones that are N/A for this unit.
+  const unitMilestones = u && applicabilityIndex ? applicableMilestones(milestones, u, applicabilityIndex) : milestones;
+  const variance = computeUnitVariance(unitRawLogs, unitMilestones, new Date());
 
   // Base positioning
   let top = activePos.y + 20;
@@ -117,7 +121,16 @@ export default function HoverHistoryTooltip({
            {u?.unit_type || 'Space'}
          </span>
       </div>
-      
+
+      {/* Schedule variance — the unit's lag verdict at a glance */}
+      <div className="flex items-center gap-2 mb-2 text-xs font-semibold">
+        <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: varianceFill(variance) }} />
+        <span>{varianceLabel(variance)}</span>
+        {variance.bottleneck && (
+          <span className="opacity-50 font-normal truncate">· {variance.bottleneck}</span>
+        )}
+      </div>
+
       <div className="flex flex-col gap-2.5 max-h-[250px] overflow-y-auto overscroll-contain pr-2 custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
         {milestones.length === 0 ? (
            <div className="text-xs italic opacity-50">No milestones configured for this track.</div>

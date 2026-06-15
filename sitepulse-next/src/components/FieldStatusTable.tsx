@@ -16,7 +16,6 @@ const MobileSwipeDeck = dynamic(() => import('./MobileSwipeDeck'), {
     </div>
   ),
 });
-import DesktopCardGrid from './DesktopCardGrid';
 import StatusTable from './StatusTable';
 import type { Sheet, Unit, Milestone, TemporalState } from '@/types/domain';
 import type { ApplicabilityIndex } from '@/utils/applicability';
@@ -30,7 +29,6 @@ interface FieldStatusTableProps {
   rawStatuses?: any[];
   savingUnitId?: string | null;
   onChooseStatus?: (unitId: string, milestoneName: string, state: string, track: string) => void;
-  defaultView?: 'table' | 'card';
   onApplyPendingChanges?: (changes: import('@/types/domain').PendingChange[]) => Promise<void>;
   sheets?: Sheet[];
   activeSheetId: string;
@@ -44,7 +42,6 @@ export default function FieldStatusTable({
   rawStatuses = [],
   savingUnitId,
   onChooseStatus,
-  defaultView = 'table',
   onApplyPendingChanges,
   sheets = [],
   activeSheetId,
@@ -83,8 +80,6 @@ export default function FieldStatusTable({
     handleSort,
     typeFilter,
     setTypeFilter,
-    viewStyle,
-    setViewStyle,
     pendingChanges,
     pendingTimelineChanges,
     pendingCount,
@@ -97,7 +92,7 @@ export default function FieldStatusTable({
     handleDiscardAll,
     handleApplyAll,
     trackingMode,
-  } = useFieldData({ activeStatuses, defaultView, onApplyPendingChanges });
+  } = useFieldData({ activeStatuses, onApplyPendingChanges });
 
   // --- Empty state guard ---
   if (!units || units.length === 0) {
@@ -190,32 +185,6 @@ export default function FieldStatusTable({
               >
                 Edit Route
               </button>
-
-              {/* Table / Card toggles (Desktop Only) */}
-              <div className="hidden md:flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm shrink-0 ml-2">
-                <button
-                  type="button"
-                  onClick={() => setViewStyle('table')}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    viewStyle === 'table'
-                      ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                      : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-                  }`}
-                >
-                  Table
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewStyle('card')}
-                  className={`px-3 py-1.5 text-xs font-semibold border-l border-slate-300/80 dark:border-white/10 transition-colors ${
-                    viewStyle === 'card'
-                      ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                      : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-                  }`}
-                >
-                  Cards
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -256,24 +225,7 @@ export default function FieldStatusTable({
         />
       )}
 
-      {isDesktop && viewStyle === 'card' && (
-        <div className="flex-1 min-h-0 overflow-y-auto pb-6">
-          <DesktopCardGrid
-            visible={visible}
-            pendingChanges={pendingChanges}
-            handleLocalUpdate={handleLocalUpdate}
-            savingUnitId={savingUnitId}
-            isApplying={isApplying}
-            pendingCount={pendingCount}
-            handleDiscardAll={handleDiscardAll}
-            handleApplyAll={handleApplyAll}
-            handleTimelineUpdate={handleTimelineUpdate}
-            {...sharedSelectionProps}
-          />
-        </div>
-      )}
-
-      {isDesktop && viewStyle === 'table' && (
+      {isDesktop && (
         <div className="flex-1 min-h-0 overflow-y-auto pb-6">
           <StatusTable
             visible={visible}

@@ -17,6 +17,7 @@ import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
+import { computeUnitVariance, varianceFill } from '@/utils/progressAnalytics';
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
@@ -29,6 +30,7 @@ import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point } from '@/types/domain';
+import { applicableMilestones } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
@@ -113,6 +115,37 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const { data: allMilestones = [] } = useMilestones(projectId);
   const milestones = allMilestones.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
+
+  // ── Lag Mode: re-skin bottleneck statuses with schedule-variance colors ──
+  // Purely visual: only the copies passed to the canvas renderers are recolored,
+  // so write paths (BulkActionDock bottlenecks, quick modals) never see lag colors.
+  const lagMode = !!mapSettings?.colorByVariance;
+  // Stable for the component's lifetime — matches how the dashboard modules and
+  // history modal source "today", and keeps the memo dep array honest.
+  const today = useMemo(() => new Date(), []);
+  const displayStatuses = useMemo(() => {
+    if (!lagMode) return activeStatuses;
+    const logsByUnit = new Map<string, StatusLog[]>();
+    for (const log of rawStatuses) {
+      if (log.track !== trackingMode || !log.unit_id) continue;
+      const arr = logsByUnit.get(log.unit_id);
+      if (arr) arr.push(log);
+      else logsByUnit.set(log.unit_id, [log]);
+    }
+    const unitById = new Map(units.map(u => [u.id, u]));
+    return activeStatuses.map(s => {
+      // Variance skips milestones that are N/A for this unit, matching the bottleneck.
+      const unit = unitById.get(s.unit_id as string);
+      const unitMilestones = unit && applicabilityIndex
+        ? applicableMilestones(milestones, unit, applicabilityIndex)
+        : milestones;
+      const info = computeUnitVariance(logsByUnit.get(s.unit_id as string) || [], unitMilestones, today);
+      return { ...s, status_color: varianceFill(info) };
+    });
+  // `milestones` is derived from allMilestones+trackingMode (both in deps); listing
+  // the derived array would change identity every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lagMode, activeStatuses, rawStatuses, allMilestones, trackingMode, today, units, applicabilityIndex]);
   // Synchronous main-thread snapping engine. The hook returns raw JSON vectors;
   // we instantiate the RBush spatial index here in a deferred effect (never in the
   // Query cache — see AGENTS.md §5). getSnappedCoordinate() is then called inline,
@@ -1517,7 +1550,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   key={unit.id}
                   unit={unit}
                   isRouteDropTarget={routeDropTarget === unit.id || (toolMode === 'route' && routeSubMode === 'add' && hoveredUnit === unit.id && !pendingRoute.includes(unit.id))}
-                  activeStatuses={activeStatuses}
+                  activeStatuses={displayStatuses}
+                  lagMode={lagMode}
                   legendFilter={legendFilter}
                   isSelected={selectedUnitIds?.includes(unit.id)}
                   isHovered={hoveredUnit === unit.id}
@@ -1633,6 +1667,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               units={units}
               milestones={milestones}
               activeStatuses={activeStatuses}
+              lagMode={lagMode}
               isSelected={isLegendSelected}
               onSelect={() => setIsLegendSelected(true)}
               onUpdate={(payload: any) => {
@@ -1648,7 +1683,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         <CrosshairOverlay pointerStore={pointerStore} />
       )}
 
-      {settings?.showHistoryHover && (
+      {/* Lag Mode auto-enables the hover card so the schedule verdict is reachable
+          without separately turning on "Show hover history". */}
+      {(settings?.showHistoryHover || lagMode) && (
          <HoverHistoryTooltip
             hoveredUnit={hoveredUnit}
             getPointerPos={getTooltipPointerPos}

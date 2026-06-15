@@ -7,7 +7,7 @@ import StatusTrigger from '@/components/ui/StatusTrigger';
 import { isMilestoneApplicable } from '@/utils/applicability';
 
 /**
- * StatusTable — traditional data table presenter (viewStyle === 'table', isDesktop).
+ * StatusTable — the desktop data table presenter (isDesktop).
  *
  * Owns: lastClickedIndex (Shift+Click multi-select context).
  *       renderSortIcon (Q1 resolution: JSX stays in presenter, not in hook).

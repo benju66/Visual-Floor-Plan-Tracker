@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SitePulse · Concept 01 — Map Lag Mode</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:opsz,wght@10..72,500;10..72,700;10..72,800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#edeae0; --card:#fbf9f3; --ink:#20262b; --ink-soft:#5d6770;
+    --line:#d6d1c2; --line-strong:#a9a392; --brand:#e96f1f;
+    --blue:#2e6fb0;
+    /* lag ramp */
+    --ahead:#4f88c2; --ahead-soft:#a9c5de; --onpace:#c8c2b0;
+    --b1:#e3c36a; --b2:#d99a45; --b3:#c75c32; --b4:#9e3022;
+    /* milestone palette (mode A) */
+    --ms-framing:#5b67c7; --ms-mep:#2e8f8a; --ms-drywall:#7d9b56;
+    --ms-paint:#ad6fb3; --ms-trim:#94703f; --ms-punch:#5d6a75;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    font-family:'Archivo',sans-serif;background:var(--paper);color:var(--ink);
+    min-height:100vh;display:flex;flex-direction:column;
+  }
+  /* ── app chrome ── */
+  .appbar{
+    display:flex;align-items:center;gap:18px;padding:10px 22px;
+    background:var(--ink);color:#efece1;
+  }
+  .wordmark{font-family:'Big Shoulders',sans-serif;font-weight:800;font-size:22px;letter-spacing:.04em;text-transform:uppercase}
+  .wordmark span{color:var(--brand)}
+  .crumb{font-size:13px;opacity:.75}
+  .concept-tag{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;color:var(--brand);text-transform:uppercase}
+
+  .toolbar{
+    display:flex;align-items:center;gap:16px;padding:10px 22px;
+    background:var(--card);border-bottom:1px solid var(--line-strong);
+  }
+  .sheet-name{font-family:'Big Shoulders',sans-serif;font-weight:700;font-size:24px;letter-spacing:.02em;text-transform:uppercase}
+  .sheet-sub{font-size:12px;color:var(--ink-soft)}
+
+  .mode-toggle{
+    margin-left:auto;display:flex;border:1.5px solid var(--ink);border-radius:6px;overflow:hidden;
+    font-size:13px;font-weight:600;
+  }
+  .mode-toggle button{
+    font-family:'Archivo',sans-serif;font-weight:600;font-size:13px;
+    padding:8px 18px;border:0;background:transparent;color:var(--ink);cursor:pointer;
+    display:flex;align-items:center;gap:8px;transition:background .15s,color .15s;
+  }
+  .mode-toggle button.active{background:var(--ink);color:#f5f1e6}
+  .mode-toggle button.active .dot{background:var(--brand)}
+  .mode-toggle .dot{width:8px;height:8px;border-radius:50%;background:var(--line-strong)}
+  .hint{font-size:12px;color:var(--brand);font-weight:600;animation:nudge 2.4s ease-in-out infinite}
+  @keyframes nudge{0%,100%{transform:translateX(0)}50%{transform:translateX(5px)}}
+
+  .zoomctl{display:flex;gap:4px}
+  .zoomctl button{width:30px;height:30px;border:1px solid var(--line-strong);background:var(--card);border-radius:5px;font-size:15px;color:var(--ink-soft);cursor:default}
+
+  /* ── canvas ── */
+  .canvas-wrap{position:relative;flex:1;overflow:hidden;
+    background:
+      repeating-linear-gradient(0deg,transparent 0 39px,rgba(46,111,176,.07) 39px 40px),
+      repeating-linear-gradient(90deg,transparent 0 39px,rgba(46,111,176,.07) 39px 40px),
+      var(--paper);
+  }
+  svg.plan{display:block;width:min(1180px,96%);margin:26px auto;filter:drop-shadow(0 2px 10px rgba(32,38,43,.10))}
+
+  .unit{stroke:var(--ink);stroke-width:1.6;transition:fill .45s ease;cursor:pointer}
+  .unit:hover{stroke-width:3}
+  .core{fill:#dcd7c8;stroke:var(--ink);stroke-width:1.6}
+  .u-label{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;fill:var(--ink);pointer-events:none}
+  .u-sub{font-family:'IBM Plex Mono',monospace;font-size:10px;fill:rgba(32,38,43,.62);pointer-events:none}
+  .core-label{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;fill:var(--ink-soft);pointer-events:none}
+
+  .oos{animation:pulse 1.6s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+  @keyframes pulse{0%,100%{opacity:1;r:7}50%{opacity:.45;r:9}}
+
+  /* ── legend ── */
+  .legend{
+    position:absolute;left:26px;bottom:26px;width:236px;background:var(--card);
+    border:1.5px solid var(--ink);border-radius:8px;padding:14px 16px;
+    box-shadow:4px 4px 0 rgba(32,38,43,.14);
+  }
+  .legend h4{font-family:'Big Shoulders',sans-serif;font-size:17px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .legend h4::after{content:"";flex:1;height:1px;background:var(--line-strong)}
+  .lrow{display:flex;align-items:center;gap:9px;font-size:12px;padding:3px 0}
+  .sw{width:16px;height:13px;border:1px solid var(--ink);border-radius:2px;flex-shrink:0}
+  .lnote{margin-top:9px;padding-top:8px;border-top:1px dashed var(--line-strong);font-size:11px;color:var(--ink-soft);line-height:1.45}
+
+  /* ── pinned tooltip ── */
+  .tip{
+    position:absolute;left:66%;top:56%;width:228px;background:var(--ink);color:#f0ece1;
+    border-radius:8px;padding:12px 14px;font-size:12px;box-shadow:0 8px 22px rgba(32,38,43,.35);
+  }
+  .tip::before{content:"";position:absolute;left:-8px;top:38px;border:8px solid transparent;border-right-color:var(--ink);border-left:0}
+  .tip .t-unit{font-family:'Big Shoulders',sans-serif;font-size:19px;font-weight:700;letter-spacing:.04em}
+  .tip .t-type{font-size:11px;opacity:.65;margin-bottom:7px}
+  .tip .t-bn{margin-bottom:3px}
+  .tip .t-lag{font-weight:700;color:#f0a884}
+  .tip .strip{display:flex;gap:3px;margin-top:9px}
+  .tip .strip i{height:7px;flex:1;border-radius:2px;background:#3a434b}
+  .tip .strip i.done{background:#7d9b56}
+  .tip .strip i.going{background:repeating-linear-gradient(45deg,#d99a45 0 4px,#a9763a 4px 8px)}
+  .tip .t-cap{font-size:9.5px;opacity:.55;margin-top:5px;font-family:'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase}
+
+  /* ── footer note ── */
+  .note{
+    padding:13px 22px;background:var(--ink);color:#cfc9ba;font-size:12.5px;line-height:1.5;
+  }
+  .note b{color:#f0ece1}
+  .note .k{color:var(--brand);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-right:10px}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="wordmark">Site<span>Pulse</span></div>
+  <div class="crumb">Maple &amp; 5th — Building A</div>
+  <div class="concept-tag">Concept 01 / Map Lag Mode</div>
+</header>
+
+<div class="toolbar">
+  <div>
+    <div class="sheet-name">Level 3 — Residential</div>
+    <div class="sheet-sub">Track: Finishes · 14 units · 2 cores</div>
+  </div>
+  <span class="hint" id="hint">try the toggle →</span>
+  <div class="mode-toggle" role="tablist">
+    <button id="btn-ms" onclick="setMode('ms')"><span class="dot"></span>Milestone status</button>
+    <button id="btn-lag" class="active" onclick="setMode('lag')"><span class="dot"></span>Schedule lag</button>
+  </div>
+  <div class="zoomctl"><button>−</button><button>+</button></div>
+</div>
+
+<div class="canvas-wrap">
+  <svg class="plan" viewBox="0 0 1180 620">
+    <defs>
+      <pattern id="hatch" width="9" height="9" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+        <rect width="9" height="9" fill="#e8dcc0"/>
+        <line x1="0" y1="0" x2="0" y2="9" stroke="#c0892e" stroke-width="3.5"/>
+      </pattern>
+      <pattern id="ongoing" width="11" height="11" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+        <line x1="0" y1="0" x2="0" y2="11" stroke="rgba(255,255,255,.45)" stroke-width="4"/>
+      </pattern>
+    </defs>
+
+    <!-- outer wall -->
+    <rect x="18" y="18" width="1144" height="584" fill="none" stroke="var(--ink)" stroke-width="4"/>
+
+    <!-- cores -->
+    <rect class="core" x="20" y="20" width="110" height="250"/>
+    <text class="core-label" x="75" y="140" text-anchor="middle">STAIR A</text>
+    <g><rect class="unit" id="u-stb" x="1040" y="350" width="120" height="250"/>
+       <text class="core-label" x="1100" y="470" text-anchor="middle">STAIR B</text></g>
+    <rect class="core" x="470" y="350" width="110" height="250"/>
+    <text class="core-label" x="525" y="470" text-anchor="middle">ELEV</text>
+
+    <!-- corridor -->
+    <g><rect class="unit" id="u-cor" x="20" y="270" width="1140" height="80"/>
+       <text class="u-label" x="590" y="303" text-anchor="middle" style="font-size:12px;letter-spacing:.25em">CORRIDOR C-3</text>
+       <text class="u-sub" id="sub-cor" x="590" y="322" text-anchor="middle"></text></g>
+
+    <!-- top row -->
+    <g><rect class="unit" id="u-301" x="130" y="20" width="150" height="250"/><text class="u-label" x="205" y="135" text-anchor="middle">301</text><text class="u-sub" id="sub-301" x="205" y="155" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-302" x="280" y="20" width="150" height="250"/><text class="u-label" x="355" y="135" text-anchor="middle">302</text><text class="u-sub" id="sub-302" x="355" y="155" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-303" x="430" y="20" width="160" height="250"/><text class="u-label" x="510" y="135" text-anchor="middle">303</text><text class="u-sub" id="sub-303" x="510" y="155" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-304" x="590" y="20" width="150" height="250"/><text class="u-label" x="665" y="135" text-anchor="middle">304</text><text class="u-sub" id="sub-304" x="665" y="155" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-305" x="740" y="20" width="150" height="250"/>
+       <rect x="740" y="20" width="150" height="250" fill="url(#ongoing)" pointer-events="none"/>
+       <text class="u-label" x="815" y="135" text-anchor="middle">305</text><text class="u-sub" id="sub-305" x="815" y="155" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-306" x="890" y="20" width="160" height="250"/><text class="u-label" x="970" y="135" text-anchor="middle">306</text><text class="u-sub" id="sub-306" x="970" y="155" text-anchor="middle"></text>
+       <circle class="oos" cx="1030" cy="44" r="7" fill="#c0392b" stroke="#fff" stroke-width="2"/></g>
+    <g><rect class="unit" id="u-307" x="1050" y="20" width="110" height="250"/><text class="u-label" x="1105" y="135" text-anchor="middle">307</text><text class="u-sub" id="sub-307" x="1105" y="155" text-anchor="middle"></text></g>
+
+    <!-- bottom row -->
+    <g><rect class="unit" id="u-308" x="20" y="350" width="150" height="250"/><text class="u-label" x="95" y="465" text-anchor="middle">308</text><text class="u-sub" id="sub-308" x="95" y="485" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-309" x="170" y="350" width="150" height="250"/><text class="u-label" x="245" y="465" text-anchor="middle">309</text><text class="u-sub" id="sub-309" x="245" y="485" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-310" x="320" y="350" width="150" height="250"/><text class="u-label" x="395" y="465" text-anchor="middle">310</text><text class="u-sub" id="sub-310" x="395" y="485" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-311" x="580" y="350" width="150" height="250"/>
+       <rect x="580" y="350" width="150" height="250" fill="url(#ongoing)" pointer-events="none"/>
+       <text class="u-label" x="655" y="465" text-anchor="middle">311</text><text class="u-sub" id="sub-311" x="655" y="485" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-312" x="730" y="350" width="160" height="250" stroke-width="3.5"/><text class="u-label" x="810" y="465" text-anchor="middle">312</text><text class="u-sub" id="sub-312" x="810" y="485" text-anchor="middle"></text></g>
+    <g><rect class="unit" id="u-313" x="890" y="350" width="150" height="250"/><text class="u-label" x="965" y="465" text-anchor="middle">313</text><text class="u-sub" id="sub-313" x="965" y="485" text-anchor="middle"></text></g>
+  </svg>
+
+  <!-- legend -->
+  <aside class="legend">
+    <div id="leg-ms" style="display:none">
+      <h4>Milestone</h4>
+      <div class="lrow"><span class="sw" style="background:var(--ms-framing)"></span>Framing</div>
+      <div class="lrow"><span class="sw" style="background:var(--ms-mep)"></span>MEP Rough</div>
+      <div class="lrow"><span class="sw" style="background:var(--ms-drywall)"></span>Drywall</div>
+      <div class="lrow"><span class="sw" style="background:var(--ms-paint)"></span>Paint</div>
+      <div class="lrow"><span class="sw" style="background:var(--ms-trim)"></span>Trim &amp; Doors</div>
+      <div class="lrow"><span class="sw" style="background:var(--ms-punch)"></span>Punch</div>
+      <div class="lnote">Color = current bottleneck · stripes = in progress · <span style="color:#c0392b">●</span> out-of-sequence</div>
+    </div>
+    <div id="leg-lag">
+      <h4>Schedule lag</h4>
+      <div class="lrow"><span class="sw" style="background:var(--ahead)"></span>Ahead of plan</div>
+      <div class="lrow"><span class="sw" style="background:var(--onpace)"></span>On pace</div>
+      <div class="lrow"><span class="sw" style="background:var(--b1)"></span>1–3 days behind</div>
+      <div class="lrow"><span class="sw" style="background:var(--b2)"></span>4–7 days behind</div>
+      <div class="lrow"><span class="sw" style="background:var(--b3)"></span>8–14 days behind</div>
+      <div class="lrow"><span class="sw" style="background:var(--b4)"></span>15+ days behind</div>
+      <div class="lrow"><span class="sw" style="background:url(#x);background-image:repeating-linear-gradient(45deg,#e8dcc0 0 3px,#c0892e 3px 6px)"></span>No plan dates — time idle</div>
+      <div class="lnote">Variance of each unit's bottleneck milestone vs. today · <span style="color:#c0392b">●</span> out-of-sequence persists</div>
+    </div>
+  </aside>
+
+  <!-- pinned hover tooltip -->
+  <div class="tip">
+    <div class="t-unit">UNIT 312</div>
+    <div class="t-type">Apartment · walk seq 12 · Delgado crew</div>
+    <div class="t-bn">Bottleneck: <b>Drywall</b> — ongoing</div>
+    <div class="t-lag" id="tip-lag">8 days behind plan</div>
+    <div class="strip">
+      <i class="done"></i><i class="done"></i><i class="done"></i><i class="going"></i><i></i><i></i>
+    </div>
+    <div class="t-cap">FRM · MEP · DW · PT · TRM · PCH</div>
+  </div>
+</div>
+
+<footer class="note">
+  <span class="k">What's mocked</span>
+  A second coloring mode for the existing canvas. <b>Toggle between modes</b> — milestone mode shows <i>what</i> each unit is on; lag mode shows <i>how late</i> its bottleneck is.
+  Note how the corridor and stair core jump out in lag mode (the schedule risk), the hatched units (313, Stair B) have no plan dates and show time-idle instead, and the out-of-sequence pulse on 306 survives both modes.
+</footer>
+
+<script>
+  const MS = {framing:'var(--ms-framing)',mep:'var(--ms-mep)',drywall:'var(--ms-drywall)',paint:'var(--ms-paint)',trim:'var(--ms-trim)',punch:'var(--ms-punch)'};
+  const MS_NAME = {framing:'Framing',mep:'MEP Rough',drywall:'Drywall',paint:'Paint',trim:'Trim',punch:'Punch'};
+  // variance: + ahead, − behind, 'stall' = no plan dates
+  const UNITS = {
+    '301':{ms:'paint',  v: 2}, '302':{ms:'paint',  v: 0}, '303':{ms:'drywall',v:-3},
+    '304':{ms:'drywall',v:-3}, '305':{ms:'drywall',v: 0}, '306':{ms:'mep',    v:-15},
+    '307':{ms:'mep',    v:-5}, '308':{ms:'trim',   v: 4}, '309':{ms:'paint',  v: 1},
+    '310':{ms:'paint',  v: 0}, '311':{ms:'drywall',v:-2}, '312':{ms:'drywall',v:-8},
+    '313':{ms:'mep',    v:'stall', idle:12},
+    'cor':{ms:'drywall',v:-10}, 'stb':{ms:'mep', v:'stall', idle:19},
+  };
+  function lagFill(v){
+    if(v==='stall') return 'url(#hatch)';
+    if(v>=1)  return v>=3 ? 'var(--ahead)' : 'var(--ahead-soft)';
+    if(v===0) return 'var(--onpace)';
+    const d=-v;
+    if(d<=3) return 'var(--b1)'; if(d<=7) return 'var(--b2)';
+    if(d<=14) return 'var(--b3)'; return 'var(--b4)';
+  }
+  function subText(u,mode){
+    if(mode==='ms') return MS_NAME[u.ms];
+    if(u.v==='stall') return 'idle '+u.idle+'d';
+    if(u.v>0) return '+'+u.v+'d ahead';
+    if(u.v===0) return 'on pace';
+    return (-u.v)+'d behind';
+  }
+  function setMode(mode){
+    for(const [id,u] of Object.entries(UNITS)){
+      const el=document.getElementById('u-'+id);
+      if(el) el.style.fill = (mode==='ms') ? MS[u.ms] : lagFill(u.v);
+      const sub=document.getElementById('sub-'+id);
+      if(sub) sub.textContent = subText(u,mode);
+    }
+    document.getElementById('btn-ms').classList.toggle('active',mode==='ms');
+    document.getElementById('btn-lag').classList.toggle('active',mode==='lag');
+    document.getElementById('leg-ms').style.display = mode==='ms'?'block':'none';
+    document.getElementById('leg-lag').style.display = mode==='lag'?'block':'none';
+    document.getElementById('tip-lag').textContent = mode==='lag' ? '8 days behind plan' : 'planned finish May 30';
+    document.getElementById('hint').style.display='none';
+  }
+  setMode('lag');
+  document.getElementById('hint').style.display='inline'; // keep hint until first click
+</script>
+</body>
+</html>
