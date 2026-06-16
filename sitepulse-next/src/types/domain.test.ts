@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPercentPointArray } from './domain';
+import { isPercentPointArray, isStringArray, isProjectTypeArray } from './domain';
 
 // isPercentPointArray is the runtime guard that narrows the JSONB
 // `polygon_coordinates` column at the query boundary (see AGENTS.md §6).
@@ -25,5 +25,37 @@ describe('isPercentPointArray', () => {
     expect(isPercentPointArray([{ pctX: '0.1', pctY: '0.2' }])).toBe(false);
     expect(isPercentPointArray([{ x: 0.1, y: 0.2 }])).toBe(false);
     expect(isPercentPointArray([42])).toBe(false);
+  });
+});
+
+// isStringArray narrows the `subtypes.aliases` JSONB at the query boundary.
+describe('isStringArray', () => {
+  it('accepts a string array (and the empty array)', () => {
+    expect(isStringArray(['Salon Suite', 'Hair Studio'])).toBe(true);
+    expect(isStringArray([])).toBe(true);
+  });
+
+  it('rejects non-arrays and arrays with non-string elements', () => {
+    expect(isStringArray(null)).toBe(false);
+    expect(isStringArray(undefined)).toBe(false);
+    expect(isStringArray('Salon Suite')).toBe(false);
+    expect(isStringArray(['ok', 42])).toBe(false);
+    expect(isStringArray([null])).toBe(false);
+  });
+});
+
+// isProjectTypeArray narrows the `subtypes.default_project_types` JSONB.
+describe('isProjectTypeArray', () => {
+  it('accepts arrays of valid canonical project types (and empty)', () => {
+    expect(isProjectTypeArray(['Healthcare', 'Industrial'])).toBe(true);
+    expect(isProjectTypeArray([])).toBe(true);
+  });
+
+  it('rejects unknown strings, non-strings, and non-arrays', () => {
+    expect(isProjectTypeArray(['Healthcare', 'Bogus'])).toBe(false);
+    expect(isProjectTypeArray(['healthcare'])).toBe(false); // case-sensitive
+    expect(isProjectTypeArray([42])).toBe(false);
+    expect(isProjectTypeArray('Healthcare')).toBe(false);
+    expect(isProjectTypeArray(null)).toBe(false);
   });
 });

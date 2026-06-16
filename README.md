@@ -178,8 +178,10 @@ SQL migrations live in `sitepulse-next/supabase/migrations/`. These must be appl
 | Migration | Purpose |
 |---|---|
 | `20260518_status_logs_idempotency.sql` | Deduplicates existing rows, adds slot-unique constraint, creates `status_audit_log` table + trigger, and deploys the `upsert_status_log` RPC with LWW timestamp guard |
+| `20260610_milestone_applicability.sql` | Adds `project_milestones.applies_to_unit_types`, the `milestone_applicability_overrides` table (+ RLS), and a `temporal_state` CHECK constraint |
+| `20260616_location_taxonomy.sql` | **Additive.** Adds `projects.project_type` (8-value CHECK), `units.top_level_role` (4-value CHECK) + `units.subtype_id` (FK → `subtypes`, `ON DELETE SET NULL`), the global `subtypes` dictionary table (RLS: read = any member, write = `owner`/`admin`/`pm` only), seeds 70 sub-types + the `Other (pending)` sentinel, and backfills role/sub-type from the legacy `unit_type` (which is **kept**). Idempotent; safe to re-run |
 
-> ⚠️ **The dedup step is destructive.** Always back up `status_logs` before running.
+> ⚠️ **The `20260518` dedup step is destructive.** Always back up `status_logs` before running. The `20260610` and `20260616` migrations are additive (no data loss), but `20260616`'s `UPDATE` backfill is data-touching — run on a branch/backup first.
 
 ---
 *Built for the future of construction management.*

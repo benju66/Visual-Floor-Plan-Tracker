@@ -15,6 +15,7 @@ export interface Database {
           name: string
           unit_types: Json | null
           procore_project_id: string | null
+          project_type: string | null
           created_at: string | null
         }
         Insert: {
@@ -22,6 +23,7 @@ export interface Database {
           name: string
           unit_types?: Json | null
           procore_project_id?: string | null
+          project_type?: string | null
           created_at?: string | null
         }
         Update: {
@@ -29,6 +31,7 @@ export interface Database {
           name?: string
           unit_types?: Json | null
           procore_project_id?: string | null
+          project_type?: string | null
           created_at?: string | null
         }
         Relationships: []
@@ -90,6 +93,8 @@ export interface Database {
           sheet_id: string | null
           unit_number: string
           unit_type: string | null
+          top_level_role: string | null
+          subtype_id: string | null
           computed_area: number | null
           polygon_coordinates: Json
           icon_offset_x: number | null
@@ -103,6 +108,8 @@ export interface Database {
           sheet_id?: string | null
           unit_number: string
           unit_type?: string | null
+          top_level_role?: string | null
+          subtype_id?: string | null
           computed_area?: number | null
           polygon_coordinates: Json
           icon_offset_x?: number | null
@@ -116,12 +123,57 @@ export interface Database {
           sheet_id?: string | null
           unit_number?: string
           unit_type?: string | null
+          top_level_role?: string | null
+          subtype_id?: string | null
           computed_area?: number | null
           polygon_coordinates?: Json
           icon_offset_x?: number | null
           icon_offset_y?: number | null
           walk_sequence?: number | null
           assigned_to?: string | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "units_subtype_id_fkey"
+            columns: ["subtype_id"]
+            referencedRelation: "subtypes"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      subtypes: {
+        Row: {
+          id: string
+          name: string
+          top_level_role: string
+          status: string
+          aliases: Json
+          default_project_types: Json
+          proposed_note: string | null
+          created_by: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          top_level_role: string
+          status?: string
+          aliases?: Json
+          default_project_types?: Json
+          proposed_note?: string | null
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          top_level_role?: string
+          status?: string
+          aliases?: Json
+          default_project_types?: Json
+          proposed_note?: string | null
+          created_by?: string | null
           created_at?: string | null
         }
         Relationships: []

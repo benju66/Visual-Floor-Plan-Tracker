@@ -1,4 +1,11 @@
 import type { Database } from './database.types';
+import { PROJECT_TYPES, type ProjectType, type TopLevelRole } from '@/utils/locationTaxonomy';
+
+// The canonical taxonomy unions live in locationTaxonomy.ts (the framework-free
+// source of truth). Re-export them here so domain.ts stays the single type
+// registry (AGENTS.md §6) — the DB stores these as plain TEXT, so they can't be
+// derived from database.types.ts.
+export type { ProjectType, TopLevelRole };
 
 export type Project    = Database['public']['Tables']['projects']['Row'];
 export type Sheet      = Database['public']['Tables']['sheets']['Row'];
@@ -12,6 +19,21 @@ export type MilestoneOverride = Database['public']['Tables']['milestone_applicab
 
 export type StatusLogInsert = Database['public']['Tables']['status_logs']['Insert'];
 export type UnitInsert      = Database['public']['Tables']['units']['Insert'];
+
+// Sub-type dictionary row (Location Taxonomy). The two JSONB columns are
+// narrowed off the generated `Json` to their real shapes (mirroring how `Unit`
+// narrows `polygon_coordinates`); narrow them at the query boundary with the
+// guards below. `aliases` is a list of alias-name strings that map TO this
+// sub-type; `default_project_types` scopes the pick-list.
+export type SubtypeStatus = 'active' | 'pending' | 'deprecated';
+export type Subtype = Omit<
+  Database['public']['Tables']['subtypes']['Row'],
+  'aliases' | 'default_project_types'
+> & {
+  aliases: string[];
+  default_project_types: ProjectType[];
+};
+export type SubtypeInsert = Database['public']['Tables']['subtypes']['Insert'];
 
 export type TemporalState = 'planned' | 'ongoing' | 'completed' | 'none';
 export type MemberRole    = 'admin' | 'pm' | 'superintendent' | 'viewer';
@@ -54,6 +76,23 @@ export function isPercentPointArray(val: unknown): val is PercentPoint[] {
     Array.isArray(val) &&
     val.every(p => typeof (p as PercentPoint).pctX === 'number' && typeof (p as PercentPoint).pctY === 'number')
   );
+}
+
+/**
+ * Narrows a sub-type's `aliases` JSONB to a string array (the alias names that
+ * map to this sub-type). Use at the query boundary, like {@link isPercentPointArray}.
+ * Null-safe per element: a non-string element yields `false`, never throws.
+ */
+export function isStringArray(val: unknown): val is string[] {
+  return Array.isArray(val) && val.every(v => typeof v === 'string');
+}
+
+/**
+ * Narrows a sub-type's `default_project_types` JSONB to ProjectType[] — accepts
+ * only arrays whose every element is one of the 8 canonical project types.
+ */
+export function isProjectTypeArray(val: unknown): val is ProjectType[] {
+  return Array.isArray(val) && val.every(v => (PROJECT_TYPES as readonly string[]).includes(v as string));
 }
 
 /**
