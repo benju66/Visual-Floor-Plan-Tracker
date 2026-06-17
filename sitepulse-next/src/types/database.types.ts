@@ -13,6 +13,7 @@ export interface Database {
         Row: {
           id: string
           name: string
+          kind: string
           unit_types: Json | null
           procore_project_id: string | null
           procore_company_id: string | null
@@ -22,6 +23,7 @@ export interface Database {
         Insert: {
           id?: string
           name: string
+          kind?: string
           unit_types?: Json | null
           procore_project_id?: string | null
           procore_company_id?: string | null
@@ -31,6 +33,7 @@ export interface Database {
         Update: {
           id?: string
           name?: string
+          kind?: string
           unit_types?: Json | null
           procore_project_id?: string | null
           procore_company_id?: string | null
@@ -90,6 +93,52 @@ export interface Database {
         }
         Relationships: []
       }
+      workbench_sheets: {
+        Row: {
+          sheet_id: string
+          sheet_project_type: string | null
+          level_label: string | null
+          source_sheet_number: string | null
+          vector_quality: string | null
+          is_partial: boolean
+          review_state: string
+          reviewed_by: string | null
+          reviewed_at: string | null
+          created_at: string | null
+        }
+        Insert: {
+          sheet_id: string
+          sheet_project_type?: string | null
+          level_label?: string | null
+          source_sheet_number?: string | null
+          vector_quality?: string | null
+          is_partial?: boolean
+          review_state?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          sheet_id?: string
+          sheet_project_type?: string | null
+          level_label?: string | null
+          source_sheet_number?: string | null
+          vector_quality?: string | null
+          is_partial?: boolean
+          review_state?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workbench_sheets_sheet_id_fkey"
+            columns: ["sheet_id"]
+            referencedRelation: "sheets"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       units: {
         Row: {
           id: string
@@ -99,6 +148,9 @@ export interface Database {
           top_level_role: string | null
           subtype_id: string | null
           computed_area: number | null
+          spans_levels: boolean | null
+          level_note: string | null
+          has_void: boolean | null
           polygon_coordinates: Json
           icon_offset_x: number | null
           icon_offset_y: number | null
@@ -114,6 +166,9 @@ export interface Database {
           top_level_role?: string | null
           subtype_id?: string | null
           computed_area?: number | null
+          spans_levels?: boolean | null
+          level_note?: string | null
+          has_void?: boolean | null
           polygon_coordinates: Json
           icon_offset_x?: number | null
           icon_offset_y?: number | null
@@ -129,6 +184,9 @@ export interface Database {
           top_level_role?: string | null
           subtype_id?: string | null
           computed_area?: number | null
+          spans_levels?: boolean | null
+          level_note?: string | null
+          has_void?: boolean | null
           polygon_coordinates?: Json
           icon_offset_x?: number | null
           icon_offset_y?: number | null
