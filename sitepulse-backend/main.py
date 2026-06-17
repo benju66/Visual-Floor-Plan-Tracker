@@ -86,17 +86,34 @@ def health_check():
 
 security = HTTPBearer()
 
+# This Supabase project signs user access tokens with an ASYMMETRIC key (ES256),
+# so tokens are verified against the project's published JWKS public key — not the
+# legacy HS256 shared secret. (The old SUPABASE_JWT_SECRET in .env was actually the
+# public key id, which can't — and must not — be used to verify a signature: doing
+# HS256 against a publicly-known value would let anyone forge a token.)
+#
+# Still LOCAL + CACHED, so the no-blocking-auth-network-call rule (§7) holds: that
+# rule was about the per-request supabase.auth.get_user() round-trip. PyJWKClient
+# fetches the JWKS once and caches it (lifespan), so steady-state verification does
+# no network I/O. A short timeout keeps a JWKS outage from hanging the request.
+JWKS_URL = f"{supabase_url}/auth/v1/.well-known/jwks.json"
+_jwk_client = jwt.PyJWKClient(JWKS_URL, cache_keys=True, lifespan=600, timeout=10)
+ALLOWED_ASYMMETRIC_ALGS = ["ES256", "RS256"]
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Validates the Supabase JWT locally using SUPABASE_JWT_SECRET.
-    Eliminates the blocking network call to supabase.auth.get_user() that
-    was the primary cause of /extract-vectors request timeouts.
+    """Validate the Supabase user JWT locally against the project's JWKS public key.
+
+    Verifies the asymmetric (ES256) signature using the key whose `kid` matches the
+    token header, requires the `authenticated` role, and never calls
+    supabase.auth.get_user() (the former cause of /extract-vectors timeouts).
     """
     token = credentials.credentials
     try:
+        signing_key = _jwk_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
-            supabase_jwt_secret,
-            algorithms=["HS256"],
+            signing_key.key,
+            algorithms=ALLOWED_ASYMMETRIC_ALGS,
             options={"verify_aud": False},  # Supabase uses role claim, not URL audience
         )
         if payload.get("role") != "authenticated":
@@ -109,6 +126,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             headers={"WWW-Authenticate": "Bearer"},
         )
     except jwt.PyJWTError:
+        # Covers bad signatures, unknown kid, and JWKS fetch/parse failures
+        # (PyJWKClientError is a PyJWTError) — never leak detail, always 401.
         raise HTTPException(
             status_code=401,
             detail="Invalid authentication credentials",
