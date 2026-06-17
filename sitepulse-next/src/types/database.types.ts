@@ -15,6 +15,7 @@ export interface Database {
           name: string
           unit_types: Json | null
           procore_project_id: string | null
+          procore_company_id: string | null
           project_type: string | null
           created_at: string | null
         }
@@ -23,6 +24,7 @@ export interface Database {
           name: string
           unit_types?: Json | null
           procore_project_id?: string | null
+          procore_company_id?: string | null
           project_type?: string | null
           created_at?: string | null
         }
@@ -31,6 +33,7 @@ export interface Database {
           name?: string
           unit_types?: Json | null
           procore_project_id?: string | null
+          procore_company_id?: string | null
           project_type?: string | null
           created_at?: string | null
         }
@@ -346,19 +349,22 @@ export interface Database {
           id: string
           display_name: string | null
           email: string
-          created_at: string | null
+          avatar_url: string | null
+          updated_at: string | null
         }
         Insert: {
           id: string
           display_name?: string | null
           email: string
-          created_at?: string | null
+          avatar_url?: string | null
+          updated_at?: string | null
         }
         Update: {
           id?: string
           display_name?: string | null
           email?: string
-          created_at?: string | null
+          avatar_url?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }
