@@ -41,12 +41,20 @@ export default function CanvasContextMenu({
       <div className="px-2 py-1 mb-1 border-b border-slate-200/50 dark:border-slate-700/50">
         <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Options</span>
       </div>
-      <button type="button" onClick={() => { onRenameUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-        <Pencil size={16} className="text-sky-500" /> Rename Location
-      </button>
-      <button type="button" onClick={() => { onDuplicateUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-        <Copy size={16} className="text-purple-500" /> Duplicate
-      </button>
+      {/* Each action renders only when its handler is supplied. The live map passes
+          every handler (unchanged behavior); the Location Labeling Workbench passes
+          none of the status/edit handlers, so the tracer's right-click menu surfaces
+          only the geometry actions — never a status/milestone/history control. */}
+      {onRenameUnit && (
+        <button type="button" onClick={() => { onRenameUnit(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+          <Pencil size={16} className="text-sky-500" /> Rename Location
+        </button>
+      )}
+      {onDuplicateUnit && (
+        <button type="button" onClick={() => { onDuplicateUnit(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+          <Copy size={16} className="text-purple-500" /> Duplicate
+        </button>
+      )}
       <button type="button" onClick={() => { handleFlip('horizontal'); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
         <FlipHorizontal size={16} className="text-emerald-500" /> Flip Horizontal
       </button>
@@ -59,19 +67,29 @@ export default function CanvasContextMenu({
       <button type="button" onClick={() => { handleRotatePolygon?.('right', contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
         <RotateCw size={16} className="text-emerald-500" /> Rotate 90° Right
       </button>
-      <button type="button" onClick={() => { onOpenMilestoneModal?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-        <Flag size={16} className="text-amber-500" /> Change Milestone
-      </button>
-      <button type="button" onClick={() => { onOpenStatusModal?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-        <Activity size={16} className="text-amber-500" /> Change Status
-      </button>
-      <button type="button" onClick={() => { onOpenHistoryModal?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-        <History size={16} className="text-blue-500" /> View History
-      </button>
-      <div className="h-px bg-slate-200/50 dark:bg-slate-700/50 mx-1 my-1" />
-      <button type="button" onClick={() => { onDeleteUnit?.(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-sm font-bold text-red-600 transition-colors text-left">
-        <Trash2 size={16} className="text-red-500" /> Delete Location
-      </button>
+      {onOpenMilestoneModal && (
+        <button type="button" onClick={() => { onOpenMilestoneModal(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+          <Flag size={16} className="text-amber-500" /> Change Milestone
+        </button>
+      )}
+      {onOpenStatusModal && (
+        <button type="button" onClick={() => { onOpenStatusModal(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+          <Activity size={16} className="text-amber-500" /> Change Status
+        </button>
+      )}
+      {onOpenHistoryModal && (
+        <button type="button" onClick={() => { onOpenHistoryModal(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+          <History size={16} className="text-blue-500" /> View History
+        </button>
+      )}
+      {onDeleteUnit && (
+        <>
+          <div className="h-px bg-slate-200/50 dark:bg-slate-700/50 mx-1 my-1" />
+          <button type="button" onClick={() => { onDeleteUnit(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-sm font-bold text-red-600 transition-colors text-left">
+            <Trash2 size={16} className="text-red-500" /> Delete Location
+          </button>
+        </>
+      )}
     </div>
   );
 }

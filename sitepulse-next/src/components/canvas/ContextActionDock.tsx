@@ -103,6 +103,10 @@ export default function ContextActionDock({
         borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
       }}
     >
+      {/* Status/edit actions render only when their handler is supplied. The live
+          map passes every handler (unchanged behavior); the Location Labeling
+          Workbench passes none of them, so a selected label exposes only geometry
+          actions (flip/rotate) — never a status/milestone/history control. */}
       {isSingle && (
         <>
           <ActionButton
@@ -111,18 +115,22 @@ export default function ContextActionDock({
             onClick={() => onToolModeChange?.('stamp')}
             colorClass="fuchsia"
           />
-          <ActionButton 
-            icon={Pencil} 
-            label="Rename" 
-            onClick={() => onRenameUnit?.(targetId)} 
-            colorClass="purple" 
-          />
-          <ActionButton 
-            icon={Copy} 
-            label="Duplicate" 
-            onClick={() => onDuplicateUnit?.(targetId)} 
-            colorClass="purple" 
-          />
+          {onRenameUnit && (
+            <ActionButton
+              icon={Pencil}
+              label="Rename"
+              onClick={() => onRenameUnit(targetId)}
+              colorClass="purple"
+            />
+          )}
+          {onDuplicateUnit && (
+            <ActionButton
+              icon={Copy}
+              label="Duplicate"
+              onClick={() => onDuplicateUnit(targetId)}
+              colorClass="purple"
+            />
+          )}
         </>
       )}
       <ActionButton 
@@ -151,33 +159,43 @@ export default function ContextActionDock({
       />
       {isSingle && (
         <>
+          {onOpenMilestoneModal && (
+            <ActionButton
+              icon={Flag}
+              label="Set Milestone"
+              onClick={() => onOpenMilestoneModal(targetId)}
+              colorClass="amber"
+            />
+          )}
+          {onOpenStatusModal && (
+            <ActionButton
+              icon={Activity}
+              label="Set Status"
+              onClick={() => onOpenStatusModal(targetId)}
+              colorClass="amber"
+            />
+          )}
+          {onOpenHistoryModal && (
+            <ActionButton
+              icon={History}
+              label="History"
+              onClick={() => onOpenHistoryModal(targetId)}
+              colorClass="blue"
+            />
+          )}
+        </>
+      )}
+      {onDeleteUnit && (
+        <>
+          <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
           <ActionButton
-            icon={Flag}
-            label="Set Milestone"
-            onClick={() => onOpenMilestoneModal?.(targetId)}
-            colorClass="amber"
-          />
-          <ActionButton
-            icon={Activity}
-            label="Set Status"
-            onClick={() => onOpenStatusModal?.(targetId)}
-            colorClass="amber"
-          />
-          <ActionButton
-            icon={History}
-            label="History"
-            onClick={() => onOpenHistoryModal?.(targetId)}
-            colorClass="blue"
+            icon={Trash2}
+            label={isMulti ? "Delete All" : "Delete"}
+            onClick={() => onDeleteUnit(isMulti ? selectedUnitIds : targetId)}
+            colorClass="red"
           />
         </>
       )}
-      <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
-      <ActionButton 
-        icon={Trash2} 
-        label={isMulti ? "Delete All" : "Delete"} 
-        onClick={() => onDeleteUnit?.(isMulti ? selectedUnitIds : targetId)} 
-        colorClass="red" 
-      />
     </div>
   );
 }
