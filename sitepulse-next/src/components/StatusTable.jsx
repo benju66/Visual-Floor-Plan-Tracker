@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle } from '@/components/ui/FieldStatusAtoms';
 import StatusTrigger from '@/components/ui/StatusTrigger';
+import RowActionsMenu from './manage/RowActionsMenu';
+import AssigneeCell from './manage/AssigneeCell';
 import { isMilestoneApplicable } from '@/utils/applicability';
 
 /**
@@ -52,6 +54,15 @@ export default function StatusTable({
   trackingMode,
   applicabilityIndex,
   onToggleApplicability,
+  levelByUnitId,
+  subtypes,
+  projectType,
+  onRenameLocation,
+  onChangeUnitType,
+  onLocateUnit,
+  onDeleteLocation,
+  members,
+  onAssignUnit,
 }) {
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState(new Set());
@@ -161,7 +172,7 @@ export default function StatusTable({
               onClick={() => handleSort('unit_type')}
               className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
             >
-              Space Type {renderSortIcon('unit_type')}
+              Type / Assignee {renderSortIcon('unit_type')}
             </th>
             <th
               onClick={() => handleSort('status')}
@@ -217,18 +228,28 @@ export default function StatusTable({
                       {expandedUnitIds.has(unit.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </button>
                     {unit.unit_number}
-                    <BottleneckIndicator 
-                      unit={unit} 
-                      outOfSequence={log?.outOfSequence} 
-                      onUpdateStatus={handleTimelineUpdate} 
+                    {levelByUnitId?.[unit.id] && (
+                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">· {levelByUnitId[unit.id]}</span>
+                    )}
+                    <BottleneckIndicator
+                      unit={unit}
+                      outOfSequence={log?.outOfSequence}
+                      onUpdateStatus={handleTimelineUpdate}
                     />
                     {savingUnitId === unit.id && <UpdatingRing />}
                   </div>
                 </td>
-                <td className="px-5 py-2 align-middle text-slate-600 dark:text-slate-400">
-                  <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
-                    {unit.unit_type || 'Unknown'}
-                  </span>
+                <td className="px-5 py-2 align-middle text-slate-600 dark:text-slate-400" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-col gap-1.5 items-start">
+                    <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
+                      {unit.unit_type || 'Unknown'}
+                    </span>
+                    <AssigneeCell
+                      assignedTo={unit.assigned_to}
+                      members={members || []}
+                      onAssign={(userId) => onAssignUnit?.(unit.id, userId)}
+                    />
+                  </div>
                 </td>
                 <td className="px-5 py-2 align-middle">
                   <StatusTrigger
@@ -324,15 +345,18 @@ export default function StatusTable({
                     <span className="text-slate-400 text-xs italic">—</span>
                   )}
                 </td>
-                <td className="px-5 py-3 align-middle text-right">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unit.id); }}
-                    className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors cursor-pointer"
-                    title="View History"
-                  >
-                    <History size={16} />
-                  </button>
+                <td className="px-5 py-3 align-middle text-right" onClick={(e) => e.stopPropagation()}>
+                  <RowActionsMenu
+                    unitNumber={unit.unit_number}
+                    currentSubtypeId={unit.subtype_id}
+                    subtypes={subtypes || []}
+                    projectType={projectType}
+                    onRename={() => onRenameLocation?.(unit)}
+                    onChangeType={(result) => onChangeUnitType?.(unit.id, result)}
+                    onLocate={onLocateUnit ? () => onLocateUnit(unit.id) : undefined}
+                    onDelete={onDeleteLocation ? () => onDeleteLocation(unit.id) : undefined}
+                    onHistory={() => setHistoryModalUnitId(unit.id)}
+                  />
                 </td>
               </tr>
               {expandedUnitIds.has(unit.id) && currentMilestones?.map(milestone => {

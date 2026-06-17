@@ -16,9 +16,11 @@ import type { Unit, StatusLog, PendingChangesMap, PendingChange, TemporalState }
 interface UseFieldDataProps {
   activeStatuses: StatusLog[];
   onApplyPendingChanges?: (changes: PendingChange[]) => Promise<void>;
+  /** All-levels scope: supply the cross-sheet unit list instead of the active sheet's. */
+  unitsOverride?: Unit[];
 }
 
-export function useFieldData({ activeStatuses, onApplyPendingChanges }: UseFieldDataProps) {
+export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverride }: UseFieldDataProps) {
   // --- Store subscriptions (read-only) ---
   const activeSheetId = useMapStore((s) => s.activeSheetId);
   const trackingMode = useMapStore((s) => s.trackingMode);
@@ -37,7 +39,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges }: UseField
     'Other',
   ];
   const { data: allMilestones = [] } = useMilestones(projectId);
-  const { data: units = [] } = useUnits(activeSheetId);
+  const { data: fetchedUnits = [] } = useUnits(activeSheetId);
+  const units = unitsOverride ?? fetchedUnits;
 
   const currentMilestones = useMemo(
     () =>

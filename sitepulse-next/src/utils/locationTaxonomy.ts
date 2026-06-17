@@ -30,13 +30,17 @@ export const CANONICAL_ROLES = ['program', 'common', 'support', 'other'] as cons
 export type TopLevelRole = (typeof CANONICAL_ROLES)[number];
 
 /**
- * Canonical title-case label for a role, used as the fallback when no
- * per-project-type display override exists. Stable; not the place to rename.
+ * User-facing fallback label for a role, used when no per-project-type display
+ * override exists. PRESENTATION-ONLY — these are friendlier than the raw internal
+ * role words (`program`/`common`/`support`), which stay the stable canonical
+ * stored/exported values. Owner-approved wording (Phase 3): `program → "Primary
+ * Spaces"`, `common → "Common Areas"`, `support → "Back of House"`, `other →
+ * "Other"`. Never persist or export these strings in place of the canonical role.
  */
-const CANONICAL_ROLE_TITLE: Record<TopLevelRole, string> = {
-  program: 'Program',
-  common: 'Common',
-  support: 'Support',
+const ROLE_FALLBACK_LABEL: Record<TopLevelRole, string> = {
+  program: 'Primary Spaces',
+  common: 'Common Areas',
+  support: 'Back of House',
   other: 'Other',
 };
 
@@ -91,7 +95,7 @@ export function roleLabel(role: TopLevelRole, projectType?: ProjectType | null):
     const override = ROLE_DISPLAY_LABELS[projectType]?.[role];
     if (override) return override;
   }
-  return CANONICAL_ROLE_TITLE[role];
+  return ROLE_FALLBACK_LABEL[role];
 }
 
 // ---------------------------------------------------------------------------

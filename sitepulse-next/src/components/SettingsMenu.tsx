@@ -3,11 +3,13 @@ import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, Gri
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useStatuses, useUpdateStatus, useBulkInsertStatusLogs, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useUpdateMilestoneRules } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useUpdateMilestoneRules } from '@/hooks/useProjectQueries';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { getAppliesTo } from '@/types/domain';
+import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
+import { useUIStore } from '@/store/useUIStore';
 import type { Milestone, Sheet } from '@/types/domain';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
@@ -191,18 +193,7 @@ export default function SettingsMenu({
   const [expandedSchedules, setExpandedSchedules] = useState<Record<string, boolean>>({});
   const [newUnitTypeAdd, setNewUnitTypeAdd] = useState('');
   
-  const [scheduleLevelId, setScheduleLevelId] = useState(sheets?.[0]?.id || '');
-  const [scheduleMilestoneId, setScheduleMilestoneId] = useState('');
-  
-  const [pendingScheduleUpdates, setPendingScheduleUpdates] = useState<Record<string, any>>({});
-  const [isApplyingSchedule, setIsApplyingSchedule] = useState(false);
-  const [scheduleTypeFilter, setScheduleTypeFilter] = useState('all');
-
-  useEffect(() => {
-    if (!scheduleLevelId && sheets?.length > 0) {
-      setScheduleLevelId(sheets[0].id);
-    }
-  }, [sheets, scheduleLevelId]);
+  const setViewMode = useUIStore((s) => s.setViewMode);
 
   const reorderMilestonesMutation = useReorderMilestones(projectId);
   const updateMilestoneRulesMutation = useUpdateMilestoneRules(projectId);
@@ -210,59 +201,11 @@ export default function SettingsMenu({
   const updateSheetScaleMutation = useUpdateSheetScale(projectId);
   const updateSheetScheduleMutation = useUpdateSheetSchedule(projectId);
   const updateUnitFieldsMutation = useUpdateUnitFields('');
-  const updateStatusMutation = useUpdateStatus(scheduleLevelId);
-  const bulkInsertLogsMutation = useBulkInsertStatusLogs(scheduleLevelId);
   const updateMemberRoleMutation = useUpdateProjectMemberRole(projectId);
 
   const { data: project } = useProject(projectId);
   const updateProjectMutation = useUpdateProject(projectId);
   const { data: allUnits = [] } = useAllProjectUnits(sheets?.map(s => s.id) || []);
-  
-  const scheduleUnits = allUnits.filter(u => u.sheet_id === scheduleLevelId);
-  const { data: scheduleStatuses = [] } = useStatuses(scheduleLevelId, scheduleUnits.map(u => u.id));
-  
-  const handleApplyScheduleChanges = async () => {
-    const changesArray = Object.values(pendingScheduleUpdates);
-    if(changesArray.length === 0) return;
-    setIsApplyingSchedule(true);
-    try {
-      const logsToInsert = changesArray.map(c => ({
-         unit_id: c.unit.id,
-         milestone: c.targetMilestone.name,
-         status_color: c.targetMilestone.color,
-         temporal_state: c.state,
-         track: c.targetMilestone.track,
-         planned_start_date: c.startDate,
-         planned_end_date: c.endDate,
-         logged_date: c.loggedDate
-      }));
-      await bulkInsertLogsMutation.mutateAsync(logsToInsert as any);
-      setPendingScheduleUpdates({});
-    } catch(err) {
-      console.error(err);
-    } finally {
-      setIsApplyingSchedule(false);
-    }
-  };
-
-  const stageScheduleUpdate = (unit: any, baseLog: any, targetMilestone: any, updates: any, compositeKey?: string) => {
-     const key = compositeKey || unit.id;
-     setPendingScheduleUpdates(prev => {
-        const existing = prev[key] || {
-           unit,
-           baseLog,
-           targetMilestone,
-           state: baseLog?.temporal_state || 'none',
-           startDate: baseLog?.planned_start_date || null,
-           endDate: baseLog?.planned_end_date || null,
-           loggedDate: baseLog?.logged_date || null
-        };
-        return {
-           ...prev,
-           [key]: { ...existing, ...updates }
-        };
-     });
-  };
 
   const projectUnitTypes = (project?.unit_types as string[]) || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
 
@@ -925,6 +868,23 @@ export default function SettingsMenu({
           {activeTab === 'data' && (
             <div className="flex flex-col gap-6">
               <div>
+                <h3 className="font-bold text-sm mb-1">Project Type</h3>
+                <p className="text-xs text-slate-500 mb-3 text-balance">
+                  Sets this project’s vertical. It orders the location-type picker so the most likely spaces appear first — it never restricts your choices.
+                </p>
+                <select
+                  value={project?.project_type || ''}
+                  onChange={(e) => updateProjectMutation.mutate({ project_type: e.target.value || null })}
+                  className="w-full sm:w-72 bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                >
+                  <option value="">— Not set —</option>
+                  {PROJECT_TYPES.map((pt) => (
+                    <option key={pt} value={pt}>{pt}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="border-t border-slate-200 dark:border-white/10 pt-4">
                 <h3 className="font-bold text-sm mb-3">Location Types</h3>
                 <p className="text-xs text-slate-500 mb-3 text-balance">Define the types of spaces or units tracked in this project.</p>
                 <div className="flex flex-wrap gap-2 mb-3">
@@ -985,171 +945,24 @@ export default function SettingsMenu({
           )}
           
           {activeTab === 'schedule' && (
-            <div className="flex flex-col gap-4">
-               <div className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-4">
-                  <h3 className="font-bold text-sm mb-2">Location Schedule Builder</h3>
-                  <p className="text-xs text-slate-500 mb-4">Set planned start and end dates for individual locations across specific milestones.</p>
-                  
-                  <div className="flex gap-3 mb-4">
-                    <select 
-                      value={scheduleLevelId} 
-                      onChange={e => setScheduleLevelId(e.target.value)}
-                      className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm"
-                    >
-                       <option value="" disabled>Select Level</option>
-                       {sheets.map(s => <option key={s.id} value={s.id}>{s.sheet_name}</option>)}
-                    </select>
-                    
-                    <select 
-                      value={scheduleMilestoneId} 
-                      onChange={e => setScheduleMilestoneId(e.target.value)}
-                      className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm"
-                    >
-                       <option value="" disabled>Select Milestone</option>
-                       <option value="__ALL__">All Milestones</option>
-                       {milestones.map(m => <option key={m.id} value={m.id}>{m.name} ({m.track})</option>)}
-                    </select>
-                  </div>
-                  
-                   {/* Location Type Filter Chips */}
-                   {scheduleLevelId && (
-                     <div className="flex flex-wrap gap-1.5 mb-3">
-                       <button
-                         type="button"
-                         onClick={() => setScheduleTypeFilter('all')}
-                         className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                           scheduleTypeFilter === 'all'
-                             ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm'
-                             : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
-                         }`}
-                       >
-                         All Locations
-                       </button>
-                       {projectUnitTypes.map((type: string) => (
-                         <button
-                           key={type}
-                           type="button"
-                           onClick={() => setScheduleTypeFilter(type)}
-                           className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                             scheduleTypeFilter === type
-                               ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm'
-                               : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
-                           }`}
-                         >
-                           {type}
-                         </button>
-                       ))}
-                     </div>
-                   )}
-
-                  {scheduleLevelId && scheduleMilestoneId ? (() => {
-                    const isAllMilestones = scheduleMilestoneId === '__ALL__';
-                    const activeMilestones = isAllMilestones ? milestones : [milestones.find(m => m.id === scheduleMilestoneId)].filter(Boolean);
-                    
-                    // Build flat list of { unit, milestone } pairs
-                    // Filter units by selected location type
-                    const filteredUnits = scheduleTypeFilter === 'all'
-                      ? scheduleUnits
-                      : scheduleUnits.filter(u => u.unit_type === scheduleTypeFilter);
-                    
-                    const rows = filteredUnits.flatMap(u =>
-                      activeMilestones.map(m => ({ unit: u, milestone: m! }))
-                    );
-
-                    return (
-                    <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                       {rows.map(({ unit: u, milestone: activeMilestone }) => {
-                          const compositeKey = `${u.id}__${activeMilestone.id}`;
-                          const log = scheduleStatuses.find(s => s.unit_id === u.id && s.milestone === activeMilestone.name);
-                          const pending = pendingScheduleUpdates[compositeKey];
-                          const sDate = pending ? pending.startDate : log?.planned_start_date || '';
-                          const eDate = pending ? pending.endDate : log?.planned_end_date || '';
-                          const tState = pending ? pending.state : log?.temporal_state || 'none';
-                          
-                          return (
-                            <div key={compositeKey} className={`flex items-center justify-between p-2 rounded-lg border ${pending ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
-                               <div className="w-1/4 flex flex-col min-w-0">
-                                 <span className="font-bold text-xs truncate">{u.unit_number}</span>
-                                 {isAllMilestones ? (
-                                   <span className="text-[10px] font-medium truncate flex items-center gap-1">
-                                     <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: activeMilestone.color }} />
-                                     {activeMilestone.name}
-                                   </span>
-                                 ) : (
-                                   <span className="text-[10px] text-slate-500">{u.unit_type || 'Unassigned'}</span>
-                                 )}
-                               </div>
-                               
-                               <div className="flex gap-2 items-center flex-1">
-                                 <div className="flex flex-col flex-1">
-                                    <span className="text-[10px] text-slate-500 ml-1">Start Date</span>
-                                    <input 
-                                      type="date" 
-                                      value={sDate} 
-                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { startDate: e.target.value || null }, compositeKey)}
-                                      className="text-xs px-2 py-1 border border-slate-200 dark:border-slate-600 rounded bg-transparent"
-                                    />
-                                 </div>
-                                 <div className="flex flex-col flex-1">
-                                    <span className="text-[10px] text-slate-500 ml-1">End Date</span>
-                                    <input 
-                                      type="date" 
-                                      value={eDate} 
-                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { endDate: e.target.value || null }, compositeKey)}
-                                      className="text-xs px-2 py-1 border border-slate-200 dark:border-slate-600 rounded bg-transparent"
-                                    />
-                                 </div>
-                                 <div className="flex flex-col">
-                                    <span className="text-[10px] text-slate-500 ml-1">Override Status</span>
-                                    <select 
-                                      value={tState}
-                                      onChange={(e) => stageScheduleUpdate(u, log, activeMilestone, { state: e.target.value }, compositeKey)}
-                                      className="text-xs px-2 py-1 border border-slate-200 dark:border-slate-600 rounded bg-transparent"
-                                    >
-                                       <option value="none">None</option>
-                                       <option value="planned">Planned</option>
-                                       <option value="ongoing">Ongoing</option>
-                                       <option value="completed">Completed</option>
-                                    </select>
-                                 </div>
-                               </div>
-                            </div>
-                          );
-                       })}
-                       {scheduleUnits.length === 0 && <p className="text-center text-sm text-slate-500 py-4">No locations mapped on this level yet.</p>}
-                    </div>
-                    );
-                  })() : (
-                    <div className="text-center py-8 text-slate-400 border border-dashed rounded-lg">
-                       Select a Level and Milestone to build schedule.
-                    </div>
-                  )}
-               </div>
-               
-               {Object.keys(pendingScheduleUpdates).length > 0 && (
-                 <div className="flex items-center justify-between bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 p-3 rounded-xl animate-in fade-in slide-in-from-bottom-4">
-                    <span className="text-sm font-semibold text-sky-700 dark:text-sky-300">
-                      {Object.keys(pendingScheduleUpdates).length} updates pending
-                    </span>
-                    <div className="flex gap-2">
-                       <button 
-                         type="button" 
-                         onClick={() => setPendingScheduleUpdates({})}
-                         className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-800 bg-white border border-slate-300 rounded-lg shadow-sm"
-                       >
-                         Discard
-                       </button>
-                       <button 
-                         type="button" 
-                         onClick={handleApplyScheduleChanges}
-                         disabled={isApplyingSchedule}
-                         className="px-3 py-1.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-sm"
-                       >
-                         {isApplyingSchedule ? 'Saving...' : 'Apply Schedule'}
-                       </button>
-                    </div>
-                 </div>
-               )}
+            <div className="flex flex-col items-center justify-center text-center gap-4 py-12 px-6">
+              <div className="w-14 h-14 rounded-2xl bg-sky-100 dark:bg-sky-500/20 flex items-center justify-center text-sky-500">
+                <Calendar size={26} />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-800 dark:text-slate-100">Scheduling has moved</h3>
+                <p className="text-sm text-slate-500 mt-1 max-w-sm">
+                  Planned dates, the level→location cascade, and behind-schedule tracking now live in the full{' '}
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">Schedule</span> view — a visual timeline you can read and edit directly.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setViewMode('schedule'); onClose(); }}
+                className="inline-flex items-center gap-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold py-2 px-4 shadow-sm"
+              >
+                <Calendar size={16} /> Open the Schedule view
+              </button>
             </div>
           )}
           

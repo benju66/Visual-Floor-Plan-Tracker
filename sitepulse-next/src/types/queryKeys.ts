@@ -12,4 +12,5 @@ export const queryKeys = {
   snappingVectors:    (sheetId: string)         => ['snapping_vectors_v2', sheetId] as const,
   projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
   currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
+  subtypes:           ()                         => ['subtypes'] as const,
 } as const;

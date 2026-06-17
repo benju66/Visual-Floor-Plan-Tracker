@@ -71,18 +71,26 @@ describe('roleLabel', () => {
     expect(ROLE_DISPLAY_LABELS['Housing and Hotel']?.program).toBe('Units');
   });
 
-  it('falls back to canonical title-case where no override exists', () => {
-    // Same role, different project type → canonical.
-    expect(roleLabel('program', 'Commercial')).toBe('Program');
+  it('falls back to the friendly user-facing label where no override exists', () => {
+    // Same role, different project type → friendly fallback (presentation-only;
+    // the stored/exported value stays the canonical `program`/`common`/`support`).
+    expect(roleLabel('program', 'Commercial')).toBe('Primary Spaces');
     // A role with no overrides anywhere.
-    expect(roleLabel('support', 'Housing and Hotel')).toBe('Support');
-    expect(roleLabel('common', 'Healthcare')).toBe('Common');
+    expect(roleLabel('support', 'Housing and Hotel')).toBe('Back of House');
+    expect(roleLabel('common', 'Healthcare')).toBe('Common Areas');
     expect(roleLabel('other', 'Workplace')).toBe('Other');
   });
 
-  it('falls back to canonical when project type is null/undefined', () => {
-    expect(roleLabel('program', null)).toBe('Program');
-    expect(roleLabel('program', undefined)).toBe('Program');
+  it('falls back to the friendly label when project type is null/undefined', () => {
+    expect(roleLabel('program', null)).toBe('Primary Spaces');
+    expect(roleLabel('program', undefined)).toBe('Primary Spaces');
+  });
+
+  it('keeps the per-project-type override ahead of the friendly fallback', () => {
+    // Housing and Hotel relabels program → "Units"; every other vertical uses
+    // the "Primary Spaces" fallback.
+    expect(roleLabel('program', 'Housing and Hotel')).toBe('Units');
+    expect(roleLabel('program', 'Workplace')).toBe('Primary Spaces');
   });
 
   it('produces a label for every (role × project type) pair', () => {
