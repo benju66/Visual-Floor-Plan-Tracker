@@ -14,6 +14,12 @@ export type Sheet      = Database['public']['Tables']['sheets']['Row'];
 // Subtype). The `Unit` flags spans_levels/level_note/has_void are derived
 // automatically from units['Row'] above — no hand-written extension.
 export type WorkbenchSheet = Database['public']['Tables']['workbench_sheets']['Row'];
+// A workbench drawing as the library lists it: a `sheets` row under the hidden
+// workbench container, joined to its 1:1 `workbench_sheets` sidecar metadata
+// (`workbench` is null until Phase 5 captures per-drawing metadata). Read ONLY
+// via the dedicated workbench hooks (`src/hooks/useWorkbench.ts`), which always
+// scope to the container so a workbench row can never reach a live surface.
+export type WorkbenchDrawing = Sheet & { workbench: WorkbenchSheet | null };
 export type Unit = Omit<Database['public']['Tables']['units']['Row'], 'polygon_coordinates'> & { polygon_coordinates: PercentPoint[] | null };
 export type Milestone  = Database['public']['Tables']['project_milestones']['Row'];
 export type StatusLog  = Database['public']['Tables']['status_logs']['Row'];

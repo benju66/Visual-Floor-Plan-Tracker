@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/providers/AuthProvider';
-import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X, Info, Settings } from 'lucide-react';
+import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X, Info, Settings, Library } from 'lucide-react';
 import GlobalSettingsModal from '@/components/GlobalSettingsModal';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 export default function DashboardPage() {
@@ -50,8 +51,14 @@ export default function DashboardPage() {
         .eq('user_id', session.user.id);
         
       if (!error && data) {
+        // Contamination guard: never let the hidden workbench container
+        // (kind='workbench') into the live Projects Dashboard. Post-filter in JS
+        // BEFORE the sort — a PostgREST filter on the embedded `projects` only
+        // nulls the embed (leaving the row), and the sort below dereferences
+        // `r.projects.created_at`, so a nulled row would throw.
+        const liveProjects = data.filter((r) => r.projects && r.projects.kind !== 'workbench');
         // Sort projects by created_at descending
-        const sorted = data.sort((a, b) => new Date(b.projects.created_at) - new Date(a.projects.created_at));
+        const sorted = liveProjects.sort((a, b) => new Date(b.projects.created_at) - new Date(a.projects.created_at));
         setProjects(sorted);
       }
       setLoading(false);
@@ -120,6 +127,19 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Admin-only entry to the Location Labeling Workbench — reuses the
+                same `adminProjects` gate as Global Settings (owner decision
+                2026-06-17). The workbench container itself is excluded from
+                `adminProjects` by the contamination filter above. */}
+            {adminProjects.length > 0 && (
+              <Link
+                href="/workbench"
+                className="flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-900/50 dark:hover:bg-slate-800 dark:text-slate-300 dark:border-white/10 px-5 py-2.5 rounded-xl font-bold transition-all shadow-sm group"
+              >
+                <Library size={20} className="text-violet-500" />
+                Drawing Library
+              </Link>
+            )}
             {adminProjects.length > 0 && (
               <button
                 onClick={() => setIsGlobalSettingsOpen(true)}
