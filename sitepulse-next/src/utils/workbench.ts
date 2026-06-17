@@ -1,4 +1,4 @@
-import type { ProjectType, Sheet, WorkbenchSheet, WorkbenchSheetInsert, WorkbenchDrawing } from '@/types/domain';
+import type { ProjectType, PercentPoint, Sheet, WorkbenchSheet, WorkbenchSheetInsert, WorkbenchDrawing } from '@/types/domain';
 
 /**
  * Vector quality of a workbench drawing's source PDF — `'clean'` = a true vector
@@ -48,6 +48,37 @@ export function buildWorkbenchSidecarInsert(
     vector_quality: fields.vectorQuality || null,
     is_partial: fields.isPartial,
   };
+}
+
+/**
+ * Real-world area of a traced label polygon — the value the workbench banks into
+ * `units.computed_area`, mirroring the live create flow exactly
+ * (`useMapActions.saveNewUnitFromPopover`): the shoelace area of the polygon in
+ * source-image pixels, scaled by the sheet's `scale_ratio` (image-area → real
+ * area). Pure + deterministic: the caller supplies the converted preview image's
+ * natural pixel dimensions and the sheet scale, so there is no I/O here.
+ *
+ * Returns `null` when there is nothing meaningful to compute — fewer than 3
+ * points, missing image dimensions, or no `scale_ratio` on the sheet — so a label
+ * on an un-scaled drawing still saves (area-less), exactly like the live flow.
+ */
+export function computeLabelArea(
+  points: readonly PercentPoint[],
+  imageWidth: number,
+  imageHeight: number,
+  scaleRatio: number | null | undefined,
+): number | null {
+  if (points.length < 3 || !imageWidth || !imageHeight || !scaleRatio) return null;
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const j = (i + 1) % points.length;
+    const xA = points[i].pctX * imageWidth;
+    const yA = points[i].pctY * imageHeight;
+    const xB = points[j].pctX * imageWidth;
+    const yB = points[j].pctY * imageHeight;
+    area += xA * yB - xB * yA;
+  }
+  return (Math.abs(area) / 2) * scaleRatio;
 }
 
 /**

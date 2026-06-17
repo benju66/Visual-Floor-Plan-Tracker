@@ -14,8 +14,19 @@ import type { Project, Sheet, WorkbenchSheet, WorkbenchDrawing } from '@/types/d
  * Resolve the single hidden workbench container, lazily creating it on first
  * privileged visit. Delegates to the server route (`/api/workbench/container`),
  * which find-or-creates with the service-role key server-side — the scoping to
- * `kind='workbench'` lives there, never in widened client RLS. The container id
- * never changes once created, so the result is cached indefinitely.
+ * `kind='workbench'` lives there, never in widened client RLS.
+ *
+ * Self-correcting reads (Phase 6 hardening — plan § Container query robustness):
+ * the whole TanStack cache is persisted to IndexedDB, so a wrong/deleted value
+ * for this key would otherwise be served forever (Phase 5 found it pointing at a
+ * *live* project after a poisoned cache). Two guards fix that here so reads
+ * recover on their own, not just the write-site guards in `useWorkbenchActions`:
+ *   1. the queryFn asserts the route returned a real `kind='workbench'` row, so
+ *      a non-workbench value can never enter the cache in the first place; and
+ *   2. we drop the old `staleTime: Infinity` — a persisted value is now revalidated
+ *      on mount (served instantly, re-resolved via the route in the background), so
+ *      any stale/poisoned entry self-heals on the next visit. The container id is
+ *      stable, so a clean revalidation returns the same id and nothing downstream churns.
  */
 export function useWorkbenchContainer(userId: string | undefined) {
   return useQuery({
@@ -30,10 +41,14 @@ export function useWorkbenchContainer(userId: string | undefined) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to resolve the workbench container');
       }
-      return (await res.json()) as Project;
+      const container = (await res.json()) as Project;
+      // Defence in depth: never cache a non-workbench container under this key.
+      if (container.kind !== 'workbench') {
+        throw new Error('Resolved container is not a workbench container.');
+      }
+      return container;
     },
     enabled: !!userId,
-    staleTime: Infinity,
   });
 }
 

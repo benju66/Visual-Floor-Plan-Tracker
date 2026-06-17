@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Library, Loader2, FileWarning, Layers, FilePlus } from 'lucide-react';
+import { ArrowLeft, Library, Loader2, FileWarning, Layers, FilePlus, PenLine } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
 import { useWorkbenchContainer, useWorkbenchSheets } from '@/hooks/useWorkbench';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
@@ -154,7 +154,10 @@ function DrawingCard({ drawing }: { drawing: WorkbenchDrawing }) {
     ? withVersion(drawing.base_image_url, drawing.pdf_version)
     : null;
   return (
-    <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden">
+    <Link
+      href={`/workbench/${drawing.id}`}
+      className="group block bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden hover:border-violet-400 dark:hover:border-violet-500/50 hover:shadow-md transition-all"
+    >
       <div className="aspect-[4/3] bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element -- public storage URL, not a Next asset
@@ -178,8 +181,12 @@ function DrawingCard({ drawing }: { drawing: WorkbenchDrawing }) {
           {meta?.vector_quality && <MetaChip label={meta.vector_quality} />}
           {meta?.is_partial && <MetaChip label="Partial" />}
         </div>
+        <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-violet-600 dark:text-violet-400 opacity-80 group-hover:opacity-100 transition-opacity">
+          <PenLine size={15} />
+          Open to trace
+        </span>
       </div>
-    </div>
+    </Link>
   );
 }
 
