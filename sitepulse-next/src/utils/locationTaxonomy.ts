@@ -3,7 +3,7 @@
  *
  * This is the **single source of truth** for the three-axis location taxonomy
  * described in `docs/location-labeling-standard.md` §5:
- *   - Project type (8) — lives on the project; "what kind of job is this?"
+ *   - Project type (9) — lives on the project; "what kind of job is this?"
  *   - Top-level role (4) — lives on the location; rigid/canonical; "what does
  *     this space do in any building?"
  *   - Sub-type — lives on the location; a single global governed dictionary;
@@ -45,15 +45,21 @@ const ROLE_FALLBACK_LABEL: Record<TopLevelRole, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Project types (the 8 — standard §5.3)
+// Project types (the 9 — standard §5.3)
 // ---------------------------------------------------------------------------
+//
+// Locked 2026-06-17 (plan §"Locked product decisions" 3): the former
+// "Housing and Hotel" type is split into separate `Housing` and `Hotel` types.
+// Splitting now (corpus empty) is free; splitting later would mean re-examining
+// every drawing. Sub-types re-scope accordingly below.
 
 export const PROJECT_TYPES = [
   'Commercial',
   'Educational',
   'Government',
   'Healthcare',
-  'Housing and Hotel',
+  'Hotel',
+  'Housing',
   'Industrial',
   'Restaurant',
   'Workplace',
@@ -67,19 +73,22 @@ export type ProjectType = (typeof PROJECT_TYPES)[number];
 /**
  * Per-project-type relabelling of a canonical role for display ONLY. The same
  * canonical role can render differently per project type (e.g. `program` shows
- * as "Units" in a Housing-and-Hotel project) without changing the stored value.
+ * as "Units" in a Housing project, "Rooms" in a Hotel project) without changing
+ * the stored value.
  *
  * Only overrides are listed; anything absent falls back to the canonical
  * title-case via {@link roleLabel}. This map intentionally starts small — the
- * only override grounded in the standard today is Housing and Hotel → "Units".
- * Add more here as the owner confirms preferred wording per vertical. A later
- * phase moves this to an owner-editable `project_type_role_labels` table; the
- * shape here mirrors that so the move is trivial.
+ * overrides grounded in the standard today are Housing → "Units" and
+ * Hotel → "Rooms". Add more here as the owner confirms preferred wording per
+ * vertical. A later phase moves this to an owner-editable
+ * `project_type_role_labels` table; the shape here mirrors that so the move is
+ * trivial.
  */
 export type RoleDisplayLabels = Partial<Record<ProjectType, Partial<Record<TopLevelRole, string>>>>;
 
 export const ROLE_DISPLAY_LABELS: RoleDisplayLabels = {
-  'Housing and Hotel': { program: 'Units' },
+  Housing: { program: 'Units' },
+  Hotel: { program: 'Rooms' },
 };
 
 /**
@@ -130,10 +139,12 @@ export const PENDING_SUBTYPE_NAME = 'Other (pending)';
  * (§5.4 cross-cutting). `Other (pending)` is NOT seeded here; it is the §5.5
  * sentinel ({@link PENDING_SUBTYPE_NAME}) and is seeded separately by Phase 2.
  *
- * NOTE FOR OWNER REVIEW — this list encodes product decisions. Open items from
- * brief §9 / standard Appendix B that touch it: Restaurant `Kitchen` is seeded
- * as Program; "Housing and Hotel" is a single project type spanning Dwelling
- * Unit + Guestroom.
+ * NOTE — this list encodes product decisions locked 2026-06-17 (plan §"Locked
+ * product decisions" 3): Restaurant `Kitchen` and `Prep` are Back of House
+ * (`support`), not Program; the former "Housing and Hotel" project type is
+ * split into separate `Housing` and `Hotel` types, with the unit/room
+ * sub-types re-scoped accordingly (scoping orders the pick-list, never
+ * restricts — every sub-type stays globally available).
  */
 export const SEED_SUBTYPES: readonly SeedSubtype[] = [
   // Universal — Common (every vertical) -------------------------------------
@@ -195,13 +206,15 @@ export const SEED_SUBTYPES: readonly SeedSubtype[] = [
   // `Lab` is global: seeded once, defaulting into both Healthcare and Industrial.
   { name: 'Lab', role: 'program', defaultProjectTypes: ['Healthcare', 'Industrial'] },
 
-  // Program — Housing and Hotel ---------------------------------------------
-  { name: 'Dwelling Unit', role: 'program', defaultProjectTypes: ['Housing and Hotel'] },
-  { name: 'Guestroom', role: 'program', defaultProjectTypes: ['Housing and Hotel'] },
-  { name: 'Suite', role: 'program', defaultProjectTypes: ['Housing and Hotel'] },
-  { name: 'Live/Work Unit', role: 'program', defaultProjectTypes: ['Housing and Hotel'] },
-  { name: 'Event/Ballroom', role: 'program', defaultProjectTypes: ['Housing and Hotel'] },
-  { name: 'Meeting Room', role: 'program', defaultProjectTypes: ['Housing and Hotel'] },
+  // Program — Housing --------------------------------------------------------
+  { name: 'Dwelling Unit', role: 'program', defaultProjectTypes: ['Housing'] },
+  { name: 'Live/Work Unit', role: 'program', defaultProjectTypes: ['Housing'] },
+
+  // Program — Hotel ----------------------------------------------------------
+  { name: 'Guestroom', role: 'program', defaultProjectTypes: ['Hotel'] },
+  { name: 'Suite', role: 'program', defaultProjectTypes: ['Hotel'] },
+  { name: 'Event/Ballroom', role: 'program', defaultProjectTypes: ['Hotel'] },
+  { name: 'Meeting Room', role: 'program', defaultProjectTypes: ['Hotel'] },
 
   // Program — Industrial -----------------------------------------------------
   { name: 'Manufacturing Floor', role: 'program', defaultProjectTypes: ['Industrial'] },
@@ -211,14 +224,15 @@ export const SEED_SUBTYPES: readonly SeedSubtype[] = [
   { name: 'Process Area', role: 'program', defaultProjectTypes: ['Industrial'] },
   { name: 'Cold Storage', role: 'program', defaultProjectTypes: ['Industrial'] },
 
-  // Program — Restaurant -----------------------------------------------------
+  // Restaurant (guest-facing = Program; Kitchen/Prep = Back of House) ---------
   { name: 'Dining Area', role: 'program', defaultProjectTypes: ['Restaurant'] },
   { name: 'Bar/Lounge', role: 'program', defaultProjectTypes: ['Restaurant'] },
   { name: 'Private Dining', role: 'program', defaultProjectTypes: ['Restaurant'] },
-  // Open item (brief §9): Restaurant production kitchen seeded as Program.
-  { name: 'Kitchen', role: 'program', defaultProjectTypes: ['Restaurant'] },
-  { name: 'Prep', role: 'program', defaultProjectTypes: ['Restaurant'] },
   { name: 'Outdoor/Patio Dining', role: 'program', defaultProjectTypes: ['Restaurant'] },
+  // Locked 2026-06-17: production Kitchen + Prep are `support` (Back of House),
+  // not Program — only the guest-facing spaces above stay Program.
+  { name: 'Kitchen', role: 'support', defaultProjectTypes: ['Restaurant'] },
+  { name: 'Prep', role: 'support', defaultProjectTypes: ['Restaurant'] },
 
   // Program — Workplace ------------------------------------------------------
   { name: 'Open Workstation Area', role: 'program', defaultProjectTypes: ['Workplace'] },
