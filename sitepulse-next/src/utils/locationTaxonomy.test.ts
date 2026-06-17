@@ -20,9 +20,12 @@ describe('canonical constants', () => {
     expect([...CANONICAL_ROLES]).toEqual(['program', 'common', 'support', 'other']);
   });
 
-  it('has the 8 project types', () => {
-    expect(PROJECT_TYPES).toHaveLength(8);
-    expect(PROJECT_TYPE_SET.has('Housing and Hotel')).toBe(true);
+  it('has the 9 project types (Housing and Hotel split into separate types)', () => {
+    expect(PROJECT_TYPES).toHaveLength(9);
+    expect(PROJECT_TYPE_SET.has('Housing')).toBe(true);
+    expect(PROJECT_TYPE_SET.has('Hotel')).toBe(true);
+    // The merged legacy type is gone.
+    expect(PROJECT_TYPE_SET.has('Housing and Hotel')).toBe(false);
   });
 });
 
@@ -51,6 +54,24 @@ describe('SEED_SUBTYPES', () => {
     expect(SEED_SUBTYPES.some(s => s.name === PENDING_SUBTYPE_NAME)).toBe(false);
   });
 
+  it('seeds Restaurant Kitchen and Prep as Back of House (support), not Program', () => {
+    expect(SEED_SUBTYPES.find(s => s.name === 'Kitchen')?.role).toBe('support');
+    expect(SEED_SUBTYPES.find(s => s.name === 'Prep')?.role).toBe('support');
+  });
+
+  it('re-scopes the former Housing-and-Hotel sub-types onto Housing / Hotel', () => {
+    expect(SEED_SUBTYPES.find(s => s.name === 'Dwelling Unit')?.defaultProjectTypes).toEqual(['Housing']);
+    expect(SEED_SUBTYPES.find(s => s.name === 'Live/Work Unit')?.defaultProjectTypes).toEqual(['Housing']);
+    expect(SEED_SUBTYPES.find(s => s.name === 'Guestroom')?.defaultProjectTypes).toEqual(['Hotel']);
+    expect(SEED_SUBTYPES.find(s => s.name === 'Suite')?.defaultProjectTypes).toEqual(['Hotel']);
+  });
+
+  it('has no seed sub-type still scoped to the retired "Housing and Hotel" type', () => {
+    for (const subtype of SEED_SUBTYPES) {
+      expect((subtype.defaultProjectTypes as readonly string[]).includes('Housing and Hotel')).toBe(false);
+    }
+  });
+
   it('treats universal Common/Support as available in every project type', () => {
     const corridor = SEED_SUBTYPES.find(s => s.name === 'Corridor');
     expect(corridor?.role).toBe('common');
@@ -66,9 +87,11 @@ describe('SEED_SUBTYPES', () => {
 
 describe('roleLabel', () => {
   it('returns the per-project-type override where defined', () => {
-    expect(roleLabel('program', 'Housing and Hotel')).toBe('Units');
-    // The override is exactly the one declared in ROLE_DISPLAY_LABELS.
-    expect(ROLE_DISPLAY_LABELS['Housing and Hotel']?.program).toBe('Units');
+    expect(roleLabel('program', 'Housing')).toBe('Units');
+    expect(roleLabel('program', 'Hotel')).toBe('Rooms');
+    // The overrides are exactly the ones declared in ROLE_DISPLAY_LABELS.
+    expect(ROLE_DISPLAY_LABELS['Housing']?.program).toBe('Units');
+    expect(ROLE_DISPLAY_LABELS['Hotel']?.program).toBe('Rooms');
   });
 
   it('falls back to the friendly user-facing label where no override exists', () => {
@@ -76,7 +99,7 @@ describe('roleLabel', () => {
     // the stored/exported value stays the canonical `program`/`common`/`support`).
     expect(roleLabel('program', 'Commercial')).toBe('Primary Spaces');
     // A role with no overrides anywhere.
-    expect(roleLabel('support', 'Housing and Hotel')).toBe('Back of House');
+    expect(roleLabel('support', 'Housing')).toBe('Back of House');
     expect(roleLabel('common', 'Healthcare')).toBe('Common Areas');
     expect(roleLabel('other', 'Workplace')).toBe('Other');
   });
@@ -87,9 +110,10 @@ describe('roleLabel', () => {
   });
 
   it('keeps the per-project-type override ahead of the friendly fallback', () => {
-    // Housing and Hotel relabels program → "Units"; every other vertical uses
-    // the "Primary Spaces" fallback.
-    expect(roleLabel('program', 'Housing and Hotel')).toBe('Units');
+    // Housing relabels program → "Units" and Hotel → "Rooms"; every other
+    // vertical uses the "Primary Spaces" fallback.
+    expect(roleLabel('program', 'Housing')).toBe('Units');
+    expect(roleLabel('program', 'Hotel')).toBe('Rooms');
     expect(roleLabel('program', 'Workplace')).toBe('Primary Spaces');
   });
 
@@ -202,6 +226,6 @@ describe('mapLegacyUnitType', () => {
 
 // Type-level sanity: the exported unions are usable as types (compile-time only).
 const _role: TopLevelRole = 'program';
-const _projectType: ProjectType = 'Housing and Hotel';
+const _projectType: ProjectType = 'Housing';
 void _role;
 void _projectType;

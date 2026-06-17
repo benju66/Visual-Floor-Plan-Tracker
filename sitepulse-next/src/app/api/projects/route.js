@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { name, procore_project_id, user_id } = body;
+    const { name, procore_project_id, project_type, user_id } = body;
 
     if (!name || !user_id) {
       return NextResponse.json({ error: 'Missing name or user_id' }, { status: 400 });
@@ -16,7 +16,7 @@ export async function POST(request) {
     );
 
     // 1. Create project
-    const insertData = { name };
+    const insertData = { name, project_type: project_type ?? null };
     if (procore_project_id) {
       insertData.procore_project_id = procore_project_id;
     }

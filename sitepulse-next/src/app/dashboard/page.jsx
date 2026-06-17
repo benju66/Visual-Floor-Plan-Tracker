@@ -6,6 +6,7 @@ import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/providers/AuthProvider';
 import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X, Info, Settings } from 'lucide-react';
 import GlobalSettingsModal from '@/components/GlobalSettingsModal';
+import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 export default function DashboardPage() {
   const { session } = useAuth();
   const router = useRouter();
@@ -30,6 +31,7 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectType, setNewProjectType] = useState('');
   const [creating, setCreating] = useState(false);
 
   const adminProjects = projects.filter(p => p.role === 'admin').map(p => p.projects);
@@ -73,6 +75,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           name: newProjectName.trim(),
           procore_project_id: linkProcoreProject,
+          project_type: newProjectType || null,
           user_id: session.user.id
         }),
       });
@@ -231,7 +234,28 @@ export default function DashboardPage() {
                   onChange={(e) => setNewProjectName(e.target.value)}
                 />
               </div>
-              
+
+              <div className="mb-6">
+                <label htmlFor="projectType" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                  Project Type <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <select
+                  id="projectType"
+                  disabled={creating}
+                  className="w-full bg-slate-50 dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-50"
+                  value={newProjectType}
+                  onChange={(e) => setNewProjectType(e.target.value)}
+                >
+                  <option value="">— Not set —</option>
+                  {PROJECT_TYPES.map((pt) => (
+                    <option key={pt} value={pt}>{pt}</option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Sets the project’s vertical so the location-type picker surfaces the most likely spaces first. You can change this later in Settings → Data.
+                </p>
+              </div>
+
               <div className="flex justify-end gap-3 mt-8">
                 <button
                   type="button"

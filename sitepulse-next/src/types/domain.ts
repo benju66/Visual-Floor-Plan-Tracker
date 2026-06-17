@@ -9,6 +9,11 @@ export type { ProjectType, TopLevelRole };
 
 export type Project    = Database['public']['Tables']['projects']['Row'];
 export type Sheet      = Database['public']['Tables']['sheets']['Row'];
+// Per-drawing sidecar for the Location Labeling Workbench (1:1 with a workbench
+// `sheets` row). No JSONB columns, so no narrowing/guard needed (unlike Unit /
+// Subtype). The `Unit` flags spans_levels/level_note/has_void are derived
+// automatically from units['Row'] above — no hand-written extension.
+export type WorkbenchSheet = Database['public']['Tables']['workbench_sheets']['Row'];
 export type Unit = Omit<Database['public']['Tables']['units']['Row'], 'polygon_coordinates'> & { polygon_coordinates: PercentPoint[] | null };
 export type Milestone  = Database['public']['Tables']['project_milestones']['Row'];
 export type StatusLog  = Database['public']['Tables']['status_logs']['Row'];
@@ -19,6 +24,7 @@ export type MilestoneOverride = Database['public']['Tables']['milestone_applicab
 
 export type StatusLogInsert = Database['public']['Tables']['status_logs']['Insert'];
 export type UnitInsert      = Database['public']['Tables']['units']['Insert'];
+export type WorkbenchSheetInsert = Database['public']['Tables']['workbench_sheets']['Insert'];
 
 // Sub-type dictionary row (Location Taxonomy). The two JSONB columns are
 // narrowed off the generated `Json` to their real shapes (mirroring how `Unit`
