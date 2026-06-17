@@ -1,8 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 import { queryKeys } from '@/types/queryKeys';
-import { narrowSubtypeRow } from '@/utils/subtypes';
-import type { Subtype, TopLevelRole } from '@/types/domain';
+import { narrowSubtypeRow, addAliasToList } from '@/utils/subtypes';
+import { isStringArray } from '@/types/domain';
+import type { Subtype, SubtypeStatus, TopLevelRole, ProjectType } from '@/types/domain';
+
+/**
+ * Turn a Postgres `name`-UNIQUE collision (23505) into a friendly Error the
+ * admin UI can show inline; re-throws anything else unchanged. Mirrors the
+ * graceful-duplicate handling in {@link useProposePendingSubtype}.
+ */
+function asFriendlyDictionaryError(error: { code?: string }, name: string): Error {
+  if (error.code === '23505') {
+    return new Error(`A sub-type named “${name}” already exists in the dictionary.`);
+  }
+  return error as Error;
+}
 
 /**
  * Read the global governed sub-type dictionary (Location Taxonomy). Sub-types are
@@ -64,6 +77,132 @@ export function useProposePendingSubtype() {
         }
         throw error;
       }
+      return narrowSubtypeRow(data);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.subtypes() }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase-4 dictionary-admin writes (online-first, RLS-restricted to privileged
+// members: owner/admin/pm — never `anon`). They follow the existing TanStack
+// mutation pattern and invalidate `queryKeys.subtypes()` so every picker and
+// the admin list refresh together.
+// ---------------------------------------------------------------------------
+
+export interface UpsertSubtypeInput {
+  /** Present → update that row; absent → insert a new sub-type. */
+  id?: string;
+  name: string;
+  role: TopLevelRole;
+  defaultProjectTypes: ProjectType[];
+  /** New rows default to `active`; pass to override (e.g. promote on save). */
+  status?: SubtypeStatus;
+}
+
+/**
+ * Add a new sub-type or edit an existing one (name, canonical role, default
+ * project-type scoping, and optionally status). A duplicate `name` surfaces as
+ * a friendly Error instead of crashing (the column is UNIQUE). Reuses
+ * `narrowSubtypeRow` at the boundary so the cache never holds raw `Json`.
+ */
+export function useUpsertSubtype() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpsertSubtypeInput): Promise<Subtype> => {
+      const name = input.name.trim();
+      const fields = {
+        name,
+        top_level_role: input.role,
+        default_project_types: input.defaultProjectTypes,
+        ...(input.status ? { status: input.status } : {}),
+      };
+
+      if (input.id) {
+        const { data, error } = await supabase
+          .from('subtypes')
+          .update(fields)
+          .eq('id', input.id)
+          .select()
+          .single();
+        if (error) throw asFriendlyDictionaryError(error, name);
+        return narrowSubtypeRow(data);
+      }
+
+      const { data, error } = await supabase
+        .from('subtypes')
+        .insert({ status: 'active', ...fields })
+        .select()
+        .single();
+      if (error) throw asFriendlyDictionaryError(error, name);
+      return narrowSubtypeRow(data);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.subtypes() }),
+  });
+}
+
+/**
+ * Set a sub-type's governance status (active / pending / deprecated) — the
+ * review-queue actions (promote, deprecate) and the per-row status control.
+ * Optimistic: the list recolors immediately and rolls back on error.
+ */
+export function useSetSubtypeStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: SubtypeStatus }): Promise<Subtype> => {
+      const { data, error } = await supabase
+        .from('subtypes')
+        .update({ status })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return narrowSubtypeRow(data);
+    },
+    onMutate: async ({ id, status }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.subtypes() });
+      const prev = queryClient.getQueryData<Subtype[]>(queryKeys.subtypes());
+      queryClient.setQueryData<Subtype[]>(queryKeys.subtypes(), old =>
+        old?.map(s => (s.id === id ? { ...s, status } : s)),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKeys.subtypes(), ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.subtypes() }),
+  });
+}
+
+/**
+ * Append an alias name → an existing canonical sub-type (e.g. "Salon Suite" →
+ * "Salon Studio"). Reads the current `aliases[]` from the warm cache (falling
+ * back to a fetch) and writes the de-duplicated next list via {@link addAliasToList}.
+ * Used directly for ad-hoc aliasing and by the review queue's "fold a pending
+ * proposal into an existing sub-type" action.
+ */
+export function useAddSubtypeAlias() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, alias }: { id: string; alias: string }): Promise<Subtype> => {
+      const cached = queryClient
+        .getQueryData<Subtype[]>(queryKeys.subtypes())
+        ?.find(s => s.id === id);
+      let current = cached?.aliases;
+      if (!current) {
+        const { data, error } = await supabase.from('subtypes').select('aliases').eq('id', id).single();
+        if (error) throw error;
+        current = isStringArray(data.aliases) ? data.aliases : [];
+      }
+      const nextAliases = addAliasToList(current, alias);
+
+      const { data, error } = await supabase
+        .from('subtypes')
+        .update({ aliases: nextAliases })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
       return narrowSubtypeRow(data);
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.subtypes() }),

@@ -8,7 +8,7 @@
  * are unit-tested in isolation (AGENTS.md §9).
  */
 import type { Database } from '@/types/database.types';
-import type { Subtype, TopLevelRole, ProjectType } from '@/types/domain';
+import type { Subtype, SubtypeStatus, TopLevelRole, ProjectType } from '@/types/domain';
 import { isStringArray, isProjectTypeArray } from '@/types/domain';
 import { CANONICAL_ROLES, subtypesForProjectType } from '@/utils/locationTaxonomy';
 
@@ -100,6 +100,63 @@ export function orderedSubtypesByRole(
   for (const subtype of ordered) {
     const role = subtype.top_level_role as TopLevelRole;
     if ((CANONICAL_ROLES as readonly string[]).includes(role)) groups[role].push(subtype);
+  }
+  return groups;
+}
+
+// ---------------------------------------------------------------------------
+// Phase-4 dictionary-admin helpers (pure — the admin panel filters/groups the
+// full dictionary, unlike the pickers which only ever show `active` entries).
+// ---------------------------------------------------------------------------
+
+/** The admin list's status filter — `'all'` plus the three real statuses. */
+export type AdminStatusFilter = 'all' | SubtypeStatus;
+
+/**
+ * Append an alias name to a sub-type's `aliases[]`, immutably. Trims the input;
+ * a blank or already-present (case-insensitive) name is a no-op that returns a
+ * copy unchanged — so re-adding "Laboratory" to a row that already lists it
+ * never duplicates. The DB column is `aliases JSONB`; this computes the next
+ * value the {@link Subtype} write should persist.
+ */
+export function addAliasToList(aliases: readonly string[], name: string): string[] {
+  const trimmed = name.trim();
+  if (!trimmed) return [...aliases];
+  const exists = aliases.some(a => a.toLowerCase() === trimmed.toLowerCase());
+  return exists ? [...aliases] : [...aliases, trimmed];
+}
+
+/**
+ * Filter the dictionary for the admin list: by status (`'all'` keeps every
+ * status) and by a free-text query matched case-insensitively against the
+ * sub-type name OR any of its aliases (so searching a synonym finds its
+ * canonical home). Pure — never mutates the input.
+ */
+export function filterSubtypesForAdmin(
+  subtypes: Subtype[],
+  status: AdminStatusFilter,
+  query: string,
+): Subtype[] {
+  const q = query.trim().toLowerCase();
+  return subtypes.filter(s => {
+    if (status !== 'all' && s.status !== status) return false;
+    if (!q) return true;
+    if (s.name.toLowerCase().includes(q)) return true;
+    return s.aliases.some(a => a.toLowerCase().includes(q));
+  });
+}
+
+/**
+ * Bucket sub-types into the 4 canonical roles in canonical order, preserving
+ * the input order within each role and keeping EVERY status (unlike
+ * {@link orderedSubtypesByRole}, which the pickers use to drop non-active rows).
+ * Rows with an unrecognised role are skipped rather than crashing the panel.
+ */
+export function groupSubtypesByRole(subtypes: Subtype[]): Record<TopLevelRole, Subtype[]> {
+  const groups: Record<TopLevelRole, Subtype[]> = { program: [], common: [], support: [], other: [] };
+  for (const s of subtypes) {
+    const role = s.top_level_role as TopLevelRole;
+    if ((CANONICAL_ROLES as readonly string[]).includes(role)) groups[role].push(s);
   }
   return groups;
 }
