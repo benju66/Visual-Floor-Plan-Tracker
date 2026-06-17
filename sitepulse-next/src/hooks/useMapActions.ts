@@ -10,6 +10,8 @@ import {
 import type { Project, Unit, PercentPoint, StatusLog, Milestone, TemporalState, Sheet, MilestoneOverride } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
 import { buildApplicabilityIndex, hasSequenceGaps, nextApplicableIndex } from '@/utils/applicability';
+import { useProposePendingSubtype } from '@/hooks/useSubtypes';
+import { taxonomyResultToUnitFields, type TaxonomyResult, type TaxonomyUnitFields } from '@/utils/subtypes';
 
 export function useMapActions(project: Project | null | undefined) {
   const queryClient = useQueryClient();
@@ -32,8 +34,6 @@ export function useMapActions(project: Project | null | undefined) {
 
   const newUnitName = useUIStore(s => s.newUnitName);
   const setNewUnitName = useUIStore(s => s.setNewUnitName);
-  const newUnitType = useUIStore(s => s.newUnitType);
-  const setNewUnitType = useUIStore(s => s.setNewUnitType);
   const setUnitNamingOpen = useUIStore(s => s.setUnitNamingOpen);
   const unitNamingOpen = useUIStore(s => s.unitNamingOpen);
   const setConfirmModal = useUIStore(s => s.setConfirmModal);
@@ -57,6 +57,11 @@ export function useMapActions(project: Project | null | undefined) {
   const clearStatusMutation = useClearStatus(activeSheetId);
   const updateMilestoneMutation = useUpdateMilestone(project?.id as string, activeSheetId);
   const bulkUpdateStatusMutation = useBulkUpdateStatus(activeSheetId);
+  const proposePendingMutation = useProposePendingSubtype();
+  // Resolve a taxonomy pick into the unit's role/sub-type/unit_type columns,
+  // creating an "Other (pending)" dictionary row if needed (online-first).
+  const resolveTaxonomy = (pick: TaxonomyResult): Promise<TaxonomyUnitFields> =>
+    taxonomyResultToUnitFields(pick, (vars) => proposePendingMutation.mutateAsync(vars));
 
   const {
     undoStack, setUndoStack,
@@ -144,14 +149,21 @@ export function useMapActions(project: Project | null | undefined) {
      setUnitNamingOpen(true);
   };
 
-  const saveNewUnitFromPopover = async () => {
+  const saveNewUnitFromPopover = async (pick: TaxonomyResult | null = null) => {
     const name = newUnitName.trim();
     if (!name) return;
     if (!editingUnitId && !pendingPolygonPoints) return;
 
     try {
+      // `pick === null` means "leave the type unchanged": on rename it preserves
+      // the location's existing role/sub-type; on create it saves no type. A pick
+      // resolves to role + subtype_id (+ unit_type, kept for applicability back-compat).
+      const taxonomy = pick ? await resolveTaxonomy(pick) : null;
+
       if (editingUnitId) {
-         await updateUnitFieldsMutation.mutateAsync({ unitId: editingUnitId, updates: { unit_number: name, unit_type: newUnitType } });
+         const updates: Partial<Unit> = { unit_number: name };
+         if (taxonomy) Object.assign(updates, taxonomy);
+         await updateUnitFieldsMutation.mutateAsync({ unitId: editingUnitId, updates });
          setUnitNamingOpen(false);
          setEditingUnitId(null);
          setNewUnitName('');
@@ -186,11 +198,13 @@ export function useMapActions(project: Project | null | undefined) {
            }
          }
 
-         const data = await createUnitMutation.mutateAsync({ 
-             sheet_id: activeSheetId, 
-             unit_number: name, 
+         const data = await createUnitMutation.mutateAsync({
+             sheet_id: activeSheetId,
+             unit_number: name,
              polygon_coordinates: pendingPolygonPoints as any,
-             unit_type: newUnitType,
+             unit_type: taxonomy?.unit_type ?? null,
+             top_level_role: taxonomy?.top_level_role ?? null,
+             subtype_id: taxonomy?.subtype_id ?? null,
              computed_area: finalComputedArea
          });
          setUndoStack(prev => {
@@ -519,7 +533,6 @@ export function useMapActions(project: Project | null | undefined) {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
     newUnitName, setNewUnitName,
-    newUnitType, setNewUnitType,
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,

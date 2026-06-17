@@ -1,15 +1,29 @@
-import React from 'react';
+import React, { useState } from 'react';
+import TaxonomyPicker from './TaxonomyPicker';
 
 export default function UnitNamingPopover({
   editingUnitId,
   newUnitName,
   setNewUnitName,
-  newUnitType,
-  setNewUnitType,
-  projectUnitTypes = ['Apartment Unit', 'Common Area', 'Commercial Space', 'Other'],
+  subtypes = [],
+  projectType = null,
+  initialSubtypeId = null,
+  initialUnitType = null,
   saveNewUnitFromPopover,
-  cancelUnitNaming
+  cancelUnitNaming,
 }) {
+  // The active taxonomy pick for THIS save, or null = "leave type unchanged"
+  // (on rename, preserves the location's existing role/sub-type; on create, no type).
+  const [pick, setPick] = useState(null);
+
+  const selectedSubtypeId = pick
+    ? (pick.kind === 'subtype' ? pick.subtypeId : null)
+    : initialSubtypeId;
+  const currentName = pick ? pick.name : initialUnitType;
+  const isPending = pick?.kind === 'pending';
+
+  const handleSave = () => void saveNewUnitFromPopover(pick);
+
   return (
     <div
       className="absolute top-6 right-6 z-[60] w-64 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md"
@@ -24,17 +38,31 @@ export default function UnitNamingPopover({
         value={newUnitName}
         onChange={(e) => setNewUnitName(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') void saveNewUnitFromPopover();
+          if (e.key === 'Enter') handleSave();
           if (e.key === 'Escape') cancelUnitNaming();
         }}
       />
-      <select
-        value={newUnitType || (projectUnitTypes.length > 0 ? projectUnitTypes[0] : 'Apartment Unit')}
-        onChange={(e) => setNewUnitType(e.target.value)}
-        className="w-full text-sm border border-slate-300/80 dark:border-white/15 rounded-xl px-2 py-1.5 mb-4 bg-white/70 dark:bg-black/25 outline-none focus:ring-2 focus:ring-blue-500/50"
-      >
-        {projectUnitTypes.map(t => <option key={t} value={t}>{t}</option>)}
-      </select>
+
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Type</span>
+        <span className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate">
+          {currentName ? (
+            <>{currentName}{isPending && <span className="text-amber-500"> · pending</span>}</>
+          ) : (
+            <span className="text-slate-400 italic">none</span>
+          )}
+        </span>
+      </div>
+      <div className="mb-3 rounded-xl border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 p-1">
+        <TaxonomyPicker
+          subtypes={subtypes}
+          projectType={projectType}
+          selectedSubtypeId={selectedSubtypeId}
+          onPick={setPick}
+          variant="popover"
+        />
+      </div>
+
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -45,7 +73,7 @@ export default function UnitNamingPopover({
         </button>
         <button
           type="button"
-          onClick={() => void saveNewUnitFromPopover()}
+          onClick={handleSave}
           className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-white text-xs shadow-sm transition-colors"
         >
           Save location
