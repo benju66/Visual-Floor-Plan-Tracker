@@ -2,9 +2,12 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Library, Loader2, FileWarning, Layers } from 'lucide-react';
+import { ArrowLeft, Library, Loader2, FileWarning, Layers, FilePlus } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
 import { useWorkbenchContainer, useWorkbenchSheets } from '@/hooks/useWorkbench';
+import { useWorkbenchStore } from '@/store/useWorkbenchStore';
+import NewDrawingModal from '@/components/workbench/NewDrawingModal';
+import { withVersion } from '@/utils/pdfSource';
 import type { WorkbenchDrawing } from '@/types/domain';
 
 // Location Labeling Workbench — Phase 4 shell.
@@ -28,6 +31,9 @@ export default function WorkbenchPage() {
   } = useWorkbenchContainer(userId);
 
   const { data: drawings, isLoading: drawingsLoading } = useWorkbenchSheets(container?.id);
+
+  const isNewDrawingOpen = useWorkbenchStore((s) => s.isNewDrawingOpen);
+  const setIsNewDrawingOpen = useWorkbenchStore((s) => s.setIsNewDrawingOpen);
 
   const loading = containerLoading || (!!container && drawingsLoading);
 
@@ -54,6 +60,16 @@ export default function WorkbenchPage() {
                 Bank clean, standard-compliant location labels from historical drawings — separate from your live project trackers.
               </p>
             </div>
+            {container && (
+              <button
+                type="button"
+                onClick={() => setIsNewDrawingOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-violet-600 hover:bg-violet-700 text-white shadow-sm transition-colors shrink-0"
+              >
+                <FilePlus size={18} />
+                New drawing
+              </button>
+            )}
           </div>
         </header>
 
@@ -64,9 +80,16 @@ export default function WorkbenchPage() {
         ) : drawings && drawings.length > 0 ? (
           <DrawingGrid drawings={drawings} />
         ) : (
-          <EmptyState />
+          <EmptyState onNewDrawing={() => setIsNewDrawingOpen(true)} />
         )}
       </div>
+
+      {isNewDrawingOpen && container && (
+        <NewDrawingModal
+          containerId={container.id}
+          onClose={() => setIsNewDrawingOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -93,16 +116,24 @@ function ErrorState({ message }: { message?: string }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onNewDrawing }: { onNewDrawing: () => void }) {
   return (
     <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-10 flex flex-col items-center justify-center text-center min-h-[320px]">
       <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full mb-4 text-slate-400">
         <Layers size={32} />
       </div>
       <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300 mb-1">No drawings yet</h3>
-      <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md">
-        This is where historical PDFs you trace for labels will live. Uploading drawings is coming next.
+      <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mb-6">
+        This is where historical PDFs you trace for labels will live. Upload a drawing to get started.
       </p>
+      <button
+        type="button"
+        onClick={onNewDrawing}
+        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-violet-600 hover:bg-violet-700 text-white shadow-sm transition-colors"
+      >
+        <FilePlus size={18} />
+        New drawing
+      </button>
     </div>
   );
 }
@@ -119,18 +150,34 @@ function DrawingGrid({ drawings }: { drawings: WorkbenchDrawing[] }) {
 
 function DrawingCard({ drawing }: { drawing: WorkbenchDrawing }) {
   const meta = drawing.workbench;
+  const preview = drawing.base_image_url
+    ? withVersion(drawing.base_image_url, drawing.pdf_version)
+    : null;
   return (
-    <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-2xl p-6 shadow-sm">
-      <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-300 w-fit mb-5">
-        <Layers size={24} />
+    <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden">
+      <div className="aspect-[4/3] bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+        {preview ? (
+          // eslint-disable-next-line @next/next/no-img-element -- public storage URL, not a Next asset
+          <img
+            src={preview}
+            alt={`${drawing.sheet_name || 'Drawing'} preview`}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <Layers size={32} className="text-slate-400" />
+        )}
       </div>
-      <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2 line-clamp-1">
-        {drawing.sheet_name || 'Untitled drawing'}
-      </h2>
-      <div className="flex flex-wrap gap-1.5">
-        {meta?.sheet_project_type && <MetaChip label={meta.sheet_project_type} />}
-        {meta?.level_label && <MetaChip label={meta.level_label} />}
-        {meta?.is_partial && <MetaChip label="Partial" />}
+      <div className="p-6">
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2 line-clamp-1">
+          {drawing.sheet_name || 'Untitled drawing'}
+        </h2>
+        <div className="flex flex-wrap gap-1.5">
+          {meta?.sheet_project_type && <MetaChip label={meta.sheet_project_type} />}
+          {meta?.level_label && <MetaChip label={meta.level_label} />}
+          {meta?.source_sheet_number && <MetaChip label={meta.source_sheet_number} />}
+          {meta?.vector_quality && <MetaChip label={meta.vector_quality} />}
+          {meta?.is_partial && <MetaChip label="Partial" />}
+        </div>
       </div>
     </div>
   );
