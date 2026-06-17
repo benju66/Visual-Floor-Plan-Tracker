@@ -1,8 +1,8 @@
 # Kickoff — Location Labeling Workbench, Phase 4: Workbench shell (route + hidden container + library list + dashboard hiding)
 
 > Paste-ready prompt + context for a fresh Claude Code session. Self-contained: read this, then the files it names, then build.
-> **⚠️ DEPENDS ON PHASE 3.** Do not start until Phase 3 (the workbench schema migration: `projects.kind`, `workbench_sheets`, `units` label flags) is **applied and merged** — this phase reads/writes those columns. If `projects.kind` / `workbench_sheets` don't exist yet, stop and build Phase 3 first (`… Phase 3 Kickoff.md`).
-> Phases 1 + 2 are DONE (project-type picker; taxonomy correction — 9 project types live).
+> **✅ PHASE 3 IS DONE.** The workbench schema migration (`projects.kind`, `workbench_sheets` + RLS, `units.spans_levels`/`level_note`/`has_void`) is **applied to prod and merged to `main`** (merge `7d3b176`, 2026-06-17). `WorkbenchSheet` + `WorkbenchSheetInsert` are derived in `src/types/domain.ts`. The columns this phase reads/writes exist now — sanity-check with a quick `grep WorkbenchSheet src/types/domain.ts` if unsure.
+> Phases 1, 2, 3 are DONE (project-type picker; taxonomy correction — 9 project types live; workbench schema). **Branch off `main`** — it is current and now also carries the Manage + Gantt workspaces. Small reviewable commits; `typecheck` + `test` before each. Do NOT commit/push until the owner says "Approved."
 
 ## What you're building
 **Phase 4 of the Location Labeling Workbench plan** — the first *visible* workbench surface, but still empty. A new **full-page "Drawing Library" route**, opened from a **privileged-gated button** on the Projects Dashboard. Behind it: a single hidden **"workbench container"** project (a `projects` row with `kind='workbench'`) is bootstrapped server-side if it doesn't exist yet, and the library lists the workbench drawings under it (initially none). Critically, this phase also **hides the workbench container from the normal Projects Dashboard** so it never pollutes the live project list. **No PDF upload, no tracing, no status/schedule/sync UI** — just the shell + the contamination guard.
@@ -10,7 +10,7 @@
 ## Required reading (in order, fresh — do not trust line numbers)
 1. `sitepulse-next/AGENTS.md` — Especially **§0** (talk to the owner in plain English), **§2** (data fetching via the established **TanStack Query hooks** — never `useState`/`useEffect` for DB data; global UI state in Zustand; do NOT break the offline mutation queue / `pendingChanges`; RLS posture), **§4** (Location Taxonomy), **§6** (TS guardrails: new files `.ts`/`.tsx`, derive types from `database.types.ts`, no `any`).
 2. `sitepulse-next/Notes/plans/Location-Labeling-Workbench-Plan.md` — the plan-of-record. Read **§ Locked product decisions** (esp. **1** "hidden workbench container, not separate tables" + **2** "new full-page surface, privileged-gated"), **§ Data model → "The load-bearing coupling — DO NOT break it"**, **§ Build-on inventory**, and **Phase 4** in full. (Phases 5+ are NOT in scope.)
-3. The **Phase 3 kickoff/migration** (now applied) so you know the exact `projects.kind` + `workbench_sheets` shape you're querying, and the derived `WorkbenchSheet` type in `src/types/domain.ts`.
+3. The **Phase 3 migration** `sitepulse-next/supabase/migrations/20260617_workbench_schema.sql` (applied + merged) so you know the exact `projects.kind` + `workbench_sheets` shape (incl. RLS) you're querying, and the derived `WorkbenchSheet` type in `src/types/domain.ts`.
 
 ## Files this phase touches
 - **NEW** `src/app/workbench/page.tsx` — the full-page Drawing Library route (`"use client"`). Privileged-gated; renders the (empty) list of workbench drawings. **A modal can't host this** (Phase 6 mounts a zoom/pan canvas here later) — it must be its own route.
