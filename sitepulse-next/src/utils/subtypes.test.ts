@@ -3,6 +3,9 @@ import {
   narrowSubtypeRow,
   taxonomyResultToUnitFields,
   orderedSubtypesByRole,
+  addAliasToList,
+  filterSubtypesForAdmin,
+  groupSubtypesByRole,
   type TaxonomyResult,
 } from './subtypes';
 import type { Subtype } from '@/types/domain';
@@ -114,5 +117,67 @@ describe('orderedSubtypesByRole', () => {
     const groups = orderedSubtypesByRole(dict, null);
     expect(groups.program.map(s => s.name)).toEqual(['Classroom', 'Patient Room']);
     expect(groups.common.map(s => s.name)).toEqual(['Corridor']);
+  });
+});
+
+describe('addAliasToList', () => {
+  it('appends a trimmed alias name', () => {
+    expect(addAliasToList(['Laboratory'], '  Lab Room ')).toEqual(['Laboratory', 'Lab Room']);
+  });
+
+  it('is a no-op for a blank name (returns a copy)', () => {
+    const input = ['Laboratory'];
+    const out = addAliasToList(input, '   ');
+    expect(out).toEqual(['Laboratory']);
+    expect(out).not.toBe(input); // immutable
+  });
+
+  it('does not duplicate an existing alias (case-insensitive)', () => {
+    expect(addAliasToList(['Laboratory'], 'laboratory')).toEqual(['Laboratory']);
+  });
+});
+
+describe('filterSubtypesForAdmin', () => {
+  const dict: Subtype[] = [
+    makeSubtype({ id: '1', name: 'Classroom', status: 'active' }),
+    makeSubtype({ id: '2', name: 'Generator Room', status: 'pending' }),
+    makeSubtype({ id: '3', name: 'Salon Studio', status: 'active', aliases: ['Salon Suite'] }),
+    makeSubtype({ id: '4', name: 'Old Thing', status: 'deprecated' }),
+  ];
+
+  it('keeps every status when filter is "all"', () => {
+    expect(filterSubtypesForAdmin(dict, 'all', '')).toHaveLength(4);
+  });
+
+  it('filters to a single status', () => {
+    expect(filterSubtypesForAdmin(dict, 'pending', '').map(s => s.name)).toEqual(['Generator Room']);
+  });
+
+  it('matches the query against the name (case-insensitive)', () => {
+    expect(filterSubtypesForAdmin(dict, 'all', 'room').map(s => s.name)).toEqual(['Classroom', 'Generator Room']);
+  });
+
+  it('matches the query against an alias so a synonym finds its canonical home', () => {
+    expect(filterSubtypesForAdmin(dict, 'all', 'salon suite').map(s => s.name)).toEqual(['Salon Studio']);
+  });
+});
+
+describe('groupSubtypesByRole', () => {
+  it('buckets every status into canonical roles, preserving order', () => {
+    const dict: Subtype[] = [
+      makeSubtype({ id: '1', name: 'Classroom', top_level_role: 'program', status: 'active' }),
+      makeSubtype({ id: '2', name: 'Pending Prog', top_level_role: 'program', status: 'pending' }),
+      makeSubtype({ id: '3', name: 'Corridor', top_level_role: 'common', status: 'deprecated' }),
+    ];
+    const groups = groupSubtypesByRole(dict);
+    expect(groups.program.map(s => s.name)).toEqual(['Classroom', 'Pending Prog']);
+    expect(groups.common.map(s => s.name)).toEqual(['Corridor']);
+    expect(groups.support).toEqual([]);
+  });
+
+  it('skips rows with an unrecognised role instead of throwing', () => {
+    const dict = [makeSubtype({ id: 'x', name: 'Weird', top_level_role: 'nonsense' as never })];
+    const groups = groupSubtypesByRole(dict);
+    expect(Object.values(groups).flat()).toEqual([]);
   });
 });

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users } from 'lucide-react';
+import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/providers/AuthProvider';
+import LocationLibraryPanel from '@/components/taxonomy/LocationLibraryPanel';
 
 export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) {
   const { session } = useAuth();
@@ -17,6 +18,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
   const [assignments, setAssignments] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
+
+  // Which global-settings tab is showing: cross-project user management, or the
+  // global Location Library (the shared sub-type dictionary + review queue).
+  const [activeTab, setActiveTab] = useState('users');
 
   // New State for Global Team
   const [globalTeam, setGlobalTeam] = useState([]);
@@ -252,16 +257,39 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose}>
       <div className="w-full max-w-5xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
         
-        <div className="flex justify-between items-center p-5 border-b border-slate-100 dark:border-white/5 shrink-0">
-          <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
-            <User className="w-5 h-5 text-sky-500" />
-            Global User Management
-          </h2>
+        <div className="flex justify-between items-start p-5 pb-0 border-b border-slate-100 dark:border-white/5 shrink-0">
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+              <Settings className="w-5 h-5 text-sky-500" />
+              Global Settings
+            </h2>
+            <div className="flex gap-1 mt-3 -mb-px">
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'users' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+              >
+                <Users className="w-4 h-4" /> User Management
+              </button>
+              <button
+                onClick={() => setActiveTab('library')}
+                className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'library' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+              >
+                <Library className="w-4 h-4" /> Location Library
+              </button>
+            </div>
+          </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {activeTab === 'library' && (
+          <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+            <LocationLibraryPanel canManage />
+          </div>
+        )}
+
+        {activeTab === 'users' && (
         <div className="flex flex-1 overflow-hidden min-h-0">
           
           {/* Left Column: Team Directory */}
@@ -455,6 +483,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
