@@ -32,6 +32,13 @@ export interface WorkbenchState {
   /** The name being typed in the naming popover. */
   labelDraftName: string;
   setLabelDraftName: (val: Updater<string>) => void;
+
+  /**
+   * The existing label being edited via the popover (null = naming a NEW trace).
+   * Set by the canvas "Rename" action; drives the popover's edit vs. create mode.
+   */
+  editingLabelId: string | null;
+  setEditingLabelId: (val: Updater<string | null>) => void;
 }
 
 export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
@@ -57,5 +64,11 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
   setLabelDraftName: (val) =>
     set((state) => ({
       labelDraftName: typeof val === 'function' ? val(state.labelDraftName) : val,
+    })),
+
+  editingLabelId: null,
+  setEditingLabelId: (val) =>
+    set((state) => ({
+      editingLabelId: typeof val === 'function' ? val(state.editingLabelId) : val,
     })),
 }));

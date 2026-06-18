@@ -7,6 +7,7 @@ import { ArrowLeft, Loader2, FileWarning } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
 import { useWorkbenchContainer, useWorkbenchSheets } from '@/hooks/useWorkbench';
 import WorkbenchTracer from '@/components/workbench/WorkbenchTracer';
+import WorkbenchReviewControl from '@/components/workbench/WorkbenchReviewControl';
 import type { WorkbenchDrawing } from '@/types/domain';
 
 // Location Labeling Workbench — Phase 6 tracing route. A dedicated full-page
@@ -50,6 +51,11 @@ export default function WorkbenchTracerPage() {
             {drawing?.sheet_name || 'Drawing'}
           </h1>
           {drawing && <DrawingMeta drawing={drawing} />}
+          {drawing && container && (
+            <div className="ml-auto">
+              <WorkbenchReviewControl drawing={drawing} containerId={container.id} userId={userId} />
+            </div>
+          )}
         </div>
       </header>
 

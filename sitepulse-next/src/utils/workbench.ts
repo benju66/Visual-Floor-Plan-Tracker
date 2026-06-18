@@ -11,6 +11,39 @@ export const VECTOR_QUALITIES = ['clean', 'scanned'] as const;
 export type VectorQuality = (typeof VECTOR_QUALITIES)[number];
 
 /**
+ * The second-person review lifecycle of a workbench drawing (standard §9), in
+ * order: a labeler works in `draft`, hands off as `ready_for_review`, and a second
+ * person stamps `reviewed` only once the Definition-of-Done checklist passes.
+ * Mirrors the `workbench_sheets.review_state` CHECK (plain TEXT in the DB, so this
+ * literal union is the source of truth — it can't be derived from generated types).
+ */
+export const REVIEW_STATES = ['draft', 'ready_for_review', 'reviewed'] as const;
+export type WorkbenchReviewState = (typeof REVIEW_STATES)[number];
+
+/** Human-facing label for each review state (presentation-only). */
+export const REVIEW_STATE_LABELS: Record<WorkbenchReviewState, string> = {
+  draft: 'Draft',
+  ready_for_review: 'Ready for review',
+  reviewed: 'Reviewed',
+};
+
+/** Tailwind classes for each review-state badge (presentation-only). */
+export const REVIEW_STATE_BADGE: Record<WorkbenchReviewState, string> = {
+  draft: 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10',
+  ready_for_review:
+    'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  reviewed:
+    'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+};
+
+/** Narrow a free-text `review_state` value to a known state, defaulting to `'draft'`. */
+export function narrowReviewState(value: string | null | undefined): WorkbenchReviewState {
+  return value && (REVIEW_STATES as readonly string[]).includes(value)
+    ? (value as WorkbenchReviewState)
+    : 'draft';
+}
+
+/**
  * The per-drawing metadata a labeler captures at ingest (standard §8). Free-text
  * fields hold `''` (not `null`) while the form is open so the inputs stay
  * controlled; {@link buildWorkbenchSidecarInsert} normalizes blanks to `null` at
