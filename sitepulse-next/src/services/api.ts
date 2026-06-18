@@ -90,6 +90,35 @@ export async function attachOriginalService(activeSheetId: string, file: File, t
   return response.json();
 }
 
+export interface DeleteSheetStorageResult {
+  status: string;
+  /** The storage paths the server attempted to remove (idempotent). */
+  removed: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * Delete a sheet's storage objects (converted preview PNG + original PDF) via the
+ * backend. Storage RLS denies the client's own `.remove()` project-wide, so this
+ * authenticated route does it service-side. Call BEFORE deleting the `sheets` row
+ * (the server resolves project membership from the still-present row). Idempotent.
+ */
+export async function deleteSheetStorageService(sheetId: string, token: string): Promise<DeleteSheetStorageResult> {
+  const response = await fetch(`${API_BASE_URL}/sheet-storage/${sheetId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to delete drawing files');
+  }
+
+  return response.json();
+}
+
 export interface VectorLine {
   start: PercentPoint;
   end: PercentPoint;

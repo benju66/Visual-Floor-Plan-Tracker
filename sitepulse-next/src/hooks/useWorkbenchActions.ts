@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 import { queryKeys } from '@/types/queryKeys';
-import { uploadFloorplanService } from '@/services/api';
+import { uploadFloorplanService, deleteSheetStorageService } from '@/services/api';
 import { invalidatePdfBytes } from '@/utils/pdfByteCache';
 import {
   buildWorkbenchSidecarInsert,
@@ -466,9 +466,12 @@ export function useRestoreWorkbenchDrawing(containerId: string | undefined) {
  *     the units when the `sheets` row goes);
  *   • no `tiles/` cleanup — that OpenSeadragon path was removed (AGENTS.md §5;
  *     `tile_manifest_url` is vestigial).
- * Storage `remove` is best-effort/idempotent (it won't error on an already-gone
- * object); the `sheets` delete is the real destruction and is ordered LAST, after
- * storage + vectors, exactly like `handleDeleteSheet`.
+ * Storage cleanup goes through the BACKEND (`deleteSheetStorageService`): storage
+ * RLS denies the client's own `.remove()`, so a client delete would orphan the
+ * blobs (plan § Reclaiming storage blobs). It's best-effort/non-fatal and ordered
+ * FIRST (the backend needs the `sheets` row to resolve access); the `sheets`
+ * delete is the real destruction and is ordered LAST, after storage + vectors,
+ * exactly like `handleDeleteSheet`.
  *
  * Online-first TanStack mutation. Carries the same `kind='workbench'` write-site
  * guard as every other workbench write (the container is resolved by an
@@ -493,12 +496,21 @@ export function useHardDeleteWorkbenchDrawing(containerId: string | undefined) {
       // `kind='workbench'` container, before a single object is removed.
       await assertWorkbenchContainer(containerId);
 
-      // 1. Remove the stored converted preview + original PDF (best-effort —
-      //    idempotent; won't error if an object was never written).
-      await supabase.storage.from('floorplans').remove([
-        `converted/${sheetId}.png`,
-        `originals/${sheetId}.pdf`,
-      ]);
+      // 1. Remove the stored converted preview + original PDF via the BACKEND
+      //    (service-role): storage RLS denies the client's own `.remove()`
+      //    project-wide, so a client delete silently orphans the blobs. This must
+      //    run BEFORE the `sheets` row is deleted (the backend resolves access
+      //    from the still-present row). Best-effort/non-fatal — a backend hiccup
+      //    must never block a purge the user explicitly confirmed; at worst it
+      //    re-orphans the blobs (recoverable from the Storage dashboard), which is
+      //    no worse than the pre-fix behaviour. Idempotent server-side.
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) await deleteSheetStorageService(sheetId, token);
+      } catch (storageErr) {
+        console.warn('[workbench] storage cleanup failed (non-fatal):', storageErr);
+      }
       invalidatePdfBytes(sheetId);
 
       // 2. Drop the cached snapping vectors (NOT cascaded by the sheets FK).

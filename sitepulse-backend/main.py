@@ -337,6 +337,44 @@ async def attach_original_pdf(
         print(f"Error attaching pdf: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.delete("/sheet-storage/{sheet_id}")
+async def delete_sheet_storage(sheet_id: str, user: dict = Depends(get_current_user)):
+    """Service-role delete of a sheet's storage objects — the converted preview
+    PNG and the original PDF.
+
+    The `floorplans` bucket has storage RLS enabled with ZERO policies, so the
+    client's own `supabase.storage.from('floorplans').remove(...)` is denied
+    project-wide and the blobs orphan when a drawing/level is deleted. This
+    authenticated route removes them with the same service-role client that
+    uploaded them (the upload/attach handlers above), keyed by the sheet UUID.
+
+    Both the live app's delete (`handleDeleteSheet`) and the workbench hard-delete
+    (`useHardDeleteWorkbenchDrawing`) call this BEFORE they delete the `sheets`
+    row — `verify_sheet_access` resolves the project + caller membership from the
+    still-present row, the same membership gate as upload/export/extract (it
+    covers the hidden `kind='workbench'` container too, since access is via
+    `project_members`). Removal is idempotent: Supabase storage does not error on
+    an already-absent path, so a re-run (or a sheet whose blobs were never
+    written) is a harmless no-op.
+    """
+    try:
+        await verify_sheet_access(sheet_id, user["sub"])
+
+        def process_delete():
+            paths = [f"converted/{sheet_id}.png", f"originals/{sheet_id}.pdf"]
+            supabase.storage.from_("floorplans").remove(paths)
+            return paths
+
+        import asyncio
+        removed = await asyncio.to_thread(process_delete)
+        return {"status": "success", "removed": removed}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting sheet storage for {sheet_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Minimum segment length (in PDF points, 1pt = 1/72") for a line to be kept as a
 # snapping vector. Sub-point segments are hatching/detail noise that can't be
 # meaningfully snapped to, and they dominate the raw extraction count (a typical

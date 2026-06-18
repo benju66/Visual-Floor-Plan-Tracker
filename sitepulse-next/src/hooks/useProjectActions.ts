@@ -3,7 +3,7 @@ import { supabase } from '@/supabaseClient';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { uploadFloorplanService, attachOriginalService } from '@/services/api';
+import { uploadFloorplanService, attachOriginalService, deleteSheetStorageService } from '@/services/api';
 import { useUpdateMilestone, useReorderSheets } from '@/hooks/useProjectQueries';
 import type { Project, Sheet, Milestone } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
@@ -172,12 +172,20 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
   const handleDeleteSheet = async (sheetId: string) => {
     try {
       showToast('Wiping level and all data...', 'info');
-      
-      // Remove stored images and original PDF
-      await supabase.storage.from('floorplans').remove([
-        `converted/${sheetId}.png`,
-        `originals/${sheetId}.pdf`
-      ]);
+
+      // Remove stored images and original PDF via the BACKEND (service-role):
+      // storage RLS denies the client's own `.remove()` project-wide, so deleting
+      // here would orphan the blobs. Runs before the `sheets` row delete (the
+      // backend resolves access from the still-present row). Best-effort/non-fatal
+      // — a backend hiccup must never block the delete; it just re-orphans the
+      // blobs (the pre-fix behaviour), recoverable from the Storage dashboard.
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) await deleteSheetStorageService(sheetId, token);
+      } catch (e) {
+        console.warn('Storage cleanup warning (non-fatal):', e);
+      }
       invalidatePdfBytes(sheetId);
 
       // F4: Clean up tile folder — list and remove all tile files

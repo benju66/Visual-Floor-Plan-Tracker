@@ -24,3 +24,12 @@ def test_protected_route_requires_bearer_token():
     with TestClient(app) as client:
         res = client.get("/extract-vectors/some-sheet-id")
     assert res.status_code in (401, 403)
+
+
+def test_delete_sheet_storage_requires_bearer_token():
+    # The storage-cleanup route is auth-gated the same way: a missing bearer is
+    # rejected at the HTTPBearer dependency before verify_sheet_access or any
+    # service-role storage call runs.
+    with TestClient(app) as client:
+        res = client.delete("/sheet-storage/some-sheet-id")
+    assert res.status_code in (401, 403)
