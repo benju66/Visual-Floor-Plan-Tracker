@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { mergeWorkbenchSidecar, buildWorkbenchSidecarInsert, computeLabelArea, type WorkbenchSidecarFields } from './workbench';
+import {
+  mergeWorkbenchSidecar,
+  buildWorkbenchSidecarInsert,
+  computeLabelArea,
+  normalizeConfirmName,
+  matchesPurgeConfirmation,
+  type WorkbenchSidecarFields,
+} from './workbench';
 import type { PercentPoint, Sheet, WorkbenchSheet } from '@/types/domain';
 
 // Minimal fixtures — mergeWorkbenchSidecar only cares about identity/shape, not
@@ -127,5 +134,47 @@ describe('computeLabelArea', () => {
   it('returns null when image dimensions are unknown', () => {
     expect(computeLabelArea(square, 0, 100, 1)).toBeNull();
     expect(computeLabelArea(square, 100, 0, 1)).toBeNull();
+  });
+});
+
+describe('normalizeConfirmName', () => {
+  it('trims surrounding whitespace', () => {
+    expect(normalizeConfirmName('  Oakhaven Tower  ')).toBe('Oakhaven Tower');
+  });
+
+  it('collapses internal whitespace runs to a single space', () => {
+    expect(normalizeConfirmName('Oakhaven   Tower\t\nL3')).toBe('Oakhaven Tower L3');
+  });
+
+  it('preserves case (exact-name match is required)', () => {
+    expect(normalizeConfirmName('OakHaven')).toBe('OakHaven');
+  });
+});
+
+describe('matchesPurgeConfirmation', () => {
+  it('matches the exact name', () => {
+    expect(matchesPurgeConfirmation('Oakhaven Tower — L3', 'Oakhaven Tower — L3')).toBe(true);
+  });
+
+  it('forgives trailing and doubled spaces on the typed input', () => {
+    expect(matchesPurgeConfirmation('  Oakhaven   Tower ', 'Oakhaven Tower')).toBe(true);
+  });
+
+  it('rejects a case mismatch (must type the exact name)', () => {
+    expect(matchesPurgeConfirmation('oakhaven tower', 'Oakhaven Tower')).toBe(false);
+  });
+
+  it('rejects a partial / wrong name', () => {
+    expect(matchesPurgeConfirmation('Oakhaven', 'Oakhaven Tower')).toBe(false);
+  });
+
+  it('never matches a blank typed input', () => {
+    expect(matchesPurgeConfirmation('', 'Oakhaven Tower')).toBe(false);
+    expect(matchesPurgeConfirmation('   ', 'Oakhaven Tower')).toBe(false);
+  });
+
+  it('never matches when the target name is itself blank (nothing to type)', () => {
+    expect(matchesPurgeConfirmation('', '')).toBe(false);
+    expect(matchesPurgeConfirmation('   ', '   ')).toBe(false);
   });
 });

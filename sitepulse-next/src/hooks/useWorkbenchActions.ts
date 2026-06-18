@@ -450,6 +450,79 @@ export function useRestoreWorkbenchDrawing(containerId: string | undefined) {
   });
 }
 
+/**
+ * PERMANENTLY purge a workbench drawing — Phase 8c, the IRREVERSIBLE counterpart
+ * to 8b's recoverable {@link useArchiveWorkbenchDrawing}. There is no undo: this
+ * destroys the drawing's storage objects, its cached snapping vectors, and the
+ * `sheets` row, and the FK `ON DELETE CASCADE` takes the `workbench_sheets`
+ * sidecar AND every `units` label hanging off it (plan § Data model). The UI gate
+ * for this hook is the mandatory type-to-confirm modal (ConfirmPurgeModal) — this
+ * hook must never be called from anything that skips that typed confirmation.
+ *
+ * It mirrors the live-app delete (`useProjectActions.handleDeleteSheet`) but is
+ * deliberately TRIMMED for the workbench data model:
+ *   • no `status_logs` delete — the workbench never writes status, so labels never
+ *     have status rows (the manual unit delete is also dropped: the cascade removes
+ *     the units when the `sheets` row goes);
+ *   • no `tiles/` cleanup — that OpenSeadragon path was removed (AGENTS.md §5;
+ *     `tile_manifest_url` is vestigial).
+ * Storage `remove` is best-effort/idempotent (it won't error on an already-gone
+ * object); the `sheets` delete is the real destruction and is ordered LAST, after
+ * storage + vectors, exactly like `handleDeleteSheet`.
+ *
+ * Online-first TanStack mutation. Carries the same `kind='workbench'` write-site
+ * guard as every other workbench write (the container is resolved by an
+ * IDB-persisted query, so a poisoned cache could in theory point it at a live
+ * project — the cheap re-check refuses to destroy anything outside the workbench).
+ * On success invalidates `workbenchSheets` (the 2-element prefix → both the active
+ * and show-archived variants) AND `workbenchCorpusUnits`, so the grid and the
+ * corpus-health counts both refresh.
+ */
+export function useHardDeleteWorkbenchDrawing(containerId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    // Never retried: a partial failure must surface, not silently re-run the
+    // destruction sequence.
+    retry: false,
+    mutationFn: async (sheetId: string): Promise<void> => {
+      if (!containerId) {
+        throw new Error('The Drawing Library is still loading — try again in a moment.');
+      }
+      // Guard FIRST: refuse to purge anything that isn't under the hidden
+      // `kind='workbench'` container, before a single object is removed.
+      await assertWorkbenchContainer(containerId);
+
+      // 1. Remove the stored converted preview + original PDF (best-effort —
+      //    idempotent; won't error if an object was never written).
+      await supabase.storage.from('floorplans').remove([
+        `converted/${sheetId}.png`,
+        `originals/${sheetId}.pdf`,
+      ]);
+      invalidatePdfBytes(sheetId);
+
+      // 2. Drop the cached snapping vectors (NOT cascaded by the sheets FK).
+      const { error: vectorErr } = await supabase
+        .from('sheet_vectors')
+        .delete()
+        .eq('sheet_id', sheetId);
+      if (vectorErr) throw vectorErr;
+
+      // 3. The real destruction, ordered last: delete the `sheets` row. The FK
+      //    `ON DELETE CASCADE` takes the `workbench_sheets` sidecar AND the
+      //    `units` labels with it — do NOT hand-delete those.
+      const { error: sheetErr } = await supabase.from('sheets').delete().eq('id', sheetId);
+      if (sheetErr) throw sheetErr;
+    },
+    onSuccess: () => {
+      if (containerId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.workbenchSheets(containerId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.workbenchCorpusUnits(containerId) });
+      }
+    },
+  });
+}
+
 /** Fields an existing workbench label can be edited to (any subset; omitted = unchanged). */
 export interface UpdateWorkbenchLabelInput {
   /** The `units` row to edit. */

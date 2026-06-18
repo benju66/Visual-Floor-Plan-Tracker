@@ -44,6 +44,28 @@ export function narrowReviewState(value: string | null | undefined): WorkbenchRe
 }
 
 /**
+ * Normalize a name for the hard-delete type-to-confirm comparison: trim and
+ * collapse internal whitespace runs to a single space. Case is preserved — the
+ * user must type the drawing's *exact* name (Phase 8c), so this only forgives
+ * trailing/double spaces, never a wrong character or wrong case.
+ */
+export function normalizeConfirmName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Does the typed text match the drawing's name well enough to permit an
+ * IRREVERSIBLE purge (Phase 8c)? The mandatory friction on hard-delete: the
+ * destructive button stays disabled until this returns `true`. A blank name can
+ * never be confirmed (returns `false`), so an empty input is never a match.
+ */
+export function matchesPurgeConfirmation(typed: string, name: string): boolean {
+  const target = normalizeConfirmName(name);
+  if (!target) return false;
+  return normalizeConfirmName(typed) === target;
+}
+
+/**
  * The per-drawing metadata a labeler captures at ingest (standard §8). Free-text
  * fields hold `''` (not `null`) while the form is open so the inputs stay
  * controlled; {@link buildWorkbenchSidecarInsert} normalizes blanks to `null` at

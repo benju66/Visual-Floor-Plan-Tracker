@@ -33,6 +33,26 @@ export interface WorkbenchState {
   showArchivedDrawings: boolean;
   setShowArchivedDrawings: (val: Updater<boolean>) => void;
 
+  /**
+   * Which drawing card's overflow ("⋯") action menu is open (Phase 8c) — `null` =
+   * none. At most one is open at a time. Transient (not persisted). The menu holds
+   * the secondary/destructive actions (currently "Delete permanently"), kept one
+   * click deeper than the prominent Archive control.
+   */
+  openCardMenuId: string | null;
+  setOpenCardMenuId: (val: Updater<string | null>) => void;
+
+  /**
+   * The drawing (`sheets` id) awaiting an IRREVERSIBLE hard-delete confirmation
+   * (Phase 8c) — `null` = no purge pending. Setting it opens the type-to-confirm
+   * modal; the actual purge only fires after the user types the drawing's exact
+   * name there. Transient (not persisted) — a reload abandons any pending purge.
+   * This is the ONLY entry point to the purge flow, so there is no path that skips
+   * the typed confirmation.
+   */
+  purgeTargetId: string | null;
+  setPurgeTargetId: (val: Updater<string | null>) => void;
+
   /** The just-traced polygon awaiting a name + type (null = nothing pending). */
   pendingLabelPoints: PercentPoint[] | null;
   setPendingLabelPoints: (val: Updater<PercentPoint[] | null>) => void;
@@ -72,6 +92,18 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
     set((state) => ({
       showArchivedDrawings:
         typeof val === 'function' ? val(state.showArchivedDrawings) : val,
+    })),
+
+  openCardMenuId: null,
+  setOpenCardMenuId: (val) =>
+    set((state) => ({
+      openCardMenuId: typeof val === 'function' ? val(state.openCardMenuId) : val,
+    })),
+
+  purgeTargetId: null,
+  setPurgeTargetId: (val) =>
+    set((state) => ({
+      purgeTargetId: typeof val === 'function' ? val(state.purgeTargetId) : val,
     })),
 
   pendingLabelPoints: null,

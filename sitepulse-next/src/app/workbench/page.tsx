@@ -12,6 +12,8 @@ import {
   PenLine,
   Archive,
   ArchiveRestore,
+  Trash2,
+  MoreVertical,
   Eye,
   EyeOff,
 } from 'lucide-react';
@@ -24,9 +26,12 @@ import {
 import {
   useArchiveWorkbenchDrawing,
   useRestoreWorkbenchDrawing,
+  useHardDeleteWorkbenchDrawing,
 } from '@/hooks/useWorkbenchActions';
+import { useCurrentUserRole } from '@/hooks/useProjectQueries';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import NewDrawingModal from '@/components/workbench/NewDrawingModal';
+import ConfirmPurgeModal from '@/components/workbench/ConfirmPurgeModal';
 import WorkbenchHealthStrip from '@/components/workbench/WorkbenchHealthStrip';
 import { withVersion } from '@/utils/pdfSource';
 import { REVIEW_STATE_BADGE, REVIEW_STATE_LABELS, narrowReviewState } from '@/utils/workbench';
@@ -59,6 +64,16 @@ export default function WorkbenchPage() {
   const setIsHealthStripCollapsed = useWorkbenchStore((s) => s.setIsHealthStripCollapsed);
   const showArchived = useWorkbenchStore((s) => s.showArchivedDrawings);
   const setShowArchived = useWorkbenchStore((s) => s.setShowArchivedDrawings);
+  const purgeTargetId = useWorkbenchStore((s) => s.purgeTargetId);
+  const setPurgeTargetId = useWorkbenchStore((s) => s.setPurgeTargetId);
+
+  // Defence-in-depth for the IRREVERSIBLE hard-delete (Phase 8c): the destructive
+  // control only renders for a privileged member of the container. RLS already
+  // rejects an unprivileged write, but this keeps a 500-ing button off non-owners'
+  // screens entirely. The container made its first visitor `admin` (the workbench
+  // bootstrap); later visitors have no membership → role `null` → no purge control.
+  const { data: containerRole } = useCurrentUserRole(container?.id ?? '');
+  const canPurge = !!containerRole && ['owner', 'admin', 'pm'].includes(containerRole);
 
   // Soft-delete (Phase 8b): the grid shows archived drawings only when "Show
   // archived" is on; the hook excludes them by default.
@@ -85,11 +100,34 @@ export default function WorkbenchPage() {
 
   const archiveDrawing = useArchiveWorkbenchDrawing(container?.id);
   const restoreDrawing = useRestoreWorkbenchDrawing(container?.id);
+  const hardDeleteDrawing = useHardDeleteWorkbenchDrawing(container?.id);
   const handleArchive = (sheetId: string) =>
     archiveDrawing.mutate({ sheetId, archivedBy: userId ?? null });
   const handleRestore = (sheetId: string) => restoreDrawing.mutate(sheetId);
+  const handleRequestPurge = (sheetId: string) => setPurgeTargetId(sheetId);
   const archivingId = archiveDrawing.isPending ? archiveDrawing.variables?.sheetId : undefined;
   const restoringId = restoreDrawing.isPending ? restoreDrawing.variables : undefined;
+
+  // The drawing awaiting purge confirmation, resolved from the rendered list (the
+  // purge control only appears on rendered cards, so the target is always present
+  // until the purge succeeds and drops it from the list). Its label count drives
+  // the "N labels will be lost" line in the confirm dialog (Phase 8a aggregate).
+  const purgeTarget = purgeTargetId
+    ? (drawings ?? []).find((d) => d.id === purgeTargetId) ?? null
+    : null;
+  const purgeLabelCount = purgeTargetId ? corpusUnits?.[purgeTargetId]?.length ?? 0 : 0;
+
+  const closePurge = () => {
+    if (hardDeleteDrawing.isPending) return;
+    setPurgeTargetId(null);
+    hardDeleteDrawing.reset();
+  };
+  const handleConfirmPurge = () => {
+    if (!purgeTargetId) return;
+    hardDeleteDrawing.mutate(purgeTargetId, {
+      onSuccess: () => setPurgeTargetId(null),
+    });
+  };
 
   const loading = containerLoading || (!!container && drawingsLoading);
 
@@ -163,8 +201,11 @@ export default function WorkbenchPage() {
               drawings={drawings}
               onArchive={handleArchive}
               onRestore={handleRestore}
+              onRequestPurge={handleRequestPurge}
+              canPurge={canPurge}
               archivingId={archivingId}
               restoringId={restoringId}
+              purgingId={hardDeleteDrawing.isPending ? hardDeleteDrawing.variables : undefined}
             />
           </>
         ) : (
@@ -176,6 +217,23 @@ export default function WorkbenchPage() {
         <NewDrawingModal
           containerId={container.id}
           onClose={() => setIsNewDrawingOpen(false)}
+        />
+      )}
+
+      {purgeTarget && (
+        <ConfirmPurgeModal
+          drawing={purgeTarget}
+          labelCount={purgeLabelCount}
+          isPurging={hardDeleteDrawing.isPending}
+          error={
+            hardDeleteDrawing.isError
+              ? hardDeleteDrawing.error instanceof Error
+                ? hardDeleteDrawing.error.message
+                : 'Failed to delete the drawing. Please try again.'
+              : null
+          }
+          onConfirm={handleConfirmPurge}
+          onClose={closePurge}
         />
       )}
     </div>
@@ -230,13 +288,28 @@ interface DrawingGridProps {
   drawings: WorkbenchDrawing[];
   onArchive: (sheetId: string) => void;
   onRestore: (sheetId: string) => void;
+  /** Open the type-to-confirm purge dialog for a drawing (Phase 8c). */
+  onRequestPurge: (sheetId: string) => void;
+  /** Whether the current user may permanently purge (privileged member only). */
+  canPurge: boolean;
   /** The drawing id currently being archived (per-card spinner), if any. */
   archivingId?: string;
   /** The drawing id currently being restored (per-card spinner), if any. */
   restoringId?: string;
+  /** The drawing id currently being purged (per-card disable), if any. */
+  purgingId?: string;
 }
 
-function DrawingGrid({ drawings, onArchive, onRestore, archivingId, restoringId }: DrawingGridProps) {
+function DrawingGrid({
+  drawings,
+  onArchive,
+  onRestore,
+  onRequestPurge,
+  canPurge,
+  archivingId,
+  restoringId,
+  purgingId,
+}: DrawingGridProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {drawings.map((drawing) => (
@@ -245,7 +318,10 @@ function DrawingGrid({ drawings, onArchive, onRestore, archivingId, restoringId 
           drawing={drawing}
           onArchive={onArchive}
           onRestore={onRestore}
+          onRequestPurge={onRequestPurge}
+          canPurge={canPurge}
           pending={drawing.id === archivingId || drawing.id === restoringId}
+          purging={drawing.id === purgingId}
         />
       ))}
     </div>
@@ -256,11 +332,16 @@ interface DrawingCardProps {
   drawing: WorkbenchDrawing;
   onArchive: (sheetId: string) => void;
   onRestore: (sheetId: string) => void;
+  onRequestPurge: (sheetId: string) => void;
+  /** Whether the destructive purge control should render at all (privileged only). */
+  canPurge: boolean;
   /** Whether THIS card's archive/restore write is in flight. */
   pending: boolean;
+  /** Whether THIS card's purge write is in flight. */
+  purging: boolean;
 }
 
-function DrawingCard({ drawing, onArchive, onRestore, pending }: DrawingCardProps) {
+function DrawingCard({ drawing, onArchive, onRestore, onRequestPurge, canPurge, pending, purging }: DrawingCardProps) {
   const meta = drawing.workbench;
   const reviewState = narrowReviewState(meta?.review_state);
   const isArchived = !!meta?.deleted_at;
@@ -268,7 +349,12 @@ function DrawingCard({ drawing, onArchive, onRestore, pending }: DrawingCardProp
     ? withVersion(drawing.base_image_url, drawing.pdf_version)
     : null;
 
-  // The action button is a SIBLING of the <Link>, never nested inside it — an
+  // The overflow ("⋯") action-menu open state lives in the store (floating UI —
+  // AGENTS.md §2); at most one card's menu is open at a time.
+  const menuOpen = useWorkbenchStore((s) => s.openCardMenuId === drawing.id);
+  const setOpenCardMenuId = useWorkbenchStore((s) => s.setOpenCardMenuId);
+
+  // Every action control is a SIBLING of the <Link>, never nested inside it — an
   // interactive control inside an <a> is invalid HTML and would fight the
   // navigation. preventDefault/stopPropagation are belt-and-braces (Phase 8b).
   const handleAction = (e: React.MouseEvent) => {
@@ -279,9 +365,27 @@ function DrawingCard({ drawing, onArchive, onRestore, pending }: DrawingCardProp
     else onArchive(drawing.id);
   };
 
+  const handleToggleMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpenCardMenuId((cur) => (cur === drawing.id ? null : drawing.id));
+  };
+
+  // Purge NEVER deletes on click — the menu item only opens the mandatory
+  // type-to-confirm dialog (Phase 8c). It sits one click deeper than the prominent
+  // Archive control, so the easy, reversible action stays the obvious one and the
+  // irreversible one can't be hit by reflex.
+  const handlePurgeRequest = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (purging) return;
+    setOpenCardMenuId(null);
+    onRequestPurge(drawing.id);
+  };
+
   return (
     <div
-      className={`group relative bg-white dark:bg-slate-900/50 border rounded-2xl shadow-sm overflow-hidden transition-all ${
+      className={`group relative bg-white dark:bg-slate-900/50 border rounded-2xl shadow-sm transition-all ${
         isArchived
           ? 'border-slate-200 dark:border-white/10'
           : 'border-slate-200 dark:border-white/10 hover:border-violet-400 dark:hover:border-violet-500/50 hover:shadow-md'
@@ -291,7 +395,7 @@ function DrawingCard({ drawing, onArchive, onRestore, pending }: DrawingCardProp
         href={`/workbench/${drawing.id}`}
         className={`block ${isArchived ? 'opacity-60 hover:opacity-90 transition-opacity' : ''}`}
       >
-        <div className="relative aspect-[4/3] bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+        <div className="relative aspect-[4/3] rounded-t-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element -- public storage URL, not a Next asset
             <img
@@ -333,29 +437,89 @@ function DrawingCard({ drawing, onArchive, onRestore, pending }: DrawingCardProp
         </div>
       </Link>
 
-      {/* Archive (active) / Restore (archived) — outside the Link. Archive only
-          appears on hover/focus to keep the card clean; Restore is always shown so
-          an archived drawing is one click from coming back. */}
-      <button
-        type="button"
-        onClick={handleAction}
-        disabled={pending}
-        aria-label={isArchived ? `Restore ${drawing.sheet_name || 'drawing'}` : `Archive ${drawing.sheet_name || 'drawing'}`}
-        className={`absolute top-2.5 left-2.5 z-10 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold border shadow-sm backdrop-blur transition disabled:opacity-60 disabled:cursor-wait focus-visible:opacity-100 ${
-          isArchived
-            ? 'bg-white/90 dark:bg-slate-800/90 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'
-            : 'opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:hover:bg-rose-500/10 dark:hover:text-rose-300'
+      {/* Action cluster — siblings of the <Link>, never nested in the <a>.
+          Archive/Restore is the prominent, reversible default; the "⋯" overflow
+          menu (privileged members only) holds the secondary, irreversible purge one
+          click deeper. For an active drawing the cluster reveals on hover/focus; for
+          an archived one — or whenever its menu is open — it stays visible. */}
+      <div
+        className={`absolute top-2.5 left-2.5 z-30 flex items-center gap-1.5 transition ${
+          isArchived || menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
         }`}
       >
-        {pending ? (
-          <Loader2 size={13} className="animate-spin" />
-        ) : isArchived ? (
-          <ArchiveRestore size={13} />
-        ) : (
-          <Archive size={13} />
+        <button
+          type="button"
+          onClick={handleAction}
+          disabled={pending}
+          aria-label={isArchived ? `Restore ${drawing.sheet_name || 'drawing'}` : `Archive ${drawing.sheet_name || 'drawing'}`}
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold border shadow-sm backdrop-blur transition disabled:opacity-60 disabled:cursor-wait ${
+            isArchived
+              ? 'bg-white/90 dark:bg-slate-800/90 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'
+              : 'bg-white/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700'
+          }`}
+        >
+          {pending ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : isArchived ? (
+            <ArchiveRestore size={13} />
+          ) : (
+            <Archive size={13} />
+          )}
+          {isArchived ? 'Restore' : 'Archive'}
+        </button>
+
+        {canPurge && (
+          <button
+            type="button"
+            onClick={handleToggleMenu}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label={`More actions for ${drawing.sheet_name || 'drawing'}`}
+            title="More actions"
+            className={`inline-flex items-center justify-center rounded-full p-1.5 border shadow-sm backdrop-blur transition ${
+              menuOpen
+                ? 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600'
+                : 'bg-white/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700'
+            }`}
+          >
+            <MoreVertical size={14} />
+          </button>
         )}
-        {isArchived ? 'Restore' : 'Archive'}
-      </button>
+      </div>
+
+      {/* Overflow menu — rendered as siblings of the <Link> in the card (the card
+          no longer clips its children, so the panel isn't cut off). The fixed
+          backdrop closes the menu on any outside click without a useEffect. */}
+      {canPurge && menuOpen && (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setOpenCardMenuId(null);
+            }}
+            className="fixed inset-0 z-20 cursor-default"
+          />
+          <div
+            role="menu"
+            className="absolute left-2.5 top-12 z-40 min-w-[12rem] rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 shadow-xl py-1"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handlePurgeRequest}
+              disabled={purging}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors disabled:opacity-60 disabled:cursor-wait"
+            >
+              {purging ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+              Delete permanently
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
