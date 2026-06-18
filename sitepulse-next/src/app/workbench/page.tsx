@@ -16,6 +16,8 @@ import {
   MoreVertical,
   Eye,
   EyeOff,
+  ListFilter,
+  X,
 } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
 import {
@@ -36,6 +38,20 @@ import WorkbenchHealthStrip from '@/components/workbench/WorkbenchHealthStrip';
 import { withVersion } from '@/utils/pdfSource';
 import { REVIEW_STATE_BADGE, REVIEW_STATE_LABELS, narrowReviewState } from '@/utils/workbench';
 import { summarizeCorpus } from '@/utils/workbenchStats';
+import {
+  groupDrawings,
+  filterDrawings,
+  facetValues,
+  toggleFilterValue,
+  hasActiveFilters,
+  EMPTY_FILTERS,
+  GROUP_KEYS,
+  GROUP_BY_LABELS,
+  type GroupKey,
+  type WorkbenchGroupBy,
+  type WorkbenchFilters,
+  type FacetValue,
+} from '@/utils/workbenchGrouping';
 import type { WorkbenchDrawing } from '@/types/domain';
 
 // Location Labeling Workbench — Phase 4 shell.
@@ -66,6 +82,11 @@ export default function WorkbenchPage() {
   const setShowArchived = useWorkbenchStore((s) => s.setShowArchivedDrawings);
   const purgeTargetId = useWorkbenchStore((s) => s.purgeTargetId);
   const setPurgeTargetId = useWorkbenchStore((s) => s.setPurgeTargetId);
+  // Phase 8d grouping/filtering — transient floating UI (AGENTS.md §2).
+  const groupBy = useWorkbenchStore((s) => s.groupBy);
+  const setGroupBy = useWorkbenchStore((s) => s.setGroupBy);
+  const drawingFilters = useWorkbenchStore((s) => s.drawingFilters);
+  const setDrawingFilters = useWorkbenchStore((s) => s.setDrawingFilters);
 
   // Defence-in-depth for the IRREVERSIBLE hard-delete (Phase 8c): the destructive
   // control only renders for a privileged member of the container. RLS already
@@ -127,6 +148,41 @@ export default function WorkbenchPage() {
     hardDeleteDrawing.mutate(purgeTargetId, {
       onSuccess: () => setPurgeTargetId(null),
     });
+  };
+
+  // Phase 8d — client-side grouping/filtering over the ALREADY-LOADED drawings.
+  // No new fetch: these are pure transforms of the `useWorkbenchSheets` result
+  // (which already honours the "Show archived" toggle). The health strip above is
+  // unaffected — it stays fed by `activeDrawings`, not by this filtered view.
+  const gridSource = React.useMemo(() => drawings ?? [], [drawings]);
+  // Filter-chip options come from the FULL grid source (pre-filter) so toggling
+  // one facet never makes another facet's chips vanish.
+  const facets = React.useMemo(
+    () => GROUP_KEYS.map((key) => ({ key, values: facetValues(gridSource, key) })),
+    [gridSource],
+  );
+  const filteredDrawings = React.useMemo(
+    () => filterDrawings(gridSource, drawingFilters),
+    [gridSource, drawingFilters],
+  );
+  const groups = React.useMemo(
+    () => (groupBy === 'none' ? null : groupDrawings(filteredDrawings, groupBy)),
+    [filteredDrawings, groupBy],
+  );
+  const filtersActive = hasActiveFilters(drawingFilters);
+  const handleToggleFilter = (key: GroupKey, value: string) =>
+    setDrawingFilters((f) => toggleFilterValue(f, key, value));
+  const handleClearFilters = () => setDrawingFilters(EMPTY_FILTERS);
+
+  // Shared per-card action props, passed to every grid (flat OR each group section).
+  const gridProps = {
+    onArchive: handleArchive,
+    onRestore: handleRestore,
+    onRequestPurge: handleRequestPurge,
+    canPurge,
+    archivingId,
+    restoringId,
+    purgingId: hardDeleteDrawing.isPending ? hardDeleteDrawing.variables : undefined,
   };
 
   const loading = containerLoading || (!!container && drawingsLoading);
@@ -197,16 +253,38 @@ export default function WorkbenchPage() {
                 onToggle={() => setIsHealthStripCollapsed((v) => !v)}
               />
             )}
-            <DrawingGrid
-              drawings={drawings}
-              onArchive={handleArchive}
-              onRestore={handleRestore}
-              onRequestPurge={handleRequestPurge}
-              canPurge={canPurge}
-              archivingId={archivingId}
-              restoringId={restoringId}
-              purgingId={hardDeleteDrawing.isPending ? hardDeleteDrawing.variables : undefined}
+            <LibraryControls
+              groupBy={groupBy}
+              onGroupByChange={setGroupBy}
+              facets={facets}
+              filters={drawingFilters}
+              onToggleFilter={handleToggleFilter}
+              onClearFilters={handleClearFilters}
+              hasFilters={filtersActive}
+              filteredCount={filteredDrawings.length}
+              totalCount={gridSource.length}
             />
+            {filteredDrawings.length === 0 ? (
+              <NoMatchesState onClear={handleClearFilters} />
+            ) : groups ? (
+              <div className="space-y-8">
+                {groups.map((group) => (
+                  <section key={group.key} aria-label={group.label}>
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                        {group.label}
+                      </h3>
+                      <span className="inline-flex items-center justify-center min-w-[1.5rem] h-6 px-2 rounded-full text-xs font-bold tabular-nums bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10">
+                        {group.drawings.length}
+                      </span>
+                    </div>
+                    <DrawingGrid drawings={group.drawings} {...gridProps} />
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <DrawingGrid drawings={filteredDrawings} {...gridProps} />
+            )}
           </>
         ) : (
           <EmptyState onNewDrawing={() => setIsNewDrawingOpen(true)} />
@@ -279,6 +357,143 @@ function EmptyState({ onNewDrawing }: { onNewDrawing: () => void }) {
       >
         <FilePlus size={18} />
         New drawing
+      </button>
+    </div>
+  );
+}
+
+interface LibraryControlsProps {
+  groupBy: WorkbenchGroupBy;
+  onGroupByChange: (val: WorkbenchGroupBy) => void;
+  /** Available filter values per facet, derived from the full grid source. */
+  facets: { key: GroupKey; values: FacetValue[] }[];
+  filters: WorkbenchFilters;
+  onToggleFilter: (key: GroupKey, value: string) => void;
+  onClearFilters: () => void;
+  hasFilters: boolean;
+  filteredCount: number;
+  totalCount: number;
+}
+
+// Phase 8d controls bar — a group-by selector plus a compact filter-chip row, all
+// pure client-side display over the already-loaded drawings (no fetch). Kept inline
+// here alongside DrawingGrid/DrawingCard, consistent with this page's structure.
+function LibraryControls({
+  groupBy,
+  onGroupByChange,
+  facets,
+  filters,
+  onToggleFilter,
+  onClearFilters,
+  hasFilters,
+  filteredCount,
+  totalCount,
+}: LibraryControlsProps) {
+  // Only offer to filter on a facet that actually splits the corpus (≥2 distinct
+  // values) — filtering on a facet everything shares does nothing useful.
+  const filterableFacets = facets.filter((f) => f.values.length >= 2);
+
+  return (
+    <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/50 p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <label
+          htmlFor="workbench-group-by"
+          className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+        >
+          Group by
+        </label>
+        <select
+          id="workbench-group-by"
+          value={groupBy}
+          onChange={(e) => onGroupByChange(e.target.value as WorkbenchGroupBy)}
+          className="rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-400"
+        >
+          <option value="none">None</option>
+          {GROUP_KEYS.map((key) => (
+            <option key={key} value={key}>
+              {GROUP_BY_LABELS[key]}
+            </option>
+          ))}
+        </select>
+
+        {hasFilters && (
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums">
+              Showing {filteredCount} of {totalCount}
+            </span>
+            <button
+              type="button"
+              onClick={onClearFilters}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-white/10 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            >
+              <X size={13} />
+              Clear filters
+            </button>
+          </div>
+        )}
+      </div>
+
+      {filterableFacets.length > 0 && (
+        <div className="flex flex-col gap-2.5 border-t border-slate-100 dark:border-white/5 pt-4">
+          {filterableFacets.map((facet) => (
+            <div
+              key={facet.key}
+              className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3"
+            >
+              <span className="inline-flex items-center gap-1.5 shrink-0 sm:w-32 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <ListFilter size={13} className="text-slate-400" />
+                {GROUP_BY_LABELS[facet.key]}
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {facet.values.map((value) => {
+                  const active = filters[facet.key].includes(value.key);
+                  return (
+                    <button
+                      key={value.key}
+                      type="button"
+                      onClick={() => onToggleFilter(facet.key, value.key)}
+                      aria-pressed={active}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                        active
+                          ? 'bg-violet-600 border-violet-600 text-white'
+                          : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10'
+                      }`}
+                    >
+                      {value.label}
+                      <span className={`tabular-nums font-bold ${active ? 'text-violet-100' : 'opacity-70'}`}>
+                        {value.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NoMatchesState({ onClear }: { onClear: () => void }) {
+  return (
+    <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-10 flex flex-col items-center justify-center text-center min-h-[200px]">
+      <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full mb-3 text-slate-400">
+        <ListFilter size={24} />
+      </div>
+      <h3 className="text-base font-bold text-slate-700 dark:text-slate-300 mb-1">
+        No drawings match these filters
+      </h3>
+      <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mb-4">
+        Try removing a filter to see more of the library.
+      </p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+      >
+        <X size={15} />
+        Clear filters
       </button>
     </div>
   );

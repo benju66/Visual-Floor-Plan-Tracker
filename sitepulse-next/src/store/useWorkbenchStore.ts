@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import type { Updater } from '@/types/utils';
 import type { PercentPoint } from '@/types/domain';
+import {
+  EMPTY_FILTERS,
+  type WorkbenchGroupBy,
+  type WorkbenchFilters,
+} from '@/utils/workbenchGrouping';
 
 // Floating UI state for the Location Labeling Workbench (AGENTS.md §2: modals and
 // transient UI live in Zustand, not useState). Not persisted — none of this should
@@ -53,6 +58,20 @@ export interface WorkbenchState {
   purgeTargetId: string | null;
   setPurgeTargetId: (val: Updater<string | null>) => void;
 
+  /**
+   * Client-side grouping/filtering of the library grid (Phase 8d) — pure display
+   * over the already-loaded drawings; never triggers a fetch. Transient (not
+   * persisted): a reload returns to the default flat, unfiltered view, consistent
+   * with every other workbench floating flag. The corpus-health strip is NOT
+   * affected by these — it stays fed by the active corpus.
+   */
+  groupBy: WorkbenchGroupBy;
+  setGroupBy: (val: Updater<WorkbenchGroupBy>) => void;
+
+  /** The active per-facet grid filters (Phase 8d). Empty lists = unfiltered. */
+  drawingFilters: WorkbenchFilters;
+  setDrawingFilters: (val: Updater<WorkbenchFilters>) => void;
+
   /** The just-traced polygon awaiting a name + type (null = nothing pending). */
   pendingLabelPoints: PercentPoint[] | null;
   setPendingLabelPoints: (val: Updater<PercentPoint[] | null>) => void;
@@ -104,6 +123,18 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
   setPurgeTargetId: (val) =>
     set((state) => ({
       purgeTargetId: typeof val === 'function' ? val(state.purgeTargetId) : val,
+    })),
+
+  groupBy: 'none',
+  setGroupBy: (val) =>
+    set((state) => ({
+      groupBy: typeof val === 'function' ? val(state.groupBy) : val,
+    })),
+
+  drawingFilters: EMPTY_FILTERS,
+  setDrawingFilters: (val) =>
+    set((state) => ({
+      drawingFilters: typeof val === 'function' ? val(state.drawingFilters) : val,
     })),
 
   pendingLabelPoints: null,
