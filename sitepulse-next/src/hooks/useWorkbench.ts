@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 import { queryKeys } from '@/types/queryKeys';
 import { mergeWorkbenchSidecar } from '@/utils/workbench';
+import type { CorpusLabel } from '@/utils/workbenchStats';
 import type { Project, Sheet, WorkbenchSheet, WorkbenchDrawing } from '@/types/domain';
 
 // Dedicated, filter-applying read hooks for the Location Labeling Workbench.
@@ -76,6 +77,52 @@ export function useWorkbenchSheets(containerId: string | undefined) {
         };
         return mergeWorkbenchSidecar(sheet as Sheet, workbench_sheets);
       });
+    },
+    enabled: !!containerId,
+  });
+}
+
+/**
+ * The container's labels aggregated for the corpus-health strip (Phase 8a),
+ * returned grouped by `sheet_id` so {@link summarizeCorpus} can run the per-drawing
+ * Definition-of-Done check.
+ *
+ * Container-scoped by design (the contamination guard): it resolves the
+ * container's OWN sheet ids first, then reads only `units` whose `sheet_id` is in
+ * that set — never an all-project/units rollup query. Only the three columns the
+ * stats math needs are selected. Read-only; no JSONB, no live-surface reach.
+ */
+export function useWorkbenchCorpusUnits(containerId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.workbenchCorpusUnits(containerId ?? ''),
+    queryFn: async (): Promise<Record<string, CorpusLabel[]>> => {
+      if (!containerId) return {};
+
+      const { data: sheetRows, error: sheetErr } = await supabase
+        .from('sheets')
+        .select('id')
+        .eq('project_id', containerId);
+      if (sheetErr) throw sheetErr;
+
+      const sheetIds = (sheetRows ?? []).map((r) => r.id);
+      if (sheetIds.length === 0) return {};
+
+      const { data, error } = await supabase
+        .from('units')
+        .select('sheet_id, unit_number, top_level_role, subtype_id')
+        .in('sheet_id', sheetIds);
+      if (error) throw error;
+
+      const bySheet: Record<string, CorpusLabel[]> = {};
+      for (const row of data ?? []) {
+        if (!row.sheet_id) continue;
+        (bySheet[row.sheet_id] ??= []).push({
+          unit_number: row.unit_number,
+          top_level_role: row.top_level_role,
+          subtype_id: row.subtype_id,
+        });
+      }
+      return bySheet;
     },
     enabled: !!containerId,
   });

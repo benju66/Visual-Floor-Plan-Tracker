@@ -4,10 +4,17 @@ import React from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Library, Loader2, FileWarning, Layers, FilePlus, PenLine } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
-import { useWorkbenchContainer, useWorkbenchSheets } from '@/hooks/useWorkbench';
+import {
+  useWorkbenchContainer,
+  useWorkbenchSheets,
+  useWorkbenchCorpusUnits,
+} from '@/hooks/useWorkbench';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import NewDrawingModal from '@/components/workbench/NewDrawingModal';
+import WorkbenchHealthStrip from '@/components/workbench/WorkbenchHealthStrip';
 import { withVersion } from '@/utils/pdfSource';
+import { REVIEW_STATE_BADGE, REVIEW_STATE_LABELS, narrowReviewState } from '@/utils/workbench';
+import { summarizeCorpus } from '@/utils/workbenchStats';
 import type { WorkbenchDrawing } from '@/types/domain';
 
 // Location Labeling Workbench — Phase 4 shell.
@@ -32,8 +39,19 @@ export default function WorkbenchPage() {
 
   const { data: drawings, isLoading: drawingsLoading } = useWorkbenchSheets(container?.id);
 
+  // Container-scoped label aggregate for the corpus-health strip (Phase 8a) —
+  // the contamination guard keeps this scoped to the workbench container's own
+  // sheets; it never touches the live dashboard or `progressAnalytics`.
+  const { data: corpusUnits } = useWorkbenchCorpusUnits(container?.id);
+  const summary = React.useMemo(
+    () => summarizeCorpus(drawings ?? [], corpusUnits ?? {}),
+    [drawings, corpusUnits],
+  );
+
   const isNewDrawingOpen = useWorkbenchStore((s) => s.isNewDrawingOpen);
   const setIsNewDrawingOpen = useWorkbenchStore((s) => s.setIsNewDrawingOpen);
+  const isHealthStripCollapsed = useWorkbenchStore((s) => s.isHealthStripCollapsed);
+  const setIsHealthStripCollapsed = useWorkbenchStore((s) => s.setIsHealthStripCollapsed);
 
   const loading = containerLoading || (!!container && drawingsLoading);
 
@@ -78,7 +96,14 @@ export default function WorkbenchPage() {
         ) : loading ? (
           <LoadingState />
         ) : drawings && drawings.length > 0 ? (
-          <DrawingGrid drawings={drawings} />
+          <>
+            <WorkbenchHealthStrip
+              summary={summary}
+              collapsed={isHealthStripCollapsed}
+              onToggle={() => setIsHealthStripCollapsed((v) => !v)}
+            />
+            <DrawingGrid drawings={drawings} />
+          </>
         ) : (
           <EmptyState onNewDrawing={() => setIsNewDrawingOpen(true)} />
         )}
@@ -150,6 +175,7 @@ function DrawingGrid({ drawings }: { drawings: WorkbenchDrawing[] }) {
 
 function DrawingCard({ drawing }: { drawing: WorkbenchDrawing }) {
   const meta = drawing.workbench;
+  const reviewState = narrowReviewState(meta?.review_state);
   const preview = drawing.base_image_url
     ? withVersion(drawing.base_image_url, drawing.pdf_version)
     : null;
@@ -158,7 +184,7 @@ function DrawingCard({ drawing }: { drawing: WorkbenchDrawing }) {
       href={`/workbench/${drawing.id}`}
       className="group block bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden hover:border-violet-400 dark:hover:border-violet-500/50 hover:shadow-md transition-all"
     >
-      <div className="aspect-[4/3] bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+      <div className="relative aspect-[4/3] bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element -- public storage URL, not a Next asset
           <img
@@ -169,6 +195,13 @@ function DrawingCard({ drawing }: { drawing: WorkbenchDrawing }) {
         ) : (
           <Layers size={32} className="text-slate-400" />
         )}
+        {/* Review-state badge — display-only (matches the tracer header badge), so
+            it stays inside the card link without nesting an interactive control. */}
+        <span
+          className={`absolute top-2.5 right-2.5 inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border shadow-sm ${REVIEW_STATE_BADGE[reviewState]}`}
+        >
+          {REVIEW_STATE_LABELS[reviewState]}
+        </span>
       </div>
       <div className="p-6">
         <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2 line-clamp-1">

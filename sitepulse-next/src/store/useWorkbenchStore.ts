@@ -21,6 +21,10 @@ export interface WorkbenchState {
   isNewDrawingOpen: boolean;
   setIsNewDrawingOpen: (val: Updater<boolean>) => void;
 
+  /** Whether the `/workbench` corpus-health strip is collapsed (Phase 8a). */
+  isHealthStripCollapsed: boolean;
+  setIsHealthStripCollapsed: (val: Updater<boolean>) => void;
+
   /** The just-traced polygon awaiting a name + type (null = nothing pending). */
   pendingLabelPoints: PercentPoint[] | null;
   setPendingLabelPoints: (val: Updater<PercentPoint[] | null>) => void;
@@ -46,6 +50,13 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
   setIsNewDrawingOpen: (val) =>
     set((state) => ({
       isNewDrawingOpen: typeof val === 'function' ? val(state.isNewDrawingOpen) : val,
+    })),
+
+  isHealthStripCollapsed: false,
+  setIsHealthStripCollapsed: (val) =>
+    set((state) => ({
+      isHealthStripCollapsed:
+        typeof val === 'function' ? val(state.isHealthStripCollapsed) : val,
     })),
 
   pendingLabelPoints: null,

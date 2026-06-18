@@ -18,4 +18,8 @@ export const queryKeys = {
   // every live-project surface (contamination guard — AGENTS.md §2).
   workbenchContainer: ()                         => ['workbench_container'] as const,
   workbenchSheets:    (containerId: string)      => ['workbench_sheets', containerId] as const,
+  // Phase 8a: the container's labels aggregated across its sheets, for the
+  // corpus-health strip. Container-scoped (joined to the container's sheets
+  // ONLY) — never an all-project units rollup (contamination guard).
+  workbenchCorpusUnits: (containerId: string)    => ['workbench_corpus_units', containerId] as const,
 } as const;
