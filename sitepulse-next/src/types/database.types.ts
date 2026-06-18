@@ -104,6 +104,8 @@ export interface Database {
           review_state: string
           reviewed_by: string | null
           reviewed_at: string | null
+          deleted_at: string | null
+          deleted_by: string | null
           created_at: string | null
         }
         Insert: {
@@ -116,6 +118,8 @@ export interface Database {
           review_state?: string
           reviewed_by?: string | null
           reviewed_at?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           created_at?: string | null
         }
         Update: {
@@ -128,6 +132,8 @@ export interface Database {
           review_state?: string
           reviewed_by?: string | null
           reviewed_at?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           created_at?: string | null
         }
         Relationships: [

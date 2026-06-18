@@ -17,6 +17,10 @@ export const queryKeys = {
   // container and its drawings. Distinct keys keep workbench reads isolated from
   // every live-project surface (contamination guard — AGENTS.md §2).
   workbenchContainer: ()                         => ['workbench_container'] as const,
+  // The 2-element form below is the INVALIDATION PREFIX. `useWorkbenchSheets`
+  // appends an `includeArchived` boolean (Phase 8b soft-delete) so the active and
+  // "Show archived" lists cache separately; invalidating this prefix partial-matches
+  // (and refreshes) both variants.
   workbenchSheets:    (containerId: string)      => ['workbench_sheets', containerId] as const,
   // Phase 8a: the container's labels aggregated across its sheets, for the
   // corpus-health strip. Container-scoped (joined to the container's sheets

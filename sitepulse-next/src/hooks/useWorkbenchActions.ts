@@ -364,6 +364,92 @@ export function useUpdateWorkbenchReviewState(containerId: string | undefined) {
   });
 }
 
+/** Identify the workbench drawing to archive, plus who archived it (provenance). */
+export interface ArchiveWorkbenchDrawingInput {
+  /** The drawing's `sheets` id (= `workbench_sheets.sheet_id`). */
+  sheetId: string;
+  /**
+   * The archiving user's id — stamped onto `deleted_by` (cheap provenance,
+   * mirrors `reviewed_by`). `null` when the id is unavailable; the archive still
+   * succeeds (the marker is `deleted_at`, not the actor).
+   */
+  archivedBy: string | null;
+}
+
+/**
+ * Archive (soft-delete) a workbench drawing — Phase 8b. Stamps
+ * `deleted_at = now()` + `deleted_by` on the `workbench_sheets` sidecar, which
+ * removes the drawing from the default library grid AND the corpus-health counts
+ * (both read the active list) while leaving its labels / storage fully intact, so
+ * {@link useRestoreWorkbenchDrawing} can bring it straight back. This is the easy,
+ * low-risk, REVERSIBLE action — permanent purge is the separate, gated Phase 8c.
+ *
+ * Online-first TanStack mutation. Carries the same `kind='workbench'` write-site
+ * guard as every other workbench write (the container is resolved by an
+ * IDB-persisted query, so a poisoned cache could in theory point it at a live
+ * project — the cheap re-check closes that hole). Invalidates `workbenchSheets`
+ * (the 2-element prefix → both the active and show-archived variants) AND
+ * `workbenchCorpusUnits`, so the grid and the health strip both refresh.
+ */
+export function useArchiveWorkbenchDrawing(containerId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: ArchiveWorkbenchDrawingInput): Promise<void> => {
+      if (!containerId) {
+        throw new Error('The Drawing Library is still loading — try again in a moment.');
+      }
+      await assertWorkbenchContainer(containerId);
+
+      const { error } = await supabase
+        .from('workbench_sheets')
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: input.archivedBy,
+        })
+        .eq('sheet_id', input.sheetId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      if (containerId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.workbenchSheets(containerId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.workbenchCorpusUnits(containerId) });
+      }
+    },
+  });
+}
+
+/**
+ * Restore an archived workbench drawing — Phase 8b. Clears `deleted_at` +
+ * `deleted_by` on the sidecar, bringing the drawing (and its untouched labels)
+ * straight back into the active library + corpus-health counts. The exact inverse
+ * of {@link useArchiveWorkbenchDrawing}: same container guard, same invalidations.
+ */
+export function useRestoreWorkbenchDrawing(containerId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sheetId: string): Promise<void> => {
+      if (!containerId) {
+        throw new Error('The Drawing Library is still loading — try again in a moment.');
+      }
+      await assertWorkbenchContainer(containerId);
+
+      const { error } = await supabase
+        .from('workbench_sheets')
+        .update({ deleted_at: null, deleted_by: null })
+        .eq('sheet_id', sheetId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      if (containerId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.workbenchSheets(containerId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.workbenchCorpusUnits(containerId) });
+      }
+    },
+  });
+}
+
 /** Fields an existing workbench label can be edited to (any subset; omitted = unchanged). */
 export interface UpdateWorkbenchLabelInput {
   /** The `units` row to edit. */

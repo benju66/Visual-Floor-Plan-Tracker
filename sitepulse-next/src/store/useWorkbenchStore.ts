@@ -25,6 +25,14 @@ export interface WorkbenchState {
   isHealthStripCollapsed: boolean;
   setIsHealthStripCollapsed: (val: Updater<boolean>) => void;
 
+  /**
+   * Whether the library grid also shows ARCHIVED (soft-deleted) drawings (Phase
+   * 8b). Transient (not persisted) — a reload returns to the default active-only
+   * view. The corpus-health strip stays fed by the ACTIVE list regardless of this.
+   */
+  showArchivedDrawings: boolean;
+  setShowArchivedDrawings: (val: Updater<boolean>) => void;
+
   /** The just-traced polygon awaiting a name + type (null = nothing pending). */
   pendingLabelPoints: PercentPoint[] | null;
   setPendingLabelPoints: (val: Updater<PercentPoint[] | null>) => void;
@@ -57,6 +65,13 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
     set((state) => ({
       isHealthStripCollapsed:
         typeof val === 'function' ? val(state.isHealthStripCollapsed) : val,
+    })),
+
+  showArchivedDrawings: false,
+  setShowArchivedDrawings: (val) =>
+    set((state) => ({
+      showArchivedDrawings:
+        typeof val === 'function' ? val(state.showArchivedDrawings) : val,
     })),
 
   pendingLabelPoints: null,

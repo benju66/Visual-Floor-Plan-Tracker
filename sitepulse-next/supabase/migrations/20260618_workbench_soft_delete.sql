@@ -1,0 +1,75 @@
+-- ============================================================
+-- Migration: Workbench soft-delete (Drawing Library Management — Phase 8b)
+-- Purpose: Let the owner ARCHIVE a workbench drawing (soft-delete, recoverable)
+--          and RESTORE it later, without losing the expensive hand-traced
+--          training labels. A traced drawing is costly to produce, so the easy
+--          action must be reversible — archive just marks the drawing; nothing
+--          is destroyed (hard-delete / permanent purge is a separate, gated
+--          Phase 8c). See:
+--            - Notes/plans/Drawing-Library-Management-Plan.md
+--              (Phase 8b, § Data model "New schema this plan adds — Phase 8b only")
+--            - Notes/handoff/2026-06-18 - Drawing Library Management Phase 8b Kickoff.md
+--
+--          This migration adds exactly two nullable columns to the per-drawing
+--          sidecar `workbench_sheets`:
+--            (1) deleted_at TIMESTAMPTZ — the soft-delete marker. NULL = active
+--                (in the library + corpus-health counts); non-NULL = archived
+--                (hidden by default, revealed under "Show archived", restorable).
+--            (2) deleted_by UUID — cheap provenance: who archived it. Mirrors the
+--                existing `reviewed_by` provenance column exactly (plain UUID, no
+--                cross-schema FK to auth.users — same as reviewed_by/reviewed_at).
+--
+-- ADDITIVE + NULLABLE ONLY. No backfill — every existing sidecar row keeps
+-- deleted_at = NULL and is therefore active, with no separate UPDATE. No CHECK is
+-- needed for a nullable timestamp / uuid. Nothing in status_logs /
+-- status_audit_log / the offline sync pipeline is touched, and the live app is
+-- unaffected (both columns are nullable, defaulted to NULL, and unread by any
+-- live-project surface).
+--
+-- RLS: UNCHANGED. Archive/restore are plain UPDATEs to `workbench_sheets`, already
+-- covered by the existing "Privileged members can update workbench_sheets" policy
+-- (owner/admin/pm, TO authenticated, never anon — see 20260617_workbench_schema.sql).
+-- No policy is added, widened, or granted to anon here.
+--
+-- IDEMPOTENT: safe to re-run. Both steps are guarded with ADD COLUMN IF NOT EXISTS.
+-- ============================================================
+
+-- ============================================================
+-- STEP 1: workbench_sheets.deleted_at — the soft-delete marker.
+-- Nullable TIMESTAMPTZ; NULL = active, non-NULL = archived. No default (a row is
+-- active until it is explicitly archived). The read hook excludes
+-- `deleted_at IS NOT NULL` by default; the archive write stamps now(), restore
+-- clears it back to NULL.
+-- ============================================================
+ALTER TABLE workbench_sheets
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- ============================================================
+-- STEP 2: workbench_sheets.deleted_by — provenance of the archive.
+-- Nullable UUID, mirroring `reviewed_by` (plain UUID, no FK to auth.users so the
+-- sidecar stays free of a cross-schema reference, exactly like reviewed_by).
+-- Stamped with the archiving user's id on archive; cleared on restore.
+-- ============================================================
+ALTER TABLE workbench_sheets
+  ADD COLUMN IF NOT EXISTS deleted_by UUID;
+
+-- ============================================================
+-- VERIFICATION (run after applying; read-only — NOT part of the migration):
+--
+--   -- both columns exist and are nullable:
+--   SELECT column_name, data_type, is_nullable
+--     FROM information_schema.columns
+--     WHERE table_name = 'workbench_sheets'
+--       AND column_name IN ('deleted_at','deleted_by')
+--     ORDER BY column_name;
+--   -- expect: deleted_at | timestamp with time zone | YES
+--   --         deleted_by | uuid                     | YES
+--
+--   -- no existing sidecar row was archived by the migration (all still active):
+--   SELECT count(*) AS archived FROM workbench_sheets WHERE deleted_at IS NOT NULL;
+--   -- expect: 0
+--
+--   -- RLS unchanged: still exactly the four Phase-3 policies, none touching anon:
+--   SELECT policyname, cmd, roles FROM pg_policies
+--     WHERE tablename = 'workbench_sheets' ORDER BY cmd;
+-- ============================================================

@@ -31,7 +31,12 @@ export default function WorkbenchTracerPage() {
     error: containerErr,
   } = useWorkbenchContainer(userId);
 
-  const { data: drawings, isLoading: drawingsLoading } = useWorkbenchSheets(container?.id);
+  // Include archived drawings here so an archived (recoverable) drawing still
+  // opens in the tracer — e.g. opened from the "Show archived" view to inspect or
+  // restore it. Still container-scoped (Phase 8b).
+  const { data: drawings, isLoading: drawingsLoading } = useWorkbenchSheets(container?.id, {
+    includeArchived: true,
+  });
 
   const drawing = drawings?.find((d) => d.id === sheetId);
   const loading = containerLoading || (!!container && drawingsLoading);

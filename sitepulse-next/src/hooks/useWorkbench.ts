@@ -56,12 +56,31 @@ export function useWorkbenchContainer(userId: string | undefined) {
 /**
  * The container's drawings — `sheets` rows under the container, each joined to
  * its 1:1 `workbench_sheets` sidecar metadata. ALWAYS scoped to the container by
- * `project_id`, so it cannot return live-project sheets. Empty until Phase 5
- * adds PDF ingest.
+ * `project_id`, so it cannot return live-project sheets.
+ *
+ * Soft-delete (Phase 8b): a drawing is ARCHIVED when its sidecar's `deleted_at`
+ * is set. By default this hook EXCLUDES archived drawings (the library + the
+ * corpus-health counts only ever see the active corpus). Pass
+ * `{ includeArchived: true }` for the "Show archived" path — same container
+ * scoping, just no archived filter (a single flag, not a forked hook). A drawing
+ * with no sidecar yet is always active (it has no `deleted_at`). The filter is
+ * applied in JS after the merge because `deleted_at` lives on the embedded
+ * sidecar, and a left-join embed can't cleanly express "sidecar is NULL OR
+ * sidecar.deleted_at IS NULL" in one PostgREST filter; the workbench corpus is
+ * small, so this is correct and cheap.
+ *
+ * The `includeArchived` flag is appended to the cache key (the base 2-element
+ * `workbenchSheets(containerId)` key stays the invalidation PREFIX, so an
+ * archive/restore invalidation hits BOTH the active and the show-archived
+ * variants via partial matching).
  */
-export function useWorkbenchSheets(containerId: string | undefined) {
+export function useWorkbenchSheets(
+  containerId: string | undefined,
+  options?: { includeArchived?: boolean },
+) {
+  const includeArchived = options?.includeArchived ?? false;
   return useQuery({
-    queryKey: queryKeys.workbenchSheets(containerId ?? ''),
+    queryKey: [...queryKeys.workbenchSheets(containerId ?? ''), includeArchived] as const,
     queryFn: async (): Promise<WorkbenchDrawing[]> => {
       if (!containerId) return [];
       const { data, error } = await supabase
@@ -71,12 +90,15 @@ export function useWorkbenchSheets(containerId: string | undefined) {
         .order('sequence_order', { ascending: true })
         .order('created_at', { ascending: true });
       if (error) throw error;
-      return (data ?? []).map((row) => {
+      const drawings = (data ?? []).map((row) => {
         const { workbench_sheets, ...sheet } = row as Sheet & {
           workbench_sheets: WorkbenchSheet | WorkbenchSheet[] | null;
         };
         return mergeWorkbenchSidecar(sheet as Sheet, workbench_sheets);
       });
+      return includeArchived
+        ? drawings
+        : drawings.filter((d) => !d.workbench?.deleted_at);
     },
     enabled: !!containerId,
   });
