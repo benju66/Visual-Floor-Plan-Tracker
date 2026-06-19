@@ -70,6 +70,14 @@ interface FloorplanCanvasProps {
   onOpenMilestoneModal?: (unitId: string | null) => void;
   onOpenStatusModal?: (unitId: string | null) => void;
   applicabilityIndex?: ApplicabilityIndex;
+  /**
+   * Label-display mode (the Drawing Library workbench). Workbench sheets carry no
+   * status, so units would otherwise render as a transparent fill + faint gray
+   * outline that vanishes into the drawing. When true, each labeled room gets a
+   * visible tint + accent outline and its name drawn on top, so labelers can see
+   * what's already done. Defaults to off — the live map is unaffected.
+   */
+  labelMode?: boolean;
 }
 
 const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
@@ -89,6 +97,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onOpenMilestoneModal,
   onOpenStatusModal,
   applicabilityIndex,
+  labelMode,
 }, ref) => {
   const activeSheetId = useMapStore(s => s.activeSheetId);
   const toolMode = useMapStore(s => s.toolMode);
@@ -1629,6 +1638,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   snappingStrength={mapSettings?.snappingStrength || 15}
                   isZoomedOut={isZoomedOut}
                   settings={settings}
+                  labelMode={labelMode}
                   activeDragNode={activeDragNode}
                   activeDragPolygon={activeDragPolygon}
                   isShiftDown={isShiftDown}

@@ -329,9 +329,21 @@ export function useCreateUnit(sheetId: string) {
       const tempId = `temp_${Date.now()}`;
       const tempUnit = { ...newUnit, id: tempId } as Unit;
       queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => old ? [...old, tempUnit] : [tempUnit]);
-      return {};
+      return { tempId };
     },
-    onError: () => {},
+    // Roll back the optimistic insert on failure. Without this, a failed save leaves
+    // the just-typed name sitting in the cache, so the still-open naming popover sees
+    // its own ghost entry and falsely reports the name as already taken ("already
+    // exists on this sheet") instead of a clean error — and can block the retry.
+    onError: (_err, _newUnit, context) => {
+      const tempId = context?.tempId;
+      if (tempId) {
+        queryClient.setQueriesData<Unit[]>(
+          { queryKey: queryKeys.units(sheetId) },
+          old => old ? old.filter(u => u.id !== tempId) : old,
+        );
+      }
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
       // Invalidate all project units prefix

@@ -175,6 +175,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       <FloorplanCanvas
         activeStatuses={[]}
         rawStatuses={[]}
+        labelMode
         imageUrl={drawing.base_image_url ?? ''}
         pdfVersion={drawing.pdf_version ?? null}
         onPolygonComplete={handlePolygonComplete}

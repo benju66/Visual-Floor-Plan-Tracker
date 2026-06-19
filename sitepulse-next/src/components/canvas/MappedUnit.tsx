@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Group, Line, Circle, Path } from 'react-konva';
+import { Group, Line, Circle, Path, Text } from 'react-konva';
 import { getCentroid, getSnappedCoordinate } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
 import type RBush from 'rbush';
@@ -49,6 +49,8 @@ export interface MappedUnitProps {
   activeDragPolygon: { unitId: string; dx: number; dy: number } | null;
   isShiftDown: boolean;
   isZoomedOut: boolean;
+  /** Drawing Library workbench: render labels with a visible tint + name (units have no status here). */
+  labelMode?: boolean;
   mixAlpha: (color: string, alpha: number) => string;
   toPixels: (points: PercentPoint[]) => number[];
   setHoveredUnit: (id: string | null) => void;
@@ -87,6 +89,7 @@ export const MappedUnitComponent = ({
   activeDragNode,
   activeDragPolygon,
   isShiftDown,
+  labelMode,
   mixAlpha,
   toPixels,
   setHoveredUnit,
@@ -145,6 +148,15 @@ export const MappedUnitComponent = ({
   if (dim && activeStatus) {
     currentFill = mixAlpha(activeStatus.status_color, 0.1);
     currentStroke = mixAlpha(activeStatus.status_color, 0.3);
+  }
+
+  // Workbench label mode: units carry no status here, so the default transparent
+  // fill + faint gray outline vanishes into the drawing. Give each labeled room a
+  // visible violet tint + accent outline (its name is drawn below) so labelers can
+  // see what's already done. Highlight/selection styling still takes precedence.
+  if (labelMode && !activeStatus && !highlight) {
+    currentFill = 'rgba(139, 92, 246, 0.35)';
+    currentStroke = '#8b5cf6';
   }
 
   // Final visual override for routing drop targeting
@@ -362,7 +374,44 @@ export const MappedUnitComponent = ({
           </Group>
         );
       })()}
-      
+
+      {/* Workbench label name — drawn at the room centroid at constant screen size
+          (scaled by 1/stageScale, like the status icon), with a white halo so it
+          reads over the architectural linework. Label mode only. */}
+      {labelMode && unit.unit_number && !isFilteredOut && (() => {
+        let labelPolygon = basePolygon;
+        if (activeDragNode?.unitId === unit.id) {
+          labelPolygon = basePolygon.map((p, i) =>
+            i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p
+          );
+        }
+        const centroid = getCentroid(labelPolygon);
+        const dragX = activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dx : 0;
+        const dragY = activeDragPolygon?.unitId === unit.id ? activeDragPolygon.dy : 0;
+        const cx = layout.offsetX + (centroid.pctX + dragX) * layout.drawW;
+        const cy = layout.offsetY + (centroid.pctY + dragY) * layout.drawH;
+        return (
+          <Group x={cx} y={cy} scale={{ x: 1 / stageScale, y: 1 / stageScale }} listening={false}>
+            <Text
+              text={unit.unit_number ?? ''}
+              fontSize={13}
+              fontStyle="bold"
+              fontFamily="sans-serif"
+              fill="#312e81"
+              align="center"
+              width={240}
+              offsetX={120}
+              offsetY={7}
+              shadowColor="#ffffff"
+              shadowBlur={3}
+              shadowOpacity={1}
+              listening={false}
+              perfectDrawEnabled={false}
+            />
+          </Group>
+        );
+      })()}
+
       {isSelected && basePolygon.map((pt, i) => (
          <Circle
            key={`anchor-${i}`}
@@ -454,6 +503,9 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
   if (prevUnit.polygon_coordinates !== nextUnit.polygon_coordinates) return false;
   if (prevUnit.icon_offset_x !== nextUnit.icon_offset_x) return false;
   if (prevUnit.icon_offset_y !== nextUnit.icon_offset_y) return false;
+  // Label mode draws the name on the polygon — re-render on rename or mode toggle.
+  if (prevUnit.unit_number !== nextUnit.unit_number) return false;
+  if (prevProps.labelMode !== nextProps.labelMode) return false;
 
   // Cache find() once — reused for status_color, temporal_state, and milestone checks.
   // Avoids 6 repeated O(n) scans per comparator invocation per unit.
