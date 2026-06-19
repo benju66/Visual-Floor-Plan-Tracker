@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Hand, PenLine, MousePointer2, Magnet, Loader2 } from 'lucide-react';
+import { Hand, PenLine, Wand2, MousePointer2, Magnet, Loader2 } from 'lucide-react';
 import { useMapStore, type ToolMode } from '@/store/useMapStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 
@@ -15,6 +15,7 @@ import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 const TOOLS: { id: ToolMode; label: string; icon: React.ElementType }[] = [
   { id: 'pan', label: 'Pan (2)', icon: Hand },
   { id: 'draw', label: 'Trace a location (3)', icon: PenLine },
+  { id: 'fill_room', label: 'Fill room from walls — click inside a room (4)', icon: Wand2 },
   { id: 'select', label: 'Select / adjust (1)', icon: MousePointer2 },
 ];
 

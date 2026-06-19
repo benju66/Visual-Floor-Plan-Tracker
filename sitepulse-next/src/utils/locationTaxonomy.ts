@@ -22,6 +22,15 @@
  *     no `any`. Pass any timestamps in from the caller.
  */
 
+/**
+ * Version of `docs/location-labeling-standard.md` that current labels are made
+ * under. Stamped onto every workbench label at create time
+ * (`units.standard_version`) so the training corpus stays internally consistent
+ * as the rulebook evolves (standard §10 "Change control": old labels stay valid
+ * under the version they were made). Bump in lockstep with the doc header.
+ */
+export const LABELING_STANDARD_VERSION = '0.2';
+
 // ---------------------------------------------------------------------------
 // Canonical roles (the rigid layer — standard §5.2)
 // ---------------------------------------------------------------------------

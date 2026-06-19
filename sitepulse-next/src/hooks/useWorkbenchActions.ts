@@ -11,6 +11,7 @@ import {
   type WorkbenchSidecarFields,
 } from '@/utils/workbench';
 import { normalizeLocationName } from '@/utils/workbenchNaming';
+import { LABELING_STANDARD_VERSION } from '@/utils/locationTaxonomy';
 import { useCreateUnit } from '@/hooks/useProjectQueries';
 import { useProposePendingSubtype } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult } from '@/utils/subtypes';
@@ -302,6 +303,10 @@ export function useCreateWorkbenchLabel(sheetId: string) {
         spans_levels: input.spansLevels,
         level_note: levelNote,
         has_void: input.hasVoid,
+        // Stamp the rulebook version this label was made under (standard §10), so
+        // the corpus stays internally consistent as the standard evolves. Create
+        // time only — edits preserve the original-version provenance.
+        standard_version: LABELING_STANDARD_VERSION,
       }) as Promise<Unit>;
     },
   });

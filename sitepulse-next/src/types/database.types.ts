@@ -157,6 +157,7 @@ export interface Database {
           spans_levels: boolean | null
           level_note: string | null
           has_void: boolean | null
+          standard_version: string | null
           polygon_coordinates: Json
           icon_offset_x: number | null
           icon_offset_y: number | null
@@ -175,6 +176,7 @@ export interface Database {
           spans_levels?: boolean | null
           level_note?: string | null
           has_void?: boolean | null
+          standard_version?: string | null
           polygon_coordinates: Json
           icon_offset_x?: number | null
           icon_offset_y?: number | null
@@ -193,6 +195,7 @@ export interface Database {
           spans_levels?: boolean | null
           level_note?: string | null
           has_void?: boolean | null
+          standard_version?: string | null
           polygon_coordinates?: Json
           icon_offset_x?: number | null
           icon_offset_y?: number | null

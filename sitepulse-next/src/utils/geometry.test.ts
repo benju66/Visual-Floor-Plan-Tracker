@@ -8,9 +8,53 @@ import {
   getSnappedCoordinate,
   mixAlpha,
   nearestCentroidWithin,
+  pointInPolygon,
+  polygonAreaPct,
   type CentroidTarget,
 } from './geometry';
 import type { PercentPoint } from '@/types/domain';
+
+describe('pointInPolygon', () => {
+  const square: PercentPoint[] = [
+    { pctX: 0.2, pctY: 0.2 },
+    { pctX: 0.8, pctY: 0.2 },
+    { pctX: 0.8, pctY: 0.8 },
+    { pctX: 0.2, pctY: 0.8 },
+  ];
+  it('is true for an interior point', () => {
+    expect(pointInPolygon({ pctX: 0.5, pctY: 0.5 }, square)).toBe(true);
+  });
+  it('is false for an exterior point', () => {
+    expect(pointInPolygon({ pctX: 0.05, pctY: 0.05 }, square)).toBe(false);
+  });
+  it('is false for a degenerate polygon', () => {
+    expect(pointInPolygon({ pctX: 0.5, pctY: 0.5 }, square.slice(0, 2))).toBe(false);
+  });
+});
+
+describe('polygonAreaPct', () => {
+  it('computes the shoelace area of a unit square fraction', () => {
+    const square: PercentPoint[] = [
+      { pctX: 0.2, pctY: 0.2 },
+      { pctX: 0.8, pctY: 0.2 },
+      { pctX: 0.8, pctY: 0.8 },
+      { pctX: 0.2, pctY: 0.8 },
+    ];
+    expect(polygonAreaPct(square)).toBeCloseTo(0.36, 6);
+  });
+  it('is winding-independent (always non-negative)', () => {
+    const cw: PercentPoint[] = [
+      { pctX: 0.2, pctY: 0.2 },
+      { pctX: 0.2, pctY: 0.8 },
+      { pctX: 0.8, pctY: 0.8 },
+      { pctX: 0.8, pctY: 0.2 },
+    ];
+    expect(polygonAreaPct(cw)).toBeCloseTo(0.36, 6);
+  });
+  it('returns 0 for a degenerate polygon', () => {
+    expect(polygonAreaPct([{ pctX: 0, pctY: 0 }, { pctX: 1, pctY: 1 }])).toBe(0);
+  });
+});
 
 describe('nearestCentroidWithin — walk-route drop targeting', () => {
   const layout = { offsetX: 0, offsetY: 0, drawW: 1000, drawH: 1000 };

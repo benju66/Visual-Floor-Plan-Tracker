@@ -17,6 +17,9 @@ import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
+import { isolateWalls } from '@/utils/wallIsolation';
+import { detectRoomPolygon } from '@/utils/regionDetect';
+import { simplifyPolygon } from '@/utils/polygonSimplify';
 import { computeUnitVariance, varianceFill } from '@/utils/progressAnalytics';
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
 import { createPointerStore } from '@/utils/pointerStore';
@@ -379,6 +382,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         if (e.key === '1') onToolModeChange('select');
         if (e.key === '2') onToolModeChange('pan');
         if (e.key === '3') onToolModeChange('draw');
+        if (e.key === '4') onToolModeChange('fill_room');
 
         // +/- for zoom (via ref to avoid block-scoped variable error)
         if (e.key === '=' || e.key === '+') handleZoomRef.current(1);
@@ -820,6 +824,51 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     animateViewport(newScale, newPos, 200);
   };
 
+  // Fill-from-walls: a transient on-canvas hint when detection can't propose a
+  // room (open region / no vectors). Ephemeral UI only — auto-clears.
+  const [fillHint, setFillHint] = useState<string | null>(null);
+  const fillHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showFillHint = useCallback((msg: string) => {
+    setFillHint(msg);
+    if (fillHintTimer.current) clearTimeout(fillHintTimer.current);
+    fillHintTimer.current = setTimeout(() => setFillHint(null), 2600);
+  }, []);
+
+  // Click inside a room → derive a polygon from the extracted wall vectors, then
+  // route it through the SAME pending-polygon → name → save pipeline a hand trace
+  // uses. The proposal is always editable before save (never auto-committed).
+  const fillRoomAt = useCallback(
+    (pctX: number, pctY: number) => {
+      if (!rawVectors || rawVectors.length === 0) {
+        showFillHint('No wall data on this drawing — trace it manually.');
+        return;
+      }
+      const segments = rawVectors.map(v => v.lineData);
+      const walls = isolateWalls(segments, { aspect });
+      const detected = detectRoomPolygon(walls, { pctX, pctY }, { aspect });
+      if (!detected) {
+        showFillHint("Couldn't find an enclosed room here — trace it manually.");
+        return;
+      }
+      let poly = simplifyPolygon(detected);
+      // Snap the proposed corners onto the real walls for crisp edges (reuses the
+      // same aspect-aware snapping the freehand trace uses).
+      if (mapSettings?.enableSnapping && vectorTree) {
+        const strength = (mapSettings.snappingStrength || 15) * 1.6;
+        poly = poly.map(p => {
+          const snap = getSnappedCoordinate(p.pctX, p.pctY, vectorTree, aspect, layout.drawW, stageScale, strength);
+          return snap.snapped ? { pctX: snap.pctX, pctY: snap.pctY } : p;
+        });
+      }
+      if (poly.length < 3) {
+        showFillHint("Couldn't form a clean room — trace it manually.");
+        return;
+      }
+      onPolygonComplete(poly);
+    },
+    [rawVectors, vectorTree, aspect, layout.drawW, stageScale, mapSettings, onPolygonComplete, showFillHint],
+  );
+
   const handleStageClick = (e: any) => {
     setContextMenu(null);
     const stage = e.target.getStage();
@@ -865,6 +914,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         pctY = lastSnapRef.current.pctY;
       }
       setDraftPoints([...draftPoints, { pctX, pctY }]);
+    } else if (toolMode === 'fill_room') {
+      fillRoomAt(pctX, pctY);
     } else if (['select', 'multi_select', 'add_node', 'delete_node'].includes(toolMode)) {
       if (e.target === stage || e.target.nodeType === 'Image' || e.target.attrs?.id === 'bg-rect') {
         onClearSelection();
@@ -1223,6 +1274,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         boxShadow: 'var(--glass-shadow)',
       }}
     >
+      {/* Fill-from-walls hint — transient, only when a proposal couldn't be made */}
+      {fillHint && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="bg-slate-900/85 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-lg backdrop-blur-sm">
+            {fillHint}
+          </div>
+        </div>
+      )}
+
       {/* PDF Loading overlay — shown during initial download+render */}
       {pdfLoading && !pdfError && (
         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">

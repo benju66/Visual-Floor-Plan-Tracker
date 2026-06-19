@@ -26,6 +26,42 @@ export const getCentroid = (points: PercentPoint[]) => {
   };
 };
 
+/**
+ * Ray-casting point-in-polygon test in percent space. `polygon` is an ordered
+ * ring (the wrap from last → first vertex is handled). Inside/outside is
+ * invariant to aspect distortion, so no aspect correction is needed.
+ */
+export const pointInPolygon = (pt: PercentPoint, polygon: PercentPoint[]): boolean => {
+  if (!polygon || polygon.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].pctX, yi = polygon[i].pctY;
+    const xj = polygon[j].pctX, yj = polygon[j].pctY;
+    const intersect =
+      (yi > pt.pctY) !== (yj > pt.pctY) &&
+      pt.pctX < ((xj - xi) * (pt.pctY - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
+/**
+ * Shoelace area of a polygon ring, in percent² units (always non-negative).
+ * NOTE: percent space is anisotropic, so this is NOT a real-world area — use it
+ * only for RELATIVE comparisons (e.g. picking the larger of two candidate
+ * regions). Real-world area is computed at save time from the image's pixel
+ * dimensions (`computeLabelArea` / `saveNewUnitFromPopover`).
+ */
+export const polygonAreaPct = (points: PercentPoint[]): number => {
+  if (!points || points.length < 3) return 0;
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const j = (i + 1) % points.length;
+    area += points[i].pctX * points[j].pctY - points[j].pctX * points[i].pctY;
+  }
+  return Math.abs(area) / 2;
+};
+
 export interface SnapResult {
   pctX: number;
   pctY: number;

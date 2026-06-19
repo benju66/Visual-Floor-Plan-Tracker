@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Wand2 } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
 
@@ -41,6 +41,7 @@ export default function MapHorizontalToolbar({
     redo: Redo2,
     pan: Hand,
     draw: MousePointer2,
+    fill_room: Wand2,
     add_node: PlusCircle,
     delete_node: MinusCircle,
     stamp: Stamp,
@@ -53,7 +54,7 @@ export default function MapHorizontalToolbar({
   const isUndoEmpty = !undoStack || undoStack.length === 0;
   const isRedoEmpty = !redoStack || redoStack.length === 0;
 
-  let toolsToRender = mapSettings?.pinnedTools || ['select', 'multi_select', 'pan', 'route', 'draw', 'add_node', 'delete_node'];
+  let toolsToRender = mapSettings?.pinnedTools || ['select', 'multi_select', 'pan', 'route', 'draw', 'fill_room', 'add_node', 'delete_node'];
   if (!toolsToRender.includes('route')) {
     toolsToRender = [...toolsToRender];
     const panIdx = toolsToRender.indexOf('pan');

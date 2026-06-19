@@ -64,6 +64,9 @@ export function getToolCursor(s: ToolCursorState): string {
       return 'grab';
     case 'draw':
       return 'crosshair';
+    case 'fill_room':
+      // A single click proposes a whole room — distinct intent from freehand draw.
+      return 'cell';
     case 'stamp':
       return 'copy';
     case 'add_node':
