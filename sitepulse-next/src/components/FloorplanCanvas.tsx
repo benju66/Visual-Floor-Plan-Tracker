@@ -868,8 +868,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       // same aspect-aware snapping the freehand trace uses).
       if (mapSettings?.enableSnapping && vectorTree) {
         const strength = (mapSettings.snappingStrength || 15) * 1.6;
+        // The detected room's centroid is its interior — bias each corner snap to
+        // the inner wall face so the proposal hugs the inside, like a hand trace.
+        const interior = getCentroid(poly);
         poly = poly.map(p => {
-          const snap = getSnappedCoordinate(p.pctX, p.pctY, vectorTree, aspect, layout.drawW, stageScale, strength);
+          const snap = getSnappedCoordinate(p.pctX, p.pctY, vectorTree, aspect, layout.drawW, stageScale, strength, interior);
           return snap.snapped ? { pctX: snap.pctX, pctY: snap.pctY } : p;
         });
       }
@@ -1519,7 +1522,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // handleStageClick commits the point on the very next event.
             let snap: { pctX: number; pctY: number; snapped: boolean } | null = null;
             if (toolMode === 'draw' && mapSettings?.enableSnapping && drawW > 0 && drawH > 0) {
-              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15);
+              // Interior-aware snap: once a few points are down, their centroid is a
+              // reliable "inside the room" reference, so the snap favors the inner
+              // wall face the tracer is meant to follow (AGENTS.md §5).
+              const interior = draftPoints.length >= 3 ? getCentroid(draftPoints) : null;
+              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15, interior);
               lastSnapRef.current = snap;
             } else {
               lastSnapRef.current = null;

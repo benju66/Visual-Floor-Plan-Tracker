@@ -68,14 +68,30 @@ export interface SnapResult {
   snapped: boolean;
 }
 
+/**
+ * Corner gravity only kicks in inside this fraction of the snap radius. Tighter
+ * than the full radius so a *thick* wall's far corner (or a crossing wall's
+ * corner) no longer hijacks a point being placed along an edge — the #1 cause of
+ * snapping to the wrong wall face at junctions. Snapping to a real room corner
+ * still works because you are genuinely very close to it there.
+ */
+const CORNER_ZONE_FRACTION = 0.6;
+
 export const getSnappedCoordinate = (
-  cursorPctX: number, 
-  cursorPctY: number, 
-  rBushTree: RBush<RBushItem> | null, 
-  aspect: number, 
-  drawW: number, 
-  stageScale: number, 
-  strength: number = 15
+  cursorPctX: number,
+  cursorPctY: number,
+  rBushTree: RBush<RBushItem> | null,
+  aspect: number,
+  drawW: number,
+  stageScale: number,
+  strength: number = 15,
+  /**
+   * Optional interior reference (e.g. the centroid of the points placed so far
+   * while tracing a room). When supplied, the snap prefers the wall face on the
+   * INTERIOR side of the cursor — so on a thick wall it lands on the inside face
+   * the tracer is meant to follow, even when the outer face is a touch closer.
+   */
+  interiorPoint: PercentPoint | null = null,
 ): SnapResult => {
   if (!rBushTree) return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
 
@@ -92,54 +108,84 @@ export const getSnappedCoordinate = (
 
   if (nearbyLines.length === 0) return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
 
-  let closestDist = Infinity;
+  // Interior-aware bias. `dir` is the aspect-corrected direction from the cursor
+  // toward the room interior. A candidate whose offset from the cursor points
+  // AWAY from the interior (dot < 0) sits deeper into / through the wall, so we
+  // push it back by INTERIOR_PENALTY. The penalty (≥ the largest in-range
+  // distance) guarantees any interior-side face within range beats a far-side
+  // one, while never moving the snapped coordinate itself off the chosen line.
+  const hasInterior = interiorPoint !== null;
+  const dirX = hasInterior ? interiorPoint.pctX - cursorPctX : 0;
+  const dirY = hasInterior ? (interiorPoint.pctY - cursorPctY) / aspect : 0;
+  const INTERIOR_PENALTY = snapRadiusX;
+  const farSidePenalty = (offX: number, offY: number) =>
+    hasInterior && offX * dirX + offY * dirY < 0 ? INTERIOR_PENALTY : 0;
+
+  // Edge projections and vertices are each tracked twice: `*Eff` (interior-biased)
+  // drives selection; `*Raw` (true cursor distance) drives the radius threshold.
+  let bestEdgeRaw = Infinity;
+  let bestEdgeEff = Infinity;
   let bestPoint = { pctX: cursorPctX, pctY: cursorPctY };
-  
-  let closestVertexDist = Infinity;
+
+  let bestVertexRaw = Infinity;
+  let bestVertexEff = Infinity;
   let bestVertex: PercentPoint | null = null;
 
   nearbyLines.forEach(({ lineData }) => {
     const { start, end } = lineData;
-    
-    // Check vertices (corners) for priority snapping
-    const dStart = Math.sqrt(sqr(cursorPctX - start.pctX) + sqr((cursorPctY - start.pctY) / aspect));
-    if (dStart < closestVertexDist) {
-       closestVertexDist = dStart;
-       bestVertex = start;
+
+    // Vertices (corners) — priority snapping, interior-biased.
+    const sOffX = start.pctX - cursorPctX;
+    const sOffY = (start.pctY - cursorPctY) / aspect;
+    const dStart = Math.sqrt(sOffX * sOffX + sOffY * sOffY);
+    const dStartEff = dStart + farSidePenalty(sOffX, sOffY);
+    if (dStartEff < bestVertexEff) {
+      bestVertexEff = dStartEff;
+      bestVertexRaw = dStart;
+      bestVertex = start;
     }
-    
-    const dEnd = Math.sqrt(sqr(cursorPctX - end.pctX) + sqr((cursorPctY - end.pctY) / aspect));
-    if (dEnd < closestVertexDist) {
-       closestVertexDist = dEnd;
-       bestVertex = end;
+
+    const eOffX = end.pctX - cursorPctX;
+    const eOffY = (end.pctY - cursorPctY) / aspect;
+    const dEnd = Math.sqrt(eOffX * eOffX + eOffY * eOffY);
+    const dEndEff = dEnd + farSidePenalty(eOffX, eOffY);
+    if (dEndEff < bestVertexEff) {
+      bestVertexEff = dEndEff;
+      bestVertexRaw = dEnd;
+      bestVertex = end;
     }
-    
+
     // Account for aspect ratio distortion in standard pct space calculations
     const l2 = sqr(start.pctX - end.pctX) + sqr((start.pctY - end.pctY) / aspect);
     if (l2 === 0) return;
 
-    let t = ((cursorPctX - start.pctX) * (end.pctX - start.pctX) + 
+    let t = ((cursorPctX - start.pctX) * (end.pctX - start.pctX) +
             ((cursorPctY - start.pctY) / aspect) * ((end.pctY - start.pctY) / aspect)) / l2;
     t = Math.max(0, Math.min(1, t));
 
     const projX = start.pctX + t * (end.pctX - start.pctX);
     const projY = start.pctY + t * (end.pctY - start.pctY);
 
-    const dist = Math.sqrt(sqr(cursorPctX - projX) + sqr((cursorPctY - projY) / aspect));
+    const pOffX = projX - cursorPctX;
+    const pOffY = (projY - cursorPctY) / aspect;
+    const dist = Math.sqrt(pOffX * pOffX + pOffY * pOffY);
+    const distEff = dist + farSidePenalty(pOffX, pOffY);
 
-    if (dist < closestDist) {
-      closestDist = dist;
+    if (distEff < bestEdgeEff) {
+      bestEdgeEff = distEff;
+      bestEdgeRaw = dist;
       bestPoint = { pctX: projX, pctY: projY };
     }
   });
 
-  // Corner gravity: if a vertex is within the snap radius, strictly prefer it over a straight edge projection
-  if (closestVertexDist < snapRadiusX && bestVertex !== null) {
-    return { pctX: (bestVertex! as any).pctX, pctY: (bestVertex! as any).pctY, snapped: true };
+  // Corner gravity (softened): only leap to a vertex when the cursor is genuinely
+  // in the corner zone, not anywhere within the full radius.
+  if (bestVertexRaw < snapRadiusX * CORNER_ZONE_FRACTION && bestVertex !== null) {
+    return { pctX: (bestVertex as PercentPoint).pctX, pctY: (bestVertex as PercentPoint).pctY, snapped: true };
   }
 
-  // Since closestDist uses aspect-corrected distance, it is in the scale of pctX.
-  if (closestDist < snapRadiusX) {
+  // Since bestEdgeRaw uses aspect-corrected distance, it is in the scale of pctX.
+  if (bestEdgeRaw < snapRadiusX) {
     return { ...bestPoint, snapped: true };
   }
 

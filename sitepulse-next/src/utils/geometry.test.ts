@@ -213,4 +213,47 @@ describe('getSnappedCoordinate', () => {
     expect(result.pctX).toBeCloseTo(0.5);
     expect(result.pctY).toBeCloseTo(0.6);
   });
+
+  // Option B — softened corner gravity: a far corner inside the full radius but
+  // outside the corner zone (0.6 × radius) must not hijack a nearer edge. This is
+  // the thick-wall junction case where the OLD code leapt to the wrong corner.
+  it('does not let a corner outside the corner zone override a nearer edge', () => {
+    // snapRadiusX = 0.015, corner zone = 0.009.
+    const tree = fakeTree([
+      // Horizontal edge: perpendicular foot at (0.5, 0.5) is 0.005 below the cursor.
+      { lineData: { start: { pctX: 0.3, pctY: 0.5 }, end: { pctX: 0.7, pctY: 0.5 } } },
+      // A vertex 0.012 to the right — within the radius, but past the corner zone.
+      { lineData: { start: { pctX: 0.512, pctY: 0.505 }, end: { pctX: 0.512, pctY: 0.7 } } },
+    ]);
+    const result = getSnappedCoordinate(0.5, 0.505, tree, aspect, drawW, stageScale);
+    expect(result.snapped).toBe(true);
+    // Snaps to the edge foot, NOT the 0.012-away corner.
+    expect(result.pctX).toBeCloseTo(0.5);
+    expect(result.pctY).toBeCloseTo(0.5);
+  });
+
+  // Option C — interior-aware bias on a thick wall (two parallel faces). The
+  // cursor sits inside the wall body, marginally closer to the OUTER face.
+  describe('interior-aware snapping (thick walls)', () => {
+    // Inner face at y=0.500 (room is above), outer face at y=0.510.
+    const thickWall = fakeTree([
+      { lineData: { start: { pctX: 0.3, pctY: 0.5 }, end: { pctX: 0.7, pctY: 0.5 } } },
+      { lineData: { start: { pctX: 0.3, pctY: 0.51 }, end: { pctX: 0.7, pctY: 0.51 } } },
+    ]);
+
+    it('snaps to the nearer (outer) face when no interior hint is given', () => {
+      // Cursor at y=0.506: 0.006 from inner, 0.004 from outer → outer wins.
+      const result = getSnappedCoordinate(0.5, 0.506, thickWall, aspect, drawW, stageScale);
+      expect(result.snapped).toBe(true);
+      expect(result.pctY).toBeCloseTo(0.51);
+    });
+
+    it('snaps to the inner face when the interior is on that side', () => {
+      // Same cursor, but the room interior is above the wall (y=0.3).
+      const result = getSnappedCoordinate(0.5, 0.506, thickWall, aspect, drawW, stageScale, 15, { pctX: 0.5, pctY: 0.3 });
+      expect(result.snapped).toBe(true);
+      expect(result.pctY).toBeCloseTo(0.5);
+      expect(result.pctX).toBeCloseTo(0.5);
+    });
+  });
 });
