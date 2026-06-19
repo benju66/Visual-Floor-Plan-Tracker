@@ -166,6 +166,7 @@ export default function SettingsMenu({
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState('pm');
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [inviteNotice, setInviteNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   
@@ -1063,19 +1064,31 @@ export default function SettingsMenu({
                          e.preventDefault();
                          if(!newMemberEmail.trim()) return;
                          setIsAddingMember(true);
+                         setInviteNotice(null);
                          try {
-                           // Basic implementation: Insert email directly into project_members
-                           // In a real app, this might trigger an edge function to send an invite email.
-                           await supabase.from('project_members').insert({
-                             project_id: projectId,
-                             user_email: newMemberEmail.trim().toLowerCase(),
-                             role: newMemberRole
-                           } as any);
+                           // Send a real invite via the server-side route: it verifies
+                           // the caller, sends a Supabase invite email to new users (or
+                           // links existing ones), and creates the membership row.
+                           const res = await fetch('/api/projects/invite', {
+                             method: 'POST',
+                             headers: {
+                               'Content-Type': 'application/json',
+                               Authorization: `Bearer ${session?.access_token ?? ''}`,
+                             },
+                             body: JSON.stringify({
+                               project_id: projectId,
+                               email: newMemberEmail.trim().toLowerCase(),
+                               role: newMemberRole,
+                             }),
+                           });
+                           const result = await res.json();
+                           if (!res.ok) throw new Error(result.error || 'Failed to send invite.');
                            setNewMemberEmail('');
+                           setInviteNotice({ kind: 'success', text: result.message || 'Invitation sent.' });
                            queryClient.invalidateQueries({ queryKey: ['projectMembers', projectId] });
                          } catch(err) {
                            console.error(err);
-                           alert("Failed to add member.");
+                           setInviteNotice({ kind: 'error', text: err instanceof Error ? err.message : 'Failed to add member.' });
                          } finally {
                            setIsAddingMember(false);
                          }
@@ -1109,6 +1122,11 @@ export default function SettingsMenu({
                          {isAddingMember ? 'Sending...' : <><Shield size={16} /> Invite</>}
                        </button>
                      </form>
+                     {inviteNotice && (
+                       <p className={`mt-3 text-xs ${inviteNotice.kind === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                         {inviteNotice.text}
+                       </p>
+                     )}
                    </div>
                  )}
               </div>

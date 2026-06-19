@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Hand, PenLine, Wand2, MousePointer2, Magnet, Loader2 } from 'lucide-react';
+import { Hand, PenLine, Wand2, MousePointer2, Magnet, Crosshair, Search, Loader2 } from 'lucide-react';
 import { useMapStore, type ToolMode } from '@/store/useMapStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 
@@ -24,6 +24,9 @@ export default function WorkbenchTracerToolbar({ isSnappingLoading }: { isSnappi
   const setToolMode = useMapStore((s) => s.setToolMode);
   const setMapSettings = useSettingsStore((s) => s.setMapSettings);
   const enableSnapping = useHydratedStore((s) => s.mapSettings.enableSnapping, true);
+  const showCrosshair = useHydratedStore((s) => s.mapSettings.showCrosshair, false);
+  const showMagnifier = useHydratedStore((s) => s.mapSettings.showMagnifier, false);
+  const magnifierZoom = useHydratedStore((s) => s.mapSettings.magnifierZoom, 3);
 
   const btnBase = 'p-2 rounded-full flex items-center justify-center transition-all';
   const btnActive = 'bg-violet-500 text-white shadow-sm scale-110';
@@ -64,13 +67,35 @@ export default function WorkbenchTracerToolbar({ isSnappingLoading }: { isSnappi
       ) : (
         <button
           type="button"
-          title={`${enableSnapping ? 'Disable' : 'Enable'} magnetic snapping`}
+          title={
+            showMagnifier
+              ? 'Snapping paused while the magnifier is on'
+              : `${enableSnapping ? 'Disable' : 'Enable'} magnetic snapping`
+          }
           onClick={() => setMapSettings({ enableSnapping: !enableSnapping })}
-          className={`${btnBase} ${enableSnapping ? btnActive : btnIdle}`}
+          className={`${btnBase} ${enableSnapping && !showMagnifier ? btnActive : btnIdle} ${showMagnifier ? 'opacity-50' : ''}`}
         >
           <Magnet size={18} />
         </button>
       )}
+
+      <button
+        type="button"
+        title={`${showCrosshair ? 'Hide' : 'Show'} alignment crosshair`}
+        onClick={() => setMapSettings({ showCrosshair: !showCrosshair })}
+        className={`${btnBase} ${showCrosshair ? btnActive : btnIdle}`}
+      >
+        <Crosshair size={18} />
+      </button>
+
+      <button
+        type="button"
+        title={`Magnifier (${magnifierZoom}×) — press M or click to toggle. Snapping pauses while it's on. [ and ] adjust zoom`}
+        onClick={() => setMapSettings({ showMagnifier: !showMagnifier })}
+        className={`${btnBase} ${showMagnifier ? btnActive : btnIdle}`}
+      >
+        <Search size={18} />
+      </button>
     </div>
   );
 }
