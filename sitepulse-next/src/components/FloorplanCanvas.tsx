@@ -844,10 +844,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         return;
       }
       const segments = rawVectors.map(v => v.lineData);
-      const walls = isolateWalls(segments, { aspect });
+      // Keep nearly all segments: for SEALING a room, a missing wall is fatal
+      // while clutter (furniture/text) is harmless (it just becomes an ignored
+      // island). Only drop near-degenerate strokes.
+      const walls = isolateWalls(segments, { aspect, minLength: 0.002 });
       const detected = detectRoomPolygon(walls, { pctX, pctY }, { aspect });
       if (!detected) {
-        showFillHint("Couldn't find an enclosed room here — trace it manually.");
+        // The wall count distinguishes "loaded but leaking" from "no vectors".
+        showFillHint(`Couldn't find an enclosed room here (${walls.length} wall lines) — trace it manually.`);
         return;
       }
       let poly = simplifyPolygon(detected);

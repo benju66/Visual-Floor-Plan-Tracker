@@ -31,12 +31,15 @@ export interface DetectRoomOptions {
   /** Raster resolution along the longer axis. Default 600. Higher = finer + slower. */
   gridSize?: number;
   /**
-   * Wall dilation radius, in cells, applied before the fill. Closes door
-   * openings and imprecise CAD joints so the flood-fill stays inside the room.
-   * Default 3. The dominant Phase-F3 tuning knob (too low → fill leaks through
-   * doorways; too high → adjacent rooms merge).
+   * Fixed wall-dilation radius (in cells) used to bridge gaps before filling.
+   * When OMITTED (the recommended mode), detection AUTO-ESCALATES through
+   * increasing radii and keeps the SMALLEST that seals the room — this is what
+   * closes real doorways without merging neighbouring rooms. Set an explicit
+   * value (including 0) to force a single fixed radius (used by tests).
    */
   gapBridge?: number;
+  /** Cap for the auto-escalation sequence (cells, at the default grid). Default 24. */
+  gapBridgeMax?: number;
 }
 
 interface Grid {
@@ -182,29 +185,22 @@ function traceBoundary(g: Grid, fill: Uint8Array): number[][] | null {
  * outside any room, or no walls). Callers should simplify + snap the result and
  * always hand it to a human for review before saving.
  */
-export function detectRoomPolygon(
-  walls: readonly WallSegment[],
+/**
+ * One rasterize-dilate-flood-trace attempt at a single gap radius. Returns the
+ * room ring (percent space) or `null` if the fill leaks to the border. The wall
+ * raster is copied per attempt so the caller can retry at other radii.
+ */
+function attemptFill(
+  baseCells: Uint8Array,
+  w: number,
+  h: number,
+  gap: number,
+  toCol: (p: number) => number,
+  toRow: (p: number) => number,
   click: PercentPoint,
-  opts: DetectRoomOptions,
 ): PercentPoint[] | null {
-  if (!walls || walls.length === 0) return null;
-
-  const aspect = opts.aspect > 0 ? opts.aspect : 1;
-  const base = Math.max(50, Math.round(opts.gridSize ?? 600));
-  // Square cells in physical space require W / H === drawW / drawH === aspect.
-  const w = aspect >= 1 ? base : Math.max(50, Math.round(base * aspect));
-  const h = aspect >= 1 ? Math.max(50, Math.round(base / aspect)) : base;
-
-  const g: Grid = { w, h, cells: new Uint8Array(w * h) };
-  const toCol = (pctX: number) => Math.min(w - 1, Math.max(0, Math.floor(pctX * w)));
-  const toRow = (pctY: number) => Math.min(h - 1, Math.max(0, Math.floor(pctY * h)));
-
-  for (const s of walls) {
-    drawSegment(g, toCol(s.start.pctX), toRow(s.start.pctY), toCol(s.end.pctX), toRow(s.end.pctY));
-  }
-
-  const gap = Math.max(1, Math.round(opts.gapBridge ?? 3));
-  dilate(g, gap);
+  const g: Grid = { w, h, cells: baseCells.slice() };
+  if (gap > 0) dilate(g, gap);
 
   // Seed cell. If the click landed on a (dilated) wall, nudge to a free neighbor.
   let sx = toCol(click.pctX);
@@ -242,4 +238,44 @@ export function detectRoomPolygon(
   const poly: PercentPoint[] = ring.map(([px, py]) => ({ pctX: px / w, pctY: py / h }));
   if (!pointInPolygon(click, poly)) return null;
   return poly;
+}
+
+export function detectRoomPolygon(
+  walls: readonly WallSegment[],
+  click: PercentPoint,
+  opts: DetectRoomOptions,
+): PercentPoint[] | null {
+  if (!walls || walls.length === 0) return null;
+
+  const aspect = opts.aspect > 0 ? opts.aspect : 1;
+  const base = Math.max(50, Math.round(opts.gridSize ?? 600));
+  // Square cells in physical space require W / H === drawW / drawH === aspect.
+  const w = aspect >= 1 ? base : Math.max(50, Math.round(base * aspect));
+  const h = aspect >= 1 ? Math.max(50, Math.round(base / aspect)) : base;
+
+  // Rasterize the walls ONCE; each gap attempt dilates a fresh copy.
+  const baseCells = new Uint8Array(w * h);
+  const raster: Grid = { w, h, cells: baseCells };
+  const toCol = (p: number) => Math.min(w - 1, Math.max(0, Math.floor(p * w)));
+  const toRow = (p: number) => Math.min(h - 1, Math.max(0, Math.floor(p * h)));
+  for (const s of walls) {
+    drawSegment(raster, toCol(s.start.pctX), toRow(s.start.pctY), toCol(s.end.pctX), toRow(s.end.pctY));
+  }
+
+  // Gap radii to try. An explicit gapBridge forces a single fixed radius
+  // (incl. 0); otherwise auto-escalate and take the smallest radius that seals.
+  let gaps: number[];
+  if (opts.gapBridge !== undefined) {
+    gaps = [Math.max(0, Math.round(opts.gapBridge))];
+  } else {
+    const max = Math.max(3, Math.round(opts.gapBridgeMax ?? 24));
+    gaps = [3, 7, 12, 18, 24].filter((r) => r < max);
+    gaps.push(max);
+  }
+
+  for (const gap of gaps) {
+    const poly = attemptFill(baseCells, w, h, gap, toCol, toRow, click);
+    if (poly) return poly;
+  }
+  return null;
 }

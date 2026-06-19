@@ -51,6 +51,22 @@ describe('detectRoomPolygon', () => {
     expect(detectRoomPolygon(withDoor, center, { aspect: 1, gapBridge: 0 })).toBeNull();
   });
 
+  it('auto-escalates to close a wide (real-size) doorway', () => {
+    // A ~0.04-wide opening in the top wall — a realistic door. The old fixed
+    // small bridge can't close it (leaks → null); auto-escalation can.
+    const wideDoor = [
+      seg(0.2, 0.2, 0.48, 0.2),
+      seg(0.52, 0.2, 0.8, 0.2),
+      seg(0.8, 0.2, 0.8, 0.8),
+      seg(0.8, 0.8, 0.2, 0.8),
+      seg(0.2, 0.8, 0.2, 0.2),
+    ];
+    // Default (auto-escalating) seals it.
+    expect(detectRoomPolygon(wideDoor, center, { aspect: 1 })).not.toBeNull();
+    // A small fixed bridge leaks straight through the wide opening.
+    expect(detectRoomPolygon(wideDoor, center, { aspect: 1, gapBridge: 3 })).toBeNull();
+  });
+
   it('returns null for an open (un-enclosed) region', () => {
     const openBox: WallSegment[] = [
       seg(0.2, 0.2, 0.8, 0.2), // top only — three sides missing
