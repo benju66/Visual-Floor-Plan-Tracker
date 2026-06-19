@@ -53,6 +53,23 @@ export type TrackName     = string;
 export type TrackingMode  = TrackName;
 
 export type PercentPoint = { pctX: number; pctY: number };
+
+/**
+ * Provenance for a drawing's scale, stored in `sheets.scale_calibration` (JSONB).
+ * `length` is in `unit` (v1 is always 'ft'). For `source: 'calibration'`, p1/p2 are
+ * the two percent-space endpoints of the measured line; for `source: 'preset'`,
+ * the points are the canonical unit square and `preset` names the chosen ratio.
+ * The canonical numeric scale itself lives in `sheets.scale_units_per_px`.
+ */
+export type ScaleCalibration = {
+  p1: PercentPoint;
+  p2: PercentPoint;
+  length: number;
+  unit: 'ft';
+  source: 'calibration' | 'preset';
+  preset: string | null;
+  at: string;
+};
 export type LegendPosition = { pctX: number; pctY: number; scaleX: number; scaleY: number; rotation: number; isVisible: boolean };
 export type MilestoneScheduleEntry = { start_date?: string | null; end_date?: string | null };
 export type MilestoneSchedules = Record<string, MilestoneScheduleEntry>;
@@ -87,6 +104,30 @@ export function isPercentPointArray(val: unknown): val is PercentPoint[] {
   return (
     Array.isArray(val) &&
     val.every(p => typeof (p as PercentPoint).pctX === 'number' && typeof (p as PercentPoint).pctY === 'number')
+  );
+}
+
+/**
+ * Narrows a drawing's `scale_calibration` JSONB to {@link ScaleCalibration}. Use at
+ * the query boundary. Null-safe throughout — deliberately NOT built on
+ * {@link isPercentPointArray}, which throws on null/undefined elements.
+ */
+export function isScaleCalibration(val: unknown): val is ScaleCalibration {
+  if (typeof val !== 'object' || val === null) return false;
+  const c = val as Record<string, unknown>;
+  const isPoint = (p: unknown): boolean =>
+    typeof p === 'object' &&
+    p !== null &&
+    typeof (p as PercentPoint).pctX === 'number' &&
+    typeof (p as PercentPoint).pctY === 'number';
+  return (
+    isPoint(c.p1) &&
+    isPoint(c.p2) &&
+    typeof c.length === 'number' &&
+    c.unit === 'ft' &&
+    (c.source === 'calibration' || c.source === 'preset') &&
+    (c.preset === null || typeof c.preset === 'string') &&
+    typeof c.at === 'string'
   );
 }
 
