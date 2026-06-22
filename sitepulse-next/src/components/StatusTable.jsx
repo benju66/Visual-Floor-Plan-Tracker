@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
-import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle } from '@/components/ui/FieldStatusAtoms';
+import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegments } from '@/components/ui/FieldStatusAtoms';
 import StatusTrigger from '@/components/ui/StatusTrigger';
 import RowActionsMenu from './manage/RowActionsMenu';
 import AssigneeCell from './manage/AssigneeCell';
@@ -442,25 +442,14 @@ export default function StatusTable({
                     </td>
                     <td className="px-5 py-2"></td>
                     <td className="px-5 py-2 align-middle">
-                      <select
+                      <StatusSegments
                         value={dChildLog.temporal_state || 'none'}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          handleTimelineUpdate(unit, childLog, e.target.value, { milestoneObj: milestone });
-                        }}
+                        onChange={(s) => handleTimelineUpdate(unit, childLog, s, { milestoneObj: milestone })}
                         disabled={savingUnitId === unit.id || isApplying}
-                        className={`w-full sm:w-auto rounded-lg border ${
-                          childPending?.state && childPending.state !== childLog.temporal_state
-                            ? 'ring-2 ring-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
-                            : ''
-                        } px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer ${getTemporalStateStyle(dChildLog.temporal_state || 'none')}`}
-                      >
-                        <option value="none">Not Set</option>
-                        <option value="planned">Planned</option>
-                        <option value="ongoing">Ongoing</option>
-                        <option value="completed">Completed</option>
-                      </select>
+                        pending={!!(childPending?.state && childPending.state !== childLog.temporal_state)}
+                        ariaLabel={`Status for ${milestone.name}`}
+                        size="sm"
+                      />
                     </td>
                     <td className="px-5 py-2 align-middle">
                       {childLog ? (

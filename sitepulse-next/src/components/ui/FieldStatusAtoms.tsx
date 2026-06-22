@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Unit, TemporalState } from '@/types/domain';
@@ -16,6 +16,110 @@ export const getTemporalStateStyle = (state: TemporalState | 'none') => {
       return 'bg-slate-100 text-slate-600 border-slate-300/80 dark:bg-white/10 dark:text-slate-300 dark:border-white/20';
   }
 };
+
+/** Ordered temporal-state segments shared by the desktop table and the swipe deck. */
+export const STATUS_SEGMENTS: ReadonlyArray<{ key: TemporalState | 'none'; label: string; title: string }> = [
+  { key: 'none', label: '×', title: 'Clear status' },
+  { key: 'planned', label: 'PLN', title: 'Planned' },
+  { key: 'ongoing', label: 'ONG', title: 'Ongoing' },
+  { key: 'completed', label: '✓', title: 'Completed' },
+];
+
+const SEGMENT_ORDER: Array<TemporalState | 'none'> = ['none', 'planned', 'ongoing', 'completed'];
+
+export interface StatusSegmentsProps {
+  /** Current temporal state; 'none'/empty shows the × segment active. */
+  value: TemporalState | 'none' | null | undefined;
+  /** Fired with the chosen state when a segment is activated. */
+  onChange: (state: TemporalState | 'none') => void;
+  disabled?: boolean;
+  /** 'sm' for the dense table, 'lg' for the swipe deck. */
+  size?: 'sm' | 'lg';
+  /** Amber ring when the control holds an unsaved (pending) edit. */
+  pending?: boolean;
+  ariaLabel?: string;
+}
+
+/**
+ * One-click segmented status control — the buttons replacement for the temporal-state
+ * <select>. role=radiogroup with roving focus + arrow-key navigation. The active segment
+ * is filled via getTemporalStateStyle so it reads as the same colored chip the rest of the
+ * field UI uses; inactive segments stay muted. Stops click propagation so it can live inside
+ * a clickable (selectable) table row.
+ */
+export function StatusSegments({
+  value,
+  onChange,
+  disabled = false,
+  size = 'sm',
+  pending = false,
+  ariaLabel,
+}: StatusSegmentsProps) {
+  const groupRef = useRef<HTMLDivElement>(null);
+  const current: TemporalState | 'none' = value || 'none';
+  const dims =
+    size === 'lg'
+      ? 'min-h-[44px] min-w-[48px] px-4 text-sm'
+      : 'min-h-[30px] min-w-[34px] px-2.5 text-[11px]';
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const idx = Math.max(0, SEGMENT_ORDER.indexOf(current));
+    const next =
+      e.key === 'ArrowRight'
+        ? Math.min(SEGMENT_ORDER.length - 1, idx + 1)
+        : Math.max(0, idx - 1);
+    if (next === idx) return;
+    onChange(SEGMENT_ORDER[next]);
+    const btns = groupRef.current?.querySelectorAll('button');
+    (btns?.[next] as HTMLButtonElement | undefined)?.focus();
+  };
+
+  return (
+    <div
+      ref={groupRef}
+      role="radiogroup"
+      aria-label={ariaLabel || 'Status'}
+      onKeyDown={handleKeyDown}
+      onClick={(e) => e.stopPropagation()}
+      className={`inline-flex shrink-0 overflow-hidden rounded-lg border shadow-sm ${
+        pending
+          ? 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-500/50'
+          : 'border-slate-300 dark:border-white/15'
+      }`}
+    >
+      {STATUS_SEGMENTS.map((seg, i) => {
+        const isActive = current === seg.key;
+        return (
+          <button
+            key={seg.key}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            aria-label={seg.title}
+            title={seg.title}
+            tabIndex={isActive ? 0 : -1}
+            disabled={disabled}
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(seg.key);
+            }}
+            className={`flex items-center justify-center font-bold uppercase tracking-wider transition-all duration-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${dims} ${
+              i > 0 ? 'border-l border-slate-200 dark:border-white/10' : ''
+            } ${
+              isActive
+                ? getTemporalStateStyle(seg.key)
+                : 'bg-transparent text-slate-400 hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-slate-700/50'
+            }`}
+          >
+            {seg.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 const getInvertedBadgeStyle = (state: TemporalState | 'none') => {
   switch (state) {

@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { getTemporalStateStyle } from './FieldStatusAtoms';
+import { StatusSegments } from './FieldStatusAtoms';
 import type { Unit, StatusLog, PendingChange, TemporalState, Milestone } from '@/types/domain';
 
 export interface StatusTriggerProps {
@@ -32,7 +32,7 @@ export default function StatusTrigger({
   const currentMilestone = pendingChange?.extraProps?.milestoneObj?.name || log?.milestone || '';
 
   return (
-    <div className="flex flex-col sm:flex-row gap-2 w-full">
+    <div className="flex flex-col gap-2 w-full">
       <button
         type="button"
         onClick={(e) => {
@@ -42,7 +42,7 @@ export default function StatusTrigger({
           );
         }}
         disabled={savingUnitId === unit.id || isApplying}
-        className={`w-full sm:flex-1 text-left rounded-xl border ${
+        className={`w-full text-left rounded-xl border ${
           pendingChange?.extraProps?.milestoneObj
             ? 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-500/20'
             : 'border-slate-200/80 dark:border-white/10'
@@ -52,25 +52,14 @@ export default function StatusTrigger({
       </button>
 
       {currentMilestone && (
-        <select
-          value={log?.temporal_state || 'completed'}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation();
-            onLocalUpdate(unit, baseLog, e.target.value as TemporalState);
-          }}
+        <StatusSegments
+          value={(log?.temporal_state as TemporalState) || 'none'}
+          onChange={(s) => onLocalUpdate(unit, baseLog, s as TemporalState)}
           disabled={savingUnitId === unit.id || isApplying}
-          className={`w-full sm:w-auto rounded-lg border ${
-            pendingChange?.state && pendingChange.state !== baseLog?.temporal_state
-              ? 'ring-2 ring-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
-              : ''
-          } px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer ${large ? 'py-2.5 text-xs' : ''} ${getTemporalStateStyle((log?.temporal_state as TemporalState) || 'none')}`}
-        >
-          <option value="none">Not Set (Choose status)</option>
-          <option value="planned">Planned</option>
-          <option value="ongoing">Ongoing</option>
-          <option value="completed">Completed</option>
-        </select>
+          pending={!!pendingChange && pendingChange.state !== baseLog?.temporal_state}
+          size={large ? 'lg' : 'sm'}
+          ariaLabel={`Status for ${currentMilestone}`}
+        />
       )}
     </div>
   );
