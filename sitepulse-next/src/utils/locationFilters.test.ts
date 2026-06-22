@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Unit, StatusLog } from '@/types/domain';
+import type { ApplicabilityIndex } from '@/utils/applicability';
 import {
   emptyFilters,
   isEmptyFilters,
@@ -8,6 +9,7 @@ import {
   matchesFilters,
   filterLocations,
   selectAllMatchingIds,
+  pivotRowsToMilestone,
   UNASSIGNED,
   type LocationRow,
   type ManageFilters,
@@ -110,6 +112,61 @@ describe('filterLocations / selectAllMatchingIds', () => {
   });
   it('select-all-matching across the not_started + unassigned cohort', () => {
     expect(selectAllMatchingIds(ROWS, withFilter({ states: ['not_started'], assignees: [UNASSIGNED] }))).toEqual(['4']);
+  });
+});
+
+describe('pivotRowsToMilestone — milestone focus / "where does everyone stand on X?"', () => {
+  const DRYWALL = { id: 'm-dry', name: 'Drywall', color: '#abc123' };
+
+  // Three locations, each currently bottlenecked at a *different* milestone.
+  const PIVOT_ROWS: LocationRow[] = [
+    row({ id: '1', unit_number: '204', unit_type: 'Apartment' }, { milestone: 'Carpet', temporal_state: 'ongoing' }, true),
+    row({ id: '2', unit_number: '205', unit_type: 'Apartment' }, { milestone: 'Final', temporal_state: 'completed' }),
+    row({ id: '3', unit_number: 'Lobby', unit_type: 'Common' }, null),
+  ];
+
+  it('rebinds every location to the chosen milestone current-state log (no rows hidden by bottleneck)', () => {
+    const byUnit = new Map<string, StatusLog>([
+      ['1', log({ unit_id: '1', milestone: 'Drywall', temporal_state: 'completed' })],
+      ['2', log({ unit_id: '2', milestone: 'Drywall', temporal_state: 'planned' })],
+    ]);
+    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, byUnit, 'production');
+    expect(out.map((r) => r.unit.id)).toEqual(['1', '2', '3']);
+    expect(out.map((r) => r.log?.milestone)).toEqual(['Drywall', 'Drywall', 'Drywall']);
+    expect(out.map((r) => r.log?.temporal_state)).toEqual(['completed', 'planned', 'none']);
+  });
+
+  it('synthesizes a not-started log carrying the milestone meta when a location has no row yet', () => {
+    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production');
+    expect(out.find((r) => r.unit.id === '3')!.log).toMatchObject({
+      unit_id: '3',
+      milestone: 'Drywall',
+      status_color: '#abc123',
+      track: 'production',
+      temporal_state: 'none',
+    });
+  });
+
+  it('preserves the per-location behind-schedule flag from the bottleneck row', () => {
+    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production');
+    expect(out.find((r) => r.unit.id === '1')!.isBehind).toBe(true);
+    expect(out.find((r) => r.unit.id === '2')!.isBehind).toBeFalsy();
+  });
+
+  it('drops locations for which the milestone is Not Applicable (per-unit override)', () => {
+    const index: ApplicabilityIndex = { rules: {}, overrides: { 'm-dry_3': false } };
+    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production', index);
+    expect(out.map((r) => r.unit.id)).toEqual(['1', '2']); // Lobby dropped
+  });
+
+  it('honours type rules — a milestone scoped to Apartment excludes Common locations', () => {
+    const index: ApplicabilityIndex = { rules: { 'm-dry': ['Apartment'] }, overrides: {} };
+    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production', index);
+    expect(out.map((r) => r.unit.id)).toEqual(['1', '2']); // Common 'Lobby' excluded
+  });
+
+  it('keeps every location when no applicability index is supplied', () => {
+    expect(pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production', null)).toHaveLength(3);
   });
 });
 

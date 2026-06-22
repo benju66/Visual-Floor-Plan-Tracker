@@ -15,7 +15,7 @@ import dynamic from 'next/dynamic';
 import ManageToolbar from './manage/ManageToolbar';
 import BulkStatusBar, { CURRENT_MILESTONE, type BulkApplyArgs } from './manage/BulkStatusBar';
 import RenameLocationModal from './manage/RenameLocationModal';
-import { filterLocations, type LocationRow } from '@/utils/locationFilters';
+import { filterLocations, pivotRowsToMilestone, type LocationRow } from '@/utils/locationFilters';
 import { buildBulkStatusChanges } from '@/utils/bulkStatus';
 import { deriveBottleneckStatuses } from '@/utils/bottleneck';
 import type { Sheet, Unit, Milestone, TemporalState, PendingChangesMap, StatusLog, ProjectType } from '@/types/domain';
@@ -128,6 +128,7 @@ export default function FieldStatusTable({
     projectUnitTypes,
     hasRehydrated,
     currentMilestones,
+    ranked,
     visible,
     sortColumn,
     sortDirection,
@@ -147,17 +148,58 @@ export default function FieldStatusTable({
     handleApplyAll,
   } = useFieldData({ activeStatuses: effectiveActiveStatuses, onApplyPendingChanges, unitsOverride });
 
-  // --- Manage workspace: layer the rich filters over the base (sorted, globally-filtered) list ---
-  const rows: LocationRow[] = useMemo(
+  // --- Milestone focus (pivot) ---
+  // Picking a milestone in the toolbar no longer hides rows by their *current* (bottleneck)
+  // milestone. Instead the table pivots EVERY applicable location to that one milestone's status
+  // — answering "where does everyone stand on <milestone>?". Each row's `log` is swapped to the
+  // chosen milestone's current-state row (or a synthetic "not started" log when none exists yet),
+  // so the inline status control, date cells, the N/A toggle, and the edit/commit path all follow
+  // automatically. Locations for which the milestone is Not Applicable are dropped — it isn't part
+  // of their scope. The state-facet chips then apply to the chosen milestone, not the bottleneck.
+  const focusedMilestone = useMemo(
+    () => (filters.milestones[0] ? currentMilestones.find((m) => m.name === filters.milestones[0]) ?? null : null),
+    [filters.milestones, currentMilestones]
+  );
+
+  // unit_id → that unit's existing current-state row for the focused milestone, on the active track.
+  const focusedLogByUnit = useMemo(() => {
+    if (!focusedMilestone) return null;
+    const map = new Map<string, StatusLog>();
+    for (const log of effectiveRawStatuses as StatusLog[]) {
+      if (log.milestone === focusedMilestone.name && log.track === trackingMode) map.set(log.unit_id as string, log);
+    }
+    return map;
+  }, [focusedMilestone, effectiveRawStatuses, trackingMode]);
+
+  // --- Manage workspace: layer the rich filters over the base (sorted) list ---
+  // Build from `ranked` (the full sorted list), NOT `visible` — `visible` has the Map view's
+  // milestone filter and the mobile type filter already applied, which would silently narrow
+  // this desktop table (and, in focus mode, drop the completed locations we want to show). The
+  // manage toolbar owns the desktop filters, so they are applied below via `filterLocations`.
+  const baseRows: LocationRow[] = useMemo(
     () =>
-      visible.map((r) => ({
+      ranked.map((r) => ({
         unit: r.unit,
         log: r.log as LocationRow['log'],
         isBehind: Array.isArray((r.log as any)?.outOfSequence) && (r.log as any).outOfSequence.length > 0,
       })),
-    [visible]
+    [ranked]
   );
-  const manageVisible = useMemo(() => filterLocations(rows, filters), [rows, filters]);
+  const rows: LocationRow[] = useMemo(
+    () =>
+      focusedMilestone
+        ? pivotRowsToMilestone(baseRows, focusedMilestone, focusedLogByUnit!, trackingMode, applicabilityIndex)
+        : baseRows,
+    [baseRows, focusedMilestone, focusedLogByUnit, trackingMode, applicabilityIndex]
+  );
+
+  // In focus mode every remapped row already carries the chosen milestone, so the milestone facet
+  // in `filterLocations` is a no-op — drop it so it can't re-filter the pivot. Other facets stand.
+  const manageFilters = useMemo(
+    () => (focusedMilestone ? { ...filters, milestones: [] } : filters),
+    [focusedMilestone, filters]
+  );
+  const manageVisible = useMemo(() => filterLocations(rows, manageFilters), [rows, manageFilters]);
 
   // --- Per-location management (rename / change type) via the existing field mutation ---
   const updateUnitFields = useUpdateUnitFields(activeSheetId);

@@ -1,4 +1,5 @@
-import type { Unit, StatusLog, TemporalState } from '@/types/domain';
+import type { Unit, StatusLog, TemporalState, Milestone } from '@/types/domain';
+import { isMilestoneApplicable, type ApplicabilityIndex } from '@/utils/applicability';
 
 /**
  * Pure filtering + selection logic for the Locations & Status management workspace.
@@ -106,4 +107,38 @@ export function filterLocations(rows: LocationRow[], f: ManageFilters): Location
 /** Unit ids of every row matching the filter set — backs the "select all matching" action. */
 export function selectAllMatchingIds(rows: LocationRow[], f: ManageFilters): string[] {
   return filterLocations(rows, f).map((r) => r.unit.id);
+}
+
+/**
+ * Pivot a base row list onto a single milestone ("focus mode").
+ *
+ * Instead of hiding rows whose *current* (bottleneck) milestone differs, every applicable
+ * location is rebound to the chosen milestone's current-state log — or a synthetic "not started"
+ * log when that location has no row for it yet — so the table answers "where does everyone stand
+ * on <milestone>?". Locations for which the milestone is Not Applicable are dropped (it isn't part
+ * of their scope). `isBehind` is preserved from the bottleneck row: it stays a per-location signal.
+ *
+ * The synthetic log carries the four fields the inline status control + commit path read
+ * (`unit_id`, `milestone`, `status_color`, `track`) so editing a not-started cell creates the row.
+ */
+export function pivotRowsToMilestone(
+  rows: LocationRow[],
+  milestone: Pick<Milestone, 'id' | 'name' | 'color'>,
+  logByUnit: Map<string, StatusLog>,
+  track: string,
+  applicabilityIndex?: ApplicabilityIndex | null
+): LocationRow[] {
+  const out: LocationRow[] = [];
+  for (const r of rows) {
+    if (applicabilityIndex && !isMilestoneApplicable(milestone, r.unit, applicabilityIndex)) continue;
+    const log = (logByUnit.get(r.unit.id) ?? {
+      unit_id: r.unit.id,
+      milestone: milestone.name,
+      status_color: milestone.color ?? '',
+      track,
+      temporal_state: 'none',
+    }) as unknown as LocationRow['log'];
+    out.push({ unit: r.unit, log, isBehind: r.isBehind });
+  }
+  return out;
 }
