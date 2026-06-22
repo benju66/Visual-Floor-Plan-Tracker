@@ -201,6 +201,13 @@ export default function StatusTable({
           {visible.map(({ unit, log }, index) => {
             const pending = pendingChanges[unit.id];
             const dLog = pending ? { ...log, temporal_state: pending.state } : log;
+            // The location's active/current milestone is shown inline in this row (it is skipped
+            // in the expanded child list below), so its N/A toggle has to live here too — otherwise
+            // the current task is the one milestone that can never be marked Not Applicable from
+            // the table. Resolve the milestone object so onToggleApplicability gets its id.
+            const activeMilestone = log?.milestone
+              ? currentMilestones?.find((m) => m.name === log.milestone)
+              : null;
 
             return (
               <React.Fragment key={unit.id}>
@@ -252,16 +259,32 @@ export default function StatusTable({
                   </div>
                 </td>
                 <td className="px-5 py-2 align-middle">
-                  <StatusTrigger
-                    unit={unit}
-                    baseLog={dLog}
-                    pendingChange={pending}
-                    onChooseStatus={onChooseStatus}
-                    onLocalUpdate={handleLocalUpdate}
-                    isApplying={isApplying}
-                    savingUnitId={savingUnitId}
-                    large={false}
-                  />
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <StatusTrigger
+                        unit={unit}
+                        baseLog={dLog}
+                        pendingChange={pending}
+                        onChooseStatus={onChooseStatus}
+                        onLocalUpdate={handleLocalUpdate}
+                        isApplying={isApplying}
+                        savingUnitId={savingUnitId}
+                        large={false}
+                      />
+                    </div>
+                    {onToggleApplicability && activeMilestone && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activeMilestone, false, dLog?.temporal_state); }}
+                        disabled={savingUnitId === unit.id || isApplying}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                        title="Mark current milestone Not Applicable for this location"
+                        aria-label={`Mark ${log.milestone} not applicable for this location`}
+                      >
+                        <Ban size={14} />
+                      </button>
+                    )}
+                  </div>
                 </td>
                 <td className="px-5 py-2 align-middle">
                   {log ? (
