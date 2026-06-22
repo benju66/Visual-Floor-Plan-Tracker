@@ -319,7 +319,20 @@ export function useMapActions(project: Project | null | undefined) {
     extraProps: any = {}
   ) => {
     setSavingUnitId(unit.id);
-    const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
+    const activeSheetStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
+    // In all-levels editing the unit may live on a different sheet than the active one, so its
+    // prior logs aren't in the active-sheet cache. Fall back to the cross-sheet cache for this
+    // unit so undo (oldStatus) and the auto-advance gap check see its real history. Same-sheet
+    // edits keep using the active-sheet cache unchanged.
+    const activeStatuses = activeSheetStatuses.some(s => s.unit_id === unit.id)
+      ? activeSheetStatuses
+      : [
+          ...activeSheetStatuses,
+          ...queryClient
+            .getQueriesData<StatusLog[]>({ queryKey: ['all_project_statuses'] })
+            .flatMap(([, d]) => d ?? [])
+            .filter(s => s.unit_id === unit.id),
+        ];
     const milestones = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project?.id as string)) || [];
     const sheets = queryClient.getQueryData<Sheet[]>(queryKeys.sheets(project?.id as string)) || [];
     const activeSheet = sheets.find(s => s.id === activeSheetId);

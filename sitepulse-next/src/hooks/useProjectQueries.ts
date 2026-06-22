@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 import { extractVectorsService } from '@/services/api';
+import { paginateAll } from '@/utils/pagination';
 import { queryKeys } from '@/types/queryKeys';
 import type {
   Project, Sheet, Unit, Milestone, StatusLog, Profile, ProjectMember,
@@ -267,18 +268,48 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
     queryKey: queryKeys.statuses(sheetId, validUnitIds),
     queryFn: async (): Promise<StatusLog[]> => {
       if (!sheetId || validUnitIds.length === 0) return [];
-      
-      const { data, error } = await supabase.from('status_logs').select('*').in('unit_id', validUnitIds);
-
-      if (error) throw error;
-      
-      // With the slot-unique constraint (unit_id, track, milestone), the DB guarantees
-      // one row per slot. No client-side deduplication needed.
-      return data as StatusLog[];
+      // Paginate: a single dense sheet (units × milestones) can exceed PostgREST's
+      // 1000-row cap, which would otherwise truncate logs and show stale statuses.
+      // The slot-unique constraint (unit_id, track, milestone) means no dedup needed.
+      return fetchAllIn<StatusLog>('status_logs', 'unit_id', validUnitIds);
     },
     enabled: !!sheetId && validUnitIds.length > 0,
     placeholderData: keepPreviousData
   });
+}
+
+/**
+ * Fetch every row of `table` whose `column` is in `values`, defeating PostgREST's
+ * per-request row cap (1000 by default) AND its request-URL length limit.
+ *
+ * The id list is sliced into chunks (so the `.in(...)` URL stays well under header
+ * limits), and each chunk is paged with `.range()` under a stable `.order('id')`
+ * until exhausted. Without this, the all-levels views silently truncate once a
+ * project exceeds 1000 status rows — completed milestones beyond the cap read back
+ * as "not started" (see paginateAll). Used only for the cross-sheet aggregations.
+ */
+async function fetchAllIn<T>(
+  table: 'status_logs' | 'units',
+  column: 'unit_id' | 'sheet_id',
+  values: string[]
+): Promise<T[]> {
+  const ID_CHUNK = 200; // keep each .in(...) URL comfortably under the ~8KB header limit
+  const out: T[] = [];
+  for (let i = 0; i < values.length; i += ID_CHUNK) {
+    const slice = values.slice(i, i + ID_CHUNK);
+    const rows = await paginateAll<T>(async (from, size) => {
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .in(column, slice)
+        .order('id', { ascending: true })
+        .range(from, from + size - 1);
+      if (error) throw error;
+      return (data ?? []) as unknown as T[];
+    });
+    out.push(...rows);
+  }
+  return out;
 }
 
 export function useAllProjectUnits(sheetIds: string[]) {
@@ -286,9 +317,7 @@ export function useAllProjectUnits(sheetIds: string[]) {
     queryKey: queryKeys.allProjectUnits(sheetIds),
     queryFn: async (): Promise<Unit[]> => {
       if (!sheetIds || sheetIds.length === 0) return [];
-      const { data, error } = await supabase.from('units').select('*').in('sheet_id', sheetIds);
-      if (error) throw error;
-      return data as unknown as Unit[];
+      return fetchAllIn<Unit>('units', 'sheet_id', sheetIds);
     },
     enabled: !!sheetIds && sheetIds.length > 0
   });
@@ -300,13 +329,9 @@ export function useAllProjectStatuses(unitIds: string[]) {
     queryKey: queryKeys.allProjectStatuses(validUnitIds),
     queryFn: async (): Promise<StatusLog[]> => {
       if (validUnitIds.length === 0) return [];
-      
-      const { data, error } = await supabase.from('status_logs').select('*').in('unit_id', validUnitIds);
-      if (error) throw error;
-      
       // With the slot-unique constraint (unit_id, track, milestone), the DB guarantees
-      // one row per slot. No client-side deduplication needed.
-      return data as StatusLog[];
+      // one row per slot, so paginated chunks never overlap. No dedup needed.
+      return fetchAllIn<StatusLog>('status_logs', 'unit_id', validUnitIds);
     },
     enabled: validUnitIds.length > 0,
     placeholderData: keepPreviousData
