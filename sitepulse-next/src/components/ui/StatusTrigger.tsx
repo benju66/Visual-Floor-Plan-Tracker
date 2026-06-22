@@ -12,6 +12,8 @@ export interface StatusTriggerProps {
   isApplying?: boolean;
   savingUnitId?: string | null;
   large?: boolean;
+  /** Control rendered inline to the right of the status segments (e.g. the N/A toggle). */
+  statusTrailing?: React.ReactNode;
 }
 
 /**
@@ -27,6 +29,7 @@ export default function StatusTrigger({
   isApplying = false,
   savingUnitId = null,
   large = false,
+  statusTrailing,
 }: StatusTriggerProps) {
   const log = pendingChange ? { ...baseLog, temporal_state: pendingChange.state } : baseLog;
   const currentMilestone = pendingChange?.extraProps?.milestoneObj?.name || log?.milestone || '';
@@ -52,14 +55,17 @@ export default function StatusTrigger({
       </button>
 
       {currentMilestone && (
-        <StatusSegments
-          value={(log?.temporal_state as TemporalState) || 'none'}
-          onChange={(s) => onLocalUpdate(unit, baseLog, s as TemporalState)}
-          disabled={savingUnitId === unit.id || isApplying}
-          pending={!!pendingChange && pendingChange.state !== baseLog?.temporal_state}
-          size={large ? 'lg' : 'sm'}
-          ariaLabel={`Status for ${currentMilestone}`}
-        />
+        <div className="flex items-center gap-2">
+          <StatusSegments
+            value={(log?.temporal_state as TemporalState) || 'none'}
+            onChange={(s) => onLocalUpdate(unit, baseLog, s as TemporalState)}
+            disabled={savingUnitId === unit.id || isApplying}
+            pending={!!pendingChange && pendingChange.state !== baseLog?.temporal_state}
+            size={large ? 'lg' : 'sm'}
+            ariaLabel={`Status for ${currentMilestone}`}
+          />
+          {statusTrailing}
+        </div>
       )}
     </div>
   );

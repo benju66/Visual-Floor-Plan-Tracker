@@ -259,32 +259,30 @@ export default function StatusTable({
                   </div>
                 </td>
                 <td className="px-5 py-2 align-middle">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <StatusTrigger
-                        unit={unit}
-                        baseLog={dLog}
-                        pendingChange={pending}
-                        onChooseStatus={onChooseStatus}
-                        onLocalUpdate={handleLocalUpdate}
-                        isApplying={isApplying}
-                        savingUnitId={savingUnitId}
-                        large={false}
-                      />
-                    </div>
-                    {onToggleApplicability && activeMilestone && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activeMilestone, false, dLog?.temporal_state); }}
-                        disabled={savingUnitId === unit.id || isApplying}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                        title="Mark current milestone Not Applicable for this location"
-                        aria-label={`Mark ${log.milestone} not applicable for this location`}
-                      >
-                        <Ban size={14} />
-                      </button>
-                    )}
-                  </div>
+                  <StatusTrigger
+                    unit={unit}
+                    baseLog={dLog}
+                    pendingChange={pending}
+                    onChooseStatus={onChooseStatus}
+                    onLocalUpdate={handleLocalUpdate}
+                    isApplying={isApplying}
+                    savingUnitId={savingUnitId}
+                    large={false}
+                    statusTrailing={
+                      onToggleApplicability && activeMilestone ? (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activeMilestone, false, dLog?.temporal_state); }}
+                          disabled={savingUnitId === unit.id || isApplying}
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                          title="Mark current milestone Not Applicable for this location"
+                          aria-label={`Mark ${log.milestone} not applicable for this location`}
+                        >
+                          <Ban size={14} />
+                        </button>
+                      ) : null
+                    }
+                  />
                 </td>
                 <td className="px-5 py-2 align-middle">
                   {log ? (
@@ -398,25 +396,28 @@ export default function StatusTable({
                       </td>
                       <td className="px-5 py-2"></td>
                       <td className="px-5 py-2 align-middle">
-                        <span className={`inline-block rounded-lg border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider italic ${getTemporalStateStyle('none')}`}>
-                          N/A
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-block rounded-lg border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider italic ${getTemporalStateStyle('none')}`}>
+                            N/A
+                          </span>
+                          {onToggleApplicability && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, milestone, true); }}
+                              disabled={savingUnitId === unit.id || isApplying}
+                              className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                              title="Restore — mark this milestone applicable for this location"
+                              aria-label={`Restore ${milestone.name} for this location`}
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-2 align-middle"><span className="text-slate-400 text-xs italic">—</span></td>
                       <td className="px-5 py-2 align-middle"><span className="text-slate-400 text-xs italic">—</span></td>
                       <td className="px-5 py-3 text-xs text-right align-middle"><span className="text-slate-400 italic">—</span></td>
-                      <td className="px-5 py-3 align-middle text-right">
-                        {onToggleApplicability && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, milestone, true); }}
-                            className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors cursor-pointer"
-                            title="Restore — mark this milestone applicable for this location"
-                          >
-                            <RotateCcw size={14} />
-                          </button>
-                        )}
-                      </td>
+                      <td className="px-5 py-3 align-middle text-right"></td>
                     </tr>
                   );
                 }
@@ -442,14 +443,28 @@ export default function StatusTable({
                     </td>
                     <td className="px-5 py-2"></td>
                     <td className="px-5 py-2 align-middle">
-                      <StatusSegments
-                        value={dChildLog.temporal_state || 'none'}
-                        onChange={(s) => handleTimelineUpdate(unit, childLog, s, { milestoneObj: milestone })}
-                        disabled={savingUnitId === unit.id || isApplying}
-                        pending={!!(childPending?.state && childPending.state !== childLog.temporal_state)}
-                        ariaLabel={`Status for ${milestone.name}`}
-                        size="sm"
-                      />
+                      <div className="flex items-center gap-2">
+                        <StatusSegments
+                          value={dChildLog.temporal_state || 'none'}
+                          onChange={(s) => handleTimelineUpdate(unit, childLog, s, { milestoneObj: milestone })}
+                          disabled={savingUnitId === unit.id || isApplying}
+                          pending={!!(childPending?.state && childPending.state !== childLog.temporal_state)}
+                          ariaLabel={`Status for ${milestone.name}`}
+                          size="sm"
+                        />
+                        {onToggleApplicability && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, milestone, false, dChildLog.temporal_state); }}
+                            disabled={savingUnitId === unit.id || isApplying}
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                            title="Mark Not Applicable for this location"
+                            aria-label={`Mark ${milestone.name} not applicable for this location`}
+                          >
+                            <Ban size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-2 align-middle">
                       {childLog ? (
@@ -536,18 +551,7 @@ export default function StatusTable({
                         <span className="text-slate-400 text-xs italic">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 align-middle text-right">
-                      {onToggleApplicability && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, milestone, false, dChildLog.temporal_state); }}
-                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer"
-                          title="Mark Not Applicable for this location"
-                        >
-                          <Ban size={14} />
-                        </button>
-                      )}
-                    </td>
+                    <td className="px-5 py-3 align-middle text-right"></td>
                   </tr>
                 );
               })}
