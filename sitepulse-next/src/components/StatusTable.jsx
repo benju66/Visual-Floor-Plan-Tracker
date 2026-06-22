@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegments } from '@/components/ui/FieldStatusAtoms';
@@ -72,6 +72,21 @@ export default function StatusTable({
     setExpandedUnitIds(new Set());
   }, [currentMilestones]);
 
+  // Measure the sticky header so an expanded location's row can pin flush
+  // *underneath* it (top: headerH), not behind it. Measured (not hardcoded) so
+  // it stays correct across font-size / browser-zoom changes.
+  const theadRef = useRef(null);
+  const [headerH, setHeaderH] = useState(0);
+  useLayoutEffect(() => {
+    const el = theadRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setHeaderH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const logMap = React.useMemo(() => {
     const map = new Map();
     if (rawStatuses) {
@@ -143,7 +158,7 @@ export default function StatusTable({
     <>
       <div className="w-full h-full overflow-auto rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/15 shadow-sm relative">
       <table className="w-full text-left border-collapse text-sm text-slate-800 dark:text-slate-200 relative">
-        <thead className="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-slate-300 dark:after:border-white/10">
+        <thead ref={theadRef} className="sticky top-0 z-20 bg-white dark:bg-slate-900 shadow-sm after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-slate-300 dark:after:border-white/10">
           <tr>
             <th className="px-5 py-3 w-10">
               <input
@@ -197,8 +212,7 @@ export default function StatusTable({
             <th className="px-5 py-3 w-10" />
           </tr>
         </thead>
-        <tbody>
-          {visible.map(({ unit, log }, index) => {
+        {visible.map(({ unit, log }, index) => {
             const pending = pendingChanges[unit.id];
             const dLog = pending ? { ...log, temporal_state: pending.state } : log;
             // The location's active/current milestone is shown inline in this row (it is skipped
@@ -208,13 +222,25 @@ export default function StatusTable({
             const activeMilestone = log?.milestone
               ? currentMilestones?.find((m) => m.name === log.milestone)
               : null;
+            const isExpanded = expandedUnitIds.has(unit.id);
+            const isSelected = selectedUnitIds.includes(unit.id);
 
             return (
-              <React.Fragment key={unit.id}>
+              // Each location is its own <tbody> so an expanded row's sticky pin is
+              // bounded to *its* milestone group — it releases the moment the group
+              // scrolls past, and the next location takes over.
+              <tbody key={unit.id}>
               <tr
                 onClick={(e) => handleRowClick(e, unit.id, index)}
-                className={`border-b border-slate-200 dark:border-white/5 last:border-none hover:bg-slate-50 dark:hover:bg-white/10 transition-colors cursor-pointer ${
-                  selectedUnitIds.includes(unit.id) ? 'bg-purple-50 dark:bg-purple-900/10' : ''
+                style={isExpanded ? { top: headerH } : undefined}
+                className={`border-b border-slate-200 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors cursor-pointer ${
+                  isExpanded
+                    ? `sticky z-10 shadow-[0_2px_4px_-2px_rgba(0,0,0,0.18)] ${
+                        isSelected ? 'bg-purple-50 dark:bg-purple-950' : 'bg-white dark:bg-slate-900'
+                      }`
+                    : isSelected
+                      ? 'bg-purple-50 dark:bg-purple-900/10'
+                      : ''
                 }`}
               >
                 <td className="px-5 py-3 align-middle text-center">
@@ -386,7 +412,7 @@ export default function StatusTable({
                 const notApplicable = applicabilityIndex && !isMilestoneApplicable(milestone, unit, applicabilityIndex);
                 if (notApplicable) {
                   return (
-                    <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 last:border-none opacity-60">
+                    <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 opacity-60">
                       <td className="px-5 py-2"></td>
                       <td className="px-5 py-2 text-sm font-medium text-slate-500 dark:text-slate-400 align-middle pl-10">
                         <div className="flex items-center gap-2 italic">
@@ -433,7 +459,7 @@ export default function StatusTable({
                 const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
 
                 return (
-                  <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 last:border-none">
+                  <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
                     <td className="px-5 py-2"></td>
                     <td className="px-5 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 align-middle pl-10">
                       <div className="flex items-center gap-2">
@@ -555,10 +581,9 @@ export default function StatusTable({
                   </tr>
                 );
               })}
-              </React.Fragment>
+              </tbody>
             );
           })}
-        </tbody>
       </table>
       </div>
 

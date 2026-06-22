@@ -194,7 +194,11 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }: Bot
 
   return (
     <div
-      className="relative flex items-center justify-center p-3 -m-3 z-[100]"
+      // No z-index here on purpose: the wrapper must stay below the table's
+      // sticky header (z-20) so the always-pulsing dot can't poke through/over
+      // it while a row scrolls under. The hover tooltip and mobile popup below
+      // keep their own z-[100] to float above sibling rows.
+      className="relative flex items-center justify-center p-3 -m-3"
       onMouseEnter={() => setIsOpen(true)}
       onMouseLeave={() => setIsOpen(false)}
     >
