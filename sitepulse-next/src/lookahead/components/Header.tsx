@@ -23,7 +23,13 @@ export default function Header() {
   const inProject = useSession((s) => !!s.currentProjectId);
   const saving = useSession((s) => s.saving);
   const backToDashboard = useSession((s) => s.backToDashboard);
+  const embedded = useSession((s) => s.embedded);
+  // DELIBERATE SitePulse edit (Phase 0b): the saving indicator shows whenever a
+  // cloud project is open, but the "← Projects" back button is suppressed while
+  // embedded — SitePulse's TopHeader owns navigation, so this Header's own back
+  // nav would be a dead end.
   const showCloudNav = cloud && inProject;
+  const showBack = showCloudNav && !embedded;
 
   const t = getTokens(theme);
   const ac = getAccent(ACCENT, theme);
@@ -75,7 +81,7 @@ export default function Header() {
   return (
     <div className="no-print" style={headerBarStyle}>
       <div style={brandWrapStyle}>
-        {showCloudNav && (
+        {showBack && (
           <button onClick={() => backToDashboard()} style={backBtnStyle} title="Back to projects">
             <ArrowLeft size={14} /> Projects
           </button>

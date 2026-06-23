@@ -22,6 +22,13 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 interface LookaheadSessionState {
   /** SitePulse is always cloud-backed (there is no local-only mode here). */
   cloud: boolean;
+  /**
+   * True when Look-Ahead runs *inside* SitePulse (always, here). SitePulse owns
+   * top-level navigation via `TopHeader`, so the vendored `Header.tsx` suppresses
+   * its own "← Projects" back button when embedded — but keeps the Saving…/Saved
+   * indicator. (Phase 0b: the one deliberate gate split in the vendored Header.)
+   */
+  embedded: boolean;
   /** The active SitePulse project whose plan is open; null until a workspace mounts (0b). */
   currentProjectId: string | null;
   saving: SaveStatus;
@@ -41,6 +48,7 @@ interface LookaheadSessionState {
 
 export const useSession = create<LookaheadSessionState>((set, get) => ({
   cloud: true,
+  embedded: true,
   currentProjectId: null,
   saving: "idle",
 

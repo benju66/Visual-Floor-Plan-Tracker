@@ -4,6 +4,7 @@ import { Settings, FolderEdit, Trash2, Pencil, X, GripVertical } from 'lucide-re
 import FloorplanCanvas from '@/components/FloorplanCanvas';
 import FieldStatusTable from '@/components/FieldStatusTable';
 import ScheduleWorkspace from '@/components/schedule/ScheduleWorkspace';
+import LookaheadWorkspace from '@/lookahead/LookaheadWorkspace';
 import BulkActionDock from '@/components/BulkActionDock';
 import MilestoneCommandMenu from '@/components/MilestoneCommandMenu';
 import SettingsMenu from '@/components/SettingsMenu';
@@ -537,6 +538,10 @@ function App() {
               sheets={sheets}
               activeSheetId={activeSheetId}
             />
+          </div>
+        ) : viewMode === 'lookahead' ? (
+          <div className="h-full min-h-0 overflow-auto">
+            <LookaheadWorkspace projectId={projectId} />
           </div>
         ) : (
           <div className="h-full flex flex-col lg:flex-row items-stretch min-h-0">

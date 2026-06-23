@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, FolderEdit, RefreshCw, Folders, Plus, Download, LayoutDashboard, Map as MapIcon, List, GanttChartSquare, Home, ChevronDown } from 'lucide-react';
+import { Settings, FolderEdit, RefreshCw, Folders, Plus, Download, LayoutDashboard, Map as MapIcon, List, GanttChartSquare, CalendarRange, Home, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { useIsFetching } from '@tanstack/react-query';
 import { useCurrentUserRole } from '@/hooks/useProjectQueries';
@@ -174,6 +174,15 @@ function TopHeader({
               }`}
           >
             <MapIcon size={16} />
+          </button>
+          <button
+            type="button"
+            title="Look-Ahead View"
+            onClick={() => { setViewMode('lookahead'); setToolMode('pan'); }}
+            className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'lookahead' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
+          >
+            <CalendarRange size={16} />
           </button>
         </div>
 
