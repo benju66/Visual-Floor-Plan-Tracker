@@ -27,6 +27,13 @@ export type Profile    = Database['public']['Tables']['profiles']['Row'];
 export type ProjectMember = Database['public']['Tables']['project_members']['Row'];
 export type StatusAuditLog = Database['public']['Tables']['status_audit_log']['Row'];
 export type MilestoneOverride = Database['public']['Tables']['milestone_applicability_overrides']['Row'];
+// Look-Ahead Schedule plan (1:1 with a project). `doc` is the vendored module's
+// `ProjectBlob`, stored opaquely as JSONB — keep it `Json` here and narrow it to
+// `ProjectBlob` at the query boundary with `isProjectBlob` (src/lookahead/isProjectBlob.ts),
+// never let `Json` reach component props (AGENTS.md §6). The blob's shape is owned
+// by the vendored Look-Ahead module, not this central registry.
+export type LookaheadPlan = Database['public']['Tables']['lookahead_plans']['Row'];
+export type LookaheadPlanInsert = Database['public']['Tables']['lookahead_plans']['Insert'];
 
 export type StatusLogInsert = Database['public']['Tables']['status_logs']['Insert'];
 export type UnitInsert      = Database['public']['Tables']['units']['Insert'];
