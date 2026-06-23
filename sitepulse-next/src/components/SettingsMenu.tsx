@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar, User, Users, Shield, Contact, Building2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useUpdateMilestoneRules, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, type ProjectContactFields } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useUpdateMilestoneRules, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, useImportProjectContacts, type ProjectContactFields } from '@/hooks/useProjectQueries';
+import { parseProcoreDirectoryCsv } from '@/utils/procoreDirectoryCsv';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
@@ -175,6 +176,175 @@ function ContactFormFields({ form, setForm }: ContactFormFieldsProps) {
   );
 }
 
+// ---- Bulk import from a Procore directory CSV export (Phase 2) -------------
+// File-upload OR paste → pure parse (src/utils/procoreDirectoryCsv.ts) →
+// preview the count → confirm → chunked upsert (de-dupes on the table's
+// UNIQUE(project_id, email), so re-importing the same file doesn't duplicate
+// people who have an email). Rendered only when `canEdit`.
+function ImportContactsControl({ projectId }: { projectId: string }) {
+  const importContacts = useImportProjectContacts(projectId);
+  const [open, setOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [parsed, setParsed] = useState<ProjectContactFields[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [importedCount, setImportedCount] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const preview = (text: string, sourceLabel: string) => {
+    setError(null);
+    setImportedCount(null);
+    try {
+      const contacts = parseProcoreDirectoryCsv(text);
+      if (contacts.length === 0) {
+        setParsed(null);
+        setError(`No contacts found in ${sourceLabel}. Make sure it's a Procore project-directory CSV export with a Company column.`);
+        return;
+      }
+      setParsed(contacts);
+    } catch {
+      setParsed(null);
+      setError(`Could not read ${sourceLabel}.`);
+    }
+  };
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setPasteText('');
+    try {
+      const text = await file.text();
+      preview(text, `“${file.name}”`);
+    } catch {
+      setParsed(null);
+      setError(`Could not read “${file.name}”.`);
+    }
+  };
+
+  const reset = () => {
+    setParsed(null);
+    setPasteText('');
+    setError(null);
+    setImportedCount(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const confirmImport = () => {
+    if (!parsed) return;
+    importContacts.mutate(parsed, {
+      onSuccess: (count) => {
+        setImportedCount(count);
+        setParsed(null);
+        setPasteText('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      },
+      onError: (e: unknown) => {
+        setError(e instanceof Error ? e.message : 'Import failed. Please try again.');
+      }
+    });
+  };
+
+  const companyCount = parsed ? new Set(parsed.map(c => c.company)).size : 0;
+  const inputCls = 'bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500';
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full flex items-center justify-center gap-2 h-9 px-4 border border-dashed border-slate-300 dark:border-white/15 rounded-xl text-sm font-semibold text-slate-500 hover:text-sky-600 hover:border-sky-400 dark:hover:text-sky-300 transition-colors"
+      >
+        <Upload size={15} /> Import from Procore CSV
+      </button>
+    );
+  }
+
+  return (
+    <div className="bg-white/50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+          <Upload size={13} /> Import from Procore CSV
+        </div>
+        <button type="button" onClick={() => { setOpen(false); reset(); }} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors" title="Close">
+          <X size={15} />
+        </button>
+      </div>
+
+      <p className="text-xs text-slate-500 text-balance">
+        Export your project directory from Procore as CSV, then upload it (or paste its contents) below.
+        People are matched by email, so re-importing an updated file won't create duplicates.
+      </p>
+
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(e) => handleFile(e.target.files?.[0])}
+          className="hidden"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="h-9 px-4 bg-white dark:bg-white/5 border border-slate-300 dark:border-white/15 hover:border-sky-400 rounded-lg flex items-center justify-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+        >
+          <FileText size={15} /> Choose CSV file…
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+        <span className="h-px flex-1 bg-slate-200 dark:bg-white/10" /> or paste <span className="h-px flex-1 bg-slate-200 dark:bg-white/10" />
+      </div>
+
+      <textarea
+        value={pasteText}
+        onChange={(e) => setPasteText(e.target.value)}
+        placeholder="Paste the CSV contents here…"
+        rows={3}
+        className={`${inputCls} w-full font-mono text-xs resize-y`}
+      />
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => preview(pasteText, 'the pasted text')}
+          disabled={!pasteText.trim()}
+          className="h-8 px-3 text-sm font-semibold text-sky-600 dark:text-sky-300 hover:underline disabled:opacity-40 disabled:no-underline"
+        >
+          Preview pasted text
+        </button>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 rounded-lg p-2.5">
+          <AlertCircle size={15} className="shrink-0 mt-px" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {importedCount !== null && !error && (
+        <div className="text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 rounded-lg p-2.5">
+          Imported {importedCount} contact{importedCount === 1 ? '' : 's'}. They appear in the list below.
+        </div>
+      )}
+
+      {parsed && (
+        <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900/40 rounded-lg p-3 space-y-2">
+          <div className="text-sm text-slate-700 dark:text-slate-200">
+            Found <span className="font-bold">{parsed.length}</span> contact{parsed.length === 1 ? '' : 's'} across{' '}
+            <span className="font-bold">{companyCount}</span> compan{companyCount === 1 ? 'y' : 'ies'}.
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={reset} disabled={importContacts.isPending} className="h-8 px-3 text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-50">
+              Clear
+            </button>
+            <button type="button" onClick={confirmImport} disabled={importContacts.isPending} className="h-8 px-4 bg-sky-500 hover:bg-sky-600 text-white rounded-md text-sm font-bold transition-colors disabled:opacity-50 flex items-center gap-2">
+              <Upload size={14} /> {importContacts.isPending ? 'Importing…' : `Import ${parsed.length}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContactsManager({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const { data: contacts = [], isLoading } = useProjectContacts(projectId);
   const createContact = useCreateProjectContact(projectId);
@@ -246,6 +416,8 @@ function ContactsManager({ projectId, canEdit }: { projectId: string; canEdit: b
           </div>
         </div>
       )}
+
+      {canEdit && <ImportContactsControl projectId={projectId} />}
 
       {isLoading ? (
         <div className="text-center py-6 text-slate-500 text-sm">Loading contacts…</div>

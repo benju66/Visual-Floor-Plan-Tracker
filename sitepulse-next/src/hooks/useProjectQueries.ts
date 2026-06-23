@@ -260,6 +260,44 @@ export function useDeleteProjectContact(projectId: string) {
   });
 }
 
+// Bulk-import contacts (Phase 2 — Procore CSV). Upserts on the table's
+// UNIQUE(project_id, email) so re-importing the same file UPDATES people with an
+// email instead of duplicating them. NULL emails are distinct under that key, so
+// blank-email rows each insert as their own row (by design — see the plan).
+//
+// De-dupe within the payload first: a single `INSERT … ON CONFLICT` command
+// cannot touch the same (project_id, email) twice ("cannot affect row a second
+// time"), so two rows sharing a non-null email in one file are collapsed to the
+// last occurrence (the same end state the UNIQUE key would force anyway). The
+// chunked upsert mirrors the 800-row bulk-status pattern.
+export function useImportProjectContacts(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (contacts: ProjectContactFields[]): Promise<number> => {
+      // Collapse duplicate non-null emails (keep last); keep every null-email row.
+      const byEmail = new Map<string, ProjectContactFields>();
+      const noEmail: ProjectContactFields[] = [];
+      for (const c of contacts) {
+        const email = c.email?.trim();
+        if (email) byEmail.set(email.toLowerCase(), c);
+        else noEmail.push(c);
+      }
+      const deduped = [...byEmail.values(), ...noEmail];
+
+      const rows = deduped.map(c => ({ ...c, project_id: projectId }));
+      const CHUNK_SIZE = 800;
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const { error } = await supabase
+          .from('project_contacts')
+          .upsert(rows.slice(i, i + CHUNK_SIZE), { onConflict: 'project_id,email' });
+        if (error) throw error;
+      }
+      return rows.length;
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.projectContacts(projectId) })
+  });
+}
+
 export function useMilestoneOverrides(projectId: string) {
   return useQuery({
     queryKey: queryKeys.milestoneOverrides(projectId),
