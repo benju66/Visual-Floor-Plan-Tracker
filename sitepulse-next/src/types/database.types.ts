@@ -76,6 +76,58 @@ export interface Database {
           }
         ]
       }
+      project_contacts: {
+        Row: {
+          id: string
+          project_id: string
+          company: string
+          first_name: string | null
+          last_name: string | null
+          job_title: string | null
+          mobile_phone: string | null
+          email: string | null
+          procore_id: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          company: string
+          first_name?: string | null
+          last_name?: string | null
+          job_title?: string | null
+          mobile_phone?: string | null
+          email?: string | null
+          procore_id?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          company?: string
+          first_name?: string | null
+          last_name?: string | null
+          job_title?: string | null
+          mobile_phone?: string | null
+          email?: string | null
+          procore_id?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_contacts_project_id_fkey"
+            columns: ["project_id"]
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       sheets: {
         Row: {
           id: string

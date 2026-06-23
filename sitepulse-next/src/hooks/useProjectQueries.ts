@@ -5,7 +5,7 @@ import { paginateAll } from '@/utils/pagination';
 import { queryKeys } from '@/types/queryKeys';
 import type {
   Project, Sheet, Unit, Milestone, StatusLog, Profile, ProjectMember,
-  TemporalState, MilestoneOverride
+  TemporalState, MilestoneOverride, ProjectContact, ProjectContactInsert
 } from '@/types/domain';
 import type { 
   UpdateUnitGeometryVars, BulkUpdateStatusVars, UpdateStatusVars 
@@ -146,6 +146,117 @@ export function useMilestones(projectId: string) {
       return data;
     },
     enabled: !!projectId
+  });
+}
+
+// ==== Project Contacts ====
+// A shared project-level contact directory (one row per person, grouped by
+// company). Managed in the Settings menu; READ = any member, WRITE = privileged
+// roles (enforced by RLS — see 20260623_project_contacts.sql). Mutations mirror
+// the milestone-hook conventions: optimistic cache update + invalidate.
+
+// The editable fields a Settings form provides. id / project_id / created_by /
+// timestamps are set by the hook or the DB, never by the caller.
+export type ProjectContactFields = Omit<
+  ProjectContactInsert,
+  'id' | 'project_id' | 'created_by' | 'created_at' | 'updated_at'
+>;
+
+export function useProjectContacts(projectId: string) {
+  return useQuery({
+    queryKey: queryKeys.projectContacts(projectId),
+    queryFn: async (): Promise<ProjectContact[]> => {
+      if (!projectId) return [];
+      const { data, error } = await supabase.from('project_contacts')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('company', { ascending: true })
+        .order('last_name', { ascending: true, nullsFirst: false })
+        .order('first_name', { ascending: true, nullsFirst: false });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!projectId
+  });
+}
+
+export function useCreateProjectContact(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (fields: ProjectContactFields): Promise<ProjectContact> => {
+      const { data, error } = await supabase.from('project_contacts')
+        .insert({ ...fields, project_id: projectId })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async (fields) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.projectContacts(projectId) });
+      const now = new Date().toISOString();
+      const optimistic: ProjectContact = {
+        id: `temp_${Date.now()}`,
+        project_id: projectId,
+        company: fields.company,
+        first_name: fields.first_name ?? null,
+        last_name: fields.last_name ?? null,
+        job_title: fields.job_title ?? null,
+        mobile_phone: fields.mobile_phone ?? null,
+        email: fields.email ?? null,
+        procore_id: fields.procore_id ?? null,
+        created_by: null,
+        created_at: now,
+        updated_at: now
+      };
+      queryClient.setQueriesData<ProjectContact[]>({ queryKey: queryKeys.projectContacts(projectId) }, old =>
+        old ? [...old, optimistic] : [optimistic]);
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.projectContacts(projectId) })
+  });
+}
+
+export function useUpdateProjectContact(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, updates }: { id: string, updates: Partial<ProjectContactFields> }): Promise<ProjectContact> => {
+      const { data, error } = await supabase.from('project_contacts')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async ({ id, updates }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.projectContacts(projectId) });
+      queryClient.setQueriesData<ProjectContact[]>({ queryKey: queryKeys.projectContacts(projectId) }, old => {
+        if (!old) return old;
+        return old.map(c => c.id === id ? { ...c, ...updates } as ProjectContact : c);
+      });
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.projectContacts(projectId) })
+  });
+}
+
+export function useDeleteProjectContact(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('project_contacts').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.projectContacts(projectId) });
+      queryClient.setQueriesData<ProjectContact[]>({ queryKey: queryKeys.projectContacts(projectId) }, old =>
+        old ? old.filter(c => c.id !== id) : old);
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.projectContacts(projectId) })
   });
 }
 

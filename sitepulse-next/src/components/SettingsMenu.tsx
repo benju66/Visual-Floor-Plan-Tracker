@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar, User, Users, Shield } from 'lucide-react';
+import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar, User, Users, Shield, Contact, Building2 } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useUpdateMilestoneRules } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useUpdateMilestoneRules, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, type ProjectContactFields } from '@/hooks/useProjectQueries';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { getAppliesTo } from '@/types/domain';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 import { useUIStore } from '@/store/useUIStore';
-import type { Milestone, Sheet } from '@/types/domain';
+import type { Milestone, Sheet, ProjectContact } from '@/types/domain';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
 interface SortableMilestoneItemProps {
@@ -119,6 +119,192 @@ function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEd
         </div>
       )}
     </li>
+  );
+}
+
+// ---- Project Contacts manager ----------------------------------------------
+// A shared, project-level contact directory (Company, name, title, mobile,
+// email), grouped by company. Mirrors the Milestones manager: list + add/edit/
+// delete, role-gated. Self-contained (its own hooks/state) so the query only
+// runs when the Contacts tab is opened and the big SettingsMenu stays lean.
+// Writes are also enforced by RLS (owner/admin/pm) — `canEdit` just hides the
+// controls for read-only members.
+
+const EMPTY_CONTACT_FORM: ProjectContactFields = {
+  company: '', first_name: '', last_name: '', job_title: '', mobile_phone: '', email: ''
+};
+
+// Trim, and collapse blanks to null so the DB stores NULL (not '') — important
+// for the UNIQUE(project_id, email) de-dupe: Postgres treats NULLs as distinct,
+// but two empty-string emails would collide.
+function cleanContactFields(form: ProjectContactFields): ProjectContactFields {
+  const t = (v?: string | null) => {
+    const s = (v ?? '').trim();
+    return s === '' ? null : s;
+  };
+  return {
+    company: (form.company ?? '').trim(),
+    first_name: t(form.first_name),
+    last_name: t(form.last_name),
+    job_title: t(form.job_title),
+    mobile_phone: t(form.mobile_phone),
+    email: t(form.email)
+  };
+}
+
+function contactName(c: ProjectContact): string {
+  return [c.first_name, c.last_name].filter(Boolean).join(' ').trim();
+}
+
+interface ContactFormFieldsProps {
+  form: ProjectContactFields;
+  setForm: (f: ProjectContactFields) => void;
+}
+
+function ContactFormFields({ form, setForm }: ContactFormFieldsProps) {
+  const inputCls = 'bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500';
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <input type="text" placeholder="Company *" value={form.company ?? ''} onChange={e => setForm({ ...form, company: e.target.value })} className={`${inputCls} sm:col-span-2`} />
+      <input type="text" placeholder="First name" value={form.first_name ?? ''} onChange={e => setForm({ ...form, first_name: e.target.value })} className={inputCls} />
+      <input type="text" placeholder="Last name" value={form.last_name ?? ''} onChange={e => setForm({ ...form, last_name: e.target.value })} className={inputCls} />
+      <input type="text" placeholder="Job title" value={form.job_title ?? ''} onChange={e => setForm({ ...form, job_title: e.target.value })} className={inputCls} />
+      <input type="tel" placeholder="Mobile phone" value={form.mobile_phone ?? ''} onChange={e => setForm({ ...form, mobile_phone: e.target.value })} className={inputCls} />
+      <input type="email" placeholder="Email" value={form.email ?? ''} onChange={e => setForm({ ...form, email: e.target.value })} className={`${inputCls} sm:col-span-2`} />
+    </div>
+  );
+}
+
+function ContactsManager({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
+  const { data: contacts = [], isLoading } = useProjectContacts(projectId);
+  const createContact = useCreateProjectContact(projectId);
+  const updateContact = useUpdateProjectContact(projectId);
+  const deleteContact = useDeleteProjectContact(projectId);
+
+  const [newContact, setNewContact] = useState<ProjectContactFields>(EMPTY_CONTACT_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<ProjectContactFields>(EMPTY_CONTACT_FORM);
+
+  // Group by company (already sorted by company → last → first from the query).
+  const grouped: { company: string; rows: ProjectContact[] }[] = [];
+  for (const c of contacts) {
+    const key = c.company || 'Unspecified';
+    const last = grouped[grouped.length - 1];
+    if (last && last.company === key) last.rows.push(c);
+    else grouped.push({ company: key, rows: [c] });
+  }
+
+  const handleAdd = () => {
+    const cleaned = cleanContactFields(newContact);
+    if (!cleaned.company) return;
+    createContact.mutate(cleaned, { onSuccess: () => setNewContact(EMPTY_CONTACT_FORM) });
+  };
+
+  const beginEdit = (c: ProjectContact) => {
+    setEditingId(c.id);
+    setEditForm({
+      company: c.company,
+      first_name: c.first_name ?? '',
+      last_name: c.last_name ?? '',
+      job_title: c.job_title ?? '',
+      mobile_phone: c.mobile_phone ?? '',
+      email: c.email ?? ''
+    });
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingId) return;
+    const cleaned = cleanContactFields(editForm);
+    if (!cleaned.company) return;
+    updateContact.mutate({ id: editingId, updates: cleaned }, { onSuccess: () => setEditingId(null) });
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white">
+          <Contact size={16} className="text-sky-500" /> Project Contacts
+        </h3>
+        <p className="text-xs text-slate-500 mt-1 text-balance">
+          The people working this job, grouped by company. Reused elsewhere in the app so subs are entered once, not re-typed.
+        </p>
+      </div>
+
+      {canEdit && (
+        <div className="bg-white/50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl p-3 space-y-2">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add a contact</div>
+          <ContactFormFields form={newContact} setForm={setNewContact} />
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={!(newContact.company ?? '').trim() || createContact.isPending}
+              className="h-9 px-4 bg-sky-500 hover:bg-sky-600 text-white rounded-lg flex items-center gap-2 text-sm font-semibold transition-colors shadow-sm disabled:opacity-50"
+            >
+              <Plus size={16} /> Add Contact
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="text-center py-6 text-slate-500 text-sm">Loading contacts…</div>
+      ) : contacts.length === 0 ? (
+        <div className="text-center py-6 text-slate-500 text-sm bg-slate-50 dark:bg-slate-900/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
+          No contacts yet{canEdit ? '. Add the first one above.' : '.'}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {grouped.map(group => (
+            <div key={group.company}>
+              <div className="flex items-center gap-2 mb-1.5 text-xs font-bold uppercase tracking-widest text-slate-500">
+                <Building2 size={13} className="shrink-0" />
+                <span className="truncate">{group.company}</span>
+                <span className="text-slate-400 font-semibold normal-case tracking-normal">({group.rows.length})</span>
+              </div>
+              <ul className="space-y-2">
+                {group.rows.map(c => (
+                  <li key={c.id} className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 shadow-sm">
+                    {editingId === c.id ? (
+                      <div className="space-y-2">
+                        <ContactFormFields form={editForm} setForm={setEditForm} />
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setEditingId(null)} className="h-8 px-3 text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors">Cancel</button>
+                          <button type="button" onClick={handleSaveEdit} disabled={!(editForm.company ?? '').trim() || updateContact.isPending} className="h-8 px-4 bg-sky-500 hover:bg-sky-600 text-white rounded-md text-sm font-bold transition-colors disabled:opacity-50">Save</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="font-semibold text-sm text-slate-800 dark:text-slate-200 truncate">{contactName(c) || <span className="italic text-slate-400">No name</span>}</span>
+                            {c.job_title && <span className="text-xs text-slate-500 truncate">{c.job_title}</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-slate-500">
+                            {c.mobile_phone && <a href={`tel:${c.mobile_phone}`} className="hover:text-sky-500 transition-colors">{c.mobile_phone}</a>}
+                            {c.email && <a href={`mailto:${c.email}`} className="hover:text-sky-500 transition-colors truncate">{c.email}</a>}
+                          </div>
+                        </div>
+                        {canEdit && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" onClick={() => beginEdit(c)} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Edit">
+                              <Pencil size={14} />
+                            </button>
+                            <button type="button" onClick={() => { if (window.confirm(`Remove ${contactName(c) || 'this contact'} (${c.company})?`)) deleteContact.mutate(c.id); }} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Delete">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -273,6 +459,16 @@ export default function SettingsMenu({
             }`}
           >
             <Flag size={16} /> Milestones
+          </button>
+          <button
+            onClick={() => setActiveTab('contacts')}
+            className={`flex items-center gap-2 shrink-0 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === 'contacts'
+                ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Contact size={16} /> Contacts
           </button>
           <button
             onClick={() => setActiveTab('system')}
@@ -715,6 +911,13 @@ export default function SettingsMenu({
                  </div>
               </div>
             </div>
+          )}
+
+          {activeTab === 'contacts' && (
+            <ContactsManager
+              projectId={projectId}
+              canEdit={currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'pm' || currentUserRole === 'superintendent'}
+            />
           )}
 
           {activeTab === 'system' && (

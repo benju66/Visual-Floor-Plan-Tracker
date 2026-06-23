@@ -35,6 +35,13 @@ export type MilestoneOverride = Database['public']['Tables']['milestone_applicab
 export type LookaheadPlan = Database['public']['Tables']['lookahead_plans']['Row'];
 export type LookaheadPlanInsert = Database['public']['Tables']['lookahead_plans']['Insert'];
 
+// Project Contacts — a shared project-level contact directory (one row per
+// person, grouped by company). Managed in the project Settings menu; later
+// reused by Look-Ahead as a cell palette and bulk-imported from a Procore CSV.
+// No JSONB columns, so no narrowing/guard needed (unlike Unit / Subtype).
+export type ProjectContact = Database['public']['Tables']['project_contacts']['Row'];
+export type ProjectContactInsert = Database['public']['Tables']['project_contacts']['Insert'];
+
 export type StatusLogInsert = Database['public']['Tables']['status_logs']['Insert'];
 export type UnitInsert      = Database['public']['Tables']['units']['Insert'];
 export type WorkbenchSheetInsert = Database['public']['Tables']['workbench_sheets']['Insert'];

@@ -3,6 +3,7 @@ export const queryKeys = {
   sheets:             (projectId: string)       => ['sheets', projectId]    as const,
   units:              (sheetId: string)         => ['units', sheetId]       as const,
   milestones:         (projectId: string)       => ['milestones', projectId]as const,
+  projectContacts:    (projectId: string)       => ['project_contacts', projectId] as const,
   milestoneOverrides: (projectId: string)       => ['milestone_overrides', projectId] as const,
   statuses:           (sheetId: string, unitIds: string[]) => ['statuses', sheetId, ...unitIds] as const,
   allProjectUnits:    (sheetIds: string[])      => ['all_project_units', ...sheetIds] as const,
