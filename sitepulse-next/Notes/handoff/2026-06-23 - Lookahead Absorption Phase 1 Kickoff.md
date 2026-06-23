@@ -1,3 +1,9 @@
+> ⛔ **SUPERSEDED — DO NOT BUILD (2026-06-23).** The owner dropped the one-time pre-fill approach below.
+> Double-entry is instead solved by a separate new workstream: a **project-level "Trades" tab** (single
+> shared source of truth, read live by both the project and the Look-Ahead view — no pre-fill), eventually
+> sourced from the linked **Procore** project, with free-typed trade names still allowed in Look-Ahead
+> cells. See the new `Notes/plans/Project-Trades-*.md` plan + its kickoff. This file is kept for history only.
+
 # Kickoff — Lookahead Absorption, Phase 1: Stop double-entry (seed vocabulary)
 
 ## ▶ Launch prompt (paste this to start a fresh session)

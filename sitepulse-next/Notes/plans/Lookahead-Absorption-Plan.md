@@ -170,12 +170,14 @@ The roll-forward / date math is already copied verbatim in `src/lookahead/lib/sc
   project → switch to Look-Ahead → edit a cell → reload → it persisted; switch to Map/List/Dashboard/Schedule
   → all unaffected · close with `verify-feature`, then STOP.
 
-### Phase 1 — Stop double-entry (seed vocabulary)
-- **Scope:** when a blank plan is created, seed Lookahead's subcontractor directory (`Sub[]`) and/or trade
-  group names from SitePulse's `project_members` + `project_milestones`, so the super isn't re-typing the
-  team/trades. Optionally pre-fill `ProjectInfo` (job name, super, dates) from the SitePulse project.
-- **Exit criteria:** typecheck+test+build green · live click-through: a new project's blank plan opens
-  pre-populated with the project's trades/subs · `verify-feature`, then STOP.
+### Phase 1 — Stop double-entry (seed vocabulary) — ⛔ DROPPED (superseded 2026-06-23)
+**Do NOT build this.** The owner dropped the one-time pre-fill/seed approach. The double-entry problem is
+instead solved by a SEPARATE new workstream: a **project-level "Trades" tab** that is the single shared
+source of truth, read live by both the project and the Look-Ahead view (no copying/pre-fill). It will
+eventually pull trades from the linked **Procore** project, and a super can still **free-type** a trade
+name directly into a Look-Ahead cell when desired. See `Notes/plans/Project-Trades-*.md` (new plan) — and
+the superseded kickoff `Notes/handoff/2026-06-23 - Lookahead Absorption Phase 1 Kickoff.md` (banner at top).
+With Phase 1 dropped, **Lookahead Absorption is complete at 0a + 0b.**
 
 ## Hard guardrails (AGENTS.md — do not violate)
 - **Touch no existing table / RPC / RLS.** `lookahead_plans` is fully isolated; do not read or write
