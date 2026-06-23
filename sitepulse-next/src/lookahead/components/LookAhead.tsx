@@ -21,6 +21,28 @@ import SettingsDrawer from "./SettingsDrawer";
 
 const defLabel: Record<Status, string> = { start: "START", ongoing: "X", done: "DONE" };
 
+// Build the rectangular cell selection spanning two cells (inclusive), using the
+// current visible row order + visible columns. Returns null if either cell is no
+// longer on screen. Shared by shift-click (mouse) and shift-arrow (keyboard).
+function rectSelection(
+  rowOrder: string[],
+  visCols: number[],
+  a: { rowId: string; di: number },
+  b: { rowId: string; di: number }
+): Record<string, true> | null {
+  const r1 = rowOrder.indexOf(a.rowId), r2 = rowOrder.indexOf(b.rowId);
+  const v1 = visCols.indexOf(a.di), v2 = visCols.indexOf(b.di);
+  if (r1 < 0 || r2 < 0 || v1 < 0 || v2 < 0) return null;
+  const rA = Math.min(r1, r2), rB = Math.max(r1, r2), vA = Math.min(v1, v2), vB = Math.max(v1, v2);
+  const sel: Record<string, true> = {};
+  for (let ri = rA; ri <= rB; ri++) {
+    const rid = rowOrder[ri];
+    if (rid == null) continue;
+    for (let vi = vA; vi <= vB; vi++) sel[rid + ":" + visCols[vi]] = true;
+  }
+  return sel;
+}
+
 export default function LookAhead() {
   const s = useStore();
   const [mounted, setMounted] = useState(false);
@@ -30,8 +52,23 @@ export default function LookAhead() {
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const rowOrderRef = useRef<string[]>([]);
   const visColsRef = useRef<number[]>([]);
+  // Holds the task-description input of the row flagged in `focusTaskRowId`, so a
+  // freshly created task can grab the cursor (Enter-to-continue / "+ Task").
+  const focusTaskInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => setMounted(true), []);
+
+  // After a new task row is created, move the cursor into its description field
+  // and clear the one-shot flag.
+  useEffect(() => {
+    if (!s.focusTaskRowId) return;
+    const el = focusTaskInputRef.current;
+    if (el) {
+      el.focus();
+      el.select();
+    }
+    useStore.getState().setFocusTaskRow(null);
+  }, [s.focusTaskRowId]);
 
   // ---- global mouse + keyboard model (attached once) ----
   useEffect(() => {
@@ -101,12 +138,27 @@ export default function LookAhead() {
       const fcActive = !!(fc && rowOrder.indexOf(fc.rowId) >= 0);
       // navigation (needs a focused cell)
       if (fc && fcActive) {
+        // Move focus to `head`. With Shift held, grow the rectangular selection
+        // from the fixed anchor instead of collapsing it.
+        const navTo = (head: { rowId: string; di: number }) => {
+          if (e.shiftKey) {
+            const anchor = st.selAnchor ?? fc;
+            const sel = rectSelection(rowOrder, visCols, anchor, head);
+            if (sel) {
+              st.setSelCells(sel);
+              st.setFocusCell(head);
+              st.setSelAnchor(anchor);
+              return;
+            }
+          }
+          st.moveFocus(head);
+        };
         if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
           e.preventDefault();
           const vi = visCols.indexOf(fc.di);
           if (vi >= 0) {
             const ni = Math.max(0, Math.min(visCols.length - 1, vi + (e.key === "ArrowRight" ? 1 : -1)));
-            st.moveFocus({ rowId: fc.rowId, di: visCols[ni] });
+            navTo({ rowId: fc.rowId, di: visCols[ni] });
           }
           return;
         }
@@ -114,7 +166,7 @@ export default function LookAhead() {
           e.preventDefault();
           const ri = rowOrder.indexOf(fc.rowId);
           const nr = Math.max(0, Math.min(rowOrder.length - 1, ri + (e.key === "ArrowDown" ? 1 : -1)));
-          st.moveFocus({ rowId: rowOrder[nr], di: fc.di });
+          navTo({ rowId: rowOrder[nr], di: fc.di });
           return;
         }
         if (e.key === "Tab") {
@@ -276,10 +328,23 @@ export default function LookAhead() {
       return;
     }
     e.preventDefault();
+    // Shift-click extends a rectangular selection from the anchor (the last
+    // focused/clicked cell) to the clicked cell — no cell-status cycle.
+    if (e.shiftKey) {
+      const anchor = st.selAnchor ?? st.focusCell ?? { rowId, di };
+      const sel = rectSelection(rowOrderRef.current, visColsRef.current, anchor, { rowId, di });
+      if (sel) {
+        st.setSelCells(sel);
+        st.setFocusCell({ rowId, di });
+        st.setSelAnchor(anchor);
+      }
+      return;
+    }
     const fc = st.focusCell;
     const wasFocused = !!(fc && fc.rowId === rowId && fc.di === di);
     dragRef.current = { startRow: rowOrderRef.current.indexOf(rowId), startDi: di, moved: false, wasFocused, detail: e.detail || 1 };
     st.setFocusCell({ rowId, di });
+    st.setSelAnchor({ rowId, di });
   };
   const cellEnter = (rowId: string, di: number) => {
     const st = useStore.getState();
@@ -570,9 +635,18 @@ export default function LookAhead() {
                   <MoreHorizontal size={15} />
                 </button>
                 <input
+                  ref={r.id === s.focusTaskRowId ? focusTaskInputRef : undefined}
                   defaultValue={r.task}
                   placeholder="Task description"
                   onChange={(e) => s.setField(r.id, "task", e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      // Current text is already in the store (onChange); this commits
+                      // it and drops a fresh blank task right below, cursor and all.
+                      s.addRowAfter(r.id);
+                    }
+                  }}
                   onBlur={() => s.persistData()}
                   style={{ ...fieldInput(500, 12.5, t.fg), flex: 1, minWidth: 0, width: "auto" }}
                 />

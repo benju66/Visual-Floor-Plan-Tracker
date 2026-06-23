@@ -44,6 +44,11 @@ interface UIState {
   selCells: Record<string, true>;
   selCols: Record<number, true>;
   focusCell: { rowId: string; di: number } | null;
+  // Fixed corner of a multi-cell selection that shift-click / shift-arrow grow from.
+  selAnchor: { rowId: string; di: number } | null;
+  // Transient: id of a task row whose description input should grab the cursor on
+  // next render (set when a new task is created, consumed + cleared by the view).
+  focusTaskRowId: string | null;
   menu: { rowId: string; x: number; y: number } | null;
   cellMenu: { rowId: string; di: number; x: number; y: number } | null;
   draggingRowId: string | null;
@@ -79,6 +84,7 @@ interface Actions {
   duplicateRow: (rowId: string) => void;
   deleteRow: (rowId: string) => void;
   addRow: (groupId: string) => void;
+  addRowAfter: (rowId: string) => void;
   moveRow: (srcId: string, targetId: string, after: number) => void;
   groupDrop: (gid: string, srcId: string) => void;
   // groups
@@ -105,6 +111,8 @@ interface Actions {
   // selection / focus / edit
   setSelCells: (sel: Record<string, true>) => void;
   setFocusCell: (fc: { rowId: string; di: number } | null) => void;
+  setSelAnchor: (a: { rowId: string; di: number } | null) => void;
+  setFocusTaskRow: (rowId: string | null) => void;
   moveFocus: (fc: { rowId: string; di: number }) => void;
   startEdit: (rowId: string, di: number) => void;
   cancelEdit: () => void;
@@ -195,8 +203,8 @@ function findRow(w: WeekDoc, rowId: string): Row | null {
   return null;
 }
 
-const clearedSel: Partial<Store> = { selCells: {}, selCols: {}, focusCell: null, editing: null, menu: null, cellMenu: null };
-const clearedForArea: Partial<Store> = { ...clearedSel, rollPreview: null, confirmGroup: null, confirmDeleteWeek: false, past: [], future: [] };
+const clearedSel: Partial<Store> = { selCells: {}, selCols: {}, focusCell: null, selAnchor: null, editing: null, menu: null, cellMenu: null };
+const clearedForArea: Partial<Store> = { ...clearedSel, focusTaskRowId: null, rollPreview: null, confirmGroup: null, confirmDeleteWeek: false, past: [], future: [] };
 
 const seed = buildSeed();
 
@@ -206,6 +214,8 @@ export const useStore = create<Store>()((set, get) => ({
   selCells: {},
   selCols: {},
   focusCell: null,
+  selAnchor: null,
+  focusTaskRowId: null,
   menu: null,
   cellMenu: null,
   draggingRowId: null,
@@ -371,8 +381,30 @@ export const useStore = create<Store>()((set, get) => ({
     set((s) => {
       const { areas, w } = cloneCur(s);
       const g = w.groups.find((x) => x.id === groupId);
-      if (g) g.rows.push(blankRow());
-      return withUndo(s, { areas });
+      let newId: string | null = null;
+      if (g) {
+        const nr = blankRow();
+        g.rows.push(nr);
+        newId = nr.id;
+      }
+      return withUndo(s, { areas, focusTaskRowId: newId });
+    }),
+  // Insert a blank task directly below `rowId` (Enter-to-continue from a task field).
+  // Captures the new row's id in `focusTaskRowId` so the view drops the cursor into it.
+  addRowAfter: (rowId) =>
+    set((s) => {
+      const { areas, w } = cloneCur(s);
+      let newId: string | null = null;
+      for (const g of w.groups) {
+        const i = g.rows.findIndex((r) => r.id === rowId);
+        if (i >= 0) {
+          const nr = blankRow();
+          g.rows.splice(i + 1, 0, nr);
+          newId = nr.id;
+          break;
+        }
+      }
+      return withUndo(s, { areas, focusTaskRowId: newId });
     }),
   moveRow: (srcId, targetId, after) =>
     set((s) => {
@@ -503,10 +535,14 @@ export const useStore = create<Store>()((set, get) => ({
   // ---------- selection / focus / edit ----------
   setSelCells: (sel) => set({ selCells: sel, selCols: {} }),
   setFocusCell: (fc) => set({ focusCell: fc }),
-  moveFocus: (fc) => set({ focusCell: fc, selCells: {}, selCols: {} }),
-  startEdit: (rowId, di) => set({ editing: rowId + ":" + di, focusCell: { rowId, di }, selCells: {}, selCols: {} }),
+  setSelAnchor: (a) => set({ selAnchor: a }),
+  setFocusTaskRow: (rowId) => set({ focusTaskRowId: rowId }),
+  // Plain navigation: move the focused cell and collapse any range back to it
+  // (the moved-to cell becomes the new anchor for a later shift-extend).
+  moveFocus: (fc) => set({ focusCell: fc, selCells: {}, selCols: {}, selAnchor: fc }),
+  startEdit: (rowId, di) => set({ editing: rowId + ":" + di, focusCell: { rowId, di }, selAnchor: { rowId, di }, selCells: {}, selCols: {} }),
   cancelEdit: () => set({ editing: null }),
-  clearSelection: () => set({ selCells: {}, selCols: {}, focusCell: null }),
+  clearSelection: () => set({ selCells: {}, selCols: {}, focusCell: null, selAnchor: null }),
 
   // ---------- menus ----------
   openRowMenu: (rowId, x, y) => set({ menu: { rowId, x, y } }),

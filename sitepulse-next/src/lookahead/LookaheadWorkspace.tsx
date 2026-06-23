@@ -24,7 +24,7 @@
 // Isolation (AGENTS.md guardrails): touches ONLY `lookahead_plans` (via the
 // adapter) — never the offline `pendingChanges` queue or any existing table.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore, projectBlob } from "@/lookahead/store/useStore";
 import { useSession } from "@/lookahead/store/useSession";
 import LookAhead from "./components/LookAhead";
@@ -36,9 +36,14 @@ export default function LookaheadWorkspace({ projectId }: { projectId: string })
   // Serialized snapshot of the last loaded/saved document. `null` = not loaded
   // yet, which suppresses every save while the store is being hydrated.
   const lastSavedRef = useRef<string | null>(null);
+  // Render gate: until THIS project's plan has actually loaded, show a neutral
+  // placeholder rather than the store's in-memory seed (the vendored demo plan),
+  // which otherwise flashes on every refresh before async hydration completes.
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     let active = true;
+    setStatus("loading");
 
     // Load the saved plan (or a blank one), then arm autosave by recording the
     // loaded content as the baseline. Until this resolves, `lastSavedRef` is null
@@ -50,6 +55,10 @@ export default function LookaheadWorkspace({ projectId }: { projectId: string })
         if (!active) return;
         if (useSession.getState().currentProjectId !== projectId) return;
         lastSavedRef.current = JSON.stringify(projectBlob(useStore.getState()));
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (active) setStatus("error");
       });
 
     // Debounce-save on document changes. Mirrors `App.tsx`: persist only when one
@@ -101,6 +110,19 @@ export default function LookaheadWorkspace({ projectId }: { projectId: string })
       useSession.getState().setProject(null);
     };
   }, [projectId]);
+
+  // Hold back the table until the plan is hydrated, so the seed never paints.
+  if (status !== "ready") {
+    return (
+      <div style={{ minHeight: "100vh", background: "#fafafa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {status === "error" && (
+          <div style={{ color: "#6b7280", fontSize: 14, fontFamily: "'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+            Couldn&apos;t load this plan. Refresh to try again.
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return <LookAhead />;
 }
