@@ -119,6 +119,34 @@ export async function deleteSheetStorageService(sheetId: string, token: string):
   return response.json();
 }
 
+export interface DeleteProjectResult {
+  status: string;
+  /** How many sheets the server swept storage for before the cascade delete. */
+  deleted_sheets: number;
+  [key: string]: unknown;
+}
+
+/**
+ * Hard-delete a project and all its data via the backend (admin only). The
+ * server reclaims each sheet's storage blobs (client `.remove()` is RLS-denied),
+ * then deletes the `projects` row — every child table cascades. Irreversible.
+ */
+export async function deleteProjectService(projectId: string, token: string): Promise<DeleteProjectResult> {
+  const response = await fetch(`${API_BASE_URL}/project/${projectId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to delete project');
+  }
+
+  return response.json();
+}
+
 export interface VectorLine {
   start: PercentPoint;
   end: PercentPoint;

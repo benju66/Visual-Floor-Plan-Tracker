@@ -33,3 +33,12 @@ def test_delete_sheet_storage_requires_bearer_token():
     with TestClient(app) as client:
         res = client.delete("/sheet-storage/some-sheet-id")
     assert res.status_code in (401, 403)
+
+
+def test_delete_project_requires_bearer_token():
+    # Project deletion is destructive and admin-gated, but the very first gate is
+    # the HTTPBearer dependency: a missing bearer is rejected before
+    # verify_project_admin or any service-role delete runs.
+    with TestClient(app) as client:
+        res = client.delete("/project/some-project-id")
+    assert res.status_code in (401, 403)

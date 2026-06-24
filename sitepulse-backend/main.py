@@ -154,6 +154,39 @@ async def verify_sheet_access(sheet_id: str, user_id: str):
         raise HTTPException(status_code=403, detail=err)
     return project_id
 
+
+async def verify_project_admin(project_id: str, user_id: str):
+    """Authorize a privileged, project-wide operation (e.g. deleting the project).
+
+    Mirrors `verify_sheet_access` but additionally requires the caller hold a
+    privileged role on the project. Project creation assigns either `'admin'`
+    (the `/api/projects` Next.js route) or `'owner'` (the `create_new_project`
+    RPC), so both count as privileged here. PMs/superintendents/viewers are not
+    allowed to destroy a project.
+    """
+    def check_access():
+        member_res = (
+            supabase.table("project_members")
+            .select("role")
+            .eq("project_id", project_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if not member_res.data or len(member_res.data) == 0:
+            return "Not authorized to access this project"
+        roles = {m.get("role") for m in member_res.data}
+        if not roles & {"owner", "admin"}:
+            return "Admin role required for this action"
+        return None
+
+    import asyncio
+    err = await asyncio.to_thread(check_access)
+    if err == "Not authorized to access this project":
+        raise HTTPException(status_code=403, detail=err)
+    if err == "Admin role required for this action":
+        raise HTTPException(status_code=403, detail=err)
+
+
 class PointData(BaseModel):
     pctX: float
     pctY: float
@@ -373,6 +406,66 @@ async def delete_sheet_storage(sheet_id: str, user: dict = Depends(get_current_u
         raise
     except Exception as e:
         print(f"Error deleting sheet storage for {sheet_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/project/{project_id}")
+async def delete_project(project_id: str, user: dict = Depends(get_current_user)):
+    """Hard-delete a project and reclaim its storage — admin only.
+
+    This is the service-side half of the Global Settings → Projects "Delete"
+    action. Order of operations:
+
+      1. `verify_project_admin` — the caller must hold `owner`/`admin` on this
+         project (a real JWT-derived `sub`, not a client-supplied id).
+      2. Collect the project's sheet ids and remove each sheet's storage blobs
+         (`converted/<id>.png`, `originals/<id>.pdf`) with the service-role
+         client — the `floorplans` bucket's RLS denies a client `.remove()`, so
+         this MUST happen server-side or the blobs orphan. Idempotent: Supabase
+         storage does not error on already-absent paths.
+      3. Delete the `projects` row. Every child table FKs to `projects` with
+         `ON DELETE CASCADE` (sheets → units → status_logs/audit/vectors,
+         project_members, project_milestones, lookahead_plans, project_contacts),
+         so the whole data tree goes with it in one statement.
+
+    Storage removal is best-effort/non-fatal (a hiccup re-orphans blobs, the
+    pre-fix behaviour — recoverable from the Storage dashboard) but the row
+    delete is the real, authoritative destruction. Deprecated `tiles/<id>/...`
+    objects (OpenSeadragon path, removed) are not swept here — they are absent
+    for any recent sheet; the canonical `delete_sheet_storage` route doesn't
+    sweep them either.
+    """
+    try:
+        await verify_project_admin(project_id, user["sub"])
+
+        def process_delete():
+            sheets_res = (
+                supabase.table("sheets").select("id").eq("project_id", project_id).execute()
+            )
+            sheet_ids = [s["id"] for s in (sheets_res.data or [])]
+
+            paths = []
+            for sid in sheet_ids:
+                paths.append(f"converted/{sid}.png")
+                paths.append(f"originals/{sid}.pdf")
+            if paths:
+                try:
+                    # Supabase storage remove supports batches; cap at 100/call.
+                    for i in range(0, len(paths), 100):
+                        supabase.storage.from_("floorplans").remove(paths[i:i + 100])
+                except Exception as storage_err:  # non-fatal — see docstring
+                    print(f"Project {project_id} storage cleanup warning (non-fatal): {storage_err}")
+
+            supabase.table("projects").delete().eq("id", project_id).execute()
+            return len(sheet_ids)
+
+        import asyncio
+        sheet_count = await asyncio.to_thread(process_delete)
+        return {"status": "success", "deleted_sheets": sheet_count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting project {project_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Minimum segment length (in PDF points, 1pt = 1/72") for a line to be kept as a
