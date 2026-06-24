@@ -43,7 +43,17 @@ function rectSelection(
   return sel;
 }
 
-export default function LookAhead() {
+interface LookAheadProps {
+  /** Optional extra autocomplete entries for the sub cell's `la-subs` datalist,
+   *  merged (union + de-dupe) with the blob's own `project.subs` codes. The
+   *  SitePulse mount (LookaheadWorkspace) injects these from the project's contact
+   *  directory; the cell stays a free-text input that stores a plain string, so
+   *  free-typing any name is unaffected. Defaults to [] so the vendored module
+   *  runs identically standalone. */
+  palette?: string[];
+}
+
+export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   const s = useStore();
   const [mounted, setMounted] = useState(false);
 
@@ -442,6 +452,10 @@ export default function LookAhead() {
   // ---------- body ----------
   const dt = s.dropTarget;
   const subCodes = project.subs.map((x) => x.code).filter(Boolean);
+  // Phase 3 (Project Contacts): merge the blob's own sub codes with the optional
+  // injected palette — union + de-dupe, blob codes first. Empty palette (the
+  // standalone default) leaves the datalist identical to before.
+  const subOptions = Array.from(new Set([...subCodes, ...palette]));
   const wkKey = area.id + "-" + area.currentWeek;
   const rowOrder: string[] = [];
   const bodyNodes: ReactNode[] = [];
@@ -746,7 +760,7 @@ export default function LookAhead() {
   return (
     <div id="la-root" style={{ ...shellStyle, ...shellVars }}>
       <datalist id="la-subs">
-        {subCodes.map((c) => (
+        {subOptions.map((c) => (
           <option key={c} value={c} />
         ))}
       </datalist>

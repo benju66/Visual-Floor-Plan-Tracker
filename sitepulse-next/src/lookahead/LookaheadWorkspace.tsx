@@ -24,9 +24,11 @@
 // Isolation (AGENTS.md guardrails): touches ONLY `lookahead_plans` (via the
 // adapter) — never the offline `pendingChanges` queue or any existing table.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, projectBlob } from "@/lookahead/store/useStore";
 import { useSession } from "@/lookahead/store/useSession";
+import { useProjectContacts } from "@/hooks/useProjectQueries";
+import { contactsToPalette } from "@/utils/contactsToPalette";
 import LookAhead from "./components/LookAhead";
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -40,6 +42,13 @@ export default function LookaheadWorkspace({ projectId }: { projectId: string })
   // placeholder rather than the store's in-memory seed (the vendored demo plan),
   // which otherwise flashes on every refresh before async hydration completes.
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  // Phase 3 (Project Contacts): read this project's contact directory and derive
+  // the sub-cell autocomplete palette HERE, in the SitePulse mount — so all
+  // Supabase access stays outside the vendored Look-Ahead module. The palette is
+  // a suggestion source only; the cell still stores a plain free-typed string.
+  const { data: contacts } = useProjectContacts(projectId);
+  const palette = useMemo(() => contactsToPalette(contacts ?? []), [contacts]);
 
   useEffect(() => {
     let active = true;
@@ -124,5 +133,5 @@ export default function LookaheadWorkspace({ projectId }: { projectId: string })
     );
   }
 
-  return <LookAhead />;
+  return <LookAhead palette={palette} />;
 }
