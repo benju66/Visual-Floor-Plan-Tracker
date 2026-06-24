@@ -47,7 +47,11 @@ export default function Header() {
   // enabled/error colors, and the odd 11.5/12.5px fonts + 5px/7px gaps + 34px
   // icon-button height (no clean Tailwind step) stay inline. The Phase-2 outer
   // container chrome (glass-panel / no-print / inset) is left exactly as is.
-  const ICON_BTN = "inline-flex w-8 items-center justify-center rounded-lg border";
+  // Phase 5 (responsive): the icon buttons grow to a 40px finger target below `xl`
+  // (both iPad orientations); at desktop ≥1280 the `xl:` resets restore the exact
+  // Phase-4 sizing (inline 34px height / w-8). Pure layout — no behavior change.
+  const ICON_BTN =
+    "inline-flex w-8 items-center justify-center rounded-lg border min-h-[40px] min-w-[40px] xl:min-h-0 xl:min-w-0";
   const navBtnStyle = (enabled: boolean): CSSProperties => ({
     height: "34px", borderColor: t.border, background: t.panel,
     color: enabled ? t.fg : t.faintFg, cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.5,
@@ -63,10 +67,13 @@ export default function Header() {
   const savingLabel = saving === "saving" ? "Saving…" : saving === "saved" ? "Saved" : saving === "error" ? "Save failed" : "";
 
   return (
-    <div className="no-print glass-panel rounded-xl mx-[18px] mt-[14px] flex flex-wrap items-center justify-between gap-4 px-4 py-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
+    // Phase 5 (responsive): the inset + inter-control gaps tighten below `lg` so a
+    // wrapped second row reads cleanly on iPad portrait; `lg:` restores the desktop
+    // spacing. The strip already wrapped (flex-wrap); this just makes it graceful.
+    <div className="no-print glass-panel rounded-xl mx-2.5 mt-2.5 lg:mx-[18px] lg:mt-[14px] flex flex-wrap items-center justify-between gap-2 lg:gap-4 px-3 lg:px-4 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 lg:gap-3">
         {showBack && (
-          <button onClick={() => backToDashboard()} className="inline-flex flex-none cursor-pointer items-center rounded-lg border px-2.5 py-1.5 font-medium" style={backBtnStyle} title="Back to projects">
+          <button onClick={() => backToDashboard()} className="inline-flex flex-none cursor-pointer items-center rounded-lg border px-2.5 py-1.5 font-medium min-h-[40px] xl:min-h-0" style={backBtnStyle} title="Back to projects">
             <ArrowLeft size={14} /> Projects
           </button>
         )}
@@ -90,10 +97,10 @@ export default function Header() {
         <button onClick={() => redo()} className={ICON_BTN} style={navBtnStyle(canRedo)} title="Redo (⌘⇧Z)">
           <Redo2 size={16} />
         </button>
-        <button onClick={() => openSettings()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border font-medium" style={ghostBtnStyle} title="Settings & display options">
+        <button onClick={() => openSettings()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border font-medium min-h-[40px] xl:min-h-0" style={ghostBtnStyle} title="Settings & display options">
           <SettingsIcon size={15} /> Settings
         </button>
-        <button onClick={() => window.print()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3.5 py-2 font-semibold" style={primaryBtnStyle}>
+        <button onClick={() => window.print()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3.5 py-2 font-semibold min-h-[40px] xl:min-h-0" style={primaryBtnStyle}>
           <Printer size={15} /> Print / Export PDF
         </button>
       </div>

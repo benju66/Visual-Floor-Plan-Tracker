@@ -67,34 +67,37 @@ export default function Toolbar() {
     // under the TopHeader + the context strip (matching their inset). Inner
     // controls were reskinned to Tailwind in Phase 3 (structure → classes,
     // tokens/odd values → inline).
-    <div className="no-print glass-panel rounded-xl mx-[18px] mt-2 flex flex-wrap items-center justify-between gap-4 px-4 py-2">
+    // Phase 5 (responsive): inset + gaps tighten below `lg` for iPad portrait;
+    // `lg:` restores desktop spacing. Nav arrows + action buttons grow to a 40px
+    // finger target below `xl` (both iPad orientations), resetting at desktop.
+    <div className="no-print glass-panel rounded-xl mx-2.5 lg:mx-[18px] mt-2 flex flex-wrap items-center justify-between gap-2 lg:gap-4 px-3 lg:px-4 py-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <button onClick={() => gotoWeek(-1)} className="inline-flex cursor-pointer items-center justify-center rounded-lg border" style={navArrowStyle} title="Previous week">
+        <button onClick={() => gotoWeek(-1)} className="inline-flex cursor-pointer items-center justify-center rounded-lg border min-h-[40px] min-w-[40px] xl:min-h-0 xl:min-w-0" style={navArrowStyle} title="Previous week">
           <ChevronLeft size={18} />
         </button>
         <div className="flex flex-col items-center px-2" style={weekBoxStyle}>
           <span className="font-bold uppercase" style={weekKickerStyle}>Look-ahead window</span>
           <span className="whitespace-nowrap font-semibold" style={weekLabelStyle}>{weekOfLabel}</span>
         </div>
-        <button onClick={() => gotoWeek(1)} className="inline-flex cursor-pointer items-center justify-center rounded-lg border" style={navArrowStyle} title="Next week">
+        <button onClick={() => gotoWeek(1)} className="inline-flex cursor-pointer items-center justify-center rounded-lg border min-h-[40px] min-w-[40px] xl:min-h-0 xl:min-w-0" style={navArrowStyle} title="Next week">
           <ChevronRight size={18} />
         </button>
         {showRoll && (
-          <button onClick={() => openRollForward()} className="ml-1 inline-flex cursor-pointer items-center whitespace-nowrap rounded-lg border bg-transparent font-semibold" style={rollBtnStyle} title="Advance one week, carrying unfinished work forward">
+          <button onClick={() => openRollForward()} className="ml-1 inline-flex cursor-pointer items-center whitespace-nowrap rounded-lg border bg-transparent font-semibold min-h-[40px] xl:min-h-0" style={rollBtnStyle} title="Advance one week, carrying unfinished work forward">
             <RotateCw size={13} /> Roll forward
           </button>
         )}
-        <button onClick={() => duplicateWeek()} className="ml-1 cursor-pointer rounded-lg border font-medium" style={dupBtnStyle}>
+        <button onClick={() => duplicateWeek()} className="ml-1 cursor-pointer rounded-lg border font-medium min-h-[40px] xl:min-h-0" style={dupBtnStyle}>
           Duplicate week →
         </button>
-        <select value={currentWeek} onChange={(e) => goToWeekKey(e.target.value)} className="cursor-pointer rounded-lg border px-2 font-medium" style={jumpSelectStyle} title="Jump to a saved week">
+        <select value={currentWeek} onChange={(e) => goToWeekKey(e.target.value)} className="cursor-pointer rounded-lg border px-2 font-medium min-h-[40px] xl:min-h-0" style={jumpSelectStyle} title="Jump to a saved week">
           {weekOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>
           ))}
         </select>
-        <button onClick={() => goToWeekKey(thisKey)} className="cursor-pointer whitespace-nowrap rounded-lg border font-semibold" style={thisWeekBtnStyle} title="Go to the week containing today">
+        <button onClick={() => goToWeekKey(thisKey)} className="cursor-pointer whitespace-nowrap rounded-lg border font-semibold min-h-[40px] xl:min-h-0" style={thisWeekBtnStyle} title="Go to the week containing today">
           This week
         </button>
         <div className="ml-0.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-medium" style={savedPillStyle}>
@@ -102,17 +105,17 @@ export default function Toolbar() {
           {savedLabel}
         </div>
         {canDeleteWeek && (
-          <button onClick={() => askDeleteWeek()} className="cursor-pointer whitespace-nowrap rounded-lg border px-2.5 font-medium" style={delWeekBtnStyle} title="Delete this saved week">
+          <button onClick={() => askDeleteWeek()} className="cursor-pointer whitespace-nowrap rounded-lg border px-2.5 font-medium min-h-[40px] xl:min-h-0" style={delWeekBtnStyle} title="Delete this saved week">
             Delete week
           </button>
         )}
         {showConfirmDelete && (
           <>
             <span className="whitespace-nowrap font-semibold" style={delWeekTextStyle}>Delete this week?</span>
-            <button onClick={() => deleteWeek()} className="cursor-pointer rounded-lg border-0 font-semibold text-white" style={delWeekYesStyle}>
+            <button onClick={() => deleteWeek()} className="cursor-pointer rounded-lg border-0 font-semibold text-white min-h-[40px] xl:min-h-0" style={delWeekYesStyle}>
               Delete
             </button>
-            <button onClick={() => cancelDeleteWeek()} className="cursor-pointer rounded-lg border font-medium" style={delWeekNoStyle}>
+            <button onClick={() => cancelDeleteWeek()} className="cursor-pointer rounded-lg border font-medium min-h-[40px] xl:min-h-0" style={delWeekNoStyle}>
               Cancel
             </button>
           </>
@@ -122,7 +125,9 @@ export default function Toolbar() {
         <span className={SWATCH_CLASS} style={swatch(t.st.start)}>Start</span>
         <span className={SWATCH_CLASS} style={swatch(t.st.ongoing)}>X · In&nbsp;progress</span>
         <span className={SWATCH_CLASS} style={swatch(t.st.done)}>Done</span>
-        <span style={hintStyle}>click selects · click again to cycle · dbl-click types · ←↑↓→ move · s/x/d to mark · ⌘Z undo</span>
+        {/* Phase 5: keyboard/mouse guidance — hidden below `lg` (it's desktop hint
+            text and would force awkward wraps on a narrow iPad portrait legend row). */}
+        <span className="hidden lg:inline" style={hintStyle}>click selects · click again to cycle · dbl-click types · ←↑↓→ move · s/x/d to mark · ⌘Z undo</span>
       </div>
     </div>
   );

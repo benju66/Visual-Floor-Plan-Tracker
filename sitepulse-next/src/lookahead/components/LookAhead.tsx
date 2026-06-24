@@ -2,6 +2,7 @@
 
 import "./lookahead.css";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { GripVertical, MoreHorizontal } from "lucide-react";
 import { useStore } from "@/lookahead/store/useStore";
 import { getAccent, getTokens, blend, FONT_SANS, FONT_MONO } from "@/lookahead/lib/tokens";
@@ -10,7 +11,7 @@ import { addDays, fmtMD, mon, parseDate, toKey } from "@/lookahead/lib/date";
 import {
   buildVisDows, clampWeeks, computeFlags, hasDoneFront, projWeekNum, projectMonday,
 } from "@/lookahead/lib/schedule";
-import { windowMeta } from "@/lookahead/lib/view";
+import { windowMeta, effectiveWeeks, LA_LANDSCAPE_MIN } from "@/lookahead/lib/view";
 import { rectSelection } from "@/lookahead/lib/selection";
 import type { Status } from "@/lookahead/lib/types";
 import Header from "./Header";
@@ -21,6 +22,43 @@ import RollModal from "./RollModal";
 import SettingsDrawer from "./SettingsDrawer";
 
 const defLabel: Record<Status, string> = { start: "START", ongoing: "X", done: "DONE" };
+
+// Phase 5 (UI convergence — responsive): on a portrait/narrow viewport the sticky
+// task + sub columns are capped so the day cells stay on-screen without the task
+// column swallowing an iPad. The user can still resize `taskColW` (the raw stored
+// value is untouched); this only caps what's *rendered* while narrow.
+const NARROW_TASK_W = 180; // px — effective task-column cap on portrait
+const NARROW_SUB_W = 84; // px — effective sub-column width on portrait
+const FULL_SUB_W = 110; // px — sub-column width on landscape/desktop (unchanged)
+
+// Phase 5: track the viewport width (for the render-only week-window + column
+// clamps) and whether the browser is printing. `printing` forces the full saved
+// window/columns so a print from a narrowed iPad still emits the whole plan — it
+// uses `flushSync` so the expanded grid is in the DOM *before* the print snapshot.
+// This is transient, render-derived component state (no DB data, no global UI
+// state), so a local listener hook is the right tool here (AGENTS §2 targets
+// server/global state, not viewport measurement).
+function useViewport(): { viewportWidth: number | null; printing: boolean } {
+  const [viewportWidth, setViewportWidth] = useState<number | null>(
+    () => (typeof window === "undefined" ? null : window.innerWidth),
+  );
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    onResize();
+    const onBeforePrint = () => flushSync(() => setPrinting(true));
+    const onAfterPrint = () => setPrinting(false);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("beforeprint", onBeforePrint);
+    window.addEventListener("afterprint", onAfterPrint);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("beforeprint", onBeforePrint);
+      window.removeEventListener("afterprint", onAfterPrint);
+    };
+  }, []);
+  return { viewportWidth, printing };
+}
 
 interface LookAheadProps {
   /** Optional extra autocomplete entries for the sub cell's `la-subs` datalist,
@@ -35,6 +73,7 @@ interface LookAheadProps {
 export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   const s = useStore();
   const [mounted, setMounted] = useState(false);
+  const { viewportWidth, printing } = useViewport();
 
   const dragRef = useRef<{ startRow: number; startDi: number; moved: boolean; wasFocused: boolean; detail: number } | null>(null);
   const fillRef = useRef<{ rowId: string; di: number; status: Status } | null>(null);
@@ -211,7 +250,13 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   const ac = getAccent(ACCENT, s.theme);
   const focusRing = s.theme === "dark" ? "#60a5fa" : "#2563eb";
   const area = s.areas[s.currentAreaId];
+  // Phase 5: portrait/narrow viewports cap the rendered sticky columns so day
+  // cells stay visible. `taskColW` (raw, user-resizable) is unchanged — only the
+  // EFFECTIVE width fed to the layout is capped while narrow. Print expands back.
+  const narrow = !printing && viewportWidth != null && viewportWidth < LA_LANDSCAPE_MIN;
   const taskW = s.taskColW || area.view.taskColW || 220;
+  const effTaskW = narrow ? Math.min(taskW, NARROW_TASK_W) : taskW;
+  const subW = narrow ? NARROW_SUB_W : FULL_SUB_W;
   const sx = s.scrolledX;
   const sy = s.scrolledY;
   const SHX = "6px 0 9px -7px rgba(0,0,0," + (s.theme === "dark" ? ".6" : ".22") + ")";
@@ -238,7 +283,14 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   const msColor = s.theme === "dark" ? "#c4b5fd" : "#7c3aed";
 
   const start = parseDate(area.currentWeek);
-  const numWeeks = clampWeeks(area.view.numWeeks);
+  // Phase 5: the grid renders an EFFECTIVE (render-only) week count — portrait
+  // narrows to a 1-week window so the dense grid fits an iPad; landscape/desktop
+  // (and any print) show the full saved window. This NEVER writes back to
+  // `view.numWeeks`, so the saved plan + the Settings "Weeks shown" value are
+  // unchanged and rotating the device does not autosave.
+  const savedWeeks = clampWeeks(area.view.numWeeks);
+  const numWeeks =
+    printing || viewportWidth == null ? savedWeeks : effectiveWeeks(savedWeeks, viewportWidth);
   const dows7 = ["MON", "TUES", "WED", "THUR", "FRI", "SAT", "SUN"];
   const visDows = buildVisDows(area.view);
   const nDays = visDows.length;
@@ -588,7 +640,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
             leftAccent = "#d97706";
           }
         }
-        const taskTd = stickyTd(0, taskW);
+        const taskTd = stickyTd(0, effTaskW);
         if (leftAccent) taskTd.boxShadow = "inset 3px 0 0 " + leftAccent;
         const carryTitle = cf
           ? cf.state === "completed"
@@ -643,7 +695,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
                 )}
               </div>
             </td>
-            <td style={stickyTd(taskW, 110)}>
+            <td style={stickyTd(effTaskW, subW)}>
               <input
                 defaultValue={r.sub}
                 placeholder="Sub"
@@ -703,18 +755,23 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   } as CSSProperties;
 
   const scrollStyle: CSSProperties = {
-    flex: 1, overflow: "auto", margin: "14px 18px 18px", border: "1px solid " + t.border, borderRadius: "10px",
+    flex: 1, overflow: "auto", margin: narrow ? "10px 10px 12px" : "14px 18px 18px",
+    border: "1px solid " + t.border, borderRadius: "10px",
     background: t.panel, position: "relative", boxShadow: s.theme === "dark" ? "none" : "0 1px 2px rgba(0,0,0,.04)",
+    // Phase 5: keep a finger-drag inside the grid — don't scroll-chain/bounce the
+    // whole page — and ride native momentum on iOS. No interaction change: the
+    // mouse/keyboard model is untouched.
+    overscrollBehavior: "contain", WebkitOverflowScrolling: "touch",
   };
   const tableStyle: CSSProperties = { borderCollapse: "separate", borderSpacing: 0, width: "auto", tableLayout: "fixed" };
   const cornerTaskStyle: CSSProperties = {
-    position: "sticky", left: 0, top: 0, zIndex: 40, background: t.headBg, color: t.mutedFg, width: taskW + "px",
-    minWidth: taskW + "px", maxWidth: taskW + "px", fontSize: "10.5px", fontWeight: 600, textAlign: "left", padding: "0 8px",
+    position: "sticky", left: 0, top: 0, zIndex: 40, background: t.headBg, color: t.mutedFg, width: effTaskW + "px",
+    minWidth: effTaskW + "px", maxWidth: effTaskW + "px", fontSize: "10.5px", fontWeight: 600, textAlign: "left", padding: "0 8px",
     borderBottom: "1px solid " + t.borderStrong, borderRight: "1px solid " + t.border, lineHeight: 1.2, boxShadow: shf(false, true),
   };
   const cornerSubStyle: CSSProperties = {
-    position: "sticky", left: taskW + "px", top: 0, zIndex: 40, background: t.headBg, color: t.mutedFg, width: "110px",
-    minWidth: "110px", fontSize: "10.5px", fontWeight: 600, textAlign: "left", padding: "0 8px",
+    position: "sticky", left: effTaskW + "px", top: 0, zIndex: 40, background: t.headBg, color: t.mutedFg, width: subW + "px",
+    minWidth: subW + "px", fontSize: "10.5px", fontWeight: 600, textAlign: "left", padding: "0 8px",
     borderBottom: "1px solid " + t.borderStrong, borderRight: "2px solid " + t.borderStrong, boxShadow: shf(true, true),
   };
   const notesHeadStyle: CSSProperties = {
