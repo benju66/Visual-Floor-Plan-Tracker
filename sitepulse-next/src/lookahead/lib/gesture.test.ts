@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyPointerGesture } from "./gesture";
+import { classifyPointerGesture, pointerDropEdge } from "./gesture";
 
 // Vitest globals are OFF (see AGENTS.md §9) — import describe/it/expect explicitly.
 //
@@ -48,5 +48,29 @@ describe("classifyPointerGesture", () => {
   it("handles negative travel (movement in either direction)", () => {
     expect(classifyPointerGesture({ ...base, dx: -20, dy: 0, upAt: 10 })).toBe("drag");
     expect(classifyPointerGesture({ ...base, dx: 0, dy: -20, upAt: 10 })).toBe("drag");
+  });
+});
+
+// Phase 6b: the pointer-based row reorder decides drop-above vs drop-below from the
+// pointer's Y against the row's mid-line — the same rule the old HTML5 onRowDragOver
+// used. A row at top=100, height=40 has its mid-line at y=120.
+describe("pointerDropEdge", () => {
+  it("reads the top half of a row as 'above'", () => {
+    expect(pointerDropEdge(100, 100, 40)).toBe("above"); // at the very top
+    expect(pointerDropEdge(119, 100, 40)).toBe("above"); // just above mid-line
+  });
+
+  it("reads the bottom half of a row as 'below'", () => {
+    expect(pointerDropEdge(121, 100, 40)).toBe("below"); // just past mid-line
+    expect(pointerDropEdge(139, 100, 40)).toBe("below"); // at the very bottom
+  });
+
+  it("treats the exact mid-line as 'below' (strict <)", () => {
+    expect(pointerDropEdge(120, 100, 40)).toBe("below"); // pointerY − top === height/2
+  });
+
+  it("works independent of absolute scroll offset (uses pointerY − rowTop)", () => {
+    // Same relative position (top quarter) far down the page → still 'above'.
+    expect(pointerDropEdge(1010, 1000, 40)).toBe("above");
   });
 });

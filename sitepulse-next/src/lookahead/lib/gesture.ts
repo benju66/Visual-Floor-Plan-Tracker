@@ -46,3 +46,19 @@ export function classifyPointerGesture(input: PointerGestureInput): PointerGestu
   if (upAt - downAt >= longPressMs) return "longpress";
   return "tap";
 }
+
+/**
+ * Which edge of a row a pointer is over → whether a row-reorder drop lands
+ * `"above"` or `"below"` that row, decided by the pointer's Y against the row's
+ * horizontal mid-line.
+ *
+ * Extracted (Phase 6b — pointer-based row reorder) so the drop-edge decision is a
+ * pure, unit-tested function the DOM hit-test (`rowFromPoint` in LookAhead.tsx)
+ * calls with a measured `getBoundingClientRect`. Mirrors the old HTML5
+ * `onRowDragOver` math (`clientY − rect.top < rect.height / 2`). Boundary is exact:
+ * a pointer on the mid-line (`pointerY − rowTop === rowHeight / 2`) reads as
+ * `"below"` (the `<` is strict), matching the pre-pointer behaviour.
+ */
+export function pointerDropEdge(pointerY: number, rowTop: number, rowHeight: number): "above" | "below" {
+  return pointerY - rowTop < rowHeight / 2 ? "above" : "below";
+}

@@ -13,7 +13,7 @@ import {
 } from "@/lookahead/lib/schedule";
 import { windowMeta, effectiveWeeks, LA_LANDSCAPE_MIN } from "@/lookahead/lib/view";
 import { rectSelection, type CellRef } from "@/lookahead/lib/selection";
-import { classifyPointerGesture } from "@/lookahead/lib/gesture";
+import { classifyPointerGesture, pointerDropEdge } from "@/lookahead/lib/gesture";
 import type { Status } from "@/lookahead/lib/types";
 import Header from "./Header";
 import Toolbar from "./Toolbar";
@@ -56,6 +56,40 @@ function cellFromPoint(x: number, y: number): CellRef | null {
   if (rowId == null || diStr == null) return null;
   const di = Number(diStr);
   return Number.isFinite(di) ? { rowId, di } : null;
+}
+
+// Phase 6b (touch parity — pointer row reorder): the drop target under the grip
+// drag — a task row (with above/below edge) or a group header. Mirrors the old
+// HTML5 onRowDrop / onGroupDrop split.
+type ReorderHit =
+  | { kind: "row"; rowId: string; pos: "above" | "below" }
+  | { kind: "group"; groupId: string };
+
+// Resolve the row / group under a screen point for the pointer-based row reorder.
+// Mirrors `cellFromPoint`: hit-test the live DOM so a captured finger (which keeps
+// delivering pointermove to the grip, not the row beneath it) still knows what it
+// is hovering. Each task `<tr>` carries `data-row-reorder`, each group header `<tr>`
+// `data-group-reorder`; a child anywhere in the row's task / sub / day / notes cells
+// resolves up to the row via `closest`. The dragged row's own cells resolve back to
+// itself (→ `moveRow` no-ops on src===target); the +Task / +Group strips carry
+// neither attribute, so a hit there (or off-grid) returns null → no drop.
+function rowFromPoint(x: number, y: number): ReorderHit | null {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const rowEl = (el as Element).closest("[data-row-reorder]");
+  if (rowEl) {
+    const rowId = rowEl.getAttribute("data-row-reorder");
+    if (rowId) {
+      const rect = rowEl.getBoundingClientRect();
+      return { kind: "row", rowId, pos: pointerDropEdge(y, rect.top, rect.height) };
+    }
+  }
+  const groupEl = (el as Element).closest("[data-group-reorder]");
+  if (groupEl) {
+    const groupId = groupEl.getAttribute("data-group-reorder");
+    if (groupId) return { kind: "group", groupId };
+  }
+  return null;
 }
 
 // Phase 5: track the viewport width (for the render-only week-window + column
@@ -112,6 +146,15 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   } | null>(null);
   const fillRef = useRef<{ rowId: string; di: number; status: Status; pointerId: number } | null>(null);
   const resizeRef = useRef<{ startX: number; startW: number; pointerId: number } | null>(null);
+  // Phase 6b refs. `reorderRef` drives the pointer-based row reorder (replaces HTML5
+  // `draggable`, which never fires on touch). `longPressRef` holds the touch/pen
+  // long-press timer that opens the cell / row menu (a finger has no right-click).
+  // `lastPointerTypeRef` records the last pointer that pressed a cell so the cell's
+  // onContextMenu fires for a real mouse only — a touch long-press already opened
+  // the menu, so the browser's synthetic contextmenu must not double-open it.
+  const reorderRef = useRef<{ srcId: string; pointerId: number; downX: number; downY: number; moved: boolean } | null>(null);
+  const longPressRef = useRef<{ pointerId: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const lastPointerTypeRef = useRef<string>("mouse");
   const rowOrderRef = useRef<string[]>([]);
   const visColsRef = useRef<number[]>([]);
   // Holds the task-description input of the row flagged in `focusTaskRowId`, so a
@@ -140,8 +183,36 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   // a captured touch pointer). `onKey` is unchanged. Each handler ignores events from
   // a different `pointerId` so a stray second finger can't hijack an active gesture.
   useEffect(() => {
+    // Cancel a pending touch long-press timer (movement / release / cancel resolves
+    // the gesture before the hold completes, so the menu must not still open).
+    const clearLP = () => {
+      if (longPressRef.current) {
+        clearTimeout(longPressRef.current.timer);
+        longPressRef.current = null;
+      }
+    };
     const onUp = (e: PointerEvent) => {
+      // The release resolves any armed long-press (it was a tap / quick drag, not a
+      // hold), so the timer must not fire after the finger is up.
+      if (longPressRef.current && longPressRef.current.pointerId === e.pointerId) clearLP();
       const st = useStore.getState();
+      // Pointer-based row reorder (Phase 6b): commit the move to whatever row / group
+      // is under the finger AT RELEASE (re-hit-tested, so a release over empty space
+      // drops nothing) — mirroring the old HTML5 onRowDrop / onGroupDrop.
+      if (reorderRef.current) {
+        if (e.pointerId !== reorderRef.current.pointerId) return;
+        const rr = reorderRef.current;
+        reorderRef.current = null;
+        st.clearDrag();
+        if (rr.moved) {
+          const hit = rowFromPoint(e.clientX, e.clientY);
+          if (hit) {
+            if (hit.kind === "group") st.groupDrop(hit.groupId, rr.srcId);
+            else st.moveRow(rr.srcId, hit.rowId, hit.pos === "below" ? 1 : 0);
+          }
+        }
+        return;
+      }
       if (fillRef.current) {
         if (e.pointerId !== fillRef.current.pointerId) return;
         st.applyCellStatus(fillRef.current.status);
@@ -166,6 +237,31 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
       }
     };
     const onMove = (e: PointerEvent) => {
+      // Pointer-based row reorder (Phase 6b): once the grip press travels past the
+      // slop it becomes a drag (cancelling the long-press), then we highlight the
+      // drop edge of the row / group under the finger via the existing dropTarget
+      // store state — so the edge/group feedback the grid already renders is reused.
+      if (reorderRef.current) {
+        const rr = reorderRef.current;
+        if (e.pointerId !== rr.pointerId) return;
+        if (!rr.moved) {
+          if (Math.hypot(e.clientX - rr.downX, e.clientY - rr.downY) <= LA_MOVE_THRESHOLD_PX) return;
+          rr.moved = true;
+          clearLP();
+          useStore.getState().setDragging(rr.srcId);
+        }
+        const st = useStore.getState();
+        const hit = rowFromPoint(e.clientX, e.clientY);
+        if (!hit) return;
+        if (hit.kind === "row") {
+          const cur = st.dropTarget;
+          if (!cur || cur.rowId !== hit.rowId || cur.pos !== hit.pos) st.setDropTarget({ rowId: hit.rowId, pos: hit.pos });
+        } else {
+          const cur = st.dropTarget;
+          if (!cur || cur.groupId !== hit.groupId) st.setDropTarget({ groupId: hit.groupId });
+        }
+        return;
+      }
       // Column resize (mouse or finger): same clamp + live-width update as before.
       if (resizeRef.current) {
         if (e.pointerId !== resizeRef.current.pointerId) return;
@@ -208,6 +304,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
               }) === "drag";
         if (!starts) return;
         d.moved = true;
+        clearLP(); // a finger drag won the gesture → cancel the pending long-press menu
       }
       if (!cell) return;
       const sel = rectSelection(rowOrderRef.current, visColsRef.current, { rowId: originRowId, di: d.startDi }, cell);
@@ -216,6 +313,11 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
     // A canceled pointer (e.g. the browser claims a touch for scroll, or the OS
     // interrupts) aborts the in-flight gesture without committing fill / resize.
     const onCancel = (e: PointerEvent) => {
+      if (longPressRef.current && e.pointerId === longPressRef.current.pointerId) clearLP();
+      if (reorderRef.current && e.pointerId === reorderRef.current.pointerId) {
+        reorderRef.current = null;
+        useStore.getState().clearDrag();
+      }
       if (fillRef.current && e.pointerId === fillRef.current.pointerId) fillRef.current = null;
       if (resizeRef.current && e.pointerId === resizeRef.current.pointerId) resizeRef.current = null;
       if (dragRef.current && e.pointerId === dragRef.current.pointerId) dragRef.current = null;
@@ -329,6 +431,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
     document.addEventListener("pointercancel", onCancel);
     document.addEventListener("keydown", onKey);
     return () => {
+      clearLP();
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointercancel", onCancel);
@@ -466,7 +569,37 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
       /* noop — capture is best-effort */
     }
   };
+  // Phase 6b: arm a touch/pen long-press (the finger's stand-in for right-click). The
+  // timer fires only if the pointer stays within slop for LA_LONGPRESS_MS — movement
+  // past slop (a drag) and release (a tap) both clear it in the global handlers. Any
+  // previously-armed timer is dropped first so a fresh press always wins.
+  const armLongPress = (pointerId: number, fire: () => void) => {
+    if (longPressRef.current) clearTimeout(longPressRef.current.timer);
+    longPressRef.current = {
+      pointerId,
+      timer: setTimeout(() => {
+        longPressRef.current = null;
+        fire();
+      }, LA_LONGPRESS_MS),
+    };
+  };
+  // Swallow the single compatibility "ghost click" some touch browsers synthesize
+  // when the finger lifts after a long-press, so it can't land on a menu item or
+  // immediately re-close the just-opened menu. Installed the instant the menu opens
+  // (finger still down) and one-shot in the capture phase, so the only click it can
+  // intercept is that release's ghost — never a later, deliberate menu tap. A short
+  // safety timer drops the listener on browsers that emit no ghost click at all.
+  const swallowGhostClick = () => {
+    const onClick = (ev: MouseEvent) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      document.removeEventListener("click", onClick, true);
+    };
+    document.addEventListener("click", onClick, true);
+    window.setTimeout(() => document.removeEventListener("click", onClick, true), 600);
+  };
   const cellDown = (rowId: string, di: number, e: React.PointerEvent) => {
+    lastPointerTypeRef.current = e.pointerType;
     if (e.button !== 0) return;
     const st = useStore.getState();
     if (st.editing) {
@@ -499,6 +632,18 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
     capturePointer(e);
     st.setFocusCell({ rowId, di });
     st.setSelAnchor({ rowId, di });
+    // Touch / pen: a still hold opens the cell menu (the finger's right-click). The
+    // long-press wins over the pending tap/drag — firing nulls dragRef so the
+    // finger-up doesn't also cycle the cell; movement past slop cancels it (onMove).
+    if (e.pointerType !== "mouse") {
+      const lx = e.clientX;
+      const ly = e.clientY;
+      armLongPress(e.pointerId, () => {
+        dragRef.current = null;
+        useStore.getState().openCellMenu(rowId, di, lx, ly);
+        swallowGhostClick();
+      });
+    }
   };
   const fillDown = (rowId: string, di: number, status: Status, e: React.PointerEvent) => {
     e.preventDefault();
@@ -519,46 +664,43 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   const cellContext = (rowId: string, di: number, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    // Desktop right-click only. On touch/pen the cell menu opens via the long-press
+    // timer, so the browser's synthetic contextmenu (which fires after a long-press
+    // on some platforms) is suppressed here rather than double-opening the menu.
+    if (lastPointerTypeRef.current !== "mouse") return;
     dragRef.current = null;
     useStore.getState().openCellMenu(rowId, di, e.clientX, e.clientY);
   };
-  // native HTML5 drag-and-drop (matches the prototype)
-  const onDragStart = (rowId: string, e: React.DragEvent) => {
-    s.setDragging(rowId);
+  // Phase 6b: pointer-based row reorder, started from the grip handle. Replaces the
+  // HTML5 `draggable` path (which never fires on touch) with one pointer pipeline for
+  // mouse + finger: arm a potential reorder; the global pointermove escalates it to a
+  // real drag past the slop (setDragging + dropTarget highlight) and pointerup commits
+  // it (moveRow / groupDrop). On touch/pen a still hold instead opens the row menu.
+  const gripDown = (rowId: string, e: React.PointerEvent) => {
+    lastPointerTypeRef.current = e.pointerType;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragRef.current = null;
+    reorderRef.current = { srcId: rowId, pointerId: e.pointerId, downX: e.clientX, downY: e.clientY, moved: false };
+    // Capture for ALL pointer types here (unlike cells, which skip mouse): the grip
+    // is a dedicated drag handle with no click / double-click / text-select role, so
+    // capturing the mouse mirrors the old native HTML5 drag and avoids stray text
+    // selection mid-reorder. The global pointermove/up still fire (events bubble).
     try {
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", rowId);
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
     } catch {
-      /* noop */
+      /* noop — capture is best-effort */
     }
-  };
-  const onRowDragOver = (rowId: string, e: React.DragEvent) => {
-    e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pos = e.clientY - rect.top < rect.height / 2 ? "above" : "below";
-    const dt = useStore.getState().dropTarget;
-    if (!dt || dt.rowId !== rowId || dt.pos !== pos) s.setDropTarget({ rowId, pos });
-  };
-  const onRowDrop = (rowId: string, e: React.DragEvent) => {
-    e.preventDefault();
-    const st = useStore.getState();
-    const src = st.draggingRowId;
-    const dt = st.dropTarget;
-    st.clearDrag();
-    if (!src || !dt) return;
-    st.moveRow(src, rowId, dt.pos === "below" ? 1 : 0);
-  };
-  const onGroupDragOver = (gid: string, e: React.DragEvent) => {
-    e.preventDefault();
-    const dt = useStore.getState().dropTarget;
-    if (!dt || dt.groupId !== gid) s.setDropTarget({ groupId: gid });
-  };
-  const onGroupDrop = (gid: string, e: React.DragEvent) => {
-    e.preventDefault();
-    const st = useStore.getState();
-    const src = st.draggingRowId;
-    st.clearDrag();
-    if (src) st.groupDrop(gid, src);
+    if (e.pointerType !== "mouse") {
+      const lx = e.clientX;
+      const ly = e.clientY;
+      armLongPress(e.pointerId, () => {
+        reorderRef.current = null; // long-press wins over the pending reorder drag
+        useStore.getState().openRowMenu(rowId, lx, ly);
+        swallowGhostClick();
+      });
+    }
   };
 
   // ---------- body ----------
@@ -582,7 +724,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
     const groupDrop = !!(dt && dt.groupId === g.id);
     const confirmDelete = s.confirmGroup === g.id;
     bodyNodes.push(
-      <tr key={"g-" + wkKey + "-" + g.id} onDragOver={(e) => onGroupDragOver(g.id, e)} onDrop={(e) => onGroupDrop(g.id, e)}>
+      <tr key={"g-" + wkKey + "-" + g.id} data-group-reorder={g.id}>
         <td
           colSpan={totalCols}
           style={{
@@ -753,14 +895,16 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
         bodyNodes.push(
           <tr
             key={"r-" + wkKey + "-" + r.id}
+            data-row-reorder={r.id}
             style={{ opacity: s.draggingRowId === r.id ? 0.4 : 1 }}
-            onDragOver={(e) => onRowDragOver(r.id, e)}
-            onDrop={(e) => onRowDrop(r.id, e)}
-            onDragEnd={() => s.clearDrag()}
           >
             <td style={taskTd}>
               <div style={taskFlexStyle}>
-                <span draggable onDragStart={(e) => onDragStart(r.id, e)} style={{ cursor: "grab", color: t.faintFg, display: "inline-flex", lineHeight: 1, padding: "0 1px", userSelect: "none", flex: "none" }} title="Drag to reorder">
+                <span
+                  onPointerDown={(e) => gripDown(r.id, e)}
+                  style={{ cursor: "grab", color: t.faintFg, display: "inline-flex", lineHeight: 1, padding: "0 1px", userSelect: "none", flex: "none", touchAction: "none" }}
+                  title="Drag to reorder"
+                >
                   <GripVertical size={13} />
                 </span>
                 <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); s.openRowMenu(r.id, e.clientX, e.clientY); }} style={{ cursor: "pointer", color: t.faintFg, background: "transparent", border: "none", display: "inline-flex", lineHeight: 1, padding: "0 2px", flex: "none" }} title="Insert, duplicate or delete this task">
