@@ -42,70 +42,58 @@ export default function Header() {
   const ac = getAccent(ACCENT, theme);
   const { windowSubtitle } = windowMeta(area.currentWeek, area.view);
 
-  const subStyle: CSSProperties = { fontSize: "11.5px", color: t.mutedFg, lineHeight: 1.2 };
-  const metaDividerStyle: CSSProperties = { width: "1px", height: "28px", background: t.border, margin: "0 4px" };
-  const metaStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "7px", fontSize: "12.5px", color: t.mutedFg, flexWrap: "wrap" };
-  const metaStrongStyle: CSSProperties = { color: t.fg, fontWeight: 600 };
-  const metaDotStyle: CSSProperties = { color: t.faintFg };
-  const ghostBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "6px",
-    border: "1px solid " + t.border, background: t.panel, color: t.fg, cursor: "pointer",
-    fontSize: "12.5px", fontWeight: 500, padding: "7px 12px", borderRadius: "8px",
-  };
-  const primaryBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "6px",
-    border: "none", background: ac.main, color: ac.fg, cursor: "pointer",
-    fontSize: "12.5px", fontWeight: 600, padding: "8px 14px", borderRadius: "8px",
-  };
-  const undoBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", justifyContent: "center",
-    width: "32px", height: "34px", border: "1px solid " + t.border, background: t.panel,
-    color: canUndo ? t.fg : t.faintFg, cursor: canUndo ? "pointer" : "default", borderRadius: "8px",
-    opacity: canUndo ? 1 : 0.5,
-  };
-  const redoBtnStyle: CSSProperties = { ...undoBtnStyle, color: canRedo ? t.fg : t.faintFg, cursor: canRedo ? "pointer" : "default", opacity: canRedo ? 1 : 0.5 };
+  // Phase 3 (UI convergence): the strip's inner controls move to Tailwind for
+  // layout/spacing/typography; theme tokens (border/panel/fg/accent), dynamic
+  // enabled/error colors, and the odd 11.5/12.5px fonts + 5px/7px gaps + 34px
+  // icon-button height (no clean Tailwind step) stay inline. The Phase-2 outer
+  // container chrome (glass-panel / no-print / inset) is left exactly as is.
+  const ICON_BTN = "inline-flex w-8 items-center justify-center rounded-lg border";
+  const navBtnStyle = (enabled: boolean): CSSProperties => ({
+    height: "34px", borderColor: t.border, background: t.panel,
+    color: enabled ? t.fg : t.faintFg, cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.5,
+  });
 
-  const backBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "5px", border: "1px solid " + t.border, background: t.panel,
-    color: t.mutedFg, cursor: "pointer", fontSize: "12px", fontWeight: 500, padding: "6px 10px", borderRadius: "8px", flex: "none",
-  };
-  const savingStyle: CSSProperties = {
-    fontSize: "11.5px", fontWeight: 500, color: saving === "error" ? "#e11d48" : t.faintFg, whiteSpace: "nowrap",
-  };
+  const subStyle: CSSProperties = { fontSize: "11.5px", color: t.mutedFg, lineHeight: 1.2 };
+  const metaDividerStyle: CSSProperties = { background: t.border };
+  const metaStyle: CSSProperties = { gap: "7px", fontSize: "12.5px", color: t.mutedFg };
+  const ghostBtnStyle: CSSProperties = { borderColor: t.border, background: t.panel, color: t.fg, fontSize: "12.5px", padding: "7px 12px" };
+  const primaryBtnStyle: CSSProperties = { background: ac.main, color: ac.fg, fontSize: "12.5px" };
+  const backBtnStyle: CSSProperties = { gap: "5px", borderColor: t.border, background: t.panel, color: t.mutedFg, fontSize: "12px" };
+  const savingStyle: CSSProperties = { fontSize: "11.5px", color: saving === "error" ? "#e11d48" : t.faintFg };
   const savingLabel = saving === "saving" ? "Saving…" : saving === "saved" ? "Saved" : saving === "error" ? "Save failed" : "";
 
   return (
     <div className="no-print glass-panel rounded-xl mx-[18px] mt-[14px] flex flex-wrap items-center justify-between gap-4 px-4 py-2">
       <div className="flex min-w-0 flex-wrap items-center gap-3">
         {showBack && (
-          <button onClick={() => backToDashboard()} style={backBtnStyle} title="Back to projects">
+          <button onClick={() => backToDashboard()} className="inline-flex flex-none cursor-pointer items-center rounded-lg border px-2.5 py-1.5 font-medium" style={backBtnStyle} title="Back to projects">
             <ArrowLeft size={14} /> Projects
           </button>
         )}
         <div style={subStyle}>{windowSubtitle}</div>
-        <div style={metaDividerStyle} />
-        <div style={metaStyle}>
-          <span style={metaStrongStyle}>{info.jobName || "—"}</span>
-          <span style={metaDotStyle}>·</span>
+        <div className="mx-1 h-7 w-px" style={metaDividerStyle} />
+        <div className="flex flex-wrap items-center" style={metaStyle}>
+          <span className="font-semibold" style={{ color: t.fg }}>{info.jobName || "—"}</span>
+          <span style={{ color: t.faintFg }}>·</span>
           <span>{info.jobNumber}</span>
-          <span style={metaDotStyle}>·</span>
+          <span style={{ color: t.faintFg }}>·</span>
           <span>Supt. {info.superintendent || "—"}</span>
         </div>
-        <div style={metaDividerStyle} />
+        <div className="mx-1 h-7 w-px" style={metaDividerStyle} />
         <AreaSwitcher />
       </div>
       <div className="flex flex-none items-center gap-2">
-        {showCloudNav && savingLabel && <span style={savingStyle}>{savingLabel}</span>}
-        <button onClick={() => undo()} style={undoBtnStyle} title="Undo (⌘Z)">
+        {showCloudNav && savingLabel && <span className="whitespace-nowrap font-medium" style={savingStyle}>{savingLabel}</span>}
+        <button onClick={() => undo()} className={ICON_BTN} style={navBtnStyle(canUndo)} title="Undo (⌘Z)">
           <Undo2 size={16} />
         </button>
-        <button onClick={() => redo()} style={redoBtnStyle} title="Redo (⌘⇧Z)">
+        <button onClick={() => redo()} className={ICON_BTN} style={navBtnStyle(canRedo)} title="Redo (⌘⇧Z)">
           <Redo2 size={16} />
         </button>
-        <button onClick={() => openSettings()} style={ghostBtnStyle} title="Settings & display options">
+        <button onClick={() => openSettings()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border font-medium" style={ghostBtnStyle} title="Settings & display options">
           <SettingsIcon size={15} /> Settings
         </button>
-        <button onClick={() => window.print()} style={primaryBtnStyle}>
+        <button onClick={() => window.print()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3.5 py-2 font-semibold" style={primaryBtnStyle}>
           <Printer size={15} /> Print / Export PDF
         </button>
       </div>

@@ -91,13 +91,12 @@ export function seg(active: boolean, t: Tokens): CSSProperties {
   };
 }
 
-/** Legend swatch pill. */
+/** Legend swatch pill — data-driven fill/text from the status palette. The
+ *  structural styling (inline-flex / items-center / rounded-full / font-semibold)
+ *  is Tailwind at the Toolbar call site (Phase 3); the 11px font, 3px/9px pad and
+ *  mono face have no clean Tailwind step, so they stay here with the palette. */
 export function swatch(pal: StatusPalette): CSSProperties {
-  return {
-    display: "inline-flex", alignItems: "center", fontSize: "11px", fontWeight: 600, padding: "3px 9px",
-    borderRadius: "999px", background: pal.bg, color: pal.color,
-    fontFamily: FONT_MONO,
-  };
+  return { fontSize: "11px", padding: "3px 9px", background: pal.bg, color: pal.color, fontFamily: FONT_MONO };
 }
 
 export function switchTrack(on: boolean, ac: AccentTok, t: Tokens): CSSProperties {

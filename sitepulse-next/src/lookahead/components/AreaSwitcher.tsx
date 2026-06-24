@@ -8,6 +8,13 @@ import { ACCENT } from "@/lookahead/lib/config";
 
 type Dialog = { mode: "create" | "rename" } | null;
 
+// Phase 3 (UI convergence): the area dropdown + create/rename dialog move to
+// Tailwind for structure/spacing/typography. Theme tokens (border/panel/fg/accent/
+// hover), dynamic active/disabled colors, the modal overlay rgba, and odd values
+// with no clean Tailwind step (5/7/9px pads, 9/10/14px radii, 380px card, 220px
+// trigger, 11/12/12.5/13/15px fonts) stay inline.
+const ITEM_CLASS = "flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent text-left font-medium";
+
 export default function AreaSwitcher() {
   const theme = useStore((s) => s.theme);
   const areas = useStore((s) => s.areas);
@@ -54,35 +61,26 @@ export default function AreaSwitcher() {
     setDialog(null);
   };
 
-  const triggerStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "6px", border: "1px solid " + t.border, background: t.panel,
-    color: t.fg, cursor: "pointer", fontSize: "12px", fontWeight: 600, padding: "5px 9px", borderRadius: "8px", maxWidth: "220px",
-  };
-  const dropStyle: CSSProperties = {
-    position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 80, minWidth: "240px", background: t.panel,
-    border: "1px solid " + t.border, borderRadius: "10px", boxShadow: "0 12px 32px rgba(0,0,0,.22)", padding: "6px",
-  };
-  const kicker: CSSProperties = { fontSize: "9px", fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: t.faintFg, padding: "5px 8px 4px" };
-  const item: CSSProperties = {
-    display: "flex", alignItems: "center", gap: "8px", width: "100%", textAlign: "left", border: "none",
-    background: "transparent", color: t.fg, cursor: "pointer", fontSize: "12.5px", fontWeight: 500, padding: "7px 8px", borderRadius: "6px",
-  };
-  const sep: CSSProperties = { height: "1px", background: t.border, margin: "5px 2px" };
-  const nameCellStyle = (active: boolean): CSSProperties => ({ ...item, fontWeight: active ? 600 : 500, background: active ? t.hover : "transparent" });
+  const triggerStyle: CSSProperties = { borderColor: t.border, background: t.panel, color: t.fg, fontSize: "12px", padding: "5px 9px", maxWidth: "220px" };
+  const dropStyle: CSSProperties = { top: "calc(100% + 6px)", zIndex: 80, background: t.panel, borderColor: t.border, borderRadius: "10px", boxShadow: "0 12px 32px rgba(0,0,0,.22)" };
+  const kickerStyle: CSSProperties = { fontSize: "9px", letterSpacing: ".1em", color: t.faintFg, padding: "5px 8px 4px" };
+  const itemStyle: CSSProperties = { color: t.fg, fontSize: "12.5px", padding: "7px 8px" };
+  const sepStyle: CSSProperties = { background: t.border, margin: "5px 2px" };
+  const nameCellStyle = (active: boolean): CSSProperties => ({ ...itemStyle, fontWeight: active ? 600 : 500, background: active ? t.hover : "transparent" });
 
   return (
-    <div style={{ position: "relative" }}>
-      <button style={triggerStyle} onClick={() => setOpen((o) => !o)} title="Switch look-ahead area">
-        <Layers size={13} style={{ color: t.mutedFg, flex: "none" }} />
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current.name}</span>
-        <ChevronDown size={13} style={{ color: t.mutedFg, flex: "none" }} />
+    <div className="relative">
+      <button className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border font-semibold" style={triggerStyle} onClick={() => setOpen((o) => !o)} title="Switch look-ahead area">
+        <Layers size={13} className="flex-none" style={{ color: t.mutedFg }} />
+        <span className="truncate">{current.name}</span>
+        <ChevronDown size={13} className="flex-none" style={{ color: t.mutedFg }} />
       </button>
 
       {open && (
         <>
-          <div style={{ position: "fixed", inset: 0, zIndex: 79 }} onMouseDown={close} />
-          <div style={dropStyle}>
-            <div style={kicker}>Area / Scope</div>
+          <div className="fixed inset-0" style={{ zIndex: 79 }} onMouseDown={close} />
+          <div className="absolute left-0 min-w-60 border p-1.5" style={dropStyle}>
+            <div className="font-bold uppercase" style={kickerStyle}>Area / Scope</div>
             {areaOrder.map((id) => {
               const a = areas[id];
               if (!a) return null;
@@ -90,45 +88,46 @@ export default function AreaSwitcher() {
               return (
                 <button
                   key={id}
-                  className="la-menu-item"
+                  className={`la-menu-item ${ITEM_CLASS}`}
                   style={nameCellStyle(active)}
                   onClick={() => {
                     switchArea(id);
                     close();
                   }}
                 >
-                  <Check size={13} style={{ color: active ? ac.main : "transparent", flex: "none" }} />
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+                  <Check size={13} className="flex-none" style={{ color: active ? ac.main : "transparent" }} />
+                  <span className="truncate">{a.name}</span>
                 </button>
               );
             })}
-            <div style={sep} />
-            <button className="la-menu-item" style={item} onClick={openCreate}>
-              <Plus size={13} style={{ color: t.mutedFg, flex: "none" }} /> New look-ahead…
+            <div className="mx-0.5 h-px" style={sepStyle} />
+            <button className={`la-menu-item ${ITEM_CLASS}`} style={itemStyle} onClick={openCreate}>
+              <Plus size={13} className="flex-none" style={{ color: t.mutedFg }} /> New look-ahead…
             </button>
-            <button className="la-menu-item" style={item} onClick={openRename}>
-              <Pencil size={13} style={{ color: t.mutedFg, flex: "none" }} /> Rename current…
+            <button className={`la-menu-item ${ITEM_CLASS}`} style={itemStyle} onClick={openRename}>
+              <Pencil size={13} className="flex-none" style={{ color: t.mutedFg }} /> Rename current…
             </button>
             <button
-              className="la-menu-item"
-              style={item}
+              className={`la-menu-item ${ITEM_CLASS}`}
+              style={itemStyle}
               onClick={() => {
                 duplicateArea(currentAreaId);
                 close();
               }}
             >
-              <Copy size={13} style={{ color: t.mutedFg, flex: "none" }} /> Duplicate current
+              <Copy size={13} className="flex-none" style={{ color: t.mutedFg }} /> Duplicate current
             </button>
             {canDelete && !confirmDelete && (
-              <button className="la-menu-delete" style={{ ...item, color: "#e11d48" }} onClick={() => setConfirmDelete(true)}>
-                <Trash2 size={13} style={{ flex: "none" }} /> Delete current…
+              <button className={`la-menu-delete ${ITEM_CLASS}`} style={{ ...itemStyle, color: "#e11d48" }} onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={13} className="flex-none" /> Delete current…
               </button>
             )}
             {canDelete && confirmDelete && (
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 8px", flexWrap: "wrap" }}>
-                <span style={{ fontSize: "11.5px", fontWeight: 600, color: "#e11d48" }}>Delete “{current.name}”?</span>
+              <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
+                <span className="font-semibold" style={{ fontSize: "11.5px", color: "#e11d48" }}>Delete “{current.name}”?</span>
                 <button
-                  style={{ border: "none", background: "#e11d48", color: "#fff", cursor: "pointer", fontSize: "11px", fontWeight: 600, padding: "3px 9px", borderRadius: "5px" }}
+                  className="cursor-pointer border-0 font-semibold text-white"
+                  style={{ background: "#e11d48", fontSize: "11px", padding: "3px 9px", borderRadius: "5px" }}
                   onClick={() => {
                     deleteArea(currentAreaId);
                     close();
@@ -137,7 +136,8 @@ export default function AreaSwitcher() {
                   Delete
                 </button>
                 <button
-                  style={{ border: "1px solid " + t.border, background: t.panel, color: t.mutedFg, cursor: "pointer", fontSize: "11px", fontWeight: 600, padding: "3px 9px", borderRadius: "5px" }}
+                  className="cursor-pointer border font-semibold"
+                  style={{ borderColor: t.border, background: t.panel, color: t.mutedFg, fontSize: "11px", padding: "3px 9px", borderRadius: "5px" }}
                   onClick={() => setConfirmDelete(false)}
                 >
                   Cancel
@@ -150,17 +150,19 @@ export default function AreaSwitcher() {
 
       {dialog && (
         <div
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 95, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}
+          className="fixed inset-0 flex items-center justify-center p-5"
+          style={{ background: "rgba(0,0,0,.4)", zIndex: 95 }}
           onMouseDown={() => setDialog(null)}
         >
           <div
-            style={{ width: "380px", maxWidth: "100%", background: t.panel, borderRadius: "14px", border: "1px solid " + t.border, boxShadow: "0 24px 60px rgba(0,0,0,.35)", padding: "18px" }}
+            className="max-w-full border"
+            style={{ width: "380px", background: t.panel, borderRadius: "14px", borderColor: t.border, boxShadow: "0 24px 60px rgba(0,0,0,.35)", padding: "18px" }}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div style={{ fontSize: "15px", fontWeight: 700, color: t.fg, marginBottom: "12px" }}>
+            <div className="mb-3 font-bold" style={{ fontSize: "15px", color: t.fg }}>
               {dialog.mode === "create" ? "New look-ahead" : "Rename look-ahead"}
             </div>
-            <label style={{ fontSize: "11px", fontWeight: 600, color: t.mutedFg, marginBottom: "4px", display: "block" }}>
+            <label className="mb-1 block font-semibold" style={{ fontSize: "11px", color: t.mutedFg }}>
               Area name
             </label>
             <input
@@ -172,23 +174,26 @@ export default function AreaSwitcher() {
                 else if (e.key === "Escape") setDialog(null);
               }}
               placeholder="e.g. Interior, Exterior, Sitework"
-              style={{ width: "100%", height: "36px", border: "1px solid " + t.border, background: t.panel, color: t.fg, borderRadius: "8px", padding: "0 10px", fontSize: "13px", fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
+              className="box-border h-9 w-full rounded-lg border px-2.5 outline-none"
+              style={{ borderColor: t.border, background: t.panel, color: t.fg, fontSize: "13px", fontFamily: "inherit" }}
             />
             {dialog.mode === "create" && (
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "12px", fontSize: "12.5px", color: t.fg, cursor: "pointer" }}>
+              <label className="mt-3 flex cursor-pointer items-center gap-2" style={{ fontSize: "12.5px", color: t.fg }}>
                 <input type="checkbox" checked={copyCurrent} onChange={(e) => setCopyCurrent(e.target.checked)} />
                 Copy task list from “{current.name}” (clears marks)
               </label>
             )}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "18px" }}>
+            <div className="flex justify-end gap-2" style={{ marginTop: "18px" }}>
               <button
-                style={{ border: "1px solid " + t.border, background: t.panel, color: t.fg, cursor: "pointer", fontSize: "12.5px", fontWeight: 500, padding: "8px 14px", borderRadius: "8px" }}
+                className="cursor-pointer rounded-lg border px-3.5 py-2 font-medium"
+                style={{ borderColor: t.border, background: t.panel, color: t.fg, fontSize: "12.5px" }}
                 onClick={() => setDialog(null)}
               >
                 Cancel
               </button>
               <button
-                style={{ border: "none", background: ac.main, color: ac.fg, cursor: name.trim() ? "pointer" : "default", opacity: name.trim() ? 1 : 0.5, fontSize: "12.5px", fontWeight: 600, padding: "8px 16px", borderRadius: "8px" }}
+                className="rounded-lg border-0 px-4 py-2 font-semibold"
+                style={{ background: ac.main, color: ac.fg, cursor: name.trim() ? "pointer" : "default", opacity: name.trim() ? 1 : 0.5, fontSize: "12.5px" }}
                 onClick={submit}
               >
                 {dialog.mode === "create" ? "Create" : "Save"}

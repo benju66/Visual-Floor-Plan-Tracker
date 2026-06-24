@@ -11,6 +11,7 @@ import {
   buildVisDows, clampWeeks, computeFlags, hasDoneFront, projWeekNum, projectMonday,
 } from "@/lookahead/lib/schedule";
 import { windowMeta } from "@/lookahead/lib/view";
+import { rectSelection } from "@/lookahead/lib/selection";
 import type { Status } from "@/lookahead/lib/types";
 import Header from "./Header";
 import Toolbar from "./Toolbar";
@@ -20,28 +21,6 @@ import RollModal from "./RollModal";
 import SettingsDrawer from "./SettingsDrawer";
 
 const defLabel: Record<Status, string> = { start: "START", ongoing: "X", done: "DONE" };
-
-// Build the rectangular cell selection spanning two cells (inclusive), using the
-// current visible row order + visible columns. Returns null if either cell is no
-// longer on screen. Shared by shift-click (mouse) and shift-arrow (keyboard).
-function rectSelection(
-  rowOrder: string[],
-  visCols: number[],
-  a: { rowId: string; di: number },
-  b: { rowId: string; di: number }
-): Record<string, true> | null {
-  const r1 = rowOrder.indexOf(a.rowId), r2 = rowOrder.indexOf(b.rowId);
-  const v1 = visCols.indexOf(a.di), v2 = visCols.indexOf(b.di);
-  if (r1 < 0 || r2 < 0 || v1 < 0 || v2 < 0) return null;
-  const rA = Math.min(r1, r2), rB = Math.max(r1, r2), vA = Math.min(v1, v2), vB = Math.max(v1, v2);
-  const sel: Record<string, true> = {};
-  for (let ri = rA; ri <= rB; ri++) {
-    const rid = rowOrder[ri];
-    if (rid == null) continue;
-    for (let vi = vA; vi <= vB; vi++) sel[rid + ":" + visCols[vi]] = true;
-  }
-  return sel;
-}
 
 interface LookAheadProps {
   /** Optional extra autocomplete entries for the sub cell's `la-subs` datalist,
@@ -362,17 +341,10 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
     const vc = visColsRef.current;
     if (fillRef.current) {
       const f = fillRef.current;
-      const r2 = rowOrder.indexOf(rowId), r1 = rowOrder.indexOf(f.rowId);
-      const v1 = vc.indexOf(f.di), v2 = vc.indexOf(di);
-      if (r1 < 0 || r2 < 0 || v1 < 0 || v2 < 0) return;
-      const rA = Math.min(r1, r2), rB = Math.max(r1, r2), vA = Math.min(v1, v2), vB = Math.max(v1, v2);
-      const sel: Record<string, true> = {};
-      for (let ri = rA; ri <= rB; ri++) {
-        const rid = rowOrder[ri];
-        if (rid == null) continue;
-        for (let vi = vA; vi <= vB; vi++) sel[rid + ":" + vc[vi]] = true;
-      }
-      st.setSelCells(sel);
+      // Fill-drag paints the inclusive rectangle from the fill origin to the
+      // hovered cell — identical math to shift-select, so reuse rectSelection.
+      const sel = rectSelection(rowOrder, vc, { rowId: f.rowId, di: f.di }, { rowId, di });
+      if (sel) st.setSelCells(sel);
       return;
     }
     const d = dragRef.current;
