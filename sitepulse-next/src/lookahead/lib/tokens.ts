@@ -82,11 +82,14 @@ export function blend(base: string, overlay: string): string {
   return "linear-gradient(" + overlay + "," + overlay + "), " + base;
 }
 
-/** Segmented-control button style. */
+/** Segmented-control button — data-driven fill/text/shadow stay here; the
+ *  structure (cursor / rounded-md / border-0 / font-semibold) is Tailwind at the
+ *  SettingsDrawer call site (Phase 4). The 12px font and 5px/11px pad have no
+ *  clean Tailwind step, so they stay inline with the palette. */
 export function seg(active: boolean, t: Tokens): CSSProperties {
   return {
-    border: "none", cursor: "pointer", fontSize: "12px", fontWeight: 600, padding: "5px 11px",
-    borderRadius: "6px", background: active ? t.panel : "transparent", color: active ? t.fg : t.mutedFg,
+    fontSize: "12px", padding: "5px 11px",
+    background: active ? t.panel : "transparent", color: active ? t.fg : t.mutedFg,
     boxShadow: active ? "0 1px 2px rgba(0,0,0,.10)" : "none",
   };
 }
@@ -99,16 +102,17 @@ export function swatch(pal: StatusPalette): CSSProperties {
   return { fontSize: "11px", padding: "3px 9px", background: pal.bg, color: pal.color, fontFamily: FONT_MONO };
 }
 
+/** Toggle-switch track — only the data-driven on/off background stays here; the
+ *  structure (relative / flex-none / cursor / rounded-full / border-0 / p-0) is
+ *  Tailwind at the SettingsDrawer call site (Phase 4). The 42×24px pill has no
+ *  clean Tailwind step, so its dimensions stay inline. */
 export function switchTrack(on: boolean, ac: AccentTok, t: Tokens): CSSProperties {
-  return {
-    width: "42px", height: "24px", borderRadius: "999px", border: "none", cursor: "pointer",
-    background: on ? ac.main : t.borderStrong, position: "relative", padding: 0, flex: "none",
-  };
+  return { width: "42px", height: "24px", background: on ? ac.main : t.borderStrong };
 }
 
+/** Toggle-switch knob — only the dynamic on/off `left` slide and the constant
+ *  white fill/shadow stay here; position/size/round (absolute / top-0.5 / h-5 /
+ *  w-5 / rounded-full) is Tailwind at the SettingsDrawer call site (Phase 4). */
 export function switchKnob(on: boolean): CSSProperties {
-  return {
-    position: "absolute", top: "2px", left: on ? "20px" : "2px", width: "20px", height: "20px",
-    borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.3)",
-  };
+  return { left: on ? "20px" : "2px", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.3)" };
 }
