@@ -9,6 +9,13 @@ import { ACCENT } from "@/lookahead/lib/config";
 import { windowMeta } from "@/lookahead/lib/view";
 import AreaSwitcher from "./AreaSwitcher";
 
+// Phase 2 (UI convergence): this is NO LONGER a second app masthead — SitePulse's
+// real TopHeader already brands the app + names the view. This collapses to a thin
+// frosted-glass context strip (window subtitle + project meta + AreaSwitcher on the
+// left; saving indicator + undo/redo + Settings + Print on the right) that reads as
+// a sub-toolbar UNDER the TopHeader. The brand dot + duplicate "Short Interval Plan"
+// title were intentionally removed. The outer container chrome is Tailwind (.glass-
+// panel); the inner controls stay inline-styled until the Phase 3 Tailwind reskin.
 export default function Header() {
   const theme = useStore((s) => s.theme);
   const info = useStore((s) => s.project.info);
@@ -26,7 +33,7 @@ export default function Header() {
   const embedded = useSession((s) => s.embedded);
   // DELIBERATE SitePulse edit (Phase 0b): the saving indicator shows whenever a
   // cloud project is open, but the "← Projects" back button is suppressed while
-  // embedded — SitePulse's TopHeader owns navigation, so this Header's own back
+  // embedded — SitePulse's TopHeader owns navigation, so this strip's own back
   // nav would be a dead end.
   const showCloudNav = cloud && inProject;
   const showBack = showCloudNav && !embedded;
@@ -35,85 +42,65 @@ export default function Header() {
   const ac = getAccent(ACCENT, theme);
   const { windowSubtitle } = windowMeta(area.currentWeek, area.view);
 
-  const headerBarStyle: CSSProperties = {
-    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px",
-    padding: "12px 18px", borderBottom: "1px solid " + t.border, background: t.panel, flexWrap: "wrap",
-  };
-  const brandWrapStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "12px", minWidth: 0, flexWrap: "wrap" };
-  const brandDotStyle: CSSProperties = {
-    width: "30px", height: "30px", borderRadius: "7px", background: ac.main, flex: "none",
-    boxShadow: "inset 0 0 0 1px rgba(255,255,255,.12)",
-  };
-  const titleStyle: CSSProperties = { fontSize: "15px", fontWeight: 700, lineHeight: 1.15, letterSpacing: "-.01em" };
-  const subStyle: CSSProperties = { fontSize: "11.5px", color: t.mutedFg, lineHeight: 1.2 };
-  const metaDividerStyle: CSSProperties = { width: "1px", height: "28px", background: t.border, margin: "0 4px" };
-  const metaStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "7px", fontSize: "12.5px", color: t.mutedFg, flexWrap: "wrap" };
-  const metaStrongStyle: CSSProperties = { color: t.fg, fontWeight: 600 };
-  const metaDotStyle: CSSProperties = { color: t.faintFg };
-  const controlsStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "8px", flex: "none" };
-  const ghostBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "6px",
-    border: "1px solid " + t.border, background: t.panel, color: t.fg, cursor: "pointer",
-    fontSize: "12.5px", fontWeight: 500, padding: "7px 12px", borderRadius: "8px",
-  };
-  const primaryBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "6px",
-    border: "none", background: ac.main, color: ac.fg, cursor: "pointer",
-    fontSize: "12.5px", fontWeight: 600, padding: "8px 14px", borderRadius: "8px",
-  };
-  const undoBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", justifyContent: "center",
-    width: "32px", height: "34px", border: "1px solid " + t.border, background: t.panel,
-    color: canUndo ? t.fg : t.faintFg, cursor: canUndo ? "pointer" : "default", borderRadius: "8px",
-    opacity: canUndo ? 1 : 0.5,
-  };
-  const redoBtnStyle: CSSProperties = { ...undoBtnStyle, color: canRedo ? t.fg : t.faintFg, cursor: canRedo ? "pointer" : "default", opacity: canRedo ? 1 : 0.5 };
+  // Phase 3 (UI convergence): the strip's inner controls move to Tailwind for
+  // layout/spacing/typography; theme tokens (border/panel/fg/accent), dynamic
+  // enabled/error colors, and the odd 11.5/12.5px fonts + 5px/7px gaps + 34px
+  // icon-button height (no clean Tailwind step) stay inline. The Phase-2 outer
+  // container chrome (glass-panel / no-print / inset) is left exactly as is.
+  // Phase 5 (responsive): the icon buttons grow to a 40px finger target below `xl`
+  // (both iPad orientations); at desktop ≥1280 the `xl:` resets restore the exact
+  // Phase-4 sizing (inline 34px height / w-8). Pure layout — no behavior change.
+  const ICON_BTN =
+    "inline-flex w-8 items-center justify-center rounded-lg border min-h-[40px] min-w-[40px] xl:min-h-0 xl:min-w-0";
+  const navBtnStyle = (enabled: boolean): CSSProperties => ({
+    height: "34px", borderColor: t.border, background: t.panel,
+    color: enabled ? t.fg : t.faintFg, cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.5,
+  });
 
-  const backBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "5px", border: "1px solid " + t.border, background: t.panel,
-    color: t.mutedFg, cursor: "pointer", fontSize: "12px", fontWeight: 500, padding: "6px 10px", borderRadius: "8px", flex: "none",
-  };
-  const savingStyle: CSSProperties = {
-    fontSize: "11.5px", fontWeight: 500, color: saving === "error" ? "#e11d48" : t.faintFg, whiteSpace: "nowrap",
-  };
+  const subStyle: CSSProperties = { fontSize: "11.5px", color: t.mutedFg, lineHeight: 1.2 };
+  const metaDividerStyle: CSSProperties = { background: t.border };
+  const metaStyle: CSSProperties = { gap: "7px", fontSize: "12.5px", color: t.mutedFg };
+  const ghostBtnStyle: CSSProperties = { borderColor: t.border, background: t.panel, color: t.fg, fontSize: "12.5px", padding: "7px 12px" };
+  const primaryBtnStyle: CSSProperties = { background: ac.main, color: ac.fg, fontSize: "12.5px" };
+  const backBtnStyle: CSSProperties = { gap: "5px", borderColor: t.border, background: t.panel, color: t.mutedFg, fontSize: "12px" };
+  const savingStyle: CSSProperties = { fontSize: "11.5px", color: saving === "error" ? "#e11d48" : t.faintFg };
   const savingLabel = saving === "saving" ? "Saving…" : saving === "saved" ? "Saved" : saving === "error" ? "Save failed" : "";
 
   return (
-    <div className="no-print" style={headerBarStyle}>
-      <div style={brandWrapStyle}>
+    // Phase 5 (responsive): the inset + inter-control gaps tighten below `lg` so a
+    // wrapped second row reads cleanly on iPad portrait; `lg:` restores the desktop
+    // spacing. The strip already wrapped (flex-wrap); this just makes it graceful.
+    <div className="no-print glass-panel rounded-xl mx-2.5 mt-2.5 lg:mx-[18px] lg:mt-[14px] flex flex-wrap items-center justify-between gap-2 lg:gap-4 px-3 lg:px-4 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 lg:gap-3">
         {showBack && (
-          <button onClick={() => backToDashboard()} style={backBtnStyle} title="Back to projects">
+          <button onClick={() => backToDashboard()} className="inline-flex flex-none cursor-pointer items-center rounded-lg border px-2.5 py-1.5 font-medium min-h-[40px] xl:min-h-0" style={backBtnStyle} title="Back to projects">
             <ArrowLeft size={14} /> Projects
           </button>
         )}
-        <div style={brandDotStyle} />
-        <div>
-          <div style={titleStyle}>Short Interval Plan</div>
-          <div style={subStyle}>{windowSubtitle}</div>
-        </div>
-        <div style={metaDividerStyle} />
-        <div style={metaStyle}>
-          <span style={metaStrongStyle}>{info.jobName || "—"}</span>
-          <span style={metaDotStyle}>·</span>
+        <div style={subStyle}>{windowSubtitle}</div>
+        <div className="mx-1 h-7 w-px" style={metaDividerStyle} />
+        <div className="flex flex-wrap items-center" style={metaStyle}>
+          <span className="font-semibold" style={{ color: t.fg }}>{info.jobName || "—"}</span>
+          <span style={{ color: t.faintFg }}>·</span>
           <span>{info.jobNumber}</span>
-          <span style={metaDotStyle}>·</span>
+          <span style={{ color: t.faintFg }}>·</span>
           <span>Supt. {info.superintendent || "—"}</span>
         </div>
-        <div style={metaDividerStyle} />
+        <div className="mx-1 h-7 w-px" style={metaDividerStyle} />
         <AreaSwitcher />
       </div>
-      <div style={controlsStyle}>
-        {showCloudNav && savingLabel && <span style={savingStyle}>{savingLabel}</span>}
-        <button onClick={() => undo()} style={undoBtnStyle} title="Undo (⌘Z)">
+      <div className="flex flex-none items-center gap-2">
+        {showCloudNav && savingLabel && <span className="whitespace-nowrap font-medium" style={savingStyle}>{savingLabel}</span>}
+        <button onClick={() => undo()} className={ICON_BTN} style={navBtnStyle(canUndo)} title="Undo (⌘Z)">
           <Undo2 size={16} />
         </button>
-        <button onClick={() => redo()} style={redoBtnStyle} title="Redo (⌘⇧Z)">
+        <button onClick={() => redo()} className={ICON_BTN} style={navBtnStyle(canRedo)} title="Redo (⌘⇧Z)">
           <Redo2 size={16} />
         </button>
-        <button onClick={() => openSettings()} style={ghostBtnStyle} title="Settings & display options">
+        <button onClick={() => openSettings()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border font-medium min-h-[40px] xl:min-h-0" style={ghostBtnStyle} title="Settings & display options">
           <SettingsIcon size={15} /> Settings
         </button>
-        <button onClick={() => window.print()} style={primaryBtnStyle}>
+        <button onClick={() => window.print()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3.5 py-2 font-semibold min-h-[40px] xl:min-h-0" style={primaryBtnStyle}>
           <Printer size={15} /> Print / Export PDF
         </button>
       </div>

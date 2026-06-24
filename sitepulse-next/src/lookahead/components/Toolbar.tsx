@@ -8,6 +8,14 @@ import { ACCENT } from "@/lookahead/lib/config";
 import { todayKey } from "@/lookahead/lib/date";
 import { windowMeta, weekOptionsList } from "@/lookahead/lib/view";
 
+// Phase 3 (UI convergence): the week toolbar's inner controls move to Tailwind for
+// layout/spacing/typography. Theme tokens (border/panel/fg/headBg/accent), the
+// dynamic "this week" enabled state, fixed status/flag colors, and odd values with
+// no clean Tailwind step (30px control height, 8.5/11/11.5/12/13px fonts, 5px gap,
+// 11px pads, 190/210px widths) stay inline. The Phase-2 glass container is left
+// exactly as is; `swatch` keeps the palette fill, the SWATCH_CLASS its structure.
+const SWATCH_CLASS = "inline-flex items-center rounded-full font-semibold";
+
 export default function Toolbar() {
   const theme = useStore((s) => s.theme);
   const area = useStore((s) => s.areas[s.currentAreaId]);
@@ -33,112 +41,93 @@ export default function Toolbar() {
   const canDeleteWeek = savedCount > 1 && !confirmDeleteWeek;
   const showConfirmDelete = confirmDeleteWeek && savedCount > 1;
 
-  const toolbarStyle: CSSProperties = {
-    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px",
-    padding: "8px 18px", borderBottom: "1px solid " + t.border, background: t.appBg, flexWrap: "wrap",
-  };
-  const navWrapStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", rowGap: "6px" };
-  const navArrowStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", justifyContent: "center",
-    width: "30px", height: "30px", border: "1px solid " + t.border, background: t.panel, color: t.fg,
-    cursor: "pointer", borderRadius: "8px",
-  };
-  const weekBoxStyle: CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", padding: "0 8px", minWidth: "210px" };
-  const weekKickerStyle: CSSProperties = { fontSize: "8.5px", fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: t.faintFg };
-  const weekLabelStyle: CSSProperties = { fontSize: "13px", fontWeight: 600, color: t.fg, whiteSpace: "nowrap" };
-  const rollBtnStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "5px",
-    border: "1px solid " + ac.main, background: "transparent", color: ac.main, cursor: "pointer",
-    fontSize: "12px", fontWeight: 600, padding: "6px 11px", borderRadius: "8px", whiteSpace: "nowrap", marginLeft: "4px",
-  };
-  const dupBtnStyle: CSSProperties = {
-    border: "1px solid " + t.border, background: t.panel, color: t.mutedFg, cursor: "pointer",
-    fontSize: "12px", fontWeight: 500, padding: "6px 11px", borderRadius: "8px", marginLeft: "4px",
-  };
-  const jumpSelectStyle: CSSProperties = {
-    height: "30px", border: "1px solid " + t.border, background: t.panel, color: t.fg, cursor: "pointer",
-    fontSize: "12px", fontWeight: 500, padding: "0 8px", borderRadius: "8px", fontFamily: "inherit", maxWidth: "190px",
-  };
+  const navArrowStyle: CSSProperties = { width: "30px", height: "30px", borderColor: t.border, background: t.panel, color: t.fg };
+  const weekBoxStyle: CSSProperties = { minWidth: "210px" };
+  const weekKickerStyle: CSSProperties = { fontSize: "8.5px", letterSpacing: ".1em", color: t.faintFg };
+  const weekLabelStyle: CSSProperties = { fontSize: "13px", color: t.fg };
+  const rollBtnStyle: CSSProperties = { gap: "5px", borderColor: ac.main, color: ac.main, fontSize: "12px", padding: "6px 11px" };
+  const dupBtnStyle: CSSProperties = { borderColor: t.border, background: t.panel, color: t.mutedFg, fontSize: "12px", padding: "6px 11px" };
+  const jumpSelectStyle: CSSProperties = { height: "30px", borderColor: t.border, background: t.panel, color: t.fg, fontSize: "12px", fontFamily: "inherit", maxWidth: "190px" };
   const thisWeekBtnStyle: CSSProperties = {
-    height: "30px", border: "1px solid " + (onThisWeekDisabled ? t.border : ac.main),
+    height: "30px", borderColor: onThisWeekDisabled ? t.border : ac.main,
     background: onThisWeekDisabled ? t.panel : "transparent", color: onThisWeekDisabled ? t.faintFg : ac.main,
-    cursor: "pointer", fontSize: "12px", fontWeight: 600, padding: "0 11px", borderRadius: "8px", whiteSpace: "nowrap",
+    fontSize: "12px", padding: "0 11px",
   };
-  const savedPillStyle: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11.5px", fontWeight: 500, color: t.mutedFg,
-    padding: "4px 10px", borderRadius: "999px", background: t.headBg, border: "1px solid " + t.border, marginLeft: "2px",
-  };
-  const savedDotStyle: CSSProperties = { width: "7px", height: "7px", borderRadius: "50%", background: "#10b981" };
-  const delWeekBtnStyle: CSSProperties = {
-    height: "30px", border: "1px solid " + t.border, background: t.panel, color: t.faintFg, cursor: "pointer",
-    fontSize: "12px", fontWeight: 500, padding: "0 10px", borderRadius: "8px", whiteSpace: "nowrap",
-  };
-  const delWeekTextStyle: CSSProperties = { fontSize: "12px", fontWeight: 600, color: "#e11d48", whiteSpace: "nowrap" };
-  const delWeekYesStyle: CSSProperties = { height: "30px", border: "none", background: "#e11d48", color: "#fff", cursor: "pointer", fontSize: "12px", fontWeight: 600, padding: "0 11px", borderRadius: "8px" };
-  const delWeekNoStyle: CSSProperties = { height: "30px", border: "1px solid " + t.border, background: t.panel, color: t.mutedFg, cursor: "pointer", fontSize: "12px", fontWeight: 500, padding: "0 11px", borderRadius: "8px" };
-
-  const legendGroupStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" };
+  const savedPillStyle: CSSProperties = { fontSize: "11.5px", color: t.mutedFg, background: t.headBg, borderColor: t.border };
+  const delWeekBtnStyle: CSSProperties = { height: "30px", borderColor: t.border, background: t.panel, color: t.faintFg, fontSize: "12px" };
+  const delWeekTextStyle: CSSProperties = { fontSize: "12px", color: "#e11d48" };
+  const delWeekYesStyle: CSSProperties = { height: "30px", background: "#e11d48", fontSize: "12px", padding: "0 11px" };
+  const delWeekNoStyle: CSSProperties = { height: "30px", borderColor: t.border, background: t.panel, color: t.mutedFg, fontSize: "12px", padding: "0 11px" };
   const hintStyle: CSSProperties = { fontSize: "11px", color: t.faintFg };
 
   const savedLabel = savedCount + (savedCount === 1 ? " week saved" : " weeks saved");
 
   return (
-    <div className="no-print" style={toolbarStyle}>
-      <div style={navWrapStyle}>
-        <button onClick={() => gotoWeek(-1)} style={navArrowStyle} title="Previous week">
+    // Phase 2 (UI convergence): frosted-glass, rounded sub-toolbar that floats
+    // under the TopHeader + the context strip (matching their inset). Inner
+    // controls were reskinned to Tailwind in Phase 3 (structure → classes,
+    // tokens/odd values → inline).
+    // Phase 5 (responsive): inset + gaps tighten below `lg` for iPad portrait;
+    // `lg:` restores desktop spacing. Nav arrows + action buttons grow to a 40px
+    // finger target below `xl` (both iPad orientations), resetting at desktop.
+    <div className="no-print glass-panel rounded-xl mx-2.5 lg:mx-[18px] mt-2 flex flex-wrap items-center justify-between gap-2 lg:gap-4 px-3 lg:px-4 py-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <button onClick={() => gotoWeek(-1)} className="inline-flex cursor-pointer items-center justify-center rounded-lg border min-h-[40px] min-w-[40px] xl:min-h-0 xl:min-w-0" style={navArrowStyle} title="Previous week">
           <ChevronLeft size={18} />
         </button>
-        <div style={weekBoxStyle}>
-          <span style={weekKickerStyle}>Look-ahead window</span>
-          <span style={weekLabelStyle}>{weekOfLabel}</span>
+        <div className="flex flex-col items-center px-2" style={weekBoxStyle}>
+          <span className="font-bold uppercase" style={weekKickerStyle}>Look-ahead window</span>
+          <span className="whitespace-nowrap font-semibold" style={weekLabelStyle}>{weekOfLabel}</span>
         </div>
-        <button onClick={() => gotoWeek(1)} style={navArrowStyle} title="Next week">
+        <button onClick={() => gotoWeek(1)} className="inline-flex cursor-pointer items-center justify-center rounded-lg border min-h-[40px] min-w-[40px] xl:min-h-0 xl:min-w-0" style={navArrowStyle} title="Next week">
           <ChevronRight size={18} />
         </button>
         {showRoll && (
-          <button onClick={() => openRollForward()} style={rollBtnStyle} title="Advance one week, carrying unfinished work forward">
+          <button onClick={() => openRollForward()} className="ml-1 inline-flex cursor-pointer items-center whitespace-nowrap rounded-lg border bg-transparent font-semibold min-h-[40px] xl:min-h-0" style={rollBtnStyle} title="Advance one week, carrying unfinished work forward">
             <RotateCw size={13} /> Roll forward
           </button>
         )}
-        <button onClick={() => duplicateWeek()} style={dupBtnStyle}>
+        <button onClick={() => duplicateWeek()} className="ml-1 cursor-pointer rounded-lg border font-medium min-h-[40px] xl:min-h-0" style={dupBtnStyle}>
           Duplicate week →
         </button>
-        <select value={currentWeek} onChange={(e) => goToWeekKey(e.target.value)} style={jumpSelectStyle} title="Jump to a saved week">
+        <select value={currentWeek} onChange={(e) => goToWeekKey(e.target.value)} className="cursor-pointer rounded-lg border px-2 font-medium min-h-[40px] xl:min-h-0" style={jumpSelectStyle} title="Jump to a saved week">
           {weekOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>
           ))}
         </select>
-        <button onClick={() => goToWeekKey(thisKey)} style={thisWeekBtnStyle} title="Go to the week containing today">
+        <button onClick={() => goToWeekKey(thisKey)} className="cursor-pointer whitespace-nowrap rounded-lg border font-semibold min-h-[40px] xl:min-h-0" style={thisWeekBtnStyle} title="Go to the week containing today">
           This week
         </button>
-        <div style={savedPillStyle}>
-          <span style={savedDotStyle} />
+        <div className="ml-0.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-medium" style={savedPillStyle}>
+          <span className="rounded-full" style={{ width: "7px", height: "7px", background: "#10b981" }} />
           {savedLabel}
         </div>
         {canDeleteWeek && (
-          <button onClick={() => askDeleteWeek()} style={delWeekBtnStyle} title="Delete this saved week">
+          <button onClick={() => askDeleteWeek()} className="cursor-pointer whitespace-nowrap rounded-lg border px-2.5 font-medium min-h-[40px] xl:min-h-0" style={delWeekBtnStyle} title="Delete this saved week">
             Delete week
           </button>
         )}
         {showConfirmDelete && (
           <>
-            <span style={delWeekTextStyle}>Delete this week?</span>
-            <button onClick={() => deleteWeek()} style={delWeekYesStyle}>
+            <span className="whitespace-nowrap font-semibold" style={delWeekTextStyle}>Delete this week?</span>
+            <button onClick={() => deleteWeek()} className="cursor-pointer rounded-lg border-0 font-semibold text-white min-h-[40px] xl:min-h-0" style={delWeekYesStyle}>
               Delete
             </button>
-            <button onClick={() => cancelDeleteWeek()} style={delWeekNoStyle}>
+            <button onClick={() => cancelDeleteWeek()} className="cursor-pointer rounded-lg border font-medium min-h-[40px] xl:min-h-0" style={delWeekNoStyle}>
               Cancel
             </button>
           </>
         )}
       </div>
-      <div style={legendGroupStyle}>
-        <span style={swatch(t.st.start)}>Start</span>
-        <span style={swatch(t.st.ongoing)}>X · In&nbsp;progress</span>
-        <span style={swatch(t.st.done)}>Done</span>
-        <span style={hintStyle}>click selects · click again to cycle · dbl-click types · ←↑↓→ move · s/x/d to mark · ⌘Z undo</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={SWATCH_CLASS} style={swatch(t.st.start)}>Start</span>
+        <span className={SWATCH_CLASS} style={swatch(t.st.ongoing)}>X · In&nbsp;progress</span>
+        <span className={SWATCH_CLASS} style={swatch(t.st.done)}>Done</span>
+        {/* Phase 5: keyboard/mouse guidance — hidden below `lg` (it's desktop hint
+            text and would force awkward wraps on a narrow iPad portrait legend row). */}
+        <span className="hidden lg:inline" style={hintStyle}>click selects · click again to cycle · dbl-click types · ←↑↓→ move · s/x/d to mark · ⌘Z undo</span>
       </div>
     </div>
   );

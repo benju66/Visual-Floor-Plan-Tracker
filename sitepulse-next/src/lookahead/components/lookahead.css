@@ -24,6 +24,35 @@
   background: rgba(225, 29, 72, 0.1) !important;
 }
 
+/* ---- touch affordances (Phase 6a — UI convergence / touch parity) ----
+   The fill handle is a mouse-precise 7x7 dot and the column-resize grip is a 7px
+   strip — both too small for a finger. On COARSE pointers (touch/pen) only, a
+   transparent ::before enlarges the *hit* area without moving or resizing the
+   visible handle, so the desktop mouse target stays exactly as it was. The
+   handles already set `touch-action: none` inline, so a finger drag on them
+   fills / resizes instead of scrolling. */
+@media (pointer: coarse) {
+  /* ~24px finger target anchored at the cell's bottom-right corner, growing
+     inward (up + left) so it stays inside the cell's clipped box. */
+  .la-fill::before {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 24px;
+    height: 24px;
+  }
+  /* Widen the resize grip to ~18px, growing leftward from the column edge. */
+  .la-resize::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 18px;
+  }
+}
+
 /* ---- print: 11x17 landscape ---- */
 .print-only {
   display: none;
