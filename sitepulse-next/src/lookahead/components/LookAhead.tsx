@@ -12,7 +12,8 @@ import {
   buildVisDows, clampWeeks, computeFlags, hasDoneFront, projWeekNum, projectMonday,
 } from "@/lookahead/lib/schedule";
 import { windowMeta, effectiveWeeks, LA_LANDSCAPE_MIN } from "@/lookahead/lib/view";
-import { rectSelection } from "@/lookahead/lib/selection";
+import { rectSelection, type CellRef } from "@/lookahead/lib/selection";
+import { classifyPointerGesture } from "@/lookahead/lib/gesture";
 import type { Status } from "@/lookahead/lib/types";
 import Header from "./Header";
 import Toolbar from "./Toolbar";
@@ -30,6 +31,32 @@ const defLabel: Record<Status, string> = { start: "START", ongoing: "X", done: "
 const NARROW_TASK_W = 180; // px — effective task-column cap on portrait
 const NARROW_SUB_W = 84; // px — effective sub-column width on portrait
 const FULL_SUB_W = 110; // px — sub-column width on landscape/desktop (unchanged)
+
+// Phase 6a (UI convergence — touch parity): tap-vs-drag travel + long-press timing
+// for `classifyPointerGesture`. The px threshold applies to FINGER / PEN only — a
+// mouse uses Infinity (see `cellDown`) so desktop click-vs-drag stays governed by
+// "did the cursor enter another cell", byte-identical to the pre-pointer
+// (`mouseenter`) model. 8px ≈ Android touchSlop; 500ms ≈ the iOS/Android long-press
+// default. Long-press is defined here but not wired until Phase 6b (cell/row menus).
+const LA_MOVE_THRESHOLD_PX = 8;
+const LA_LONGPRESS_MS = 500;
+
+// Resolve the grid cell under a screen point for touch drag-fill / marquee. With a
+// captured pointer (touch has implicit capture), `pointermove` is delivered to the
+// ORIGIN cell and `pointerenter` never fires on the cells under the moving finger —
+// so the drag loop must hit-test the finger position itself. Each grid `<td>`
+// carries `data-rowid` / `data-di`; only day cells do, so a hit over the sticky
+// task / sub / notes columns (or off-grid) returns null and starts no marquee.
+function cellFromPoint(x: number, y: number): CellRef | null {
+  const el = document.elementFromPoint(x, y);
+  const td = el && (el as Element).closest("[data-rowid][data-di]");
+  if (!td) return null;
+  const rowId = td.getAttribute("data-rowid");
+  const diStr = td.getAttribute("data-di");
+  if (rowId == null || diStr == null) return null;
+  const di = Number(diStr);
+  return Number.isFinite(di) ? { rowId, di } : null;
+}
 
 // Phase 5: track the viewport width (for the render-only week-window + column
 // clamps) and whether the browser is printing. `printing` forces the full saved
@@ -75,9 +102,16 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   const [mounted, setMounted] = useState(false);
   const { viewportWidth, printing } = useViewport();
 
-  const dragRef = useRef<{ startRow: number; startDi: number; moved: boolean; wasFocused: boolean; detail: number } | null>(null);
-  const fillRef = useRef<{ rowId: string; di: number; status: Status } | null>(null);
-  const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
+  // Pointer-gesture refs (Phase 6a). `pointerId` lets the document-level handlers
+  // ignore a second finger's events mid-gesture; `pointerType` + `moveThreshold`
+  // + `downX/Y/At` feed the tap-vs-drag decision (mouse uses an Infinity threshold
+  // → parity with the old mouseenter model; touch/pen use LA_MOVE_THRESHOLD_PX).
+  const dragRef = useRef<{
+    startRow: number; startDi: number; moved: boolean; wasFocused: boolean; detail: number;
+    pointerId: number; pointerType: string; downX: number; downY: number; downAt: number; moveThreshold: number;
+  } | null>(null);
+  const fillRef = useRef<{ rowId: string; di: number; status: Status; pointerId: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startW: number; pointerId: number } | null>(null);
   const rowOrderRef = useRef<string[]>([]);
   const visColsRef = useRef<number[]>([]);
   // Holds the task-description input of the row flagged in `focusTaskRowId`, so a
@@ -98,23 +132,32 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
     useStore.getState().setFocusTaskRow(null);
   }, [s.focusTaskRowId]);
 
-  // ---- global mouse + keyboard model (attached once) ----
+  // ---- global pointer + keyboard model (attached once) ----
+  // Pointer Events unify mouse + touch + pen, so desktop drives the SAME code path
+  // (a mouse is `pointerType: "mouse"`) while a finger now works too. `onUp`/`onMove`
+  // mirror the old `mouseup`/`mousemove` handlers; `onMove` also absorbs the marquee/
+  // fill growth that used to live in per-cell `onMouseEnter` (which can't fire under
+  // a captured touch pointer). `onKey` is unchanged. Each handler ignores events from
+  // a different `pointerId` so a stray second finger can't hijack an active gesture.
   useEffect(() => {
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
       const st = useStore.getState();
       if (fillRef.current) {
+        if (e.pointerId !== fillRef.current.pointerId) return;
         st.applyCellStatus(fillRef.current.status);
         fillRef.current = null;
         dragRef.current = null;
         return;
       }
       if (resizeRef.current) {
+        if (e.pointerId !== resizeRef.current.pointerId) return;
         resizeRef.current = null;
         st.persistTaskColW();
         return;
       }
       const d = dragRef.current;
       if (d) {
+        if (e.pointerId !== d.pointerId) return;
         if (!d.moved && d.wasFocused && d.detail === 1) {
           const rid = rowOrderRef.current[d.startRow];
           if (rid != null) st.cycleCell(rid, d.startDi);
@@ -122,12 +165,60 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
         dragRef.current = null;
       }
     };
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
+      // Column resize (mouse or finger): same clamp + live-width update as before.
       if (resizeRef.current) {
+        if (e.pointerId !== resizeRef.current.pointerId) return;
         const st = useStore.getState();
         const w = Math.max(140, Math.min(440, resizeRef.current.startW + (e.clientX - resizeRef.current.startX)));
         if (w !== st.taskColW) st.setTaskColW(w);
+        return;
       }
+      // Fill-drag: paint the inclusive rectangle from the fill origin to whatever
+      // cell the pointer is over (hit-tested, so it works under a captured finger).
+      if (fillRef.current) {
+        if (e.pointerId !== fillRef.current.pointerId) return;
+        const cell = cellFromPoint(e.clientX, e.clientY);
+        if (!cell) return;
+        const f = fillRef.current;
+        const sel = rectSelection(rowOrderRef.current, visColsRef.current, { rowId: f.rowId, di: f.di }, cell);
+        if (sel) useStore.getState().setSelCells(sel);
+        return;
+      }
+      // Marquee-drag: grow the rectangle from the press origin to the pointer.
+      const d = dragRef.current;
+      if (!d || e.pointerId !== d.pointerId) return;
+      const originRowId = rowOrderRef.current[d.startRow];
+      if (originRowId == null) return;
+      const cell = cellFromPoint(e.clientX, e.clientY);
+      if (!d.moved) {
+        // Escalate press → drag. Mouse: byte-identical to the old `mouseenter` model
+        // — a drag begins the instant the cursor is over a DIFFERENT cell (the px
+        // threshold is Infinity, so the distance test never fires). Touch / pen:
+        // begin once the finger travels past LA_MOVE_THRESHOLD_PX, so small jitter
+        // near a cell boundary still reads as a tap (→ cycle), not a 1-cell drag.
+        const enteredOther = !!cell && !(cell.rowId === originRowId && cell.di === d.startDi);
+        const starts =
+          d.pointerType === "mouse"
+            ? enteredOther
+            : classifyPointerGesture({
+                downAt: d.downAt, upAt: e.timeStamp,
+                dx: e.clientX - d.downX, dy: e.clientY - d.downY,
+                longPressMs: LA_LONGPRESS_MS, moveThresholdPx: d.moveThreshold,
+              }) === "drag";
+        if (!starts) return;
+        d.moved = true;
+      }
+      if (!cell) return;
+      const sel = rectSelection(rowOrderRef.current, visColsRef.current, { rowId: originRowId, di: d.startDi }, cell);
+      if (sel) useStore.getState().setSelCells(sel);
+    };
+    // A canceled pointer (e.g. the browser claims a touch for scroll, or the OS
+    // interrupts) aborts the in-flight gesture without committing fill / resize.
+    const onCancel = (e: PointerEvent) => {
+      if (fillRef.current && e.pointerId === fillRef.current.pointerId) fillRef.current = null;
+      if (resizeRef.current && e.pointerId === resizeRef.current.pointerId) resizeRef.current = null;
+      if (dragRef.current && e.pointerId === dragRef.current.pointerId) dragRef.current = null;
     };
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState();
@@ -233,12 +324,14 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
         if (e.key === "Backspace" || e.key === "Delete" || k === "0" || k === "c") { e.preventDefault(); apply(null); return; }
       }
     };
-    document.addEventListener("mouseup", onUp);
-    document.addEventListener("mousemove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointercancel", onCancel);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mouseup", onUp);
-      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointercancel", onCancel);
       document.removeEventListener("keydown", onKey);
     };
   }, []);
@@ -359,18 +452,33 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   }
 
   // ---------- handlers using refs + store ----------
-  const cellDown = (rowId: string, di: number, e: React.MouseEvent) => {
+  // Capture finger / pen pointers so the marquee / fill keeps tracking once it
+  // leaves the origin element (touch has implicit capture; this makes pen explicit
+  // and robust, and guarantees pointerup is delivered here to resolve the gesture).
+  // The MOUSE is deliberately NOT captured: global pointermove already tracks it,
+  // and not capturing keeps desktop focus / double-click-to-edit / text-selection
+  // behaviour byte-identical to the pre-pointer model.
+  const capturePointer = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse") return;
+    try {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    } catch {
+      /* noop — capture is best-effort */
+    }
+  };
+  const cellDown = (rowId: string, di: number, e: React.PointerEvent) => {
     if (e.button !== 0) return;
     const st = useStore.getState();
     if (st.editing) {
-      // Clicking another cell while editing commits the text (via the input's blur)
+      // Tapping another cell while editing commits the text (via the input's blur)
       // and exits edit mode. Don't preventDefault (so blur fires); don't start a drag/cycle.
       if (st.editing !== rowId + ":" + di) st.setFocusCell({ rowId, di });
       return;
     }
     e.preventDefault();
     // Shift-click extends a rectangular selection from the anchor (the last
-    // focused/clicked cell) to the clicked cell — no cell-status cycle.
+    // focused/clicked cell) to the clicked cell — no cell-status cycle. (Desktop
+    // only: there is no Shift modifier on touch, so this branch is mouse/keyboard.)
     if (e.shiftKey) {
       const anchor = st.selAnchor ?? st.focusCell ?? { rowId, di };
       const sel = rectSelection(rowOrderRef.current, visColsRef.current, anchor, { rowId, di });
@@ -383,50 +491,30 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
     }
     const fc = st.focusCell;
     const wasFocused = !!(fc && fc.rowId === rowId && fc.di === di);
-    dragRef.current = { startRow: rowOrderRef.current.indexOf(rowId), startDi: di, moved: false, wasFocused, detail: e.detail || 1 };
+    dragRef.current = {
+      startRow: rowOrderRef.current.indexOf(rowId), startDi: di, moved: false, wasFocused, detail: e.detail || 1,
+      pointerId: e.pointerId, pointerType: e.pointerType, downX: e.clientX, downY: e.clientY, downAt: e.timeStamp,
+      moveThreshold: e.pointerType === "mouse" ? Infinity : LA_MOVE_THRESHOLD_PX,
+    };
+    capturePointer(e);
     st.setFocusCell({ rowId, di });
     st.setSelAnchor({ rowId, di });
   };
-  const cellEnter = (rowId: string, di: number) => {
-    const st = useStore.getState();
-    const rowOrder = rowOrderRef.current;
-    const vc = visColsRef.current;
-    if (fillRef.current) {
-      const f = fillRef.current;
-      // Fill-drag paints the inclusive rectangle from the fill origin to the
-      // hovered cell — identical math to shift-select, so reuse rectSelection.
-      const sel = rectSelection(rowOrder, vc, { rowId: f.rowId, di: f.di }, { rowId, di });
-      if (sel) st.setSelCells(sel);
-      return;
-    }
-    const d = dragRef.current;
-    if (!d) return;
-    d.moved = true;
-    const r2 = rowOrder.indexOf(rowId);
-    const v1 = vc.indexOf(d.startDi), v2 = vc.indexOf(di);
-    if (v1 < 0 || v2 < 0) return;
-    const rA = Math.min(d.startRow, r2), rB = Math.max(d.startRow, r2), vA = Math.min(v1, v2), vB = Math.max(v1, v2);
-    const sel: Record<string, true> = {};
-    for (let ri = rA; ri <= rB; ri++) {
-      const rid = rowOrder[ri];
-      if (rid == null) continue;
-      for (let vi = vA; vi <= vB; vi++) sel[rid + ":" + vc[vi]] = true;
-    }
-    st.setSelCells(sel);
-  };
-  const fillDown = (rowId: string, di: number, status: Status, e: React.MouseEvent) => {
+  const fillDown = (rowId: string, di: number, status: Status, e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     dragRef.current = null;
-    fillRef.current = { rowId, di, status };
+    fillRef.current = { rowId, di, status, pointerId: e.pointerId };
+    capturePointer(e);
     const st = useStore.getState();
     st.setSelCells({ [rowId + ":" + di]: true });
     st.setFocusCell({ rowId, di });
   };
-  const onResizeStart = (e: React.MouseEvent) => {
+  const onResizeStart = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    resizeRef.current = { startX: e.clientX, startW: useStore.getState().taskColW };
+    resizeRef.current = { startX: e.clientX, startW: useStore.getState().taskColW, pointerId: e.pointerId };
+    capturePointer(e);
   };
   const cellContext = (rowId: string, di: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -560,6 +648,10 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
             const base: CSSProperties = {
               width: "46px", minWidth: "46px", height: rowH + "px", padding: 0, textAlign: "center", verticalAlign: "middle",
               fontFamily: FONT_MONO, fontSize: cellFont + "px", fontWeight: 600, cursor: "pointer",
+              // Phase 6a: a finger drag that STARTS on a day cell does fill / marquee,
+              // never a page/grid scroll. (The sticky task / sub columns + day header
+              // keep their default touch-action, so finger-scroll still works there.)
+              touchAction: "none",
               userSelect: "none", position: "relative", overflow: "hidden",
               color: pal ? pal.color : cd && cd.t ? t.fg : t.faintFg,
               background: pal ? pal.bg : flag ? blend(t.panel, t.flag[flag]) : t.panel,
@@ -574,9 +666,10 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
               <td
                 key={r.id + ":" + ci}
                 className="la-cell"
+                data-rowid={r.id}
+                data-di={ci}
                 style={base}
-                onMouseDown={(e) => cellDown(r.id, ci, e)}
-                onMouseEnter={() => cellEnter(r.id, ci)}
+                onPointerDown={(e) => cellDown(r.id, ci, e)}
                 onDoubleClick={() => s.startEdit(r.id, ci)}
                 onContextMenu={(e) => cellContext(r.id, ci, e)}
                 title={status ? (status === "ongoing" ? "In progress" : status) : ""}
@@ -603,8 +696,9 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
                 )}
                 {showFill && status && (
                   <span
-                    onMouseDown={(e) => fillDown(r.id, ci, status, e)}
-                    style={{ position: "absolute", right: "1px", bottom: "1px", width: "7px", height: "7px", background: focusRing, cursor: "crosshair", borderRadius: "1px" }}
+                    className="la-fill"
+                    onPointerDown={(e) => fillDown(r.id, ci, status, e)}
+                    style={{ position: "absolute", right: "1px", bottom: "1px", width: "7px", height: "7px", background: focusRing, cursor: "crosshair", borderRadius: "1px", touchAction: "none" }}
                     title="Drag to fill"
                   />
                 )}
@@ -819,7 +913,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
             <tr>
               <th rowSpan={2} style={cornerTaskStyle}>
                 What work do you have planned for next week?
-                <span style={{ position: "absolute", top: 0, right: 0, width: "7px", height: "100%", cursor: "col-resize", zIndex: 50 }} onMouseDown={onResizeStart} title="Drag to resize column" />
+                <span className="la-resize" style={{ position: "absolute", top: 0, right: 0, width: "7px", height: "100%", cursor: "col-resize", zIndex: 50, touchAction: "none" }} onPointerDown={onResizeStart} title="Drag to resize column" />
               </th>
               <th rowSpan={2} style={cornerSubStyle}>Sub</th>
               {weeksHdr.map((wk, i) => (
