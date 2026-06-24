@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings } from 'lucide-react';
+import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings, Folder, Trash2, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/providers/AuthProvider';
 import LocationLibraryPanel from '@/components/taxonomy/LocationLibraryPanel';
+import { deleteProjectService } from '@/services/api';
 
-export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) {
+export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, onProjectDeleted }) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   
@@ -19,9 +20,19 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
 
-  // Which global-settings tab is showing: cross-project user management, or the
-  // global Location Library (the shared sub-type dictionary + review queue).
+  // Which global-settings tab is showing: cross-project user management, the
+  // global Location Library (the shared sub-type dictionary + review queue), or
+  // the admin Projects manager (delete a project).
   const [activeTab, setActiveTab] = useState('users');
+
+  // Projects tab state. `confirmProject` holds the project the admin has armed
+  // for deletion; the type-the-name guard (`confirmText`) prevents fat-finger
+  // destruction. `deletingId` drives the per-row spinner; `projectStatus`
+  // surfaces success/error inline.
+  const [confirmProject, setConfirmProject] = useState(null);
+  const [confirmText, setConfirmText] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
+  const [projectStatus, setProjectStatus] = useState({ type: '', message: '' });
 
   // New State for Global Team
   const [globalTeam, setGlobalTeam] = useState([]);
@@ -63,6 +74,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
       setSearchError('');
       setAssignments({});
       setSaveStatus({ type: '', message: '' });
+      setConfirmProject(null);
+      setConfirmText('');
+      setProjectStatus({ type: '', message: '' });
     }
   }, [isOpen]);
 
@@ -251,6 +265,30 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
     }
   };
 
+  const handleDeleteProject = async (project) => {
+    setDeletingId(project.id);
+    setProjectStatus({ type: '', message: '' });
+    try {
+      // The backend route is admin-gated and reclaims storage before the
+      // cascade delete (client `.remove()` is RLS-denied). Needs the user JWT.
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const token = authSession?.access_token;
+      if (!token) throw new Error('You appear to be signed out. Please refresh and try again.');
+
+      await deleteProjectService(project.id, token);
+
+      setConfirmProject(null);
+      setConfirmText('');
+      setProjectStatus({ type: 'success', message: `Deleted “${project.name}”.` });
+      onProjectDeleted?.(project.id); // let the dashboard drop it from the grid
+    } catch (err) {
+      console.error('Project delete failed:', err);
+      setProjectStatus({ type: 'error', message: err.message || 'Failed to delete project.' });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const isSelfModifying = targetUser?.email === session?.user?.email;
 
   return (
@@ -276,6 +314,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
               >
                 <Library className="w-4 h-4" /> Location Library
               </button>
+              <button
+                onClick={() => setActiveTab('projects')}
+                className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'projects' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+              >
+                <Folder className="w-4 h-4" /> Projects
+              </button>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
@@ -286,6 +330,95 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects }) 
         {activeTab === 'library' && (
           <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
             <LocationLibraryPanel canManage />
+          </div>
+        )}
+
+        {activeTab === 'projects' && (
+          <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+            <div className="max-w-2xl mx-auto space-y-4">
+              <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl text-sm font-medium text-amber-800 dark:text-amber-400">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                <p>Deleting a project permanently removes its drawings, locations, statuses, history, team assignments and contacts. This cannot be undone.</p>
+              </div>
+
+              {projectStatus.message && (
+                <div className={`flex items-center gap-1.5 text-xs font-bold ${projectStatus.type === 'success' ? 'text-emerald-500' : projectStatus.type === 'error' ? 'text-red-500' : 'text-slate-500 dark:text-slate-400'}`}>
+                  {projectStatus.type === 'success' ? <CheckCircle2 size={14} /> : projectStatus.type === 'error' ? <AlertCircle size={14} /> : null}
+                  {projectStatus.message}
+                </div>
+              )}
+
+              <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm divide-y divide-slate-100 dark:divide-slate-800">
+                {adminProjects.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">You do not have Admin access to any projects.</div>
+                ) : (
+                  adminProjects.map(project => {
+                    const isArmed = confirmProject?.id === project.id;
+                    const isDeleting = deletingId === project.id;
+                    const canConfirm = confirmText.trim() === project.name && !isDeleting;
+                    return (
+                      <div key={project.id} className="p-4 px-5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-500 shrink-0">
+                              <Folder size={18} />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-semibold text-sm text-slate-900 dark:text-white truncate">{project.name}</div>
+                              {project.created_at && (
+                                <div className="text-xs text-slate-500 dark:text-slate-400">Created {new Date(project.created_at).toLocaleDateString()}</div>
+                              )}
+                            </div>
+                          </div>
+                          {!isArmed && (
+                            <button
+                              onClick={() => { setConfirmProject(project); setConfirmText(''); setProjectStatus({ type: '', message: '' }); }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+                            >
+                              <Trash2 size={14} /> Delete
+                            </button>
+                          )}
+                        </div>
+
+                        {isArmed && (
+                          <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/40 rounded-xl space-y-3">
+                            <p className="text-xs font-semibold text-red-700 dark:text-red-300">
+                              Type <span className="font-mono bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/50">{project.name}</span> to permanently delete this project.
+                            </p>
+                            <input
+                              type="text"
+                              autoFocus
+                              disabled={isDeleting}
+                              value={confirmText}
+                              onChange={e => setConfirmText(e.target.value)}
+                              placeholder="Project name"
+                              className="w-full bg-white dark:bg-slate-950 border border-red-300 dark:border-red-900/50 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-red-500"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => { setConfirmProject(null); setConfirmText(''); }}
+                                disabled={isDeleting}
+                                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProject(project)}
+                                disabled={!canConfirm}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                {isDeleting ? 'Deleting…' : 'Delete Forever'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
         )}
 

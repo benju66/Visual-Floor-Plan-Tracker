@@ -67,6 +67,13 @@ export default function DashboardPage() {
     fetchProjects();
   }, [session]);
 
+  // After an admin deletes a project from Global Settings, drop it from local
+  // state so it disappears from the grid (and recomputes `adminProjects`)
+  // without a full refetch.
+  const handleProjectDeleted = (projectId) => {
+    setProjects(prev => prev.filter(p => p.projects?.id !== projectId));
+  };
+
   const handleCreateProject = async (e) => {
     e.preventDefault();
     if (!newProjectName.trim() || !session?.user?.id) return;
@@ -299,10 +306,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <GlobalSettingsModal 
-        isOpen={isGlobalSettingsOpen} 
-        onClose={() => setIsGlobalSettingsOpen(false)} 
-        adminProjects={adminProjects} 
+      <GlobalSettingsModal
+        isOpen={isGlobalSettingsOpen}
+        onClose={() => setIsGlobalSettingsOpen(false)}
+        adminProjects={adminProjects}
+        onProjectDeleted={handleProjectDeleted}
       />
     </div>
   );
