@@ -15,7 +15,6 @@ export default function SettingsDrawer() {
   const sections = useStore((s) => s.openSections);
 
   const closeSettings = useStore((s) => s.closeSettings);
-  const setTheme = useStore((s) => s.setTheme);
   const setDensity = useStore((s) => s.setDensity);
   const setNumWeeks = useStore((s) => s.setNumWeeks);
   const toggleDay = useStore((s) => s.toggleDay);
@@ -140,13 +139,6 @@ export default function SettingsDrawer() {
             </button>
             {sections.display && (
               <>
-                <div style={toggleRowStyle}>
-                  <div><div style={toggleLabelStyle}>Appearance</div></div>
-                  <div style={segWrapStyle}>
-                    <button onClick={() => setTheme("light")} style={seg(theme === "light", t)}>Light</button>
-                    <button onClick={() => setTheme("dark")} style={seg(theme === "dark", t)}>Dark</button>
-                  </div>
-                </div>
                 <div style={toggleRowStyle}>
                   <div><div style={toggleLabelStyle}>Row density</div></div>
                   <div style={segWrapStyle}>

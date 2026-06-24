@@ -4,7 +4,7 @@ import "./lookahead.css";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { GripVertical, MoreHorizontal } from "lucide-react";
 import { useStore } from "@/lookahead/store/useStore";
-import { getAccent, getTokens, blend } from "@/lookahead/lib/tokens";
+import { getAccent, getTokens, blend, FONT_SANS, FONT_MONO } from "@/lookahead/lib/tokens";
 import { ACCENT, SHOW_NOTES } from "@/lookahead/lib/config";
 import { addDays, fmtMD, mon, parseDate, toKey } from "@/lookahead/lib/date";
 import {
@@ -535,7 +535,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
             const showFill = focused && !!status;
             const base: CSSProperties = {
               width: "46px", minWidth: "46px", height: rowH + "px", padding: 0, textAlign: "center", verticalAlign: "middle",
-              fontFamily: "'Geist Mono', ui-monospace, monospace", fontSize: cellFont + "px", fontWeight: 600, cursor: "pointer",
+              fontFamily: FONT_MONO, fontSize: cellFont + "px", fontWeight: 600, cursor: "pointer",
               userSelect: "none", position: "relative", overflow: "hidden",
               color: pal ? pal.color : cd && cd.t ? t.fg : t.faintFg,
               background: pal ? pal.bg : flag ? blend(t.panel, t.flag[flag]) : t.panel,
@@ -572,7 +572,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
                         s.cancelEdit();
                       }
                     }}
-                    style={{ width: "100%", height: "100%", border: "none", outline: "none", background: "transparent", textAlign: "center", fontFamily: "'Geist Mono', ui-monospace, monospace", fontSize: cellFont + "px", fontWeight: 600, color: pal ? pal.color : t.fg, padding: 0 }}
+                    style={{ width: "100%", height: "100%", border: "none", outline: "none", background: "transparent", textAlign: "center", fontFamily: FONT_MONO, fontSize: cellFont + "px", fontWeight: 600, color: pal ? pal.color : t.fg, padding: 0 }}
                   />
                 ) : (
                   text
@@ -723,7 +723,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
   // ---------- styles for shell / table head ----------
   const shellStyle: CSSProperties = {
     minHeight: "100vh", background: t.appBg, color: t.fg,
-    fontFamily: "'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", display: "flex", flexDirection: "column",
+    fontFamily: FONT_SANS, display: "flex", flexDirection: "column",
   };
   const shellVars = {
     "--la-hover": t.hover,
@@ -805,7 +805,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
               {days.map((day) => (
                 <th key={day.idx} style={day.thStyle} onClick={(e) => s.toggleColumn(day.idx, e.shiftKey, visColsRef.current)} title={day.title}>
                   <div style={{ fontSize: "9.5px", fontWeight: 700, letterSpacing: ".02em" }}>{day.dow}</div>
-                  <div style={{ fontSize: "9px", fontWeight: 500, fontFamily: "'Geist Mono', ui-monospace, monospace", opacity: 0.7, marginTop: "1px" }}>{day.date}</div>
+                  <div style={{ fontSize: "9px", fontWeight: 500, fontFamily: FONT_MONO, opacity: 0.7, marginTop: "1px" }}>{day.date}</div>
                   {day.flag && <div style={day.flagTagStyle}>{day.flagTag}</div>}
                   {day.msName && <div style={day.msStyle}>◆ {day.msName}</div>}
                 </th>

@@ -29,6 +29,7 @@ import { useStore, projectBlob } from "@/lookahead/store/useStore";
 import { useSession } from "@/lookahead/store/useSession";
 import { useProjectContacts } from "@/hooks/useProjectQueries";
 import { contactsToPalette } from "@/utils/contactsToPalette";
+import { FONT_SANS } from "@/lookahead/lib/tokens";
 import LookAhead from "./components/LookAhead";
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -120,12 +121,30 @@ export default function LookaheadWorkspace({ projectId }: { projectId: string })
     };
   }, [projectId]);
 
+  // Theme bridge (Phase 1 — UI convergence): mirror SitePulse's app-wide theme
+  // into the Look-Ahead store so this view flips with the app's dark mode. The
+  // app sets `data-theme="dark"` on <html> for dark, and removes the attribute
+  // for "light"/"system" (which both render light, per globals.css). This is a
+  // SEPARATE effect from the autosave seam above — theme is device-local store
+  // state, never part of `projectBlob`, so it cannot reach the saved document.
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      const isDark = root.getAttribute("data-theme") === "dark";
+      useStore.getState().setTheme(isDark ? "dark" : "light");
+    };
+    apply(); // sync the initial value on mount
+    const observer = new MutationObserver(apply);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
   // Hold back the table until the plan is hydrated, so the seed never paints.
   if (status !== "ready") {
     return (
-      <div style={{ minHeight: "100vh", background: "#fafafa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {status === "error" && (
-          <div style={{ color: "#6b7280", fontSize: 14, fontFamily: "'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+          <div style={{ color: "var(--text)", fontSize: 14, fontFamily: FONT_SANS }}>
             Couldn&apos;t load this plan. Refresh to try again.
           </div>
         )}
