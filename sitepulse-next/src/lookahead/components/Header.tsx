@@ -9,6 +9,13 @@ import { ACCENT } from "@/lookahead/lib/config";
 import { windowMeta } from "@/lookahead/lib/view";
 import AreaSwitcher from "./AreaSwitcher";
 
+// Phase 2 (UI convergence): this is NO LONGER a second app masthead — SitePulse's
+// real TopHeader already brands the app + names the view. This collapses to a thin
+// frosted-glass context strip (window subtitle + project meta + AreaSwitcher on the
+// left; saving indicator + undo/redo + Settings + Print on the right) that reads as
+// a sub-toolbar UNDER the TopHeader. The brand dot + duplicate "Short Interval Plan"
+// title were intentionally removed. The outer container chrome is Tailwind (.glass-
+// panel); the inner controls stay inline-styled until the Phase 3 Tailwind reskin.
 export default function Header() {
   const theme = useStore((s) => s.theme);
   const info = useStore((s) => s.project.info);
@@ -26,7 +33,7 @@ export default function Header() {
   const embedded = useSession((s) => s.embedded);
   // DELIBERATE SitePulse edit (Phase 0b): the saving indicator shows whenever a
   // cloud project is open, but the "← Projects" back button is suppressed while
-  // embedded — SitePulse's TopHeader owns navigation, so this Header's own back
+  // embedded — SitePulse's TopHeader owns navigation, so this strip's own back
   // nav would be a dead end.
   const showCloudNav = cloud && inProject;
   const showBack = showCloudNav && !embedded;
@@ -35,22 +42,11 @@ export default function Header() {
   const ac = getAccent(ACCENT, theme);
   const { windowSubtitle } = windowMeta(area.currentWeek, area.view);
 
-  const headerBarStyle: CSSProperties = {
-    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px",
-    padding: "12px 18px", borderBottom: "1px solid " + t.border, background: t.panel, flexWrap: "wrap",
-  };
-  const brandWrapStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "12px", minWidth: 0, flexWrap: "wrap" };
-  const brandDotStyle: CSSProperties = {
-    width: "30px", height: "30px", borderRadius: "7px", background: ac.main, flex: "none",
-    boxShadow: "inset 0 0 0 1px rgba(255,255,255,.12)",
-  };
-  const titleStyle: CSSProperties = { fontSize: "15px", fontWeight: 700, lineHeight: 1.15, letterSpacing: "-.01em" };
   const subStyle: CSSProperties = { fontSize: "11.5px", color: t.mutedFg, lineHeight: 1.2 };
   const metaDividerStyle: CSSProperties = { width: "1px", height: "28px", background: t.border, margin: "0 4px" };
   const metaStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "7px", fontSize: "12.5px", color: t.mutedFg, flexWrap: "wrap" };
   const metaStrongStyle: CSSProperties = { color: t.fg, fontWeight: 600 };
   const metaDotStyle: CSSProperties = { color: t.faintFg };
-  const controlsStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "8px", flex: "none" };
   const ghostBtnStyle: CSSProperties = {
     display: "inline-flex", alignItems: "center", gap: "6px",
     border: "1px solid " + t.border, background: t.panel, color: t.fg, cursor: "pointer",
@@ -79,18 +75,14 @@ export default function Header() {
   const savingLabel = saving === "saving" ? "Saving…" : saving === "saved" ? "Saved" : saving === "error" ? "Save failed" : "";
 
   return (
-    <div className="no-print" style={headerBarStyle}>
-      <div style={brandWrapStyle}>
+    <div className="no-print glass-panel rounded-xl mx-[18px] mt-[14px] flex flex-wrap items-center justify-between gap-4 px-4 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         {showBack && (
           <button onClick={() => backToDashboard()} style={backBtnStyle} title="Back to projects">
             <ArrowLeft size={14} /> Projects
           </button>
         )}
-        <div style={brandDotStyle} />
-        <div>
-          <div style={titleStyle}>Short Interval Plan</div>
-          <div style={subStyle}>{windowSubtitle}</div>
-        </div>
+        <div style={subStyle}>{windowSubtitle}</div>
         <div style={metaDividerStyle} />
         <div style={metaStyle}>
           <span style={metaStrongStyle}>{info.jobName || "—"}</span>
@@ -102,7 +94,7 @@ export default function Header() {
         <div style={metaDividerStyle} />
         <AreaSwitcher />
       </div>
-      <div style={controlsStyle}>
+      <div className="flex flex-none items-center gap-2">
         {showCloudNav && savingLabel && <span style={savingStyle}>{savingLabel}</span>}
         <button onClick={() => undo()} style={undoBtnStyle} title="Undo (⌘Z)">
           <Undo2 size={16} />

@@ -33,10 +33,6 @@ export default function Toolbar() {
   const canDeleteWeek = savedCount > 1 && !confirmDeleteWeek;
   const showConfirmDelete = confirmDeleteWeek && savedCount > 1;
 
-  const toolbarStyle: CSSProperties = {
-    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px",
-    padding: "8px 18px", borderBottom: "1px solid " + t.border, background: t.appBg, flexWrap: "wrap",
-  };
   const navWrapStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", rowGap: "6px" };
   const navArrowStyle: CSSProperties = {
     display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -83,7 +79,11 @@ export default function Toolbar() {
   const savedLabel = savedCount + (savedCount === 1 ? " week saved" : " weeks saved");
 
   return (
-    <div className="no-print" style={toolbarStyle}>
+    // Phase 2 (UI convergence): frosted-glass, rounded sub-toolbar that floats
+    // under the TopHeader + the context strip (matching their inset). Inline
+    // background/borderBottom were dropped so .glass-panel can show; inner controls
+    // stay inline-styled until the Phase 3 Tailwind reskin.
+    <div className="no-print glass-panel rounded-xl mx-[18px] mt-2 flex flex-wrap items-center justify-between gap-4 px-4 py-2">
       <div style={navWrapStyle}>
         <button onClick={() => gotoWeek(-1)} style={navArrowStyle} title="Previous week">
           <ChevronLeft size={18} />
