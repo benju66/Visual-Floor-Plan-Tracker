@@ -53,6 +53,18 @@ export type WorkbenchSheetInsert = Database['public']['Tables']['workbench_sheet
 export type TraceEvent = Database['public']['Tables']['trace_events']['Row'];
 export type TraceEventInsert = Database['public']['Tables']['trace_events']['Insert'];
 
+// 1:1 cache of a sheet's extracted PDF text words (AI Tracing Assist — Phase 1).
+// It IS the sheet_vectors write-through pattern, for text: keyed by sheet_id,
+// the `text` JSONB column holds `[{ text, pctX, pctY }]` in the SAME percent
+// space as units.polygon_coordinates / sheet_vectors. Kept as the raw Row here
+// (text stays `Json`), mirroring TraceEvent / LookaheadPlan: the phase that
+// consumes this cache adds the read hook and narrows `text` to
+// `{ text, pctX, pctY }[]` at its query boundary — never letting `Json` reach
+// component props (AGENTS.md §6). A scanned sheet with no text layer caches an
+// empty array (an OCR candidate, not an error).
+export type SheetText = Database['public']['Tables']['sheet_text']['Row'];
+export type SheetTextInsert = Database['public']['Tables']['sheet_text']['Insert'];
+
 // Sub-type dictionary row (Location Taxonomy). The two JSONB columns are
 // narrowed off the generated `Json` to their real shapes (mirroring how `Unit`
 // narrows `polygon_coordinates`); narrow them at the query boundary with the

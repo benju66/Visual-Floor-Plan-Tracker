@@ -548,6 +548,50 @@ def extract_vectors_from_pdf(pdf_bytes: bytes) -> list:
     return clean_lines
 
 
+def extract_text_from_pdf(pdf_bytes: bytes) -> list:
+    """Extract the searchable text layer of a PDF page as located words.
+
+    Returns a list of {text, pctX, pctY} dicts — each word plus its position
+    (the word-bbox center) in the SAME percent space as extract_vectors_from_pdf:
+    positions run through the identical PDF->percent transform (undo derotation +
+    cropbox offset, normalize to 0..1), so cached text shares one coordinate
+    system with sheet_vectors and units.polygon_coordinates.
+
+    A scanned PDF with no text layer yields an EMPTY list — that is the
+    legitimate "no words / OCR candidate" state, NOT an error.
+    """
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page = doc[0]
+
+    width = page.rect.width
+    height = page.rect.height
+
+    # Inverse the derotation matrix to map PDF coordinates back to the map
+    # percentages — identical to extract_vectors_from_pdf.map_point so words and
+    # vectors land in the same percent space.
+    inv_derot = ~page.derotation_matrix
+    tl = page.cropbox.tl
+
+    def map_point(p):
+        p_mapped = (p - tl) * inv_derot
+        return {"pctX": p_mapped.x / width, "pctY": p_mapped.y / height}
+
+    # get_text("words") -> (x0, y0, x1, y1, "word", block_no, line_no, word_no).
+    # A page with no text layer (scanned raster) returns an empty list.
+    words = page.get_text("words")
+    doc.close()
+
+    located = []
+    for w in words:
+        x0, y0, x1, y1, text = w[0], w[1], w[2], w[3], w[4]
+        if not text or not text.strip():
+            continue
+        center = fitz.Point((x0 + x1) / 2, (y0 + y1) / 2)
+        located.append({"text": text, **map_point(center)})
+
+    return located
+
+
 @app.get("/extract-vectors/{sheet_id}")
 async def extract_snapping_vectors(sheet_id: str, user: dict = Depends(get_current_user)):
     """Fallback endpoint for legacy sheets without pre-extracted vectors.
@@ -579,6 +623,45 @@ async def extract_snapping_vectors(sheet_id: str, user: dict = Depends(get_curre
         raise
     except Exception as e:
         print(f"Error extracting vectors: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/extract-text/{sheet_id}")
+async def extract_sheet_text(sheet_id: str, user: dict = Depends(get_current_user)):
+    """Extract a sheet's PDF text layer (located words) and write through to the
+    sheet_text cache. The free foundation that later capture tools read from to
+    auto-fill room names, parse the title block, and label gridlines.
+
+    A scanned PDF with no text layer caches an empty list and is flagged for OCR
+    later (the empty list IS the flag) — that is NOT an error."""
+    try:
+        await verify_sheet_access(sheet_id, user["sub"])
+
+        def process():
+            pdf_path = f"originals/{sheet_id}.pdf"
+            res = supabase.storage.from_("floorplans").download(pdf_path)
+            words = extract_text_from_pdf(res)
+            # Write-through: cache for future reads. An empty list is valid — a
+            # scanned sheet caches [] and becomes an OCR candidate.
+            try:
+                supabase.table("sheet_text").upsert(
+                    {"sheet_id": sheet_id, "text": words},
+                    on_conflict="sheet_id"
+                ).execute()
+            except Exception:
+                pass
+            return words
+
+        import asyncio
+        words = await asyncio.to_thread(process)
+        return {"status": "success", "text": words}
+
+    except fitz.FileDataError:
+        raise HTTPException(status_code=404, detail="Original PDF not found for text extraction.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error extracting text: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

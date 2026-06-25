@@ -639,6 +639,31 @@ export interface Database {
         }
         Relationships: []
       }
+      sheet_text: {
+        Row: {
+          sheet_id: string
+          text: Json
+          created_at: string
+        }
+        Insert: {
+          sheet_id: string
+          text?: Json
+          created_at?: string
+        }
+        Update: {
+          sheet_id?: string
+          text?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_text_sheet_id_fkey"
+            columns: ["sheet_id"]
+            referencedRelation: "sheets"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       sheet_vectors: {
         Row: {
           sheet_id: string
