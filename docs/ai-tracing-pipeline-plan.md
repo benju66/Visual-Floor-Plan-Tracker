@@ -4,6 +4,8 @@
 
 **Status:** Planning. No code written yet. File/symbol references below come from a codebase exploration and should be re-verified during implementation.
 
+**Confirmed:** PyMuPDF (`fitz` 1.27.2.2) is already in `requirements.txt` and used throughout `main.py`; most PDFs carry a searchable text layer; the existing `map_point()` helper (`main.py:499`) already maps PDF coords → `{pctX, pctY}` and is directly reusable for text-word extraction. This makes the cold-start label pre-fill (Track B) near-free.
+
 ---
 
 ## Current system (what we're building on)
@@ -78,9 +80,12 @@ Every sheet traced before this exists loses its correction signal. Smallest scop
 
 Available day one; reuses existing backend. Build in this order.
 
-### M2.1 — PDF text-layer extraction (backend)
-- Add `page.get_text("words")` (PyMuPDF) endpoint returning words + bboxes in percent coords. **Verify PDFs carry a text layer** (vs flattened scans) — if not, fall back to OCR; this gates how "free" M2.3 is.
-- **Acceptance:** endpoint returns located text for a sample sheet; coverage of scanned-vs-vector PDFs quantified.
+### M2.1 — PDF text-layer extraction (backend) — **confirmed feasible, near-free**
+- PyMuPDF (`fitz` 1.27.2.2) is already a dependency and the majority of PDFs carry a searchable text layer (confirmed), so no OCR dependency is needed for the common case.
+- Add an endpoint that runs `page.get_text("words")` and maps each word's bbox through the **existing `map_point()` transform** (`main.py:499`) — the same derotation + cropbox + percent normalization used by `extract_vectors_from_pdf`. Words land in the identical `{pctX, pctY}` space as polygons/vectors, so no new coordinate convention.
+- Cache to a `sheet_text` table mirroring the `sheet_vectors` write-through pattern.
+- Minority scanned sheets: detect empty text result and fall back to OCR later (not on the critical path).
+- **Acceptance:** endpoint returns located words in percent coords for a sample sheet; words overlay correctly on the rendered plan; scanned-vs-vector coverage logged.
 
 ### M2.2 — Wall-vector room proposal (backend, highest leverage)
 - From `sheet_vectors`: rasterize segments → morphological close (bridge doorway gaps) → flood-fill negative space → `findContours` → Douglas-Peucker simplify → percent polygons + a confidence heuristic.
