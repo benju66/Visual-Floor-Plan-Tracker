@@ -76,6 +76,35 @@ Every sheet traced before this exists loses its correction signal. Smallest scop
 
 ---
 
+## Milestone 1G — Data governance & rule versioning (cross-cutting, build alongside M1)
+
+Rules evolve; without versioning, traces made under different rules become silently contradictory training data ("label drift"). Every trace must record the rules + method + effort under which it was made.
+
+### M1G.1 — Spec/taxonomy/DoD version registry
+- Small `rule_versions` table the app reads "current version" from for each ruleset: `ruleset` (`annotation_spec` | `taxonomy` | `definition_of_done`), `version` (monotonic), `effective_at`, `notes`, `changed_by`.
+- Version bumps are a deliberate, logged action (not ad-hoc). App reads current versions at trace/review time and stamps them.
+- **Acceptance:** changing a rule requires a registry bump; the active version is queryable and surfaced in the UI.
+
+### M1G.2 — Taxonomy audit log (urgent — taxonomy is already mutable)
+- The `subtypes` dictionary + pending-subtype proposals already mutate today. Append-only `taxonomy_events`: `subtype_id`, `event_type` (`created` | `renamed` | `merged` | `approved` | `retired`), `before`, `after`, `taxonomy_version`, `changed_by`, `created_at`.
+- A `subtype_id` whose meaning changes must be traceable so dependent traces can be re-validated.
+- **Acceptance:** every subtype create/rename/merge/approve writes an event; meaning-shifts are reconstructable.
+
+### M1G.3 — Enriched `trace_events` schema (extends M1.1)
+Beyond before/after geometry + label, each event also records:
+- `method` (`manual_draw` | `vector_proposal` | `sam` | `model_pretrace`)
+- `spec_version`, `taxonomy_version`, `dod_version`, `model_version`, `app_version`
+- `confidence` (AI suggestions), `duration_ms` (time-on-task), `edit_magnitude` (vertices moved / labels changed)
+- `created_by`
+- **Acceptance:** a single event row answers "what was drawn, by whom, by which method, under which rules, at what confidence, costing how much effort."
+
+### M1G.4 — Efficiency & quality metrics (extends M1.5 dashboard, reuses existing health strip)
+- Time-per-sheet / per-trace (north-star: prove AI speeds things up), AI accept/edit/reject rates, median correction magnitude, inter-annotator agreement where two people trace the same sheet.
+- Reuse `WorkbenchHealthStrip` rather than building a parallel dashboard.
+- **Acceptance:** the cockpit shows efficiency + AI-impact trends over time.
+
+---
+
 ## Milestone 2 — Track B: cold-start assist (zero training data, biggest speedup)
 
 Available day one; reuses existing backend. Build in this order.
