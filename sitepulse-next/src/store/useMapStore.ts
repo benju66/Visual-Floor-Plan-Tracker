@@ -4,11 +4,13 @@ import type { PercentPoint } from '@/types/domain';
 import type { Updater } from '@/types/utils';
 
 // `capture_box` is a workbench-only mode (AI Tracing Assist — Phase 3a): a
-// rubber-band box drag over a region to read (e.g. the title block). It rides the
-// SHARED toolMode the workbench already drives (pan/draw/select) and is never
-// exposed by the live MapHorizontalToolbar; the canvas treats it as an inert
-// no-op unless an `onCaptureBox` handler is wired (the workbench tracer).
-export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node' | 'capture_box';
+// rubber-band box drag over a region to read (e.g. the title block). `capture_line`
+// is its Phase-3b sibling: a 2-point line drag across a grid line whose endpoints
+// snap to the long straight vector (the gridline annotator's axis step). Both ride
+// the SHARED toolMode the workbench already drives (pan/draw/select) and are never
+// exposed by the live MapHorizontalToolbar; the canvas treats them as inert no-ops
+// unless an `onCaptureBox` / `onCaptureLine` handler is wired (the workbench tracer).
+export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node' | 'capture_box' | 'capture_line';
 export type RouteSubMode = 'move' | 'add' | 'remove';
 
 export interface MapState {

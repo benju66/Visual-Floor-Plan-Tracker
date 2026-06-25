@@ -80,6 +80,35 @@ export type SheetMetadata = Omit<
 };
 export type SheetMetadataInsert = Database['public']['Tables']['sheet_metadata']['Insert'];
 
+// One confirmed structural grid line (AI Tracing Assist — Phase 3b). A
+// verified-capture annotation: the bubble LABEL ("A"/"B"/"1"/"2") read from the
+// sheet text, the two endpoints in the SAME percent space (0..1) as
+// units.polygon_coordinates / sheet_vectors (snapped to the long straight vector
+// the snapping engine already detected), and the line's orientation — `axis`
+// 'h' = a horizontal grid line, 'v' = a vertical one, inferred from the drag. The
+// narrowed shape of `sheet_gridlines.gridlines` / `.suggested_gridlines` (the
+// frozen original proposal); narrow at the query boundary via {@link isGridlineArray}.
+export type Gridline = {
+  label: string;
+  p1: PercentPoint;
+  p2: PercentPoint;
+  axis: 'h' | 'v';
+};
+
+// Confirmed gridlines for a sheet (AI Tracing Assist — Phase 3b). A 1:1
+// verified-capture annotation keyed by sheet_id, banked in one "accept all"
+// upsert. The two JSONB columns (`gridlines`, `suggested_gridlines`) stay `Json`
+// on the Row and are narrowed at the query boundary via {@link isGridlineArray} —
+// never let `Json` reach component props (AGENTS.md §6). Mirrors SheetMetadata.
+export type SheetGridlines = Omit<
+  Database['public']['Tables']['sheet_gridlines']['Row'],
+  'gridlines' | 'suggested_gridlines'
+> & {
+  gridlines: Gridline[];
+  suggested_gridlines: Gridline[] | null;
+};
+export type SheetGridlinesInsert = Database['public']['Tables']['sheet_gridlines']['Insert'];
+
 // The percent-space (0..1) rectangle a user drags over a region (e.g. the title
 // block) — the narrowed shape of `sheet_metadata.title_block_bbox`, and the single
 // source of truth for that box geometry across the parser, the canvas capture-box
@@ -204,6 +233,29 @@ export function isTitleBlockFields(val: unknown): val is TitleBlockFields {
   const f = val as Record<string, unknown>;
   const ok = (v: unknown) => v === null || typeof v === 'string';
   return ok(f.sheetNumber) && ok(f.sheetName) && ok(f.architectFirm);
+}
+
+/**
+ * Narrows `sheet_gridlines.gridlines` / `.suggested_gridlines` (typed `Json`) to
+ * {@link Gridline}[] at the query boundary (AGENTS.md §6). An empty array is valid
+ * (a sheet with no grids yet). Fully null-safe per element: a null / non-object /
+ * malformed element yields `false`, never throws — unlike {@link isPercentPointArray}
+ * (this guard reaches into nested `p1`/`p2`, so it must tolerate junk).
+ */
+export function isGridlineArray(val: unknown): val is Gridline[] {
+  if (!Array.isArray(val)) return false;
+  const isPt = (p: unknown): p is PercentPoint =>
+    !!p && typeof p === 'object' &&
+    typeof (p as PercentPoint).pctX === 'number' &&
+    typeof (p as PercentPoint).pctY === 'number';
+  return val.every(
+    g =>
+      !!g && typeof g === 'object' &&
+      typeof (g as Gridline).label === 'string' &&
+      ((g as Gridline).axis === 'h' || (g as Gridline).axis === 'v') &&
+      isPt((g as Gridline).p1) &&
+      isPt((g as Gridline).p2),
+  );
 }
 
 /**

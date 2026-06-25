@@ -19,6 +19,10 @@ export const queryKeys = {
   // sheet number / name / architect firm + the dragged box + M1 provenance.
   // Cache-first read; invalidated by the confirm/save write.
   sheetMetadata:      (sheetId: string)         => ['sheet_metadata', sheetId] as const,
+  // 1:1 confirmed gridlines for a sheet (AI Tracing Assist — Phase 3b):
+  // [{ label, p1, p2, axis }] + M1 provenance. Cache-first read; invalidated by
+  // the "accept all" bulk-confirm upsert.
+  sheetGridlines:     (sheetId: string)         => ['sheet_gridlines', sheetId] as const,
   projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
   currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
   subtypes:           ()                         => ['subtypes'] as const,

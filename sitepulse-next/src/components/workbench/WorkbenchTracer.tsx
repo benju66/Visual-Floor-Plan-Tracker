@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { FileWarning } from 'lucide-react';
 import { ScanText } from 'lucide-react';
 import FloorplanCanvas from '@/components/FloorplanCanvas';
+import type { GridlineOverlayItem } from '@/components/canvas/GridlineOverlay';
 import WorkbenchLabelPopover, { type WorkbenchLabelMeta } from './WorkbenchLabelPopover';
 import TitleBlockPopover from './TitleBlockPopover';
+import GridlinePanel from './GridlinePanel';
 import WorkbenchTracerToolbar from './WorkbenchTracerToolbar';
 import { useMapStore } from '@/store/useMapStore';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
@@ -13,7 +15,14 @@ import { useSubtypes } from '@/hooks/useSubtypes';
 import { useSnappingVectors, useUnits, useDeleteUnit } from '@/hooks/useProjectQueries';
 import { useSheetText } from '@/hooks/useSheetText';
 import { useSheetMetadata, useUpsertSheetMetadata } from '@/hooks/useSheetMetadata';
+import { useSheetGridlines, useUpsertSheetGridlines } from '@/hooks/useSheetGridlines';
 import { parseTitleBlock } from '@/utils/titleBlockParse';
+import {
+  parseBubbleLabel,
+  inferAxis,
+  mapPendingGridlinesToRow,
+  type PendingGridline,
+} from '@/utils/gridlineParse';
 import { useCreateWorkbenchLabel, useUpdateWorkbenchLabel } from '@/hooks/useWorkbenchActions';
 import { PROJECT_TYPES, type ProjectType } from '@/utils/locationTaxonomy';
 import { recordTraceEvent, labelSnapshotFromUnit, type TraceMethod, type TraceSource } from '@/utils/traceCapture';
@@ -69,6 +78,9 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       wb.setIsTitleBlockOpen(false);
       wb.setTitleBlockBox(null);
       wb.setTitleBlockProposal(null);
+      wb.setIsGridlineOpen(false);
+      wb.setGridProposal(null);
+      wb.setPendingGridlines([]);
     };
   }, [sheetId, setActiveSheetId, setToolMode, clearSelectedUnits]);
 
@@ -89,6 +101,13 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   const setTitleBlockBox = useWorkbenchStore((s) => s.setTitleBlockBox);
   const titleBlockProposal = useWorkbenchStore((s) => s.titleBlockProposal);
   const setTitleBlockProposal = useWorkbenchStore((s) => s.setTitleBlockProposal);
+  // Gridline annotator (Phase 3b) floating state.
+  const isGridlineOpen = useWorkbenchStore((s) => s.isGridlineOpen);
+  const setIsGridlineOpen = useWorkbenchStore((s) => s.setIsGridlineOpen);
+  const gridProposal = useWorkbenchStore((s) => s.gridProposal);
+  const setGridProposal = useWorkbenchStore((s) => s.setGridProposal);
+  const pendingGridlines = useWorkbenchStore((s) => s.pendingGridlines);
+  const setPendingGridlines = useWorkbenchStore((s) => s.setPendingGridlines);
 
   const { data: subtypes = [] } = useSubtypes();
   const { data: units = [] } = useUnits(sheetId);
@@ -100,6 +119,10 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   // persists across reloads. Null until the user reads the title block once.
   const { metadata: savedMetadata } = useSheetMetadata(sheetId);
   const upsertMetadata = useUpsertSheetMetadata(sheetId);
+  // The sheet's confirmed gridlines (Phase 3b) — drives the saved overlays and the
+  // "accept all" merge target. Null until the user banks the first batch.
+  const { gridlines: savedGridlines } = useSheetGridlines(sheetId);
+  const upsertGridlines = useUpsertSheetGridlines(sheetId);
   const createLabel = useCreateWorkbenchLabel(sheetId);
   const updateLabel = useUpdateWorkbenchLabel(sheetId);
   const deleteUnit = useDeleteUnit(sheetId);
@@ -145,20 +168,99 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     ],
   );
 
-  // Capture-box tool (Phase 3a): the user dragged a box over the title block.
-  // Parse the sheet's own text INSIDE that box into a number/name/firm proposal,
-  // freeze it, and open the confirm popover. The geometry (the box) is 100%
-  // human-drawn; only the field values are proposed. Drop back to pan so the next
-  // action isn't another accidental box.
+  // Capture-box tool: the user dragged a box over a region. ROUTED by session —
+  // during a gridline session (Phase 3b) the box reads a grid BUBBLE label and
+  // advances to the axis step; otherwise it reads the title block (Phase 3a). The
+  // live session flag is read from the store to avoid a stale closure. Geometry
+  // (the box) is 100% human-drawn; only the field values are proposed.
   const handleCaptureBox = useCallback(
     (rect: { x0: number; y0: number; x1: number; y1: number }) => {
+      if (useWorkbenchStore.getState().isGridlineOpen) {
+        // Grid bubble read: parse the single short token in the box, freeze it as
+        // the proposal, and advance to the axis-line step (capture_line).
+        const label = parseBubbleLabel(sheetWords, rect);
+        setGridProposal({ label: label ?? '', suggestedLabel: label });
+        setToolMode('capture_line');
+        return;
+      }
+      // Title-block read (Phase 3a). Drop back to pan so the next action isn't
+      // another accidental box.
       const proposal = parseTitleBlock(sheetWords, rect);
       setTitleBlockBox(rect);
       setTitleBlockProposal(proposal);
       setIsTitleBlockOpen(true);
       setToolMode('pan');
     },
-    [sheetWords, setTitleBlockBox, setTitleBlockProposal, setIsTitleBlockOpen, setToolMode],
+    [sheetWords, setGridProposal, setTitleBlockBox, setTitleBlockProposal, setIsTitleBlockOpen, setToolMode],
+  );
+
+  // Capture-line tool (Phase 3b): the user dragged the axis line across a grid line
+  // (endpoints already snapped to the detected vectors by the canvas). Combine it
+  // with the in-progress bubble proposal, infer the axis from the drag, push a
+  // pending grid, and return to the bubble step for the next grid. The proposal is
+  // read from the store (live), so a label edited in the panel is honored.
+  const handleCaptureLine = useCallback(
+    (p1: PercentPoint, p2: PercentPoint) => {
+      const wb = useWorkbenchStore.getState();
+      if (!wb.isGridlineOpen) return;
+      const proposal = wb.gridProposal;
+      const pending: PendingGridline = {
+        id: crypto.randomUUID(),
+        label: proposal?.label ?? '',
+        suggestedLabel: proposal?.suggestedLabel ?? null,
+        p1,
+        p2,
+        axis: inferAxis(p1, p2),
+      };
+      setPendingGridlines((list) => [...list, pending]);
+      setGridProposal(null);
+      setToolMode('capture_box'); // back to the bubble step for the next grid
+    },
+    [setPendingGridlines, setGridProposal, setToolMode],
+  );
+
+  // "Accept all": merge the pending batch onto whatever's saved (one upsert
+  // replaces the whole 1:1 array) and bank with M1 provenance. On success the
+  // pending list clears and the saved overlays refresh from the refetch.
+  const acceptAllGridlines = useCallback(async () => {
+    const wb = useWorkbenchStore.getState();
+    const existing = savedGridlines
+      ? { gridlines: savedGridlines.gridlines, suggested: savedGridlines.suggested_gridlines ?? [] }
+      : null;
+    const payload = mapPendingGridlinesToRow(wb.pendingGridlines, existing);
+    try {
+      await upsertGridlines.mutateAsync(payload);
+      setPendingGridlines([]);
+      setGridProposal(null);
+    } catch {
+      // Surfaced inline via the panel's saveError; keep the session open to retry.
+    }
+  }, [savedGridlines, upsertGridlines, setPendingGridlines, setGridProposal]);
+
+  // End the gridline session (panel ✕). Discards the in-progress proposal + any
+  // unaccepted captures (saved grids persist); mirrors the toolbar toggle's close.
+  const closeGridlines = useCallback(() => {
+    setIsGridlineOpen(false);
+    setGridProposal(null);
+    setPendingGridlines([]);
+    setToolMode('pan');
+  }, [setIsGridlineOpen, setGridProposal, setPendingGridlines, setToolMode]);
+
+  // Saved + pending grids drawn on the canvas overlay (display-only). The
+  // in-progress proposal (label read, no axis yet) isn't drawn here — the live
+  // CaptureLineOverlay shows its line while dragging.
+  const gridlineOverlays = useMemo<GridlineOverlayItem[]>(
+    () => [
+      ...(savedGridlines?.gridlines ?? []).map((g) => ({ ...g, kind: 'saved' as const })),
+      ...pendingGridlines.map((p) => ({
+        label: p.label,
+        p1: p.p1,
+        p2: p.p2,
+        axis: p.axis,
+        kind: 'pending' as const,
+      })),
+    ],
+    [savedGridlines, pendingGridlines],
   );
 
   // Confirm: bank the (edited) fields to sheet_metadata with M1 provenance — the
@@ -343,6 +445,8 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
         pdfVersion={drawing.pdf_version ?? null}
         onPolygonComplete={handlePolygonComplete}
         onCaptureBox={handleCaptureBox}
+        onCaptureLine={handleCaptureLine}
+        gridlineOverlays={gridlineOverlays}
         pendingPolygonPoints={pendingLabelPoints}
         onPendingPolygonMove={setPendingLabelPoints}
         onRenameUnit={handleRenameUnit}
@@ -357,6 +461,27 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
           saveError={upsertMetadata.error instanceof Error ? upsertMetadata.error.message : null}
           onSave={saveTitleBlock}
           onCancel={cancelTitleBlock}
+        />
+      )}
+
+      {isGridlineOpen && (
+        <GridlinePanel
+          proposal={gridProposal}
+          pending={pendingGridlines}
+          savedCount={savedGridlines?.gridlines.length ?? 0}
+          isSaving={upsertGridlines.isPending}
+          saveError={upsertGridlines.error instanceof Error ? upsertGridlines.error.message : null}
+          onProposalLabelChange={(label) =>
+            setGridProposal((p) => (p ? { ...p, label } : p))
+          }
+          onPendingLabelChange={(id, label) =>
+            setPendingGridlines((list) => list.map((g) => (g.id === id ? { ...g, label } : g)))
+          }
+          onRemovePending={(id) =>
+            setPendingGridlines((list) => list.filter((g) => g.id !== id))
+          }
+          onAcceptAll={acceptAllGridlines}
+          onClose={closeGridlines}
         />
       )}
 

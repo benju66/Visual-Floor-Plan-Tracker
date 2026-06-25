@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText } from 'lucide-react';
+import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3 } from 'lucide-react';
 import { useMapStore, type ToolMode } from '@/store/useMapStore';
+import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 
 // Minimal toolbar for the Location Labeling Workbench tracing view. Deliberately
@@ -23,6 +24,42 @@ export default function WorkbenchTracerToolbar({ isSnappingLoading }: { isSnappi
   const setToolMode = useMapStore((s) => s.setToolMode);
   const setMapSettings = useSettingsStore((s) => s.setMapSettings);
   const enableSnapping = useHydratedStore((s) => s.mapSettings.enableSnapping, true);
+
+  // Gridline annotator session (Phase 3b) + title-block flow share the capture-box
+  // mode, so the two are mutually exclusive: activating one closes the other.
+  const isGridlineOpen = useWorkbenchStore((s) => s.isGridlineOpen);
+  const setIsGridlineOpen = useWorkbenchStore((s) => s.setIsGridlineOpen);
+  const setGridProposal = useWorkbenchStore((s) => s.setGridProposal);
+  const setPendingGridlines = useWorkbenchStore((s) => s.setPendingGridlines);
+  const setIsTitleBlockOpen = useWorkbenchStore((s) => s.setIsTitleBlockOpen);
+
+  // Title block is "active" only when capturing a box OUTSIDE a gridline session
+  // (inside one, capture_box reads a grid bubble instead).
+  const titleBlockActive = toolMode === 'capture_box' && !isGridlineOpen;
+
+  const toggleTitleBlock = () => {
+    if (titleBlockActive) {
+      setToolMode('pan');
+    } else {
+      setIsGridlineOpen(false);
+      setGridProposal(null);
+      setToolMode('capture_box');
+    }
+  };
+
+  const toggleGridlines = () => {
+    if (isGridlineOpen) {
+      setIsGridlineOpen(false);
+      setGridProposal(null);
+      setPendingGridlines([]); // closing ends the session — drop unaccepted captures
+      setToolMode('pan');
+    } else {
+      setIsTitleBlockOpen(false);
+      setGridProposal(null);
+      setIsGridlineOpen(true);
+      setToolMode('capture_box'); // step 1: box a grid bubble
+    }
+  };
 
   const btnBase = 'p-2 rounded-full flex items-center justify-center transition-all';
   const btnActive = 'bg-violet-500 text-white shadow-sm scale-110';
@@ -60,11 +97,22 @@ export default function WorkbenchTracerToolbar({ isSnappingLoading }: { isSnappi
           title block to read the sheet number / name / architect firm. */}
       <button
         type="button"
-        title="Read title block — drag a box over it (T)"
-        onClick={() => setToolMode(toolMode === 'capture_box' ? 'pan' : 'capture_box')}
-        className={`${btnBase} ${toolMode === 'capture_box' ? btnActive : btnIdle}`}
+        title="Read title block — drag a box over it"
+        onClick={toggleTitleBlock}
+        className={`${btnBase} ${titleBlockActive ? btnActive : btnIdle}`}
       >
         <ScanText size={18} />
+      </button>
+
+      {/* Gridline annotator (AI Tracing Assist — Phase 3b): box each grid bubble to
+          read its label, then drag the axis line across the grid line. */}
+      <button
+        type="button"
+        title="Capture gridlines — box a bubble, then drag its line"
+        onClick={toggleGridlines}
+        className={`${btnBase} ${isGridlineOpen ? btnActive : btnIdle}`}
+      >
+        <Grid3x3 size={18} />
       </button>
 
       <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Updater } from '@/types/utils';
 import type { PercentPoint, PercentRect, TitleBlockFields } from '@/types/domain';
 import type { RoomSuggestion } from '@/utils/roomSuggestion';
+import type { PendingGridline } from '@/utils/gridlineParse';
 import {
   EMPTY_FILTERS,
   type WorkbenchGroupBy,
@@ -123,6 +124,38 @@ export interface WorkbenchState {
    */
   titleBlockProposal: TitleBlockFields | null;
   setTitleBlockProposal: (val: Updater<TitleBlockFields | null>) => void;
+
+  // ── Gridline annotator (AI Tracing Assist — Phase 3b) ──
+  // The two-part capture session's floating state (panel visibility + the active
+  // in-progress grid + the accumulated pending list). Mirrors the title-block
+  // cluster; lives here (not useState) per AGENTS.md §2. Cleared on unmount.
+
+  /**
+   * Whether the gridline capture session is active. Doubles as the capture-box
+   * ROUTING flag: while true, a `capture_box` drag reads a grid BUBBLE label (not
+   * the title block) and a `capture_line` drag records the grid AXIS. The panel is
+   * shown for the duration.
+   */
+  isGridlineOpen: boolean;
+  setIsGridlineOpen: (val: Updater<boolean>) => void;
+
+  /**
+   * The in-progress grid: a bubble label has been read and we're awaiting the axis
+   * drag (null = on the bubble step, nothing read yet). `label` is the EDITABLE
+   * draft (the human may fix a misread before drawing the axis); `suggestedLabel`
+   * is the FROZEN machine read (null = the box found no token). When the axis drag
+   * completes this is combined into a {@link PendingGridline} and cleared.
+   */
+  gridProposal: { label: string; suggestedLabel: string | null } | null;
+  setGridProposal: (val: Updater<{ label: string; suggestedLabel: string | null } | null>) => void;
+
+  /**
+   * Grids captured this session but not yet saved — rendered as distinct pending
+   * overlays and banked together by "accept all". Never the offline queue; a plain
+   * transient list (AGENTS.md §2).
+   */
+  pendingGridlines: PendingGridline[];
+  setPendingGridlines: (val: Updater<PendingGridline[]>) => void;
 }
 
 export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
@@ -216,5 +249,23 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
   setTitleBlockProposal: (val) =>
     set((state) => ({
       titleBlockProposal: typeof val === 'function' ? val(state.titleBlockProposal) : val,
+    })),
+
+  isGridlineOpen: false,
+  setIsGridlineOpen: (val) =>
+    set((state) => ({
+      isGridlineOpen: typeof val === 'function' ? val(state.isGridlineOpen) : val,
+    })),
+
+  gridProposal: null,
+  setGridProposal: (val) =>
+    set((state) => ({
+      gridProposal: typeof val === 'function' ? val(state.gridProposal) : val,
+    })),
+
+  pendingGridlines: [],
+  setPendingGridlines: (val) =>
+    set((state) => ({
+      pendingGridlines: typeof val === 'function' ? val(state.pendingGridlines) : val,
     })),
 }));

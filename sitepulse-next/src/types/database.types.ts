@@ -741,6 +741,49 @@ export interface Database {
           }
         ]
       }
+      sheet_gridlines: {
+        Row: {
+          sheet_id: string
+          gridlines: Json
+          source: string | null
+          model_version: string | null
+          suggested_gridlines: Json | null
+          review_status: string | null
+          spec_version: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          sheet_id: string
+          gridlines?: Json
+          source?: string | null
+          model_version?: string | null
+          suggested_gridlines?: Json | null
+          review_status?: string | null
+          spec_version?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          sheet_id?: string
+          gridlines?: Json
+          source?: string | null
+          model_version?: string | null
+          suggested_gridlines?: Json | null
+          review_status?: string | null
+          spec_version?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_gridlines_sheet_id_fkey"
+            columns: ["sheet_id"]
+            referencedRelation: "sheets"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never

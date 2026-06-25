@@ -13,6 +13,8 @@ import DraftPolygon from '@/components/canvas/DraftPolygon';
 import StampPreview from '@/components/canvas/StampPreview';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import CaptureBoxOverlay from '@/components/canvas/CaptureBoxOverlay';
+import CaptureLineOverlay from '@/components/canvas/CaptureLineOverlay';
+import GridlineOverlay, { type GridlineOverlayItem } from '@/components/canvas/GridlineOverlay';
 import MapLegend from '@/components/canvas/MapLegend';
 import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
@@ -65,6 +67,19 @@ interface FloorplanCanvasProps {
    * wires it; the live map leaves it undefined and the mode is inert there.
    */
   onCaptureBox?: (rect: { x0: number; y0: number; x1: number; y1: number }) => void;
+  /**
+   * Workbench capture-line tool (AI Tracing Assist — Phase 3b). Fires when the
+   * user finishes a `capture_line` drag across a grid line, with BOTH endpoints
+   * already snapped to the detected vectors (percent space). Optional — only the
+   * workbench tracer wires it; the mode is inert on the live map.
+   */
+  onCaptureLine?: (p1: Point, p2: Point) => void;
+  /**
+   * Gridlines to draw on the overlay Layer (AI Tracing Assist — Phase 3b): the
+   * sheet's SAVED grids plus the current session's PENDING ones. Display-only,
+   * never hit-targets. Empty/omitted on the live map.
+   */
+  gridlineOverlays?: GridlineOverlayItem[];
   onRenameUnit?: (unitId: string | null) => void;
   onDeleteUnit?: (unitId: string | string[] | null) => void;
   onInstantStamp?: (unitId: string, points: Point[]) => void;
@@ -87,6 +102,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onDuplicateUnit,
   onPolygonComplete,
   onCaptureBox,
+  onCaptureLine,
+  gridlineOverlays,
   onRenameUnit,
   onDeleteUnit,
   onInstantStamp,
@@ -1102,6 +1119,18 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     ]);
   }, [layout]);
 
+  // Snap a percent-space point to the nearest detected vector — the same
+  // getSnappedCoordinate the trace tool uses. Drives the capture-line endpoints
+  // (AI Tracing Assist — Phase 3b): both the live overlay preview and the emitted
+  // grid axis. A no-op when snapping is off or the vector tree isn't built yet.
+  const snapPoint = useCallback((p: Point): Point => {
+    if (!mapSettings?.enableSnapping || !vectorTree) return p;
+    const s = getSnappedCoordinate(
+      p.pctX, p.pctY, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15,
+    );
+    return { pctX: s.pctX, pctY: s.pctY };
+  }, [mapSettings?.enableSnapping, mapSettings?.snappingStrength, vectorTree, aspect, layout.drawW, stageScale]);
+
   const resetView = () => {
     animateViewport(1, { x: 0, y: 0 }, 300);
   };
@@ -1373,9 +1402,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               const pctX = (logicalX - layout.offsetX) / layout.drawW;
               const pctY = (logicalY - layout.offsetY) / layout.drawH;
               setBoxOrigin({ pctX, pctY });
-            } else if (toolMode === 'capture_box' && (!e.evt || e.evt.button === 0)) {
-              // Start a capture-box drag (title-block read). Same box-origin
-              // plumbing as the draw tool, emitted as a rect rather than a polygon.
+            } else if ((toolMode === 'capture_box' || toolMode === 'capture_line') && (!e.evt || e.evt.button === 0)) {
+              // Start a capture drag — a box (title-block read) or a line (grid axis).
+              // Same box-origin plumbing as the draw tool; pointer-up decides the
+              // emitted shape per toolMode.
               const stage = e.target.getStage();
               if (!stage) return;
               const pointer = stage.getPointerPosition();
@@ -1469,6 +1499,30 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 if (x1 - x0 > 0.01 && y1 - y0 > 0.01) {
                   lastBoxEndRef.current = Date.now();
                   onCaptureBox?.({ x0, y0, x1, y1 });
+                }
+              }
+            }
+
+            // Capture-line drag complete (grid axis): snap BOTH endpoints to the
+            // detected vectors and emit. Requires a real drag (not a bare tap) so
+            // an accidental click never records a degenerate grid line.
+            if (toolMode === 'capture_line' && boxOrigin) {
+              const stage = e.target.getStage();
+              const lastSample = pointerStore.get();
+              const pointer = stage?.getPointerPosition()
+                || (lastSample ? { x: lastSample.screenX, y: lastSample.screenY } : null);
+              const origin = boxOrigin;
+              setBoxOrigin(null);
+              if (stage && pointer) {
+                const logicalX = (pointer.x - stage.x()) / stageScale;
+                const logicalY = (pointer.y - stage.y()) / stageScale;
+                const endPctX = (logicalX - layout.offsetX) / layout.drawW;
+                const endPctY = (logicalY - layout.offsetY) / layout.drawH;
+                if (Math.abs(endPctX - origin.pctX) > 0.02 || Math.abs(endPctY - origin.pctY) > 0.02) {
+                  const p1 = snapPoint(origin);
+                  const p2 = snapPoint({ pctX: endPctX, pctY: endPctY });
+                  lastBoxEndRef.current = Date.now();
+                  onCaptureLine?.(p1, p2);
                 }
               }
             }
@@ -1657,6 +1711,26 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               <CaptureBoxOverlay
                 pointerStore={pointerStore}
                 boxOrigin={boxOrigin}
+                stageScale={stageScale}
+                layout={layout}
+                toPixels={toPixels}
+              />
+            )}
+
+            {toolMode === 'capture_line' && (
+              <CaptureLineOverlay
+                pointerStore={pointerStore}
+                lineOrigin={boxOrigin}
+                stageScale={stageScale}
+                layout={layout}
+                toPixels={toPixels}
+                snap={snapPoint}
+              />
+            )}
+
+            {gridlineOverlays && gridlineOverlays.length > 0 && (
+              <GridlineOverlay
+                items={gridlineOverlays}
                 stageScale={stageScale}
                 layout={layout}
                 toPixels={toPixels}

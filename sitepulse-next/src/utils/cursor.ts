@@ -67,6 +67,9 @@ export function getToolCursor(s: ToolCursorState): string {
     case 'capture_box':
       // Box-drag a region to read (title block) — crosshair, like draw.
       return 'crosshair';
+    case 'capture_line':
+      // Drag the grid axis line across a grid line — crosshair, like draw.
+      return 'crosshair';
     case 'stamp':
       return 'copy';
     case 'add_node':
