@@ -1,8 +1,17 @@
-# AI Tracing Assist — cold-start auto-tracing for the workbench (self-contained build plan)
+# AI Tracing Assist — verified-capture workbench (self-contained build plan)
 > Audience: a fresh Claude Code session with no memory of the chat that produced this.
 > Read this top-to-bottom, then re-read the actual current files before editing.
-> Parent spec: `docs/ai-tracing-pipeline-plan.md` (Milestone 2) + `docs/ANNOTATION_SPEC.md`.
+> Parent spec: `docs/ai-tracing-pipeline-plan.md` (Milestone 2 + the 2026-06 feasibility findings) + `docs/ANNOTATION_SPEC.md`.
 > Milestone 1 (training-data capture) is DONE + live on prod — this builds on it.
+
+> **⚠️ This plan was revised 2026-06 after a feasibility test on 3 real sheets (projects A/B/C).**
+> The original framing led with a **geometric whole-sheet auto-detector** ("Auto-trace sheet"). That test
+> showed automatic **room-closing is the brittle bottleneck** — walls isolate fine, but rooms leak through
+> door/window gaps (~16 of ~40 recovered, parameter-sensitive), and the wall "signature" differs per project
+> (A = medium-black; B = heavy any-color; C = heavy-black), so hand-tuned geometric rules don't generalize.
+> **Decision: geometric auto-detect is DEFERRED.** The bootstrap is now **manual tracing on the existing
+> snapping engine + a set of fast, human-verified capture tools** that produce clean, multi-task training data.
+> See `docs/ai-tracing-pipeline-plan.md` → "Feasibility findings" for the full evidence.
 
 ## 0. How to use this doc
 1. Read `sitepulse-next/AGENTS.md` (CRITICAL invariants) + the parent specs above.
@@ -12,174 +21,235 @@
    sentence plain-English summary; explain jargon in passing; keep it short.
 
 ## Goal
-When this is done, a workbench user can open a drawing, click **“Auto-trace sheet,”**
-and the app proposes the rooms on that sheet automatically — drawing the polygons
-and pre-filling each name from the PDF’s own text. The user reviews the proposals
-on screen and **accepts, tweaks, or rejects each one**; accepted rooms become real
-locations, and every accept/edit/reject is recorded as training data through the
-capture layer already shipped in Milestone 1. The headline win: tracing a sheet
-goes from “draw every room from scratch” to “correct a first draft,” at **zero
-per-sheet cost** for the geometric path (no GPU, no AI bill).
+When this is done, a workbench user traces rooms with the **existing snapping engine** while the app does the
+typing for them: each room's **name auto-fills** from the PDF's own text layer, and a set of **fast,
+human-verified capture tools** record the rest of the sheet's structure — **sheet title block (incl. the
+architect/firm), gridlines, door/window openings, and detail callouts**. The app *proposes*; the human
+*confirms or nudges*. Every confirmed mark is written through the Milestone-1 capture layer as clean training
+data. The headline win is twofold: tracing goes from "type every name" to "confirm a first draft," and each
+sheet yields a **multi-task** dataset (rooms + names + grid + openings) that makes the eventual model (M3)
+better — not just a pile of polygons.
+
+## Why verified capture (not raw extraction)
+A raw auto-extraction is fine as a *feature* but weak as *training data* — it's unverified. A
+**human-confirmed** extraction is ground truth. So every cheap extraction below is "app proposes → human
+confirms/overrides," with an **"accept all"** fast path so a clean sheet is one click, not twenty
+confirmations. The only cost is per-sheet time; we manage it by (a) making the auto-detect good enough that
+confirmation is a glance, and (b) **tiering** which tools run on every sheet vs. a subset (see § Capture tiers).
 
 ## Out of scope / deferred
-- **SAM click-to-segment** (the paid, Replicate-hosted AI for irregular rooms the
-  geometric detector misses). Deferred by owner decision — ship the free path first,
-  add SAM later only if geometric coverage proves insufficient. Gets its own kickoff.
-- **A trained custom model** (Milestone 3) — this milestone produces the *assist*
-  that speeds up building the training corpus; the model that learns from it is later.
-- **Batch / background processing** — proposals run inline, per-sheet, on demand
-  (no job queue; that decision is locked in the parent plan).
-- **Offline support for proposals** — Auto-trace is an online-only action; it never
-  touches the `pendingChanges` offline queue.
+- **Geometric whole-sheet room proposal** (the original Phase 2 — `polygonize`/door-gap closing). Deferred per
+  the feasibility findings. If revisited, the **vector** `shapely.polygonize` path is untested and *might* beat
+  the raster attempt that failed — but it still needs per-project wall isolation, so treat it as a research
+  spike, not the bootstrap. Lives now as the last phase, gated on need.
+- **SAM click-to-segment** (paid, Replicate-hosted, for irregular rooms). Deferred by owner; ship the free path
+  first. Gets its own kickoff.
+- **A trained custom model** (Milestone 3) — this milestone builds the *assist* that grows the corpus; the
+  model that learns from it is later. The model is also the "fully adaptive" version of § Calibration.
+- **Batch / background processing** — proposals run inline, per-sheet, on demand (no job queue; locked in parent plan).
+- **Offline support for proposals** — auto-extract/auto-name are online-only actions; they never touch the
+  `pendingChanges` offline queue.
 
 ## Locked product decisions (from the owner)
-- **Proposals live on screen until accepted.** Un-accepted proposals are NOT written
-  to the DB — only accepted ones become `units`. Rejects log a `reject_suggestion`
-  event but persist nothing. Keeps the location list / corpus counts clean; re-running
-  the (free) detector is the “undo” for a lost session.
-- **SAM deferred** (see Out of scope).
-- **Naming is text-layer-first; AI typing is a thin paid layer.** Names come free from
-  the PDF text layer (Phase 1–2). Claude vision only *suggests the type* (role/subtype),
-  Sonnet by default, and only in Phase 4 — it never produces geometry.
-- **Build profile:** solo tracer + solo dev, hundreds of sheets, ~$150/mo cap, owned
-  PDFs, custom model as the long-term goal. Favor the free/geometric path; keep it lean.
-- **Commercial-licensing hard rule:** only Apache/MIT/BSD libraries. Shapely (BSD) is
-  the geometric engine. No CC-BY-NC / GPL / AGPL models or datasets, ever.
+- **Bootstrap = manual trace + verified capture**, not geometric auto-detect (see ⚠️ above).
+- **App proposes, human confirms.** Every extraction is reviewable/overridable; nothing auto-commits. An
+  "accept all" bulk-confirm keeps clean sheets fast.
+- **Naming is text-layer-first; AI typing is a thin paid layer.** Names come free from the PDF text layer.
+  Claude vision only *suggests the type* (role/subtype), Sonnet by default, and only as a late phase — it never
+  produces geometry.
+- **Capture the architect/firm per drawing.** Drawing style clusters by firm (the A/B/C variance is really a
+  per-firm-template variance). Firm is a stratification key for train/test splits (test on an unseen firm) and
+  the key for the per-set calibration profile. It comes from the title block — captured by that tool, not a
+  separate step.
+- **Capture tiers (manage solo-tracer time):**
+  | Tier | Tools | Cadence |
+  |---|---|---|
+  | Core | Rooms + auto-names | Every sheet |
+  | Cheap & organizing | Sheet title block (number/name/**firm**), gridlines | Every sheet (fast verify) |
+  | Seed-the-detector | Door/window openings | A subset of sheets |
+  | Passive / later | Detail callouts | Auto-extract; verify only if/when it becomes a product |
+- **Build profile:** solo tracer + solo dev, hundreds of sheets, ~$150/mo cap, owned PDFs, custom model the
+  long-term goal. Favor the free path; keep it lean.
+- **Commercial-licensing hard rule:** only Apache/MIT/BSD libraries. Shapely (BSD) if geometric is ever
+  revisited. No CC-BY-NC / GPL / AGPL models or datasets, ever.
+
+## Annotation tools (the heart of this milestone)
+All follow the same shape: the backend extracts a **proposal** deterministically from the existing
+vector/text layers; the frontend renders it as a **distinct suggested overlay**; the human
+**accepts / edits / rejects**; accepts write through a capture path with Milestone-1 provenance
+(`method`/`source`/`suggested_*`/`review_status`/`spec_version`) and emit `trace_events`.
+
+1. **Room name auto-fill (core).** On finishing a manually-traced room polygon, point-in-polygon-match the
+   interior `sheet_text` words → pre-fill `unit_number` + map the room word to a taxonomy type
+   (KITCHEN→program, MECH→support, …) via `locationTaxonomy.ts`. User confirms/edits. `source='ai_suggested'`
+   on the name; `ai_accepted`/`ai_edited` on confirm.
+2. **Sheet title block (every sheet).** Drag a box over the title block; app pre-reads **sheet number**
+   (e.g. "A-201"), **sheet name** ("SECOND FLOOR PLAN"), and **architect/firm** from `sheet_text` inside the
+   box; user confirms/fixes. Organizes the corpus and supplies the firm stratification key + calibration key.
+3. **Gridlines (every sheet) — two-part annotation.** (a) Box the bubble label (app pre-reads "A"/"B"/"1"/"2"
+   from `sheet_text`); (b) drag the axis line across the grid line (app snaps to the long straight vector it
+   already detected). One grid annotation = `{ label, line(percent endpoints), axis: 'h'|'v' }`. Confirming
+   grids also feeds calibration (grid lineweight/color → subtractable noise for snapping).
+4. **Door/window openings (subset).** **Drag a short line across the opening** (jamb to jamb) — NOT trace the
+   swing arc, NOT a loose box. The opening line is exactly what closes a room and can be widened to a detector
+   box later; the swing is decorative for our purposes (optional swing-direction tag only). Quick type tag:
+   `door | window | cased_opening`. Capture **interior + exterior** openings, but on a **subset of sheets** —
+   the manual trace already closes rooms today, so openings are a *future-facing* layer to (a) automate closing
+   and (b) feed the multi-task model, not a per-sheet requirement.
+5. **Detail callouts (passive/later).** Auto-extract circular reference bubbles ("4/A-501") from text + circle
+   vectors into a cache. A cross-sheet navigation graph — valuable as a product feature, low synergy with the
+   room model. Store now; build verify-UI only if/when it's prioritized.
+
+## Smart layer — per-set calibration (built from verification, not ML)
+The verification actions above *produce* the calibration for free. Store a small **per-set profile keyed by
+firm/project** (`drawing_set_profile`) that:
+- seeds from the first verified sheet of a set (wall lineweight/color range observed while tracing; grid
+  lineweight/color from confirmed gridlines; scale from MW.1);
+- tunes snapping / highlight / auto-name on the *rest* of the set (e.g. subtract confirmed grid lineweight from
+  wall candidates — directly fixes the Project-A "heavy lines are grids, not walls" confusion);
+- surfaces gentle guidance ("this set draws walls in gray — snapping tuned for it").
+Build the **minimal** version first (store a few observed parameters + apply to snapping), not an auto-learning
+system. The fully-adaptive version is the trained model (M3); this profile is the bridge and later a model feature.
 
 ## Data model
-- **New table `sheet_text`** (Phase 1) — a 1:1 cache of a sheet’s extracted text words,
-  mirroring `sheet_vectors` exactly (cache table keyed by `sheet_id`, JSONB payload,
-  write-through). Stores `[{ text, pctX, pctY }]` (word + centroid in the same percent
-  space as `polygon_coordinates` and `sheet_vectors`). RLS mirrors `sheet_vectors`.
-  ⛔ **Migration — present the SQL via the `create-migration` skill and STOP for
-  approval before applying. Never touch production data without the owner’s go-ahead.**
-- **No other schema changes.** Accepted proposals are written through the EXISTING
-  `useCreateWorkbenchLabel` path, which already carries the Milestone-1 provenance
-  columns (`method`/`source`/`suggested_polygon`/`suggested_label`/`review_status`/
-  `spec_version`) and emits `trace_events`. Reuse it — do NOT add a parallel write path.
-- **Reads:** `sheet_vectors` (existing snapping cache) for wall geometry; `sheet_text`
-  (new) for names; `sheets` for the converted-preview dimensions / scale.
+All new tables: cache/annotation tables keyed by `sheet_id` (or `project_id`/firm for the profile), JSONB
+payload in the same **percent space** as `polygon_coordinates`/`sheet_vectors`, RLS mirroring `sheet_vectors`
+(read = authenticated member; write = owner/admin/pm). ⛔ **Every migration: present the SQL via the
+`create-migration` skill and STOP for owner approval before applying. Never touch production data without go-ahead.**
+- **`sheet_text`** (Phase 1) — 1:1 cache of extracted text words `[{ text, pctX, pctY }]`, mirroring
+  `sheet_vectors` (write-through). Feeds naming + title block + grid labels.
+- **Sheet metadata** — `sheet_number`, `sheet_name`, `architect_firm` (+ the title-block bbox + provenance).
+  Prefer **columns on the existing `sheets` table** over a new table if `sheets` is the natural home; otherwise
+  a `sheet_metadata` 1:1 table. Decide by reading `sheets` first.
+- **`sheet_gridlines`** — `[{ label, p1, p2, axis }]` per sheet (verified).
+- **`sheet_openings`** — `[{ p1, p2, type, swing? }]` per sheet (verified, subset cadence).
+- **`sheet_callouts`** — `[{ ref, sheet_target, detail_num, pctX, pctY }]` per sheet (passive extract).
+- **`drawing_set_profile`** — keyed by firm/project: observed wall/grid lineweight+color ranges, scale, notes.
+- **Accepted rooms** still write through the EXISTING `useCreateWorkbenchLabel` path (Milestone-1 provenance) —
+  do NOT add a parallel write path for rooms.
+- **Reads:** `sheet_vectors` (wall geometry/snapping), `sheet_text` (names/labels), `sheets` (preview dims/scale).
 
 ## Build-on inventory (read these fresh before using)
 **Frontend (reuse, do not fork):**
 - `src/hooks/useWorkbenchActions.ts` — `useCreateWorkbenchLabel` already accepts
-  `method`/`source`/`suggestedPolygon`/`suggestedLabel`/`modelVersion`/`durationMs`.
-  The accept path passes these; this is the whole point of Milestone 1. Do not bypass it.
-- `src/utils/traceCapture.ts` — `recordTraceEvent` (for `reject_suggestion`),
-  `TraceMethod`/`TraceSource`, `labelSnapshotFromUnit`. Reuse verbatim.
-- `src/components/workbench/WorkbenchTracer.tsx` + `WorkbenchTracerToolbar.tsx` — where
-  the “Auto-trace sheet” action and the proposal-overlay state mount.
-- `src/components/FloorplanCanvas.tsx` — the shared canvas; proposals render as a
-  distinct overlay layer. Respect §3 (no recolor of `mapDisplayStatuses`; native-event
-  isolation for HTML overlays).
-- `src/store/useWorkbenchStore.ts` — floating UI state belongs here (proposal list,
+  `method`/`source`/`suggestedPolygon`/`suggestedLabel`/`modelVersion`/`durationMs`. The accept path passes
+  these; this is the whole point of Milestone 1. Do not bypass it.
+- `src/utils/traceCapture.ts` — `recordTraceEvent` (for `reject_suggestion`), `TraceMethod`/`TraceSource`,
+  `labelSnapshotFromUnit`. Reuse verbatim.
+- `src/components/workbench/WorkbenchTracer.tsx` + `WorkbenchTracerToolbar.tsx` — where the new tools and
+  proposal-overlay state mount.
+- `src/components/workbench/NewDrawingModal.tsx` — drawing intake; the architect/firm field surfaces here too
+  (manual entry fallback when the title block isn't auto-read).
+- `src/components/FloorplanCanvas.tsx` — shared canvas; proposals/overlays render as a distinct layer. Respect
+  §3 (no recolor of `mapDisplayStatuses`; native-event isolation for HTML overlays).
+- `src/store/useWorkbenchStore.ts` — all floating tool/overlay state belongs here (active tool, proposal list,
   active-proposal index), per AGENTS.md §2. NOT `useState`/`useEffect`.
-- `src/utils/geometry.ts` — `getSnappedCoordinate` for snapping an edited proposal vertex.
-- `src/hooks/useSnappingVectors.ts` — the `sheet_vectors` read pattern to copy for `sheet_text`.
+- `src/utils/geometry.ts` — `getSnappedCoordinate` for snapping edited vertices / grid + opening lines.
+- `src/hooks/useSnappingVectors.ts` — the `sheet_vectors` read pattern to copy for `sheet_text` and the other caches.
 
 **Backend (reuse the established patterns — AGENTS.md §7):**
-- `sitepulse-backend/main.py` — `get_current_user` (ES256/JWKS auth dep),
-  `verify_sheet_access`, `asyncio.to_thread(...)` for CPU work, `extract_vectors_from_pdf`
-  + its `map_point()` PDF→percent transform (reuse for text extraction so words land in
-  the SAME percent space), the `sheet_vectors` write-through endpoint + `backfill_vectors.py`
-  one-off script (the model for a `sheet_text` backfill).
+- `sitepulse-backend/main.py` — `get_current_user` (ES256/JWKS auth dep), `verify_sheet_access`,
+  `asyncio.to_thread(...)` for CPU work, `extract_vectors_from_pdf` + its `map_point()` PDF→percent transform
+  (reuse for ALL extraction so words/lines land in the SAME percent space), the `sheet_vectors` write-through
+  endpoint + `backfill_vectors.py` one-off script (the model for the new backfills).
 
 ## Pure logic to extract + unit-test
-This is where correctness lives — keep it framework-free and deterministic (pass inputs
-in; never call `Date.now()`/network inside pure fns).
+Keep correctness framework-free and deterministic (pass inputs in; never call `Date.now()`/network in pure fns).
 - **Backend (pytest, `sitepulse-backend/tests/`):**
-  - Text extraction: PDF page words → `[{text, pctX, pctY}]` via `map_point` (test the
-    percent mapping with a tiny fixture, mirroring how vectors are tested).
-  - Geometric room proposal (Phase 2), broken into testable units: segment cleanup /
-    snap-round (`shapely.set_precision`), doorway-gap closing, `polygonize(unary_union())`,
-    sliver/área filtering, simplify, percent-convert. Test on hand-built segment sets
-    (a clean rectangle, an L-room, a room with a door gap, a donut/void).
-  - Interior-text naming: point-in-polygon match of words → candidate `unit_number`
-    (test a word inside vs. outside vs. on the boundary).
+  - Text extraction: PDF words → `[{text, pctX, pctY}]` via `map_point` (tiny fixture, mirror vector tests).
+  - Title-block parse: given words + a bbox, pick sheet number / name / firm (test the field heuristics).
+  - Grid label/line pairing: word-in-bubble + nearest long axis vector → `{label, line, axis}`.
+  - Interior-text naming: point-in-polygon match of words → candidate `unit_number` (inside / outside / boundary).
+  - Callout parse: "4/A-501" → `{detail_num, sheet_target}`.
 - **Frontend (vitest, co-located `.test.ts`):**
-  - Proposal → `CreateWorkbenchLabelInput` mapping on accept (method=`geometric`,
-    source=`ai_accepted` vs `ai_edited` when the user changed geometry/name, and the
-    frozen `suggestedPolygon`/`suggestedLabel` are the ORIGINAL proposal).
-  - Any percent-geometry helpers used by the overlay (e.g. proposal bounding box).
+  - Proposal → `CreateWorkbenchLabelInput` mapping on accept (method=`text_prefill`/`geometric`,
+    `source=ai_accepted` vs `ai_edited`; frozen `suggestedPolygon`/`suggestedLabel` = the ORIGINAL proposal).
+  - Opening/grid line percent-geometry helpers; "accept all" bulk-confirm mapping.
 
 ## Sub-phasing (ship + verify each)
 
-### Phase 1 — `sheet_text` extraction + cache (backend)
-- **Scope:** New `sheet_text` cache table; a `/extract-text/{sheet_id}` endpoint that
-  runs PyMuPDF `page.get_text("words")`, maps each word through the existing `map_point`
-  transform into `{text, pctX, pctY}`, and write-through-caches it (mirror the
-  `sheet_vectors` endpoint). A `backfill_text.py` one-off script modeled on
-  `backfill_vectors.py`. pytest for the percent mapping + empty-text (scanned PDF) path.
-- **Approval gates:** ⛔ **DB migration** — generate the `sheet_text` SQL via the
-  `create-migration` skill, show the exact SQL, and **STOP** for owner approval before
-  applying. Mirror `sheet_vectors` RLS. Never touch production data without go-ahead.
-- **Exit criteria:** typecheck (frontend types if any) + `pytest -q` green · pure text
-  mapping unit-tested · endpoint returns located words for a vector sample sheet and an
-  empty list for a scanned one · close with the `verify-feature` skill (DoD → stop; do
-  not commit/push until the owner says “Approved”).
+### Phase 1 — `sheet_text` extraction + cache (backend) — foundation
+- **Scope:** `sheet_text` cache table; `/extract-text/{sheet_id}` endpoint running PyMuPDF
+  `page.get_text("words")` → `map_point` → `{text, pctX, pctY}`, write-through cached (mirror the
+  `sheet_vectors` endpoint). `backfill_text.py` modeled on `backfill_vectors.py`. pytest for the percent mapping
+  + empty-text (scanned PDF) path → flag for OCR later (off critical path).
+- **Approval gates:** ⛔ DB migration via `create-migration` skill, show SQL, STOP for approval. Mirror
+  `sheet_vectors` RLS.
+- **Exit:** typecheck + `pytest -q` green · mapping unit-tested · endpoint returns located words for a vector
+  sheet, empty list for a scanned one · `verify-feature` → stop.
 
-### Phase 2 — geometric room proposal (backend)
-- **Scope:** Add **Shapely (BSD)** to `requirements.txt`. New `/propose-rooms/{sheet_id}`
-  endpoint: read `sheet_vectors` (+ `sheet_text` for names) → snap-round → close doorway
-  gaps → `polygonize(unary_union(segments))` → drop slivers → simplify → convert to
-  percent polygons → attach an interior-text name + a confidence score. Returns
-  `[{ polygon: PercentPoint[], name: string|null, confidence: number }]`. Headless — no
-  UI yet. Heavy pytest coverage of the pure geometry (see § Pure logic).
-- **Approval gates:** new dependency (Shapely) — call out the license (BSD) in the PR.
-  No migration. No production data writes.
-- **Exit criteria:** `pytest -q` green · geometry unit-tested on rectangle / L-room /
-  door-gap / donut fixtures · endpoint returns sensible rooms on a real clean sheet ·
-  `verify-feature` → stop.
+### Phase 2 — room name auto-fill on manual trace (frontend) — the headline bootstrap
+- **Scope:** On finishing a traced room, read `sheet_text`, point-in-polygon match interior words, pre-fill
+  `unit_number` + suggest taxonomy type via `locationTaxonomy.ts`. User confirms/edits in the existing popover;
+  accept writes through `useCreateWorkbenchLabel` with `source='ai_suggested'→ai_accepted/ai_edited` and frozen
+  `suggested_label`. No new write path.
+- **Approval gates:** none (no schema beyond Phase 1; no external API).
+- **Exit:** typecheck + test + build green · name-match + accept-mapping unit-tested · live `dev:3010`
+  click-through: trace a real room, name pre-fills, accept/edit both recorded · `verify-feature` → stop.
 
-### Phase 3 — “Auto-trace sheet” overlay UI (frontend) — the headline
-- **Scope:** A toolbar action in `WorkbenchTracerToolbar` → calls `/propose-rooms` →
-  stores proposals in `useWorkbenchStore` → renders them as a **distinct suggested-overlay
-  layer** on `FloorplanCanvas`. Per-proposal **accept / edit / reject**: accept writes a
-  `units` row via the EXISTING `useCreateWorkbenchLabel` (method=`geometric`,
-  source=`ai_accepted`/`ai_edited`, frozen `suggestedPolygon`/`suggestedLabel`); reject
-  calls `recordTraceEvent({ eventType: 'reject_suggestion', ... })` and persists nothing.
-  Proposals are **client-side only** (owner decision) — cleared on accept/reject/leave.
-- **Approval gates:** none (no schema, no external API). Respect AGENTS.md §2 (proposal
-  state in Zustand, not `useState`/`useEffect`) and §3 (overlay isolation; don’t recolor
-  `mapDisplayStatuses`).
-- **Exit criteria:** typecheck + test + build green · accept/edit/reject mapping
-  unit-tested · **live `npm run dev:3010` click-through**: auto-trace a real sheet, accept
-  some, edit one, reject one; confirm accepted rooms persist with correct provenance and a
-  `trace_events` row, rejects persist nothing · `verify-feature` → stop.
+### Phase 3 — verified-capture tools + calibration seed (backend + frontend)
+- **Scope:** The proposal→overlay→accept/edit/reject framework on `FloorplanCanvas` (state in
+  `useWorkbenchStore`), plus the tools: **sheet title block** (number/name/**firm**), **gridlines** (bubble box
+  + axis line), with an **"accept all"** bulk-confirm. Backend extract endpoints for each (deterministic from
+  `sheet_text`/`sheet_vectors`). Seed the **minimal `drawing_set_profile`** from confirmed grids + observed wall
+  attributes, keyed by firm/project; apply it to snapping/highlight on subsequent sheets in the set.
+- **Approval gates:** ⛔ migrations for sheet metadata (+columns-vs-table decision), `sheet_gridlines`,
+  `drawing_set_profile` — SQL via `create-migration`, STOP for approval each. Reflect in `database.types.ts` +
+  `domain.ts` (§4/§6); narrow JSONB at the query boundary.
+- **Exit:** typecheck + test + build · field/grid/accept-all mapping unit-tested · live click-through: open a
+  sheet, confirm title block (firm captured), confirm a few gridlines, "accept all", confirm calibration tunes
+  the next sheet · `verify-feature` → stop.
 
-### Phase 4 — Claude-vision type suggestion (backend + thin frontend wire)
-- **Scope:** A `/suggest-types` endpoint (Anthropic API, **Sonnet** default; Opus only
-  for dense sheets) that takes a room crop/context + the taxonomy and returns a suggested
-  `top_level_role` + subtype via **Structured Outputs** (strict JSON). The overlay shows
-  the suggestion as a pre-fill the user confirms; geometry and name are untouched (text
-  layer already named it). Vision **never** produces polygons.
-- **Approval gates:** ⛔ needs `ANTHROPIC_API_KEY` in the backend env (owner provisions).
-  Cost is a few dollars total at this volume; note expected per-sheet cost in the PR.
-- **Exit criteria:** `pytest -q` green (mock the API) + frontend typecheck/test/build ·
-  a real sample of ~10 sheets reviewed for type-suggestion quality · `verify-feature` → stop.
+### Phase 4 — door/window openings (subset cadence)
+- **Scope:** Opening tool — drag a line jamb-to-jamb + type tag (`door|window|cased_opening`), optional swing
+  direction. `sheet_openings` table. Suggested cadence surfaced in UI (this is a subset-of-sheets layer, not
+  per-sheet). Provenance + `trace_events` as usual.
+- **Approval gates:** ⛔ migration for `sheet_openings`.
+- **Exit:** typecheck + test + build · opening geometry/accept mapping unit-tested · live click-through marks
+  interior + exterior openings on a sample sheet · `verify-feature` → stop.
+
+### Phase 5 — detail callouts (passive extract)
+- **Scope:** Backend extract of reference bubbles ("4/A-501") from text + circle vectors → `sheet_callouts`
+  cache. No verify-UI yet (passive). pytest for the ref parse.
+- **Approval gates:** ⛔ migration for `sheet_callouts`.
+- **Exit:** `pytest -q` green · ref-parse unit-tested · endpoint returns located callouts on a real sheet · stop.
+
+### Phase 6 — Claude-vision type suggestion (backend + thin frontend wire)
+- **Scope:** `/suggest-types` (Anthropic API, **Sonnet** default; Opus only for dense sheets) — room
+  crop/context + taxonomy → suggested `top_level_role` + subtype via **Structured Outputs** (strict JSON). Shown
+  as a pre-fill the user confirms; geometry + name untouched. Vision **never** produces polygons.
+- **Approval gates:** ⛔ `ANTHROPIC_API_KEY` in backend env (owner provisions). Note per-sheet cost in the PR.
+- **Exit:** `pytest -q` green (mock the API) + frontend typecheck/test/build · ~10 sheets reviewed for
+  type-suggestion quality · `verify-feature` → stop.
+
+### Phase 7 (DEFERRED — gated on need) — geometric room proposal
+- The original auto-detector. Only build if manual tracing proves too slow at scale AND a research spike shows
+  the **vector** `shapely.polygonize` + door-gap-closing path beats the failed raster attempt on real sheets.
+  Per-project wall isolation (driven by `drawing_set_profile`) is the prerequisite either way. `polygonize_full`
+  dangles = built-in QA. Treat as a spike, not a commitment.
 
 ## Hard guardrails (AGENTS.md — do not violate)
-- **§2:** proposal/overlay state goes in `useWorkbenchStore` (Zustand), never `useState`/
-  `useEffect` for data; never touch the `pendingChanges` offline queue; accepted writes go
-  through the existing Query mutation hooks, not raw inserts.
-- **§4 / §6:** any schema change (the `sheet_text` table) must be reflected in
-  `database.types.ts` (Tables block) and derived in `domain.ts`; narrow JSONB at the query
-  boundary (no `Json` in props); derive types from `database.types.ts`, never hand-duplicate.
+- **§2:** all tool/overlay/proposal state in `useWorkbenchStore` (Zustand), never `useState`/`useEffect` for
+  data; never touch the `pendingChanges` offline queue; accepted writes go through Query mutation hooks, not raw inserts.
+- **§4 / §6:** every new table/column reflected in `database.types.ts` (Tables block) and derived in `domain.ts`;
+  narrow JSONB at the query boundary (no `Json` in props); derive types from `database.types.ts`, never hand-duplicate.
 - **§3:** overlays use native-event isolation; never recolor `mapDisplayStatuses`.
-- **§5:** `sheet_text` follows the `sheet_vectors` write-through cache pattern; don’t store
-  class instances in Query cache.
-- **§7:** backend endpoints use `Depends(get_current_user)` + `verify_sheet_access` +
-  `asyncio.to_thread`; PyJWT only; no debug file writes; 25s client timeouts stay.
-- **Capture invariant (Milestone 1):** accept = the existing `useCreateWorkbenchLabel`
-  with `method`/`source`/`suggested_*`; reject = `recordTraceEvent('reject_suggestion')`.
-  Do NOT invent a second capture path — the whole pipeline depends on one.
+- **§5:** new caches follow the `sheet_vectors` write-through pattern; don't store class instances in Query cache.
+- **§7:** backend endpoints use `Depends(get_current_user)` + `verify_sheet_access` + `asyncio.to_thread`;
+  PyJWT only; no debug file writes; 25s client timeouts stay.
+- **Capture invariant (Milestone 1):** accept = a capture path with `method`/`source`/`suggested_*`;
+  reject = `recordTraceEvent('reject_suggestion')`. Rooms reuse `useCreateWorkbenchLabel`. Do NOT invent a
+  second room-capture path — the whole pipeline depends on one.
 
 ## Open decisions
-- **Door-gap closing strategy** (extend wall stubs vs. insert door-closing segments vs.
-  morphological close on a raster fallback) — resolve empirically in Phase 2 against real
-  sheets; `polygonize_full` dangles are the diagnostic. Not a blocker to start.
-- **Confidence score definition** for proposals (e.g. closed-polygon area vs. dangle
-  count) — settle in Phase 2; it only drives overlay sort/emphasis in Phase 3.
+- **Sheet metadata: columns on `sheets` vs. a new `sheet_metadata` table** — decide after reading `sheets`.
+- **Calibration scope: per-project vs. per-firm** — firm is the more general key, but a project may mix firms;
+  start per-project, key by firm where known. Settle in Phase 3.
+- **Opening cadence UI** — how the app signals "this sheet is in the openings subset" — settle in Phase 4.
+- **Sample coverage to validate assumptions** — we've only tested 3 vector, likely-multifamily sheets from a few
+  firms. Before hardening: get a **scanned/raster** sheet (tests OCR fallback), a **different building type**
+  (tests taxonomy/naming), and a **fourth firm** (tests style-variance). Only chase samples representative of
+  real workload.
 
 ## Verification commands (exit-criteria gate)
 ```
