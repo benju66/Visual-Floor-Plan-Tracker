@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { AlertTriangle, Info, Layers, CircleDashed } from 'lucide-react';
+import { AlertTriangle, Info, Layers, CircleDashed, Sparkles } from 'lucide-react';
 import TaxonomyPicker from '@/components/TaxonomyPicker';
 import { normalizeLocationName, isNameUniqueOnSheet, suggestNextName } from '@/utils/workbenchNaming';
 import type { TaxonomyResult } from '@/utils/subtypes';
@@ -52,6 +52,14 @@ interface WorkbenchLabelPopoverProps {
   onCancel: () => void;
   /** When set, the popover edits this label (pre-fills type + flags); otherwise it creates. */
   editingUnit?: Unit | null;
+  /**
+   * The AI taxonomy pre-selection for a freshly-traced room (AI Tracing Assist —
+   * Phase 2). Only used in CREATE mode; the name is pre-filled separately via
+   * {@link name}. `null` = no type was suggested (user picks one).
+   */
+  suggestedPick?: TaxonomyResult | null;
+  /** Whether the pre-filled name/type came from the sheet text (renders the hint). */
+  isSuggested?: boolean;
 }
 
 export default function WorkbenchLabelPopover({
@@ -64,10 +72,12 @@ export default function WorkbenchLabelPopover({
   onSave,
   onCancel,
   editingUnit,
+  suggestedPick = null,
+  isSuggested = false,
 }: WorkbenchLabelPopoverProps) {
   const isEditing = !!editingUnit;
   const [pick, setPick] = useState<TaxonomyResult | null>(() =>
-    editingUnit ? reconstructPick(editingUnit, subtypes) : null,
+    editingUnit ? reconstructPick(editingUnit, subtypes) : suggestedPick,
   );
   const [spansLevels, setSpansLevels] = useState(() => editingUnit?.spans_levels ?? false);
   const [levelNote, setLevelNote] = useState(() => editingUnit?.level_note ?? '');
@@ -96,6 +106,15 @@ export default function WorkbenchLabelPopover({
       <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">
         {isEditing ? 'Edit location' : 'Name this location'}
       </h2>
+
+      {/* AI Tracing Assist (Phase 2): the name/type were pre-filled from the sheet's
+          own text — confirm or edit. Display-only; no canvas overlay. */}
+      {!isEditing && isSuggested && (
+        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-violet-600 dark:text-violet-300">
+          <Sparkles size={13} className="shrink-0" />
+          Suggested from the sheet — confirm or edit.
+        </p>
+      )}
 
       {/* Interior-face guidance (standard §3) — text only, no geometry enforcement. */}
       <p className="mb-2.5 flex items-start gap-1.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Updater } from '@/types/utils';
 import type { PercentPoint } from '@/types/domain';
+import type { RoomSuggestion } from '@/utils/roomSuggestion';
 import {
   EMPTY_FILTERS,
   type WorkbenchGroupBy,
@@ -76,6 +77,17 @@ export interface WorkbenchState {
   pendingLabelPoints: PercentPoint[] | null;
   setPendingLabelPoints: (val: Updater<PercentPoint[] | null>) => void;
 
+  /**
+   * The FROZEN AI name/type proposal for the polygon currently being named (AI
+   * Tracing Assist — Phase 2), or `null` when nothing was suggested (manual label)
+   * or while editing an existing one. Set once when the polygon closes and never
+   * mutated as the user edits the live draft — it is the original-vs-final training
+   * signal banked on accept and the frozen `beforeLabel` recorded on reject. Lives
+   * here (not `useState`) per AGENTS.md §2, alongside the rest of the popover state.
+   */
+  labelSuggestion: RoomSuggestion | null;
+  setLabelSuggestion: (val: Updater<RoomSuggestion | null>) => void;
+
   /** Whether the trace naming popover is open. */
   isLabelNamingOpen: boolean;
   setIsLabelNamingOpen: (val: Updater<boolean>) => void;
@@ -141,6 +153,12 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
   setPendingLabelPoints: (val) =>
     set((state) => ({
       pendingLabelPoints: typeof val === 'function' ? val(state.pendingLabelPoints) : val,
+    })),
+
+  labelSuggestion: null,
+  setLabelSuggestion: (val) =>
+    set((state) => ({
+      labelSuggestion: typeof val === 'function' ? val(state.labelSuggestion) : val,
     })),
 
   isLabelNamingOpen: false,

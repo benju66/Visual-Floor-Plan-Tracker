@@ -65,6 +65,12 @@ export type TraceEventInsert = Database['public']['Tables']['trace_events']['Ins
 export type SheetText = Database['public']['Tables']['sheet_text']['Row'];
 export type SheetTextInsert = Database['public']['Tables']['sheet_text']['Insert'];
 
+// One located PDF text word from {@link SheetText}.text — the word string plus its
+// bbox-center position in the SAME percent space as {@link PercentPoint} /
+// units.polygon_coordinates / sheet_vectors. The narrowed shape of the `text` JSONB
+// (AI Tracing Assist — Phase 2 is the consuming phase, so the guard lives here).
+export type TextWord = { text: string; pctX: number; pctY: number };
+
 // Sub-type dictionary row (Location Taxonomy). The two JSONB columns are
 // narrowed off the generated `Json` to their real shapes (mirroring how `Unit`
 // narrows `polygon_coordinates`); narrow them at the query boundary with the
@@ -120,6 +126,25 @@ export function isPercentPointArray(val: unknown): val is PercentPoint[] {
   return (
     Array.isArray(val) &&
     val.every(p => typeof (p as PercentPoint).pctX === 'number' && typeof (p as PercentPoint).pctY === 'number')
+  );
+}
+
+/**
+ * Narrows {@link SheetText}.text (typed `Json` by the generator) to {@link TextWord}[]
+ * at the query boundary (AGENTS.md §6). An empty array is valid — it is the legitimate
+ * "scanned sheet / no text layer" state, not a failure. Like {@link isPercentPointArray}
+ * it is NOT null-safe per element (a `null`/non-object element throws, not `false`);
+ * the backend only ever caches well-formed words, so test with safe primitives.
+ */
+export function isTextWordArray(val: unknown): val is TextWord[] {
+  return (
+    Array.isArray(val) &&
+    val.every(
+      w =>
+        typeof (w as TextWord).text === 'string' &&
+        typeof (w as TextWord).pctX === 'number' &&
+        typeof (w as TextWord).pctY === 'number',
+    )
   );
 }
 

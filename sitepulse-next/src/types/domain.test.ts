@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPercentPointArray, isStringArray, isProjectTypeArray } from './domain';
+import { isPercentPointArray, isStringArray, isProjectTypeArray, isTextWordArray } from './domain';
 
 // isPercentPointArray is the runtime guard that narrows the JSONB
 // `polygon_coordinates` column at the query boundary (see AGENTS.md §6).
@@ -41,6 +41,24 @@ describe('isStringArray', () => {
     expect(isStringArray('Salon Suite')).toBe(false);
     expect(isStringArray(['ok', 42])).toBe(false);
     expect(isStringArray([null])).toBe(false);
+  });
+});
+
+// isTextWordArray narrows the `sheet_text.text` JSONB at the query boundary
+// (AI Tracing Assist — Phase 2). An empty array is the valid scanned-sheet state.
+describe('isTextWordArray', () => {
+  it('accepts an array of located words (and the empty / scanned-sheet array)', () => {
+    expect(isTextWordArray([{ text: 'OFFICE', pctX: 0.5, pctY: 0.5 }])).toBe(true);
+    expect(isTextWordArray([])).toBe(true);
+  });
+
+  it('rejects non-arrays and arrays with malformed words', () => {
+    expect(isTextWordArray(null)).toBe(false);
+    expect(isTextWordArray(undefined)).toBe(false);
+    expect(isTextWordArray('OFFICE')).toBe(false);
+    expect(isTextWordArray([{ text: 'OFFICE', pctX: '0.5', pctY: 0.5 }])).toBe(false);
+    expect(isTextWordArray([{ text: 417, pctX: 0.5, pctY: 0.5 }])).toBe(false);
+    expect(isTextWordArray([{ pctX: 0.5, pctY: 0.5 }])).toBe(false);
   });
 });
 

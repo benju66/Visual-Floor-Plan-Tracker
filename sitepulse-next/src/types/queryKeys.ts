@@ -11,6 +11,10 @@ export const queryKeys = {
   unitHistory:        (unitId: string)          => ['unit_history', unitId]  as const,
   statusHistory:      (...unitIds: string[])    => ['status_history', ...unitIds] as const,
   snappingVectors:    (sheetId: string)         => ['snapping_vectors_v2', sheetId] as const,
+  // 1:1 cache of a sheet's extracted PDF text words (AI Tracing Assist — Phase 2).
+  // Mirrors snappingVectors: read sheet_text first, fall back to /extract-text with
+  // write-through. Feeds room-name auto-fill on a finished trace.
+  sheetText:          (sheetId: string)         => ['sheet_text', sheetId] as const,
   projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
   currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
   subtypes:           ()                         => ['subtypes'] as const,

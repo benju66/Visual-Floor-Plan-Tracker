@@ -179,3 +179,36 @@ export async function extractVectorsService(sheetId: string, token: string): Pro
 
   return response.json();
 }
+
+/** A located PDF text word + its position in the shared percent space (sheet_text). */
+export interface TextWordResult {
+  text: string;
+  pctX: number;
+  pctY: number;
+}
+
+export interface ExtractTextResult {
+  text: TextWordResult[];
+}
+
+/**
+ * Backend fallback for a sheet's cached text layer (AI Tracing Assist — Phase 1).
+ * Mirrors {@link extractVectorsService}: PyMuPDF reads the original PDF's words and
+ * write-through-caches them into `sheet_text`. A scanned sheet with no text layer
+ * returns an empty `text` array — the legitimate "OCR candidate" state, not an error.
+ */
+export async function extractTextService(sheetId: string, token: string): Promise<ExtractTextResult> {
+  const response = await fetch(`${API_BASE_URL}/extract-text/${sheetId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to extract text');
+  }
+
+  return response.json();
+}

@@ -26,6 +26,32 @@ export const getCentroid = (points: PercentPoint[]) => {
   };
 };
 
+/**
+ * Even-odd ray-casting point-in-polygon test (Jordan curve / "crossing number").
+ * `polygon` is an open or closed ring of {@link PercentPoint}s; the edge wrap is
+ * handled internally, so the caller need not repeat the first vertex. Pure and
+ * aspect-naive — it compares raw pct coordinates, which is correct because a word's
+ * position and the polygon vertices live in the SAME percent space.
+ *
+ * Boundary behaviour is the standard ray-cast convention (left/bottom edges count
+ * as inside, right/top as outside) — deterministic but not symmetric; do not rely
+ * on it for points lying exactly on an edge. Used by the room-name auto-fill to
+ * pick the sheet-text words that fall inside a freshly-traced room.
+ */
+export const isPointInPolygon = (point: PercentPoint, polygon: PercentPoint[]): boolean => {
+  if (!polygon || polygon.length < 3) return false;
+  const { pctX: x, pctY: y } = point;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].pctX, yi = polygon[i].pctY;
+    const xj = polygon[j].pctX, yj = polygon[j].pctY;
+    const intersects =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+};
+
 export interface SnapResult {
   pctX: number;
   pctY: number;

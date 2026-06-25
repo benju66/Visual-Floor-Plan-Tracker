@@ -315,3 +315,76 @@ export function mapLegacyUnitType(unitType: string | null | undefined): LegacyUn
   const key = (unitType ?? '').trim();
   return LEGACY_UNIT_TYPE_MAP[key] ?? { role: 'other', subtypeName: PENDING_SUBTYPE_NAME };
 }
+
+// ---------------------------------------------------------------------------
+// Room-text → taxonomy suggestion (AI Tracing Assist — Phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The FREE keyword map that turns a room's auto-filled name into a taxonomy
+ * suggestion — the deterministic, no-LLM type assist (the paid Claude-vision
+ * version is a later phase). Each entry is a word-boundary regex tested against the
+ * UPPER-CASED candidate name; the FIRST match wins, so order = priority.
+ *
+ * Every target is an EXISTING {@link SEED_SUBTYPES} name, and the suggested
+ * `top_level_role` is looked up FROM that seed entry (never hard-coded here), so a
+ * suggestion's role and sub-type can never disagree — and a re-scope of a sub-type's
+ * role (e.g. Restaurant `Kitchen` → Back-of-House `support`) updates this assist for
+ * free. Keep it to HIGH-CONFIDENCE, unambiguous words; anything not listed yields no
+ * type suggestion (the user just picks one).
+ */
+const ROOM_KEYWORD_TO_SUBTYPE: ReadonlyArray<readonly [RegExp, string]> = [
+  // Support / back-of-house
+  [/\bKITCHEN\b/, 'Kitchen'],
+  [/\b(MECH|MECHANICAL)\b/, 'Mechanical'],
+  [/\b(ELEC|ELECTRICAL)\b/, 'Electrical'],
+  [/\b(DATA|IT|TELECOM|IDF|MDF)\b/, 'Data/IT/Telecom'],
+  [/\b(JANITOR|JAN|CUSTODIAL)\b/, 'Janitor/Custodial'],
+  [/\b(TRASH|REFUSE|GARBAGE)\b/, 'Trash/Refuse'],
+  [/\b(STORAGE|STOR|STOCK|STOCKROOM)\b/, 'Storage'],
+  [/\b(RECEIVING|LOADING)\b/, 'Loading/Receiving'],
+  // Common / circulation
+  [/\b(CORRIDOR|HALL|HALLWAY)\b/, 'Corridor'],
+  [/\b(VESTIBULE)\b/, 'Vestibule'],
+  [/\b(LOBBY|ENTRY|ENTRANCE)\b/, 'Lobby/Entry'],
+  [/\b(STAIR|STAIRWELL)\b/, 'Stair'],
+  [/\b(ELEV|ELEVATOR)\b/, 'Elevator/Elevator Lobby'],
+  [/\b(RESTROOM|TOILET|WOMEN|WOMENS|MEN|MENS|WC)\b/, 'Public Restroom'],
+  [/\b(RECEPTION|WAITING)\b/, 'Reception/Waiting'],
+  // Program
+  [/\b(CONFERENCE|CONF)\b/, 'Conference Room'],
+  [/\b(OFFICE)\b/, 'Office'],
+  [/\b(CLASSROOM)\b/, 'Classroom'],
+  [/\b(DINING)\b/, 'Dining Area'],
+  [/\b(RETAIL|SALES|SHOWROOM)\b/, 'Retail Sales Floor'],
+];
+
+/** A room-text taxonomy suggestion: a canonical role + the matched seed sub-type. */
+export interface TextTaxonomySuggestion {
+  role: TopLevelRole;
+  subtypeName: string;
+}
+
+/**
+ * Suggest a taxonomy `{ role, subtypeName }` from a room's auto-filled name using
+ * the free {@link ROOM_KEYWORD_TO_SUBTYPE} keyword map. The role is read from the
+ * matched {@link SEED_SUBTYPES} entry, so it is always consistent with the sub-type.
+ *
+ * Returns `null` when no keyword matches (or the input is blank) — the user then
+ * picks a type by hand; the assist never blocks or guesses wildly. The returned
+ * `subtypeName` is a canonical seed name the caller resolves to a live dictionary
+ * `subtype_id`. Pure: pass the name in; no DB, no `Date.now()`.
+ */
+export function suggestTaxonomyFromText(
+  text: string | null | undefined,
+): TextTaxonomySuggestion | null {
+  const upper = (text ?? '').toUpperCase();
+  if (!upper.trim()) return null;
+  for (const [re, subtypeName] of ROOM_KEYWORD_TO_SUBTYPE) {
+    if (re.test(upper)) {
+      const seed = SEED_SUBTYPES.find((s) => s.name === subtypeName);
+      if (seed) return { role: seed.role, subtypeName: seed.name };
+    }
+  }
+  return null;
+}

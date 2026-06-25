@@ -6,6 +6,7 @@ import {
   distToSegmentSquared,
   getCentroid,
   getSnappedCoordinate,
+  isPointInPolygon,
   mixAlpha,
   nearestCentroidWithin,
   type CentroidTarget,
@@ -111,6 +112,50 @@ describe('distance helpers', () => {
     const p: PercentPoint = { pctX: 3, pctY: 4 };
     const v: PercentPoint = { pctX: 0, pctY: 0 };
     expect(distToSegmentSquared(p, v, v)).toBe(25);
+  });
+});
+
+describe('isPointInPolygon — ray-casting interior test', () => {
+  // A unit square in percent space.
+  const square: PercentPoint[] = [
+    { pctX: 0.2, pctY: 0.2 },
+    { pctX: 0.4, pctY: 0.2 },
+    { pctX: 0.4, pctY: 0.4 },
+    { pctX: 0.2, pctY: 0.4 },
+  ];
+
+  it('returns true for a point clearly inside', () => {
+    expect(isPointInPolygon({ pctX: 0.3, pctY: 0.3 }, square)).toBe(true);
+  });
+
+  it('returns false for a point clearly outside', () => {
+    expect(isPointInPolygon({ pctX: 0.9, pctY: 0.9 }, square)).toBe(false);
+    expect(isPointInPolygon({ pctX: 0.1, pctY: 0.3 }, square)).toBe(false);
+  });
+
+  it('detects interior across the boundary transition', () => {
+    // Just inside the left edge vs just outside it — the boundary is where the
+    // true→false flip happens (the standard ray-cast convention).
+    expect(isPointInPolygon({ pctX: 0.201, pctY: 0.3 }, square)).toBe(true);
+    expect(isPointInPolygon({ pctX: 0.199, pctY: 0.3 }, square)).toBe(false);
+  });
+
+  it('handles a concave (L-shaped) polygon', () => {
+    // L-shape occupying the top and left of a 0..6 grid (the inner corner cut out).
+    const lShape: PercentPoint[] = [
+      { pctX: 0, pctY: 0 },
+      { pctX: 6, pctY: 0 },
+      { pctX: 6, pctY: 2 },
+      { pctX: 2, pctY: 2 },
+      { pctX: 2, pctY: 6 },
+      { pctX: 0, pctY: 6 },
+    ];
+    expect(isPointInPolygon({ pctX: 1, pctY: 1 }, lShape)).toBe(true); // in the arm
+    expect(isPointInPolygon({ pctX: 4, pctY: 4 }, lShape)).toBe(false); // in the notch
+  });
+
+  it('returns false for a degenerate polygon (< 3 vertices)', () => {
+    expect(isPointInPolygon({ pctX: 0, pctY: 0 }, [{ pctX: 0, pctY: 0 }])).toBe(false);
   });
 });
 

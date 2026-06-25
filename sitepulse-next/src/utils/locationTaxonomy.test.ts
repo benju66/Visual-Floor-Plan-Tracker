@@ -8,6 +8,7 @@ import {
   roleLabel,
   subtypesForProjectType,
   mapLegacyUnitType,
+  suggestTaxonomyFromText,
   type TopLevelRole,
   type ProjectType,
 } from './locationTaxonomy';
@@ -221,6 +222,48 @@ describe('mapLegacyUnitType', () => {
         expect(seedNames.has(subtypeName)).toBe(true);
       }
     }
+  });
+});
+
+describe('suggestTaxonomyFromText — free keyword → taxonomy map', () => {
+  const seedByName = new Map(SEED_SUBTYPES.map(s => [s.name, s]));
+
+  it('maps unambiguous room words to a seed sub-type with the seed role', () => {
+    expect(suggestTaxonomyFromText('KITCHEN')).toEqual({ role: 'support', subtypeName: 'Kitchen' });
+    expect(suggestTaxonomyFromText('MECH')).toEqual({ role: 'support', subtypeName: 'Mechanical' });
+    expect(suggestTaxonomyFromText('CORRIDOR')).toEqual({ role: 'common', subtypeName: 'Corridor' });
+    expect(suggestTaxonomyFromText('OFFICE')).toEqual({ role: 'program', subtypeName: 'Office' });
+  });
+
+  it('is case-insensitive and matches a word inside the full candidate name', () => {
+    expect(suggestTaxonomyFromText('417 women')).toEqual({ role: 'common', subtypeName: 'Public Restroom' });
+    expect(suggestTaxonomyFromText('Office 110')).toEqual({ role: 'program', subtypeName: 'Office' });
+  });
+
+  it('always derives the role FROM the matched seed entry (never disagrees)', () => {
+    for (const text of ['KITCHEN', 'STORAGE', 'LOBBY', 'CONFERENCE', 'ELECTRICAL']) {
+      const result = suggestTaxonomyFromText(text);
+      expect(result).not.toBeNull();
+      expect(result!.role).toBe(seedByName.get(result!.subtypeName)?.role);
+    }
+  });
+
+  it('every keyword target is a real seed sub-type name', () => {
+    for (const text of ['KITCHEN', 'MECH', 'ELEC', 'DATA', 'JANITOR', 'TRASH', 'STORAGE',
+      'RECEIVING', 'CORRIDOR', 'VESTIBULE', 'LOBBY', 'STAIR', 'ELEVATOR', 'RESTROOM',
+      'RECEPTION', 'CONFERENCE', 'OFFICE', 'CLASSROOM', 'DINING', 'RETAIL']) {
+      const result = suggestTaxonomyFromText(text);
+      expect(result).not.toBeNull();
+      expect(seedByName.has(result!.subtypeName)).toBe(true);
+    }
+  });
+
+  it('returns null for an unknown word, a bare number, or blank input', () => {
+    expect(suggestTaxonomyFromText('417')).toBeNull();
+    expect(suggestTaxonomyFromText('FLEX SPACE')).toBeNull();
+    expect(suggestTaxonomyFromText('')).toBeNull();
+    expect(suggestTaxonomyFromText(null)).toBeNull();
+    expect(suggestTaxonomyFromText(undefined)).toBeNull();
   });
 });
 
