@@ -72,3 +72,10 @@ Thumbs.db
 .agents/
 .claude/
 skills-lock.json
+
+# Local-only working data — real project schedules, client floor-plan PDFs, and
+# the Procore contact directory export (PII). Reference material kept on-disk only;
+# never commit (guards against an accidental `git add -A`).
+docs/Schdules/
+docs/floor_plans/
+docs/procore_project_directory_export.csv
