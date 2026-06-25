@@ -81,11 +81,17 @@ vector/text layers; the frontend renders it as a **distinct suggested overlay**;
 
 1. **Room name auto-fill (core).** On finishing a manually-traced room polygon, point-in-polygon-match the
    interior `sheet_text` words → pre-fill `unit_number` + map the room word to a taxonomy type
-   (KITCHEN→program, MECH→support, …) via `locationTaxonomy.ts`. User confirms/edits. `source='ai_suggested'`
-   on the name; `ai_accepted`/`ai_edited` on confirm.
+   (KITCHEN→program, MECH→support, SALES/OFFICE→program, COOLER/FREEZER/STOCK→support, CORRIDOR/LOBBY→common, …)
+   via `locationTaxonomy.ts`. User confirms/edits. `source='ai_suggested'` on the name; `ai_accepted`/`ai_edited`
+   on confirm. *Commercial wrinkle (verified on LaSalle/Crew):* spaces carry **name + space number**
+   ("417 WOMEN", "OFFICE 110") plus **separate door numbers** ("105A", door-schedule tags). Capture name+number;
+   use font size + pattern to avoid mistaking door tags for the space number.
 2. **Sheet title block (every sheet).** Drag a box over the title block; app pre-reads **sheet number**
    (e.g. "A-201"), **sheet name** ("SECOND FLOOR PLAN"), and **architect/firm** from `sheet_text` inside the
    box; user confirms/fixes. Organizes the corpus and supplies the firm stratification key + calibration key.
+   *Firm heuristic:* the proprietary/copyright **notice reliably names the firm** (verified: LaSalle →
+   "…written permission of **RSP Architects**") — parse it as the pre-fill. **Title-block position varies by
+   firm** (Aldi/Crew ≠ LaSalle), which is exactly why this is a human box-drag, not an auto-locate.
 3. **Gridlines (every sheet) — two-part annotation.** (a) Box the bubble label (app pre-reads "A"/"B"/"1"/"2"
    from `sheet_text`); (b) drag the axis line across the grid line (app snaps to the long straight vector it
    already detected). One grid annotation = `{ label, line(percent endpoints), axis: 'h'|'v' }`. Confirming
@@ -99,6 +105,14 @@ vector/text layers; the frontend renders it as a **distinct suggested overlay**;
 5. **Detail callouts (passive/later).** Auto-extract circular reference bubbles ("4/A-501") from text + circle
    vectors into a cache. A cross-sheet navigation graph — valuable as a product feature, low synergy with the
    room model. Store now; build verify-UI only if/when it's prioritized.
+6. **Opportunistic CAD-layer extraction (when present — jackpot path).** Verified on the Aldi sheet: some
+   firms publish AIA-standard OCG layers, and `page.get_drawings(extended=True)` tags **every** vector path with
+   its `layer`. When a sheet exposes layers named `A-Wall*` / `A-Door*` / `A-Glaz` / `S-Cols` / grid, extract
+   walls, doors, windows, columns, and gridlines **directly per layer** — near-perfect geometry, free, and the
+   *best* training labels (machine-exact; human just verifies). This **supersedes the geometric fallback for
+   layered sheets** and even revives room-closing (walls + door layer → seal gaps at known doors). It is
+   **opportunistic / firm-dependent** — A/B/C, LaSalle, and Crew expose no layers, so detect layer presence and
+   fall back to manual + calibration when absent. Record layer-presence in the `drawing_set_profile`.
 
 ## Smart layer — per-set calibration (built from verification, not ML)
 The verification actions above *produce* the calibration for free. Store a small **per-set profile keyed by
@@ -199,6 +213,21 @@ Keep correctness framework-free and deterministic (pass inputs in; never call `D
 - **Exit:** typecheck + test + build · field/grid/accept-all mapping unit-tested · live click-through: open a
   sheet, confirm title block (firm captured), confirm a few gridlines, "accept all", confirm calibration tunes
   the next sheet · `verify-feature` → stop.
+
+### Phase 3.5 — opportunistic CAD-layer extraction (backend; jackpot path, layered sheets only)
+- **Scope:** New `/extract-layers/{sheet_id}` endpoint using `page.get_drawings(extended=True)` — every path is
+  tagged with its OCG `layer` (verified on Aldi). Detect layer presence; when names match `A-Wall*` / `A-Door*` /
+  `A-Glaz` / `S-Cols` / grid, group paths per layer → emit pre-populated **walls / doors / windows / columns /
+  gridlines** in percent space as high-confidence suggestions into the existing overlay/accept framework
+  (machine-exact geometry; human just verifies). Record `has_cad_layers` + the layer→element mapping in
+  `drawing_set_profile`. **Falls back to manual + calibration when no layers exist** (A/B/C, LaSalle, Crew).
+  Because doors come as their own layer here, this is also the one path that can **auto-close rooms** (walls +
+  door openings → seal gaps) — wire that only if layered sheets prove common enough to be worth it.
+- **Approval gates:** none beyond reusing the overlay framework (reads only; no new table — reuses
+  `sheet_gridlines`/`sheet_openings` + the room write path). New endpoint only.
+- **Exit:** `pytest -q` green · per-layer grouping + name-matching unit-tested on a layered fixture · live
+  click-through on Aldi: walls/doors/grid pre-populate from layers and verify cleanly; a layerless sheet falls
+  back gracefully · `verify-feature` → stop.
 
 ### Phase 4 — door/window openings (subset cadence)
 - **Scope:** Opening tool — drag a line jamb-to-jamb + type tag (`door|window|cased_opening`), optional swing
