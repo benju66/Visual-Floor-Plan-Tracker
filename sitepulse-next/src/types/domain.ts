@@ -46,6 +46,13 @@ export type StatusLogInsert = Database['public']['Tables']['status_logs']['Inser
 export type UnitInsert      = Database['public']['Tables']['units']['Insert'];
 export type WorkbenchSheetInsert = Database['public']['Tables']['workbench_sheets']['Insert'];
 
+// Append-only AI-tracing capture log (one row per traced action). The JSONB
+// before/after polygon + label columns stay `Json` here and are written through
+// the camelCase `recordTraceEvent` helper (src/utils/traceCapture.ts), which owns
+// the narrowing — never let `Json` reach component props (AGENTS.md §6).
+export type TraceEvent = Database['public']['Tables']['trace_events']['Row'];
+export type TraceEventInsert = Database['public']['Tables']['trace_events']['Insert'];
+
 // Sub-type dictionary row (Location Taxonomy). The two JSONB columns are
 // narrowed off the generated `Json` to their real shapes (mirroring how `Unit`
 // narrows `polygon_coordinates`); narrow them at the query boundary with the

@@ -14,6 +14,15 @@ import { normalizeLocationName } from '@/utils/workbenchNaming';
 import { useCreateUnit } from '@/hooks/useProjectQueries';
 import { useProposePendingSubtype } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult } from '@/utils/subtypes';
+import {
+  recordTraceEvent,
+  labelSnapshotFromUnit,
+  deriveEditSource,
+  ANNOTATION_SPEC_VERSION,
+  type TraceMethod,
+  type TraceSource,
+  type LabelSnapshot,
+} from '@/utils/traceCapture';
 import type { PercentPoint, Sheet, Unit } from '@/types/domain';
 
 /**
@@ -193,6 +202,21 @@ export interface CreateWorkbenchLabelInput {
   levelNote: string;
   /** Standard §5 — the location encloses a tracked void/core (a donut room). */
   hasVoid: boolean;
+  // ---- Capture provenance (plan M1). All optional; the manual draw path omits
+  // them and defaults to method='manual' / source='human'. The AI-assist spike
+  // populates these so the suggested-vs-corrected signal is captured. ----
+  /** How the geometry originated (default `'manual'`). */
+  method?: TraceMethod;
+  /** Provenance of the final value (default `'human'`). */
+  source?: TraceSource;
+  /** The frozen machine-proposed polygon, when this trace came from a suggestion. */
+  suggestedPolygon?: PercentPoint[] | null;
+  /** The frozen machine-proposed label, when this trace came from a suggestion. */
+  suggestedLabel?: LabelSnapshot | null;
+  /** Identifier of the model that produced the suggestion (null for manual). */
+  modelVersion?: string | null;
+  /** Wall-clock ms the user spent on this trace (the speed metric); null if untimed. */
+  durationMs?: number | null;
 }
 
 /**
@@ -289,9 +313,15 @@ export function useCreateWorkbenchLabel(sheetId: string) {
       }
 
       // Insert via the SAME online create path the live map uses, carrying the
-      // Phase-7 two-level / void label metadata onto the (Phase-3) nullable columns.
+      // Phase-7 two-level / void label metadata onto the (Phase-3) nullable columns
+      // PLUS the capture provenance (plan M1): method/source/spec_version, and — when
+      // this came from a machine proposal — the FROZEN original suggestion, so the
+      // suggested-vs-final correction signal is durable on the row even if the
+      // best-effort event write below is ever missed.
       const levelNote = input.spansLevels ? input.levelNote.trim() || null : null;
-      return createUnit.mutateAsync({
+      const method: TraceMethod = input.method ?? 'manual';
+      const source: TraceSource = input.source ?? 'human';
+      const created = (await createUnit.mutateAsync({
         sheet_id: sheetId,
         unit_number: name,
         polygon_coordinates: input.points,
@@ -302,7 +332,30 @@ export function useCreateWorkbenchLabel(sheetId: string) {
         spans_levels: input.spansLevels,
         level_note: levelNote,
         has_void: input.hasVoid,
-      }) as Promise<Unit>;
+        method,
+        source,
+        model_version: input.modelVersion ?? null,
+        suggested_polygon: (input.suggestedPolygon ?? null) as Unit['suggested_polygon'],
+        suggested_label: (input.suggestedLabel ?? null) as Unit['suggested_label'],
+        review_status: source === 'human' ? 'confirmed' : 'unreviewed',
+        spec_version: ANNOTATION_SPEC_VERSION,
+      })) as Unit;
+
+      // Append the immutable create event (best-effort; never blocks the save).
+      await recordTraceEvent({
+        sheetId,
+        unitId: created.id,
+        eventType: 'create',
+        method,
+        source,
+        afterPolygon: input.points,
+        afterLabel: labelSnapshotFromUnit(created),
+        modelVersion: input.modelVersion ?? null,
+        durationMs: input.durationMs ?? null,
+        groupKey: sheetId,
+      });
+
+      return created;
     },
   });
 }
@@ -549,6 +602,8 @@ export interface UpdateWorkbenchLabelInput {
   levelNote?: string | null;
   /** Standard §5 void flag. */
   hasVoid?: boolean;
+  /** Wall-clock ms the user spent on this edit (the speed metric); null if untimed. */
+  durationMs?: number | null;
 }
 
 /**
@@ -595,6 +650,16 @@ export function useUpdateWorkbenchLabel(sheetId: string) {
       }
       if (input.hasVoid !== undefined) updates.has_void = input.hasVoid;
 
+      // Capture the before-state (from cache, no extra round-trip) for the correction
+      // signal, and stamp provenance: a human touching the row makes it 'confirmed'
+      // and flips an AI-origin label to 'ai_edited' (the correction signal) while a
+      // hand-made one stays 'human'.
+      const before =
+        queryClient.getQueryData<Unit[]>(queryKeys.units(sheetId))?.find((u) => u.id === input.unitId) ?? null;
+      const newSource = deriveEditSource(before?.source ?? null);
+      updates.source = newSource;
+      updates.review_status = 'confirmed';
+
       const { data, error } = await supabase
         .from('units')
         .update(updates as never)
@@ -602,7 +667,24 @@ export function useUpdateWorkbenchLabel(sheetId: string) {
         .select()
         .single();
       if (error) throw error;
-      return data as unknown as Unit;
+      const updated = data as unknown as Unit;
+
+      // Append the immutable edit event (best-effort; never blocks the save).
+      await recordTraceEvent({
+        sheetId,
+        unitId: input.unitId,
+        eventType: 'update_label',
+        method: (before?.method as TraceMethod | null) ?? 'manual',
+        source: newSource,
+        beforePolygon: before?.polygon_coordinates ?? null,
+        afterPolygon: updated.polygon_coordinates ?? null,
+        beforeLabel: before ? labelSnapshotFromUnit(before) : null,
+        afterLabel: labelSnapshotFromUnit(updated),
+        durationMs: input.durationMs ?? null,
+        groupKey: sheetId,
+      });
+
+      return updated;
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });

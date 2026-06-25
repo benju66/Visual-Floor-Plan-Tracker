@@ -34,6 +34,7 @@ export default function NewDrawingModal({
   const [sheetProjectType, setSheetProjectType] = useState<ProjectType | ''>('');
   const [levelLabel, setLevelLabel] = useState('');
   const [sourceSheetNumber, setSourceSheetNumber] = useState('');
+  const [sourceBuilding, setSourceBuilding] = useState('');
   const [vectorQuality, setVectorQuality] = useState<VectorQuality | ''>('');
   const [isPartial, setIsPartial] = useState(false);
 
@@ -52,6 +53,7 @@ export default function NewDrawingModal({
         sheetProjectType,
         levelLabel,
         sourceSheetNumber,
+        sourceBuilding,
         vectorQuality,
         isPartial,
       });
@@ -187,6 +189,25 @@ export default function NewDrawingModal({
                 onChange={(e) => setSourceSheetNumber(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="mb-5">
+            <label htmlFor="wbBuilding" className={labelClass}>
+              Source building <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <input
+              id="wbBuilding"
+              type="text"
+              disabled={busy}
+              className={inputClass}
+              placeholder="e.g. Oakhaven Tower"
+              value={sourceBuilding}
+              onChange={(e) => setSourceBuilding(e.target.value)}
+            />
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Group sheets from the same building under one tag — keeps them together when
+              splitting training vs. test data (mixing them inflates model accuracy).
+            </p>
           </div>
 
           <div className="mb-5">

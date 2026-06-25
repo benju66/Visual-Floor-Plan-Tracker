@@ -50,6 +50,7 @@ describe('buildWorkbenchSidecarInsert', () => {
     sheetProjectType: 'Healthcare',
     levelLabel: 'Level 2',
     sourceSheetNumber: 'A-201',
+    sourceBuilding: 'Oakhaven Tower',
     vectorQuality: 'clean',
     isPartial: true,
   };
@@ -60,9 +61,15 @@ describe('buildWorkbenchSidecarInsert', () => {
       sheet_project_type: 'Healthcare',
       level_label: 'Level 2',
       source_sheet_number: 'A-201',
+      source_building: 'Oakhaven Tower',
       vector_quality: 'clean',
       is_partial: true,
     });
+  });
+
+  it('collapses a blank/whitespace source building to null', () => {
+    const result = buildWorkbenchSidecarInsert('sheet-1', { ...filled, sourceBuilding: '   ' });
+    expect(result.source_building).toBeNull();
   });
 
   it('maps the "" project-type / vector-quality sentinels to null', () => {

@@ -11,6 +11,7 @@ import { useSubtypes } from '@/hooks/useSubtypes';
 import { useSnappingVectors, useUnits, useDeleteUnit } from '@/hooks/useProjectQueries';
 import { useCreateWorkbenchLabel, useUpdateWorkbenchLabel } from '@/hooks/useWorkbenchActions';
 import { PROJECT_TYPES, type ProjectType } from '@/utils/locationTaxonomy';
+import { recordTraceEvent, labelSnapshotFromUnit, type TraceMethod, type TraceSource } from '@/utils/traceCapture';
 import type { PercentPoint, WorkbenchDrawing } from '@/types/domain';
 
 // Location Labeling Workbench — tracing view. Mounts the REUSED, unchanged
@@ -114,13 +115,31 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
 
   // Canvas "Delete" → remove the label(s). Reuses the live delete path (no
   // status_logs exist on a workbench label, so the cascade is just the unit).
+  // Before deleting, append an immutable 'delete' trace event capturing the label's
+  // final state (plan M1) — a deletion is itself training-relevant signal. The event
+  // is recorded with no unit_id (the row is about to vanish; its identity lives in
+  // the before-snapshot), so there's no FK race with the cascading delete.
   const handleDeleteUnit = useCallback(
     (ids: string | string[] | null) => {
       if (!ids) return;
       const list = Array.isArray(ids) ? ids : [ids];
-      list.forEach((id) => deleteUnit.mutate(id));
+      list.forEach((id) => {
+        const u = units.find((x) => x.id === id);
+        if (u) {
+          void recordTraceEvent({
+            sheetId,
+            eventType: 'delete',
+            method: (u.method as TraceMethod | null) ?? null,
+            source: (u.source as TraceSource | null) ?? null,
+            beforePolygon: u.polygon_coordinates ?? null,
+            beforeLabel: labelSnapshotFromUnit(u),
+            groupKey: sheetId,
+          });
+        }
+        deleteUnit.mutate(id);
+      });
     },
-    [deleteUnit],
+    [deleteUnit, units, sheetId],
   );
 
   const cancelNaming = useCallback(() => {

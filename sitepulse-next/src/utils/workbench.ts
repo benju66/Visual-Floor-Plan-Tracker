@@ -77,6 +77,13 @@ export interface WorkbenchSidecarFields {
   sourceSheetNumber: string;
   vectorQuality: VectorQuality | '';
   isPartial: boolean;
+  /**
+   * Leakage-safe grouping tag (plan M1.3 / ANNOTATION_SPEC §5): the physical
+   * building/project this sheet came from. Sheets that share a building share
+   * drafting style and MUST stay in the same train/test fold. Free text; `''` =
+   * ungrouped (the sheet groups by its own id at export time).
+   */
+  sourceBuilding: string;
 }
 
 /** Trim a free-text value, collapsing an all-whitespace/empty input to `null`. */
@@ -102,6 +109,7 @@ export function buildWorkbenchSidecarInsert(
     source_sheet_number: nullIfBlank(fields.sourceSheetNumber),
     vector_quality: fields.vectorQuality || null,
     is_partial: fields.isPartial,
+    source_building: nullIfBlank(fields.sourceBuilding),
   };
 }
 
