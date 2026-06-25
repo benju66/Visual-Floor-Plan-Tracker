@@ -4,6 +4,8 @@
 
 **Status:** Planning. No implementation code yet. Grounded in a codebase audit (workbench UI, backend/data model, infra) + external research (HITL annotation best practices, CV building blocks, GPU hosting). Items marked *(verify)* need confirmation at implementation time.
 
+**Build profile (drives the resolved decisions below):** solo tracer + solo dev (leveraging Claude Code / Opus 4.8), **hundreds** of sheets near-term, AI/cloud spend target **~$150/mo**, source PDFs **fully owned/cleared**, and a **custom trained model as the long-term goal**. Sequencing: **thin capture first, then the assist spike.** This profile favors the free/geometric path + on-demand managed services over standing infra, while still locking down the few things that are irreversible for a future model (provenance, leakage-safe grouping, RLE-capable export).
+
 ---
 
 ## 0. What already exists (do NOT rebuild)
@@ -138,16 +140,20 @@ Available day one; reuses existing backend. Build in order.
 
 ---
 
-## Sequencing
+## Sequencing (tuned to the build profile)
 
-1. **M0** annotation spec → **M1 + M1G** capture/provenance/versioning (no-regret; do before mass tracing) → **MI.3/MI.4** CI + table recipe.
-2. **M2.1–M2.3** (text labels + vector room proposal) — biggest immediate speedup, no model needed → **M2.4** UI → **MI.1/MI.2** queue+broker → **M2.5** SAM.
-3. **MW.1–MW.4** folded in opportunistically (MW.1 early — it improves data completeness).
-4. **M3** once Track A has a few hundred reviewed sheets: train → eval → registry → active learning → retrain.
+1. **Thin capture (first, ~1 day):** minimal `trace_events` (before/after geometry+label, `method`, `source`, `model_version`, `spec_version`, `duration_ms`, `created_by`) + `units` provenance columns (M1.2) + `group_key`/source-building tag (M1.3) + a short `ANNOTATION_SPEC.md` v1 (M0.1) and snapping-on default (M0.2). Skip the heavier governance tables until they earn their place. Nothing traced is wasted from here on.
+2. **Assist spike:** **M2.1** text-layer extraction → **M2.2** geometric room proposal (no GPU) → **M2.3** label pre-fill → **M2.4** suggested-overlay accept/edit/reject UI → **M2.5** SAM (Replicate on-demand) for irregular rooms.
+3. **Light governance as it earns it:** `rule_versions` (M1G.1) + `taxonomy_events` (M1G.2) when the taxonomy starts churning; accept-rate/edit-distance + time-per-sheet on the existing health strip (M1G.4). **MI.1 queue stays deferred.**
+4. **MW.1 scale calibration** early (improves data completeness); MW.2–MW.4 opportunistic.
+5. **Model phase (M3)** once a few hundred reviewed sheets exist: COCO/RLE export (M1.4) + DB snapshot (M1.5) → one-off training offload → eval (mask AP + per-class + Boundary IoU) → suggested-overlay pre-trace → active learning only if it beats random+aug.
 
-## Open decisions to confirm
-- GPU host for the hot path once past Replicate (RunPod vs Modal).
-- Batch/training compute: extend Render with Celery+Redis vs offload to Modal/RunPod.
-- Dataset versioning: DVC vs DB-native `dataset_snapshots` (or both).
-- Vision-LLM cost/accuracy on a real sample before committing M2.3 to Claude.
-- *(Resolved)* No third-party floor-plan dataset/model is commercially usable — train production weights on owned data only; CubiCasa5K etc. are research-validation warm-starts at most.
+**MI.3 (CI)** and **MI.4 (new-table recipe)** apply throughout — every table added in step 1 uses the RLS + types + hooks recipe.
+
+## Resolved decisions (this build)
+- **GPU host:** Replicate `meta/sam-2` **on-demand, no warm pool**; embeddings cached in Supabase, decoder in-browser. Revisit RunPod/Modal only if interactive latency becomes painful (unlikely for a solo tracer). Lead with the **geometric path (M2.2), which needs no GPU** — SAM is only for irregular rooms.
+- **Job queue:** **Deferred.** Geometric proposal runs inline in FastAPI (< 25s, CPU); pre-label a sheet on open, not in batch. **MI.1 is out of near-term scope.** Training is a one-off manual offload (Modal/RunPod/Colab) when data exists.
+- **Dataset versioning:** **DB-native now** (`trace_events` + `dataset_snapshots` → COCO in storage). Add **DVC at training time** for git-coupled experiment lineage. No DVC ops today.
+- **Vision-LLM:** **On-demand, text-layer-first.** PyMuPDF names for free; Claude vision (Sonnet default, Opus for dense plans) fills gaps + infers type. ~few dollars total at this volume.
+- **Third-party licensing:** No CC-BY-NC/GPL/AGPL model or dataset in the shipped product. Day-one detection is geometric; the trained model (M3.1) uses an Apache/MIT architecture on **owned data only**. *Your* source PDFs are cleared.
+- **Leakage grouping:** capture an optional **source building/project tag** in the New Drawing modal so multi-sheet buildings group into the same train/test fold (added to the thin-capture step).
