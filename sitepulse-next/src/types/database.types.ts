@@ -192,6 +192,7 @@ export interface Database {
           reviewed_at: string | null
           deleted_at: string | null
           deleted_by: string | null
+          source_building: string | null
           created_at: string | null
         }
         Insert: {
@@ -206,6 +207,7 @@ export interface Database {
           reviewed_at?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          source_building?: string | null
           created_at?: string | null
         }
         Update: {
@@ -220,6 +222,7 @@ export interface Database {
           reviewed_at?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          source_building?: string | null
           created_at?: string | null
         }
         Relationships: [
@@ -248,6 +251,13 @@ export interface Database {
           icon_offset_y: number | null
           walk_sequence: number | null
           assigned_to: string | null
+          method: string | null
+          source: string | null
+          model_version: string | null
+          suggested_polygon: Json | null
+          suggested_label: Json | null
+          review_status: string | null
+          spec_version: string | null
           created_at: string | null
         }
         Insert: {
@@ -266,6 +276,13 @@ export interface Database {
           icon_offset_y?: number | null
           walk_sequence?: number | null
           assigned_to?: string | null
+          method?: string | null
+          source?: string | null
+          model_version?: string | null
+          suggested_polygon?: Json | null
+          suggested_label?: Json | null
+          review_status?: string | null
+          spec_version?: string | null
           created_at?: string | null
         }
         Update: {
@@ -284,6 +301,13 @@ export interface Database {
           icon_offset_y?: number | null
           walk_sequence?: number | null
           assigned_to?: string | null
+          method?: string | null
+          source?: string | null
+          model_version?: string | null
+          suggested_polygon?: Json | null
+          suggested_label?: Json | null
+          review_status?: string | null
+          spec_version?: string | null
           created_at?: string | null
         }
         Relationships: [
@@ -291,6 +315,76 @@ export interface Database {
             foreignKeyName: "units_subtype_id_fkey"
             columns: ["subtype_id"]
             referencedRelation: "subtypes"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      trace_events: {
+        Row: {
+          id: string
+          sheet_id: string
+          unit_id: string | null
+          event_type: string
+          method: string | null
+          source: string | null
+          before_polygon: Json | null
+          after_polygon: Json | null
+          before_label: Json | null
+          after_label: Json | null
+          model_version: string | null
+          duration_ms: number | null
+          group_key: string | null
+          spec_version: string
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          sheet_id: string
+          unit_id?: string | null
+          event_type: string
+          method?: string | null
+          source?: string | null
+          before_polygon?: Json | null
+          after_polygon?: Json | null
+          before_label?: Json | null
+          after_label?: Json | null
+          model_version?: string | null
+          duration_ms?: number | null
+          group_key?: string | null
+          spec_version?: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          sheet_id?: string
+          unit_id?: string | null
+          event_type?: string
+          method?: string | null
+          source?: string | null
+          before_polygon?: Json | null
+          after_polygon?: Json | null
+          before_label?: Json | null
+          after_label?: Json | null
+          model_version?: string | null
+          duration_ms?: number | null
+          group_key?: string | null
+          spec_version?: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trace_events_sheet_id_fkey"
+            columns: ["sheet_id"]
+            referencedRelation: "sheets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trace_events_unit_id_fkey"
+            columns: ["unit_id"]
+            referencedRelation: "units"
             referencedColumns: ["id"]
           }
         ]
