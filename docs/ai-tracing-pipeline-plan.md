@@ -1,160 +1,153 @@
 # AI-Assisted Location Tracing — Implementation Plan
 
-**Goal:** Turn the manual polygon-tracing workbench into a human-in-the-loop pipeline that (a) captures every trace as clean training data starting now, (b) speeds up tracing immediately with AI assist that needs **zero** training data, and (c) compounds — the model gets better as more sheets are traced.
+**Goal:** Turn the manual polygon-tracing **training workbench** into a human-in-the-loop pipeline that (a) captures every trace as clean, versioned training data starting now, (b) speeds up tracing immediately with AI assist that needs **zero** training data, and (c) compounds — the model improves as more sheets are traced — without silently corrupting the dataset along the way.
 
-**Status:** Planning. No code written yet. File/symbol references below come from a codebase exploration and should be re-verified during implementation.
-
-**Confirmed:** PyMuPDF (`fitz` 1.27.2.2) is already in `requirements.txt` and used throughout `main.py`; most PDFs carry a searchable text layer; the existing `map_point()` helper (`main.py:499`) already maps PDF coords → `{pctX, pctY}` and is directly reusable for text-word extraction. This makes the cold-start label pre-fill (Track B) near-free.
+**Status:** Planning. No implementation code yet. Grounded in a codebase audit (workbench UI, backend/data model, infra) + external research (HITL annotation best practices, CV building blocks, GPU hosting). Items marked *(verify)* need confirmation at implementation time.
 
 ---
 
-## Current system (what we're building on)
+## 0. What already exists (do NOT rebuild)
 
-A finished trace already carries most of a training example:
+The workbench is substantially built. The plan **extends** it; it does not replace it.
 
-| Asset | Where | Notes |
-|---|---|---|
-| Polygon | `units.polygon_coordinates` (JSONB) | `{pctX, pctY}` percent points — resolution-independent |
-| Name | `units.unit_number` | printed room number/name |
-| Type | `units.top_level_role` + `units.subtype_id` | program / common / support / other + subtype |
-| Area | `units.computed_area` | shoelace × `sheets.scale_ratio` |
-| Flags | `units.spans_levels`, `units.has_void` | |
-| Wall geometry | `sheet_vectors` table + RBush index | extracted by backend `extract_vectors_from_pdf` |
-| Source PDF | `sheets.base_image_url` | rasterizable for training |
+**Tracing & editing** — `WorkbenchTracer.tsx`, `FloorplanCanvas.tsx`, `WorkbenchLabelPopover.tsx`, `WorkbenchTracerToolbar.tsx`:
+- Tools: pan (`2`), draw (`3`), select (`1`); snapping toggle. ~12 keyboard shortcuts.
+- Draw polygon (click vertices, Enter to complete, Esc cancel, Ctrl+Z undo point); snapping to extracted wall vectors.
+- Edit: rename, re-type, delete, vertex drag/reshape, arrow-key nudge, multi-select.
+- Per-location attributes: name (`unit_number`), type (`top_level_role` + `subtype_id`), `spans_levels` + `level_note`, `has_void`, auto `computed_area`.
 
-**Key frontend files:** `WorkbenchTracer.tsx`, `WorkbenchLabelPopover.tsx`, `WorkbenchTracerToolbar.tsx`, `FloorplanCanvas.tsx`, `DraftPolygon.tsx`; hooks `useWorkbenchActions.ts` (`useCreateWorkbenchLabel`, `useUpdateWorkbenchLabel`), `useProjectQueries.ts` (`useCreateUnit`); stores `useMapStore`, `useWorkbenchStore`; `utils/geometry.ts` (snapping).
+**Review / QA** — `WorkbenchReviewControl.tsx`, `WorkbenchReviewTable.tsx`, `workbenchNaming.ts`:
+- Drawing-level review state machine: **draft → ready_for_review → reviewed**, with reviewer signature (who + when).
+- Definition-of-Done gate (5 checks: has labels, all named, names trimmed, names unique, all typed).
+- Editable per-drawing review table.
 
-**Key backend:** `sitepulse-backend/main.py` (`extract_vectors_from_pdf`), Supabase/Postgres (`units`, `sheets`, `subtypes`, `sheet_vectors`).
+**Library & corpus** — `WorkbenchPage.tsx`, `WorkbenchHealthStrip.tsx`, `NewDrawingModal.tsx`, `ConfirmPurgeModal.tsx`:
+- PDF upload (multi-page select), per-drawing metadata sidecar (`workbench_sheets`: project type, level, source sheet #, **vector quality**, partial flag).
+- Library grid: group/filter by project type, level, review state, vector quality; archive/restore (soft delete); purge (hard delete, type-to-confirm).
+- Corpus health strip: review funnel, taxonomy coverage, source quality.
 
-**What's missing:** (1) provenance/correction capture — `units` stores only final state, so the AI-suggested-vs-human-corrected delta (the richest training signal) is currently discarded; (2) any AI in the loop.
+**Data model & infra** (audited):
+- `units` (polygon_coordinates JSONB `{pctX,pctY}`, unit_number, unit_type, top_level_role, subtype_id, computed_area, spans_levels, level_note, has_void, walk_sequence, icon_offset_x/y), `sheets` (base_image_url, scale_ratio, project_id, pdf_version), `workbench_sheets` (sidecar + review state), global `subtypes` dictionary, `sheet_vectors` (cache). All under a hidden **`kind='workbench'` container** (`assertWorkbenchContainer`) isolated from live projects.
+- Migrations: idempotent SQL in `sitepulse-next/supabase/migrations/YYYYMMDD_*.sql`; **RLS on every table** (membership join to `project_members`; workbench writes gated to owner/admin/pm); regenerate `src/types/database.types.ts` after.
+- Backend: FastAPI on **Render** (Docker), PyMuPDF, Supabase service-role, local ES256 JWT verify, ~25s request budget. Storage bucket `floorplans` (`originals/{id}.pdf`, `converted/{id}.png`), deletes via backend.
+- Frontend: Next.js 16, TanStack Query, Zustand. **Not on Vercel** (likely Render).
+- **No AI/ML in production today.** **No job queue** (no Celery/Redis). **No CI** (no GitHub Actions).
+
+**Gaps the audit flagged (all approved for inclusion):** no in-workbench scale calibration (→ `computed_area` null), no bulk edit, no corpus export, no copy/paste or sheet rename.
 
 ---
 
-## Milestone 0 — Annotation spec (do first, blocks mass tracing)
+## 1. Architecture overview
 
-The one decision that's expensive to reverse. Lock the ground-truth convention before scaling up tracing.
+```
+Next.js (Render)  ──►  FastAPI (Render)  ──►  Supabase Postgres + Storage
+   workbench UI         broker/orchestrator        units, events, vectors, text, PDFs
+        │                      │
+        │                      ├──► GPU host (Replicate→RunPod/Modal): SAM encode, model inference
+        │                      └──► Anthropic API (Claude vision): name/type proposal
+        └──► in-browser SAM decoder (WebGPU) using cached embedding
+```
 
-### M0.1 — Write `ANNOTATION_SPEC.md`
-- **Canonical geometry convention:** trace = polygon **snapped to extracted wall vectors** (the reproducible line), not a freehand "inside edge." Document tolerance expectations and that snapping is the enforcement mechanism.
-- **Usable-area rule:** if true inside-edge floor area is needed, keep annotation on the wall line and derive area via inward offset of half wall-thickness (downstream transform; annotation geometry unchanged).
-- **Semantics:** what counts as a void, when `spans_levels` applies, naming normalization (trim + collapse whitespace), within-sheet uniqueness.
-- **Type taxonomy:** the canonical role/subtype list and how ambiguous spaces are classified.
-- **Acceptance:** a second person can trace the same sheet and land within boundary tolerance + identical labels.
+**Principles that shape everything below:**
+- AI output is always a **suggestion**; a human reviews every one. Never auto-confirm.
+- Capture the **suggested-vs-final delta** + effort + method + rule versions per trace — not just the final geometry.
+- Human and AI share one geometry convention (snap to wall vectors) so corrections are clean.
+- GPU/LLM never run on the web tier; **FastAPI brokers** all model calls so hosts are swappable.
 
-### M0.2 — Make snapping the default in draw mode
-- Ensure `enableSnapping` defaults on for training traces so geometry is consistent by construction. (`FloorplanCanvas.tsx`, `geometry.ts`.)
-- **Acceptance:** vertices placed near a wall consistently land on the wall vector across users.
+---
+
+## Milestone 0 — Annotation spec & conventions (do first; blocks mass tracing)
+
+The one set of decisions that's expensive to reverse.
+
+- **M0.1 — `ANNOTATION_SPEC.md` (version-controlled living doc).** Canonical geometry = polygon **snapped to extracted wall vectors** (reproducible), not freehand inside-edge. Define: void/donut semantics, `spans_levels` rules, name normalization, within-sheet uniqueness, and the **class ontology** (define your own room-type taxonomy informed by general industry practice — do not import a non-commercial dataset's labels/taxonomy). Include correct-vs-incorrect visual examples and an escalation path for ambiguous spaces. *Acceptance:* a second tracer reproduces geometry within tolerance + identical labels.
+- **M0.2 — Snapping on by default** in draw mode so geometry is consistent by construction.
+- **M0.3 — Usable-area rule.** If true inside-edge area is needed, keep annotation on the wall line and derive area via inward offset of half wall-thickness (downstream transform; annotation unchanged).
 
 ---
 
 ## Milestone 1 — Track A: capture training data now (no-regret foundation)
 
-Every sheet traced before this exists loses its correction signal. Smallest scope, highest urgency.
+Every sheet traced before this exists loses its correction signal permanently.
 
-### M1.1 — `trace_events` append-only table
-- Schema: `id`, `unit_id` (nullable for rejects), `sheet_id`, `event_type` (`ai_suggested` | `accepted` | `edited` | `rejected` | `manual_created`), `polygon_before` (jsonb), `polygon_after` (jsonb), `label_before` (jsonb), `label_after` (jsonb), `model_version`, `confidence`, `created_by`, `created_at`.
-- Append-only; never updated. This is the canonical provenance/training log.
-- **Acceptance:** every create/edit/reject in the workbench writes exactly one event row.
-
-### M1.2 — Provenance columns on `units`
-- Add `source` (`human` | `ai_accepted` | `ai_edited`), `model_version`, `suggested_polygon` (jsonb), `suggested_label` (jsonb), `review_status` (`unreviewed` | `confirmed` | `rejected`).
-- Migration + backfill existing rows as `source='human'`, `review_status='confirmed'`.
-- **Acceptance:** schema migrated; existing data unaffected.
-
-### M1.3 — Wire workbench save paths to emit events
-- In `useCreateWorkbenchLabel` / `useUpdateWorkbenchLabel`: on save, write the `units` row **and** a `trace_events` row. When the trace originated from an AI suggestion, record both `suggested_*` and final, so the delta is recoverable.
-- **Acceptance:** tracing a new location, editing one, and rejecting a suggestion each produce correct event rows with before/after.
-
-### M1.4 — COCO export job
-- Backend job: for a set of confirmed `units`, rasterize each `sheet` PDF at a **fixed DPI**, convert percent→pixel, emit COCO segmentation JSON (image entries + polygon annotations + categories = role/subtype).
-- Deterministic DPI and category mapping documented alongside the export.
-- **Acceptance:** export of N confirmed units round-trips: re-overlaying the COCO polygons on the rasters matches the workbench rendering.
-
-### M1.5 — Dataset dashboard
-- Counts per type/subtype, traces/sheet, and (once Track B lands) AI accept/edit/reject rates and median correction magnitude.
-- **Acceptance:** a single view shows dataset size and growth.
+- **M1.1 — `trace_events` (append-only).** One row per create/edit/reject. Columns: `unit_id?`, `sheet_id`, `event_type` (`ai_suggested`|`accepted`|`edited`|`rejected`|`manual_created`), `polygon_before/after` (jsonb), `label_before/after` (jsonb), `created_by`, `created_at`. (Extended by M1G.3.) Wire into `useCreateWorkbenchLabel`/`useUpdateWorkbenchLabel`/delete. *Acceptance:* every workbench mutation writes exactly one event with before/after.
+- **M1.2 — Provenance columns on `units`.** `source` (`human`|`ai_accepted`|`ai_edited`), `model_version`, `suggested_polygon` (jsonb), `suggested_label` (jsonb), unit-level `review_status`. Backfill existing as human/confirmed.
+- **M1.3 — Leakage-safe `group_key`.** Persist a stable group id (sheet → drawing → project/building) on each unit/export row. **Train/val/test must split by this group, never by room** — naive splits inflate metrics ~10–28% (DocLayNet, remote-sensing studies). Freeze a **temporal** test set (sheets after a cutoff date). *Acceptance:* export tooling refuses to place one group across splits.
+- **M1.4 — COCO export job (RLE, not bare polygons).** Backend job: rasterize each sheet PDF at **fixed DPI**, percent→pixel, emit COCO **segmentation as RLE** so **`has_void` donut rooms export as mask holes** (shapely `Polygon(shell,[holes])` → RLE) and multi-part regions use multi-polygon `segmentation`. Categories = role/subtype. *Acceptance:* re-overlaying export on rasters matches workbench; voids preserved as holes.
+- **M1.5 — Dataset snapshots & lineage.** Version each export (DVC content-hash, or a `dataset_snapshots` table referencing storage); record the snapshot hash so every future model ties back to exact data. *Acceptance:* any export is reproducible from its hash.
 
 ---
 
-## Milestone 1G — Data governance & rule versioning (cross-cutting, build alongside M1)
+## Milestone 1G — Data governance & rule versioning (cross-cutting with M1)
 
-Rules evolve; without versioning, traces made under different rules become silently contradictory training data ("label drift"). Every trace must record the rules + method + effort under which it was made.
+Rules evolve; unversioned rules turn the corpus into silently contradictory data ("label drift").
 
-### M1G.1 — Spec/taxonomy/DoD version registry
-- Small `rule_versions` table the app reads "current version" from for each ruleset: `ruleset` (`annotation_spec` | `taxonomy` | `definition_of_done`), `version` (monotonic), `effective_at`, `notes`, `changed_by`.
-- Version bumps are a deliberate, logged action (not ad-hoc). App reads current versions at trace/review time and stamps them.
-- **Acceptance:** changing a rule requires a registry bump; the active version is queryable and surfaced in the UI.
+- **M1G.1 — `rule_versions` registry.** `ruleset` (`annotation_spec`|`taxonomy`|`definition_of_done`), monotonic `version`, `effective_at`, `notes`, `changed_by`. App reads current versions and bumps are deliberate/logged.
+- **M1G.2 — `taxonomy_events` audit log (urgent — taxonomy already mutates via pending-subtype flow).** Append-only `subtype_id`, `event_type` (`created`|`renamed`|`merged`|`approved`|`retired`), `before/after`, `taxonomy_version`, `changed_by`. So a subtype whose meaning shifts is traceable.
+- **M1G.3 — Enriched `trace_events`** (extends M1.1): add `method` (`manual_draw`|`vector_proposal`|`sam`|`model_pretrace`), `spec_version`, `taxonomy_version`, `dod_version`, `model_version`, `app_version`, `confidence`, `duration_ms`, `edit_magnitude` (vertices moved / labels changed). *Acceptance:* one row answers "what, by whom, by which method, under which rules, at what confidence, costing how much effort."
+- **M1G.4 — Anti-rubber-stamp instrumentation** (extends `WorkbenchHealthStrip`). Track AI **accept-rate + edit-distance** (a *low* edit rate is a red flag, not success), time-per-sheet/trace (north-star), and inter-annotator agreement where two people trace the same sheet. Maintain a **human-only gold set** + periodic **blind** (no-prelabel) tracing as the true quality anchor, since shared anchoring to one model inflates IAA.
 
-### M1G.2 — Taxonomy audit log (urgent — taxonomy is already mutable)
-- The `subtypes` dictionary + pending-subtype proposals already mutate today. Append-only `taxonomy_events`: `subtype_id`, `event_type` (`created` | `renamed` | `merged` | `approved` | `retired`), `before`, `after`, `taxonomy_version`, `changed_by`, `created_at`.
-- A `subtype_id` whose meaning changes must be traceable so dependent traces can be re-validated.
-- **Acceptance:** every subtype create/rename/merge/approve writes an event; meaning-shifts are reconstructable.
+---
 
-### M1G.3 — Enriched `trace_events` schema (extends M1.1)
-Beyond before/after geometry + label, each event also records:
-- `method` (`manual_draw` | `vector_proposal` | `sam` | `model_pretrace`)
-- `spec_version`, `taxonomy_version`, `dod_version`, `model_version`, `app_version`
-- `confidence` (AI suggestions), `duration_ms` (time-on-task), `edit_magnitude` (vertices moved / labels changed)
-- `created_by`
-- **Acceptance:** a single event row answers "what was drawn, by whom, by which method, under which rules, at what confidence, costing how much effort."
+## Milestone I — Infra prerequisites (gates batch AI & training)
 
-### M1G.4 — Efficiency & quality metrics (extends M1.5 dashboard, reuses existing health strip)
-- Time-per-sheet / per-trace (north-star: prove AI speeds things up), AI accept/edit/reject rates, median correction magnitude, inter-annotator agreement where two people trace the same sheet.
-- Reuse `WorkbenchHealthStrip` rather than building a parallel dashboard.
-- **Acceptance:** the cockpit shows efficiency + AI-impact trends over time.
+- **MI.1 — Async job queue + worker.** No queue exists and Render caps requests ~25–30s, so **batch pre-labeling and training will time out**. Add Celery + Redis (Upstash) with a Render worker, **or** offload batch/training to Modal/RunPod. Add `inference_jobs` table (status, sheet_id, method, result ref) + frontend polling hook. *Acceptance:* a long batch runs without blocking a request.
+- **MI.2 — GPU broker endpoints in FastAPI.** `/segment` (SAM) and `/precompute-embeddings` (batch); FastAPI holds the GPU-host token server-side; frontend never calls the GPU host directly. Host is swappable (Replicate→RunPod/Modal).
+- **MI.3 — CI.** Add GitHub Actions: `npm run typecheck` + Vitest (frontend), pytest (backend), and a migration smoke-check. We're adding many tables/types; CI prevents drift. *Acceptance:* PRs run checks.
+- **MI.4 — New-table recipe** (apply to every table above): idempotent migration in `supabase/migrations/`, **RLS scoped to workbench-container membership** (writes owner/admin/pm), regenerate `database.types.ts`, derive domain types, add TanStack hooks.
 
 ---
 
 ## Milestone 2 — Track B: cold-start assist (zero training data, biggest speedup)
 
-Available day one; reuses existing backend. Build in this order.
+Available day one; reuses existing backend. Build in order.
 
-### M2.1 — PDF text-layer extraction (backend) — **confirmed feasible, near-free**
-- PyMuPDF (`fitz` 1.27.2.2) is already a dependency and the majority of PDFs carry a searchable text layer (confirmed), so no OCR dependency is needed for the common case.
-- Add an endpoint that runs `page.get_text("words")` and maps each word's bbox through the **existing `map_point()` transform** (`main.py:499`) — the same derotation + cropbox + percent normalization used by `extract_vectors_from_pdf`. Words land in the identical `{pctX, pctY}` space as polygons/vectors, so no new coordinate convention.
-- Cache to a `sheet_text` table mirroring the `sheet_vectors` write-through pattern.
-- Minority scanned sheets: detect empty text result and fall back to OCR later (not on the critical path).
-- **Acceptance:** endpoint returns located words in percent coords for a sample sheet; words overlay correctly on the rendered plan; scanned-vs-vector coverage logged.
-
-### M2.2 — Wall-vector room proposal (backend, highest leverage)
-- From `sheet_vectors`: rasterize segments → morphological close (bridge doorway gaps) → flood-fill negative space → `findContours` → Douglas-Peucker simplify → percent polygons + a confidence heuristic.
-- Returns candidate room polygons for an **entire sheet at once** — the core "trace thousands of sheets faster" lever.
-- **Acceptance:** on a clean sheet, proposals cover the majority of rooms with reasonable boundaries; gap-bridging tunable.
-
-### M2.3 — Label pre-fill
-- For each candidate polygon, attach interior text words (M2.1) → propose `unit_number`. Send polygon crop + name + taxonomy to a vision-LLM (Claude) → propose `role`/`subtype`.
-- **Acceptance:** majority of proposals arrive with a plausible pre-filled name and type.
-
-### M2.4 — "Auto-trace sheet" in the workbench
-- New toolbar action → calls M2.2/M2.3 → renders candidates as **suggested/pending** overlays (visually distinct). Human accepts / edits / rejects each; every action emits `trace_events` (M1.3) with `source` set accordingly. AI suggestions **never** auto-confirm without human review.
-- **Acceptance:** a user can auto-populate a sheet and resolve each suggestion; provenance recorded.
-
-### M2.5 — SAM click-to-segment (the irregular rooms)
-- Service wrapping SAM/SAM 2: click inside a space → mask → polygon → snap to wall vectors → feed existing `onPolygonComplete` → popover flow.
-- **Acceptance:** click-to-trace produces a snapped polygon for spaces flood-fill misses.
+- **M2.1 — PDF text-layer extraction *(confirmed feasible)*.** Most PDFs are searchable; PyMuPDF is already a dep. New endpoint runs `page.get_text("words")`, maps each word bbox through the **existing `map_point()`** (`main.py:499`) into the same `{pctX,pctY}` space as polygons/vectors; cache to `sheet_text` (mirror `sheet_vectors`). Empty result → flag for OCR later (off critical path). *Acceptance:* words overlay correctly on the plan.
+- **M2.2 — Wall-vector room proposal (highest leverage; pure geometry, no ML, permissive).** Vector PDF input is the *best case* for a geometric partition and sidesteps the ML licensing minefield (see Cross-cutting). Primary path (all BSD/Apache): from `sheet_vectors` → collapse double-line walls to centerlines (or polygonize then drop sliver faces) → snap-round endpoints with `shapely.set_precision` (more robust than heuristic pairwise `shapely.snap`) → **close doorway gaps** (the #1 failure mode: extend/snap wall stubs or insert door-closing segments) → `shapely.polygonize(unary_union(segments))` → simplify/regularize → snap → percent polygons + confidence. Use `polygonize_full` so **dangles = unclosed door stubs surface as built-in QA diagnostics**. Raster fallback for messy plans: rasterize → morphological **close** → flood-fill / connected components (OpenCV Apache-2.0 / SciPy BSD). Pre-populates a **whole sheet at once**. *Acceptance:* covers majority of rooms on a clean vector sheet; dangles reported for the rest.
+- **M2.3 — Label pre-fill.** Attach interior `sheet_text` words to each candidate polygon → propose `unit_number` (near-free, exact). For scans / label-less plans / type inference, send polygon crop + name + taxonomy to **Claude vision** (Opus-class for dense plans — higher input resolution preserves thin walls/small labels) using **Structured Outputs / strict tool use** (JSON Schema `{rooms:[{name,type,confidence}]}`). VLMs are strong at *naming/classifying* but weak at *counting/precise geometry* — use for labels only, never polygons, and keep the human in the loop. Cost ≈ $0.004–0.024/sheet (Batch API halves it). *Acceptance:* majority arrive with plausible name + type.
+- **M2.4 — "Auto-trace sheet" in the workbench.** Toolbar action → M2.2/M2.3 → render candidates as visually-distinct **suggested** overlays; human accept/edit/reject each, emitting `trace_events` with `method` + `confidence`. Never auto-confirm. *Acceptance:* a user auto-populates a sheet and resolves each suggestion; provenance recorded.
+- **M2.5 — SAM click-to-segment (irregular rooms).** Use **SAM 2.1 (Apache 2.0** — commercial-safe; Tiny/Base+ tiers). **Avoid FastSAM (AGPL-3.0), EdgeSAM (non-standard license), and YOLO-seg weights (AGPL)** — they taint a commercial product. Efficiency upgrades stay Apache (MobileSAM, EfficientViT-SAM, both keep SAM's decoder so the click UX is identical). Day-1: FastAPI → Replicate `meta/sam-2`. Latency upgrade: **split encoder/decoder** — run the heavy **image-encoder once** on the GPU host, cache the embedding in Supabase Storage keyed by sheet, run the lightweight **decoder in-browser (onnxruntime-web/WebGPU)** so every click after the first needs no server round-trip; move the encoder to RunPod (FlashBoot) or Modal (keep-warm) when interactive volume grows. Mask → polygon (same post-proc as M2.2) → snap → existing popover flow. *Acceptance:* click-inside produces a snapped polygon for spaces flood-fill misses.
 
 ---
 
 ## Milestone 3 — Track C: the flywheel (after Track A has data)
 
-### M3.1 — Training pipeline on the COCO export (segmentation model).
-### M3.2 — Inference/pre-trace endpoint returning polygons + confidence, same overlay UX as M2.4.
-### M3.3 — Active learning: confidence-based queue; route low-confidence sheets/regions to humans first.
-### M3.4 — Eval harness: Boundary-IoU / mask-IoU vs held-out human traces; per-type accuracy tracked over time and tied to `model_version`.
-### M3.5 — Retraining cadence + model registry; `model_version` stamped on every suggestion and event.
+- **M3.1 — Train a segmentation model (own data only).** Architecture: **Detectron2 Mask R-CNN (Apache-2.0)** primary, **Mask2Former (MIT)** for max accuracy on cluttered plans. Init from an **ImageNet/Apache backbone** and train **solely on your own human-corrected traces** — do **not** ship weights derived from CubiCasa5K (CC BY-NC), GPL repos, or academic-only datasets (RPLAN/Structured3D/ZInD/LIFULL); those are research-validation warm-starts only, never production. Transfer learning makes a few **hundred** reviewed sheets enough for a useful first auto-tracer; **low thousands** for robustness across drawing styles. Handle **class imbalance train-only** (focal + Tversky/Dice, class-balanced-by-effective-number loss, copy-paste aug for rare room types) — never resample val/test. (To fine-tune SAM for your style, train only the lightweight decoder + prompt encoder; freeze the heavy image encoder.)
+- **M3.2 — Inference/pre-trace endpoint** returning polygons + confidence, same suggested-overlay UX as M2.4 (`method='model_pretrace'`), routed through MI.2.
+- **M3.3 — Active learning** (only after a solid baseline, and **benchmarked against random+strong-aug**, which it often fails to beat). Region/superpixel-level uncertainty (pixel entropy baseline) with **batch diversity** (CoreSet/BADGE); confidence queue routes low-confidence sheets/regions to humans first.
+- **M3.4 — Eval harness.** Score with **mask AP @ IoU 0.5:0.95 + AP50 + AP75 + per-class AP/IoU + Boundary IoU** (and Panoptic Quality if framed as wall-to-wall partition). **Never** vertex-match. Always report per-class (means hide rare-type regressions). Evaluate on the frozen temporal/group test set.
+- **M3.5 — Model registry + collapse control.** MLflow registry (Staging→Prod) + W&B artifacts; log per-class metrics, dataset snapshot hash (M1.5), git SHA, seeds, prediction overlays. Keep a **constant fraction of human-only labels each retrain round** and monitor **tail/edge-case** metrics to catch feedback-loop degradation. Stamp `model_version` on every suggestion/event.
 
 ---
 
-## Sequencing summary
+## Milestone W — Workbench completeness (non-AI gaps, approved)
 
-1. **M0** — annotation spec (unblocks consistent mass tracing).
-2. **M1** — provenance + COCO export (every trace becomes training data; can't be recovered retroactively).
-3. **M2.1–M2.3 in parallel** — vector room proposal + text-layer labels (biggest immediate speedup, no model needed).
-4. **M2.4–M2.5** — wire assist into the workbench UI.
-5. **M3** — train, route, evaluate, retrain; accuracy compounds as tracing continues.
+- **MW.1 — Scale calibration in workbench** (two-point known-distance → `scale_ratio`) so `computed_area` is populated; area is a real training/feature signal.
+- **MW.2 — Bulk edit in review table** (multi-select rename/retype) — correction throughput at scale.
+- **MW.3 — Corpus CSV/Parquet export** (human-readable, separate from the COCO training export).
+- **MW.4 — Copy/paste location + in-app sheet rename** — ergonomics for repetitive layouts.
 
-## Cross-cutting principles
-- AI proposals are **suggestions**, never auto-confirmed — a human reviews every one.
-- Capture the **suggested-vs-final delta**, not just the final — it's the richest signal and the active-learning input.
-- Human and AI follow the **same geometry convention** (snap to wall vectors) so corrections are clean and comparable.
-- `model_version` stamped everywhere for reproducibility and per-model evaluation.
+---
+
+## Cross-cutting governance (apply throughout)
+
+- **Commercial licensing constraint (hard rule).** Ship only **Apache/MIT/BSD** models + **your own cleared data**. The floor-plan ML ecosystem is a minefield: CubiCasa5K (CC BY-NC), DeepFloorplan/PolyDiffuse (GPL), FastSAM/YOLO-seg (AGPL), and RPLAN/Structured3D/ZInD/LIFULL (academic-only, no redistribution) are all unusable in a shipped product. Day-one auto-detection is therefore **geometric, not ML** (M2.2). Vet every model/dataset/weight before it touches the product.
+- **Datasheet for the dataset** + **Model Cards** (performance disaggregated per room type / drawing style).
+- **Source-PDF licensing & PII** review before plans are baked into a model — largely irreversible legal risk; record provenance/license per source drawing.
+- Every new table: RLS + types + hooks (MI.4). Every model call: brokered + `model_version` stamped.
+
+---
+
+## Sequencing
+
+1. **M0** annotation spec → **M1 + M1G** capture/provenance/versioning (no-regret; do before mass tracing) → **MI.3/MI.4** CI + table recipe.
+2. **M2.1–M2.3** (text labels + vector room proposal) — biggest immediate speedup, no model needed → **M2.4** UI → **MI.1/MI.2** queue+broker → **M2.5** SAM.
+3. **MW.1–MW.4** folded in opportunistically (MW.1 early — it improves data completeness).
+4. **M3** once Track A has a few hundred reviewed sheets: train → eval → registry → active learning → retrain.
+
+## Open decisions to confirm
+- GPU host for the hot path once past Replicate (RunPod vs Modal).
+- Batch/training compute: extend Render with Celery+Redis vs offload to Modal/RunPod.
+- Dataset versioning: DVC vs DB-native `dataset_snapshots` (or both).
+- Vision-LLM cost/accuracy on a real sample before committing M2.3 to Claude.
+- *(Resolved)* No third-party floor-plan dataset/model is commercially usable — train production weights on owned data only; CubiCasa5K etc. are research-validation warm-starts at most.
