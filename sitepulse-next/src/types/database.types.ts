@@ -689,6 +689,58 @@ export interface Database {
           }
         ]
       }
+      sheet_metadata: {
+        Row: {
+          sheet_id: string
+          sheet_number: string | null
+          sheet_name: string | null
+          architect_firm: string | null
+          title_block_bbox: Json | null
+          source: string | null
+          model_version: string | null
+          suggested_fields: Json | null
+          review_status: string | null
+          spec_version: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          sheet_id: string
+          sheet_number?: string | null
+          sheet_name?: string | null
+          architect_firm?: string | null
+          title_block_bbox?: Json | null
+          source?: string | null
+          model_version?: string | null
+          suggested_fields?: Json | null
+          review_status?: string | null
+          spec_version?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          sheet_id?: string
+          sheet_number?: string | null
+          sheet_name?: string | null
+          architect_firm?: string | null
+          title_block_bbox?: Json | null
+          source?: string | null
+          model_version?: string | null
+          suggested_fields?: Json | null
+          review_status?: string | null
+          spec_version?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_metadata_sheet_id_fkey"
+            columns: ["sheet_id"]
+            referencedRelation: "sheets"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never

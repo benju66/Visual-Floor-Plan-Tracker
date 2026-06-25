@@ -15,6 +15,10 @@ export const queryKeys = {
   // Mirrors snappingVectors: read sheet_text first, fall back to /extract-text with
   // write-through. Feeds room-name auto-fill on a finished trace.
   sheetText:          (sheetId: string)         => ['sheet_text', sheetId] as const,
+  // 1:1 confirmed title-block facts for a sheet (AI Tracing Assist — Phase 3a):
+  // sheet number / name / architect firm + the dragged box + M1 provenance.
+  // Cache-first read; invalidated by the confirm/save write.
+  sheetMetadata:      (sheetId: string)         => ['sheet_metadata', sheetId] as const,
   projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
   currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
   subtypes:           ()                         => ['subtypes'] as const,

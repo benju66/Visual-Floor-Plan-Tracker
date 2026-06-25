@@ -3,7 +3,12 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import type { PercentPoint } from '@/types/domain';
 import type { Updater } from '@/types/utils';
 
-export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node';
+// `capture_box` is a workbench-only mode (AI Tracing Assist — Phase 3a): a
+// rubber-band box drag over a region to read (e.g. the title block). It rides the
+// SHARED toolMode the workbench already drives (pan/draw/select) and is never
+// exposed by the live MapHorizontalToolbar; the canvas treats it as an inert
+// no-op unless an `onCaptureBox` handler is wired (the workbench tracer).
+export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node' | 'capture_box';
 export type RouteSubMode = 'move' | 'add' | 'remove';
 
 export interface MapState {

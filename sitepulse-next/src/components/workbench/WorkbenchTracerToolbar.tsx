@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Hand, PenLine, MousePointer2, Magnet, Loader2 } from 'lucide-react';
+import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText } from 'lucide-react';
 import { useMapStore, type ToolMode } from '@/store/useMapStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 
@@ -53,6 +53,19 @@ export default function WorkbenchTracerToolbar({ isSnappingLoading }: { isSnappi
           </button>
         );
       })}
+
+      <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
+
+      {/* Title-block reader (AI Tracing Assist — Phase 3a): drag a box over the
+          title block to read the sheet number / name / architect firm. */}
+      <button
+        type="button"
+        title="Read title block — drag a box over it (T)"
+        onClick={() => setToolMode(toolMode === 'capture_box' ? 'pan' : 'capture_box')}
+        className={`${btnBase} ${toolMode === 'capture_box' ? btnActive : btnIdle}`}
+      >
+        <ScanText size={18} />
+      </button>
 
       <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
 

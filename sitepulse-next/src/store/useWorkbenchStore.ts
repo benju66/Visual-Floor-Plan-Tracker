@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Updater } from '@/types/utils';
-import type { PercentPoint } from '@/types/domain';
+import type { PercentPoint, PercentRect, TitleBlockFields } from '@/types/domain';
 import type { RoomSuggestion } from '@/utils/roomSuggestion';
 import {
   EMPTY_FILTERS,
@@ -102,6 +102,27 @@ export interface WorkbenchState {
    */
   editingLabelId: string | null;
   setEditingLabelId: (val: Updater<string | null>) => void;
+
+  // ── Title-block reader (AI Tracing Assist — Phase 3a) ──
+  // The capture-box → confirm flow's floating state (popover visibility + the
+  // dragged box + the FROZEN machine proposal). Mirrors the room-name popover
+  // cluster above; lives here (not useState) per AGENTS.md §2. Cleared on unmount.
+
+  /** Whether the title-block confirm popover is open. */
+  isTitleBlockOpen: boolean;
+  setIsTitleBlockOpen: (val: Updater<boolean>) => void;
+
+  /** The percent-space box the user dragged over the title block (provenance). */
+  titleBlockBox: PercentRect | null;
+  setTitleBlockBox: (val: Updater<PercentRect | null>) => void;
+
+  /**
+   * The FROZEN original parser proposal for the dragged box (null = nothing read /
+   * manual entry). Set once when the box is read and never mutated as the user
+   * edits the live draft — it is the suggested-vs-final training signal.
+   */
+  titleBlockProposal: TitleBlockFields | null;
+  setTitleBlockProposal: (val: Updater<TitleBlockFields | null>) => void;
 }
 
 export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
@@ -177,5 +198,23 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
   setEditingLabelId: (val) =>
     set((state) => ({
       editingLabelId: typeof val === 'function' ? val(state.editingLabelId) : val,
+    })),
+
+  isTitleBlockOpen: false,
+  setIsTitleBlockOpen: (val) =>
+    set((state) => ({
+      isTitleBlockOpen: typeof val === 'function' ? val(state.isTitleBlockOpen) : val,
+    })),
+
+  titleBlockBox: null,
+  setTitleBlockBox: (val) =>
+    set((state) => ({
+      titleBlockBox: typeof val === 'function' ? val(state.titleBlockBox) : val,
+    })),
+
+  titleBlockProposal: null,
+  setTitleBlockProposal: (val) =>
+    set((state) => ({
+      titleBlockProposal: typeof val === 'function' ? val(state.titleBlockProposal) : val,
     })),
 }));

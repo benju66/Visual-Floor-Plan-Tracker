@@ -2,14 +2,18 @@
 
 import React, { useCallback, useEffect } from 'react';
 import { FileWarning } from 'lucide-react';
+import { ScanText } from 'lucide-react';
 import FloorplanCanvas from '@/components/FloorplanCanvas';
 import WorkbenchLabelPopover, { type WorkbenchLabelMeta } from './WorkbenchLabelPopover';
+import TitleBlockPopover from './TitleBlockPopover';
 import WorkbenchTracerToolbar from './WorkbenchTracerToolbar';
 import { useMapStore } from '@/store/useMapStore';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import { useSubtypes } from '@/hooks/useSubtypes';
 import { useSnappingVectors, useUnits, useDeleteUnit } from '@/hooks/useProjectQueries';
 import { useSheetText } from '@/hooks/useSheetText';
+import { useSheetMetadata, useUpsertSheetMetadata } from '@/hooks/useSheetMetadata';
+import { parseTitleBlock } from '@/utils/titleBlockParse';
 import { useCreateWorkbenchLabel, useUpdateWorkbenchLabel } from '@/hooks/useWorkbenchActions';
 import { PROJECT_TYPES, type ProjectType } from '@/utils/locationTaxonomy';
 import { recordTraceEvent, labelSnapshotFromUnit, type TraceMethod, type TraceSource } from '@/utils/traceCapture';
@@ -62,6 +66,9 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       wb.setLabelDraftName('');
       wb.setEditingLabelId(null);
       wb.setLabelSuggestion(null);
+      wb.setIsTitleBlockOpen(false);
+      wb.setTitleBlockBox(null);
+      wb.setTitleBlockProposal(null);
     };
   }, [sheetId, setActiveSheetId, setToolMode, clearSelectedUnits]);
 
@@ -75,6 +82,13 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   const setEditingLabelId = useWorkbenchStore((s) => s.setEditingLabelId);
   const labelSuggestion = useWorkbenchStore((s) => s.labelSuggestion);
   const setLabelSuggestion = useWorkbenchStore((s) => s.setLabelSuggestion);
+  // Title-block reader (Phase 3a) floating state.
+  const isTitleBlockOpen = useWorkbenchStore((s) => s.isTitleBlockOpen);
+  const setIsTitleBlockOpen = useWorkbenchStore((s) => s.setIsTitleBlockOpen);
+  const titleBlockBox = useWorkbenchStore((s) => s.titleBlockBox);
+  const setTitleBlockBox = useWorkbenchStore((s) => s.setTitleBlockBox);
+  const titleBlockProposal = useWorkbenchStore((s) => s.titleBlockProposal);
+  const setTitleBlockProposal = useWorkbenchStore((s) => s.setTitleBlockProposal);
 
   const { data: subtypes = [] } = useSubtypes();
   const { data: units = [] } = useUnits(sheetId);
@@ -82,6 +96,10 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   // The sheet's cached PDF words feed room-name auto-fill (online-only; degrades to
   // no suggestion when null/empty — a scanned sheet or no session).
   const { words: sheetWords } = useSheetText(sheetId);
+  // The sheet's confirmed title-block facts (Phase 3a) — drives the saved chip and
+  // persists across reloads. Null until the user reads the title block once.
+  const { metadata: savedMetadata } = useSheetMetadata(sheetId);
+  const upsertMetadata = useUpsertSheetMetadata(sheetId);
   const createLabel = useCreateWorkbenchLabel(sheetId);
   const updateLabel = useUpdateWorkbenchLabel(sheetId);
   const deleteUnit = useDeleteUnit(sheetId);
@@ -126,6 +144,47 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       subtypes,
     ],
   );
+
+  // Capture-box tool (Phase 3a): the user dragged a box over the title block.
+  // Parse the sheet's own text INSIDE that box into a number/name/firm proposal,
+  // freeze it, and open the confirm popover. The geometry (the box) is 100%
+  // human-drawn; only the field values are proposed. Drop back to pan so the next
+  // action isn't another accidental box.
+  const handleCaptureBox = useCallback(
+    (rect: { x0: number; y0: number; x1: number; y1: number }) => {
+      const proposal = parseTitleBlock(sheetWords, rect);
+      setTitleBlockBox(rect);
+      setTitleBlockProposal(proposal);
+      setIsTitleBlockOpen(true);
+      setToolMode('pan');
+    },
+    [sheetWords, setTitleBlockBox, setTitleBlockProposal, setIsTitleBlockOpen, setToolMode],
+  );
+
+  // Confirm: bank the (edited) fields to sheet_metadata with M1 provenance — the
+  // frozen proposal decides ai_accepted vs ai_edited (vs human for manual entry).
+  const saveTitleBlock = useCallback(
+    async (fields: { sheetNumber: string | null; sheetName: string | null; architectFirm: string | null }) => {
+      try {
+        await upsertMetadata.mutateAsync({ fields, box: titleBlockBox, proposal: titleBlockProposal });
+        setIsTitleBlockOpen(false);
+        setTitleBlockBox(null);
+        setTitleBlockProposal(null);
+      } catch {
+        // Surfaced inline via the popover's saveError; keep it open to retry.
+      }
+    },
+    [upsertMetadata, titleBlockBox, titleBlockProposal, setIsTitleBlockOpen, setTitleBlockBox, setTitleBlockProposal],
+  );
+
+  // Dismiss without saving. No reject is logged: trace_events is room/polygon-
+  // shaped, so the title-block tool banks provenance only on a confirmed
+  // sheet_metadata row (Phase 3a design point — flagged in the kickoff).
+  const cancelTitleBlock = useCallback(() => {
+    setIsTitleBlockOpen(false);
+    setTitleBlockBox(null);
+    setTitleBlockProposal(null);
+  }, [setIsTitleBlockOpen, setTitleBlockBox, setTitleBlockProposal]);
 
   // Canvas "Rename" → open the popover in EDIT mode, pre-filled from the label.
   const handleRenameUnit = useCallback(
@@ -265,17 +324,41 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     <div className="relative flex-1 min-h-0 h-full">
       <WorkbenchTracerToolbar isSnappingLoading={isSnappingLoading} />
 
+      {/* Saved title-block facts (Phase 3a) — confirms persistence across reloads. */}
+      {savedMetadata && (savedMetadata.sheet_number || savedMetadata.architect_firm) && (
+        <div className="absolute top-4 left-4 z-20 flex items-center gap-1.5 rounded-full border border-violet-200 dark:border-violet-900/50 bg-violet-50/90 dark:bg-violet-950/40 px-3 py-1.5 shadow-sm backdrop-blur-sm text-xs font-semibold text-violet-700 dark:text-violet-300">
+          <ScanText size={13} className="shrink-0" />
+          <span className="truncate max-w-[16rem]">
+            {[savedMetadata.sheet_number, savedMetadata.sheet_name, savedMetadata.architect_firm]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </div>
+      )}
+
       <FloorplanCanvas
         activeStatuses={[]}
         rawStatuses={[]}
         imageUrl={drawing.base_image_url ?? ''}
         pdfVersion={drawing.pdf_version ?? null}
         onPolygonComplete={handlePolygonComplete}
+        onCaptureBox={handleCaptureBox}
         pendingPolygonPoints={pendingLabelPoints}
         onPendingPolygonMove={setPendingLabelPoints}
         onRenameUnit={handleRenameUnit}
         onDeleteUnit={handleDeleteUnit}
       />
+
+      {isTitleBlockOpen && (
+        <TitleBlockPopover
+          key={titleBlockBox ? `${titleBlockBox.x0.toFixed(4)}-${titleBlockBox.y0.toFixed(4)}` : 'tb'}
+          proposal={titleBlockProposal}
+          isSaving={upsertMetadata.isPending}
+          saveError={upsertMetadata.error instanceof Error ? upsertMetadata.error.message : null}
+          onSave={saveTitleBlock}
+          onCancel={cancelTitleBlock}
+        />
+      )}
 
       {isLabelNamingOpen && (
         <WorkbenchLabelPopover

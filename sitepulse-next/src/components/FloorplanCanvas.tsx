@@ -12,6 +12,7 @@ import MappedUnit from '@/components/canvas/MappedUnit';
 import DraftPolygon from '@/components/canvas/DraftPolygon';
 import StampPreview from '@/components/canvas/StampPreview';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
+import CaptureBoxOverlay from '@/components/canvas/CaptureBoxOverlay';
 import MapLegend from '@/components/canvas/MapLegend';
 import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
@@ -57,6 +58,13 @@ interface FloorplanCanvasProps {
   onUpdateUnitIconOffset?: (unitId: string, offsetX: number, offsetY: number) => void;
   onDuplicateUnit?: (unitId: string | null) => void;
   onPolygonComplete: (points: Point[]) => void;
+  /**
+   * Workbench capture-box tool (AI Tracing Assist — Phase 3a). Fires when the
+   * user finishes a `capture_box` rubber-band drag, with the normalized
+   * percent-space rect (x0<=x1, y0<=y1). Optional — only the workbench tracer
+   * wires it; the live map leaves it undefined and the mode is inert there.
+   */
+  onCaptureBox?: (rect: { x0: number; y0: number; x1: number; y1: number }) => void;
   onRenameUnit?: (unitId: string | null) => void;
   onDeleteUnit?: (unitId: string | string[] | null) => void;
   onInstantStamp?: (unitId: string, points: Point[]) => void;
@@ -78,6 +86,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onUpdateUnitIconOffset,
   onDuplicateUnit,
   onPolygonComplete,
+  onCaptureBox,
   onRenameUnit,
   onDeleteUnit,
   onInstantStamp,
@@ -1364,6 +1373,18 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               const pctX = (logicalX - layout.offsetX) / layout.drawW;
               const pctY = (logicalY - layout.offsetY) / layout.drawH;
               setBoxOrigin({ pctX, pctY });
+            } else if (toolMode === 'capture_box' && (!e.evt || e.evt.button === 0)) {
+              // Start a capture-box drag (title-block read). Same box-origin
+              // plumbing as the draw tool, emitted as a rect rather than a polygon.
+              const stage = e.target.getStage();
+              if (!stage) return;
+              const pointer = stage.getPointerPosition();
+              if (!pointer) return;
+              const logicalX = (pointer.x - stage.x()) / stageScale;
+              const logicalY = (pointer.y - stage.y()) / stageScale;
+              const pctX = (logicalX - layout.offsetX) / layout.drawW;
+              const pctY = (logicalY - layout.offsetY) / layout.drawH;
+              setBoxOrigin({ pctX, pctY });
             }
           }}
           onPointerUp={(e) => {
@@ -1423,6 +1444,32 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   { pctX: startX, pctY: pctY }
                 ]);
                 setDraftPoints([]);
+              }
+            }
+
+            // Capture-box drag complete (title-block read): emit the normalized
+            // percent rect to the workbench handler. Requires a real drag (not a
+            // bare click) so an accidental tap doesn't open the read popover.
+            if (toolMode === 'capture_box' && boxOrigin) {
+              const stage = e.target.getStage();
+              const lastSample = pointerStore.get();
+              const pointer = stage?.getPointerPosition()
+                || (lastSample ? { x: lastSample.screenX, y: lastSample.screenY } : null);
+              const origin = boxOrigin;
+              setBoxOrigin(null);
+              if (stage && pointer) {
+                const logicalX = (pointer.x - stage.x()) / stageScale;
+                const logicalY = (pointer.y - stage.y()) / stageScale;
+                const pctX = (logicalX - layout.offsetX) / layout.drawW;
+                const pctY = (logicalY - layout.offsetY) / layout.drawH;
+                const x0 = Math.min(origin.pctX, pctX);
+                const y0 = Math.min(origin.pctY, pctY);
+                const x1 = Math.max(origin.pctX, pctX);
+                const y1 = Math.max(origin.pctY, pctY);
+                if (x1 - x0 > 0.01 && y1 - y0 > 0.01) {
+                  lastBoxEndRef.current = Date.now();
+                  onCaptureBox?.({ x0, y0, x1, y1 });
+                }
               }
             }
           }}
@@ -1602,6 +1649,16 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 layout={layout}
                 enableSnapping={!!mapSettings?.enableSnapping}
                 isShiftDown={isShiftDown}
+                toPixels={toPixels}
+              />
+            )}
+
+            {toolMode === 'capture_box' && (
+              <CaptureBoxOverlay
+                pointerStore={pointerStore}
+                boxOrigin={boxOrigin}
+                stageScale={stageScale}
+                layout={layout}
                 toPixels={toPixels}
               />
             )}

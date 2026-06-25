@@ -63,6 +63,13 @@ export interface NewWorkbenchDrawingInput extends WorkbenchSidecarFields {
   sheetName: string;
   /** Which PDF page holds this floor plan (the service takes `?page_number=`). */
   pdfPageNumber: number;
+  /**
+   * Architect/firm manual fallback (AI Tracing Assist — Phase 3a) — when the
+   * uploader already knows the firm and won't read the title block. Written to
+   * `sheet_metadata` (the firm's home), NOT the workbench sidecar; `source='human'`.
+   * Optional; blank = leave it to the title-block reader.
+   */
+  architectFirm?: string;
 }
 
 /**
@@ -147,6 +154,30 @@ export function useCreateWorkbenchDrawing(containerId: string | undefined) {
           .from('workbench_sheets')
           .insert([buildWorkbenchSidecarInsert(sheetId, input)]);
         if (sidecarErr) throw sidecarErr;
+
+        // 5. Manual architect/firm fallback → sheet_metadata (Phase 3a). The firm
+        //    lives in sheet_metadata (its home), not the sidecar. Best-effort and
+        //    non-fatal: the drawing is already created, so a metadata hiccup must
+        //    not roll back a successful upload — the title-block reader can still
+        //    capture the firm later. source='human' (manual entry).
+        const firm = input.architectFirm?.trim();
+        if (firm) {
+          try {
+            await supabase.from('sheet_metadata').upsert(
+              {
+                sheet_id: sheetId,
+                architect_firm: firm,
+                source: 'human',
+                review_status: 'confirmed',
+                spec_version: ANNOTATION_SPEC_VERSION,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'sheet_id' },
+            );
+          } catch (metaErr) {
+            console.warn('[workbench] architect/firm metadata write failed (non-fatal):', metaErr);
+          }
+        }
 
         return sheetId;
       } catch (err) {

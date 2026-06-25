@@ -35,6 +35,7 @@ export default function NewDrawingModal({
   const [levelLabel, setLevelLabel] = useState('');
   const [sourceSheetNumber, setSourceSheetNumber] = useState('');
   const [sourceBuilding, setSourceBuilding] = useState('');
+  const [architectFirm, setArchitectFirm] = useState('');
   const [vectorQuality, setVectorQuality] = useState<VectorQuality | ''>('');
   const [isPartial, setIsPartial] = useState(false);
 
@@ -54,6 +55,7 @@ export default function NewDrawingModal({
         levelLabel,
         sourceSheetNumber,
         sourceBuilding,
+        architectFirm,
         vectorQuality,
         isPartial,
       });
@@ -207,6 +209,25 @@ export default function NewDrawingModal({
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Group sheets from the same building under one tag — keeps them together when
               splitting training vs. test data (mixing them inflates model accuracy).
+            </p>
+          </div>
+
+          <div className="mb-5">
+            <label htmlFor="wbFirm" className={labelClass}>
+              Architect / firm <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <input
+              id="wbFirm"
+              type="text"
+              disabled={busy}
+              className={inputClass}
+              placeholder="e.g. RSP Architects"
+              value={architectFirm}
+              onChange={(e) => setArchitectFirm(e.target.value)}
+            />
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Who drew it — groups the corpus by drafting style. You can also read this
+              from the title block while tracing.
             </p>
           </div>
 

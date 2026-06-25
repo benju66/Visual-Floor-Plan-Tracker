@@ -65,6 +65,36 @@ export type TraceEventInsert = Database['public']['Tables']['trace_events']['Ins
 export type SheetText = Database['public']['Tables']['sheet_text']['Row'];
 export type SheetTextInsert = Database['public']['Tables']['sheet_text']['Insert'];
 
+// Confirmed title-block facts for a sheet (AI Tracing Assist — Phase 3a). A 1:1
+// verified-capture annotation: the human-confirmed sheet number / name / architect
+// firm read from the title block, plus Milestone-1 provenance. The two JSONB
+// columns (`title_block_bbox`, `suggested_fields`) stay `Json` on the Row and are
+// narrowed at the query boundary via the guards below — never let `Json` reach
+// component props (AGENTS.md §6). Mirrors SheetText / TraceEvent.
+export type SheetMetadata = Omit<
+  Database['public']['Tables']['sheet_metadata']['Row'],
+  'title_block_bbox' | 'suggested_fields'
+> & {
+  title_block_bbox: PercentRect | null;
+  suggested_fields: TitleBlockFields | null;
+};
+export type SheetMetadataInsert = Database['public']['Tables']['sheet_metadata']['Insert'];
+
+// The percent-space (0..1) rectangle a user drags over a region (e.g. the title
+// block) — the narrowed shape of `sheet_metadata.title_block_bbox`, and the single
+// source of truth for that box geometry across the parser, the canvas capture-box
+// callback, and the write hook.
+export type PercentRect = { x0: number; y0: number; x1: number; y1: number };
+
+// The proposed/confirmed title-block fields — the narrowed shape of
+// `sheet_metadata.suggested_fields` (the FROZEN original machine proposal) and the
+// return type of the pure title-block parser (`src/utils/titleBlockParse.ts`).
+export type TitleBlockFields = {
+  sheetNumber: string | null;
+  sheetName: string | null;
+  architectFirm: string | null;
+};
+
 // One located PDF text word from {@link SheetText}.text — the word string plus its
 // bbox-center position in the SAME percent space as {@link PercentPoint} /
 // units.polygon_coordinates / sheet_vectors. The narrowed shape of the `text` JSONB
@@ -146,6 +176,34 @@ export function isTextWordArray(val: unknown): val is TextWord[] {
         typeof (w as TextWord).pctY === 'number',
     )
   );
+}
+
+/**
+ * Narrows `sheet_metadata.title_block_bbox` (typed `Json`) to a {@link PercentRect}
+ * at the query boundary (AGENTS.md §6). Null-safe: a null/non-object/partial value
+ * yields `false`, never throws.
+ */
+export function isPercentRect(val: unknown): val is PercentRect {
+  if (!val || typeof val !== 'object') return false;
+  const r = val as Record<string, unknown>;
+  return (
+    typeof r.x0 === 'number' &&
+    typeof r.y0 === 'number' &&
+    typeof r.x1 === 'number' &&
+    typeof r.y1 === 'number'
+  );
+}
+
+/**
+ * Narrows `sheet_metadata.suggested_fields` (typed `Json`) to {@link TitleBlockFields}
+ * — the frozen original proposal — at the query boundary (AGENTS.md §6). Each field
+ * is a string or null. Null-safe: a malformed value yields `false`, never throws.
+ */
+export function isTitleBlockFields(val: unknown): val is TitleBlockFields {
+  if (!val || typeof val !== 'object') return false;
+  const f = val as Record<string, unknown>;
+  const ok = (v: unknown) => v === null || typeof v === 'string';
+  return ok(f.sheetNumber) && ok(f.sheetName) && ok(f.architectFirm);
 }
 
 /**

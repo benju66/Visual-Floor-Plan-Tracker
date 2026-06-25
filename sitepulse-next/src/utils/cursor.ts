@@ -64,6 +64,9 @@ export function getToolCursor(s: ToolCursorState): string {
       return 'grab';
     case 'draw':
       return 'crosshair';
+    case 'capture_box':
+      // Box-drag a region to read (title block) — crosshair, like draw.
+      return 'crosshair';
     case 'stamp':
       return 'copy';
     case 'add_node':
