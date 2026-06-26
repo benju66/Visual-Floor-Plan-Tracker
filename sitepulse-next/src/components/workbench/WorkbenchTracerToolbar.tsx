@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3, Grid2x2Check } from 'lucide-react';
+import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3, Grid2x2Check, Search } from 'lucide-react';
 import { useMapStore, type ToolMode } from '@/store/useMapStore';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
@@ -33,6 +33,8 @@ export default function WorkbenchTracerToolbar({
   const enableSnapping = useHydratedStore((s) => s.mapSettings.enableSnapping, true);
   // Grid-aware snapping (Phase 3c): default on; only an explicit `false` is off.
   const gridAwareSnapping = useHydratedStore((s) => s.mapSettings.gridAwareSnapping, true) !== false;
+  // Magnifier loupe (session-only; forced off on rehydrate, so default false).
+  const showMagnifier = useHydratedStore((s) => s.mapSettings.showMagnifier, false);
 
   // Gridline annotator session (Phase 3b) + title-block flow share the capture-box
   // mode, so the two are mutually exclusive: activating one closes the other.
@@ -158,6 +160,21 @@ export default function WorkbenchTracerToolbar({
         className={`${btnBase} ${gridAwareSnapping && enableSnapping ? btnActive : btnIdle} ${!enableSnapping ? 'opacity-40 cursor-not-allowed' : ''}`}
       >
         <Grid2x2Check size={18} />
+      </button>
+
+      <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
+
+      {/* Magnifier loupe (M): a cursor-following lens that renders a crisp,
+          high-res crop for precise node placement past the zoom ceiling. While
+          it's up, magnetic snapping is suspended so placement follows the cursor.
+          Use [ / ] to change magnification. */}
+      <button
+        type="button"
+        title={`${showMagnifier ? 'Hide' : 'Show'} magnifier (M) — suspends snapping while up; [ / ] to zoom`}
+        onClick={() => setMapSettings({ showMagnifier: !showMagnifier })}
+        className={`${btnBase} ${showMagnifier ? btnActive : btnIdle}`}
+      >
+        <Search size={18} />
       </button>
     </div>
   );

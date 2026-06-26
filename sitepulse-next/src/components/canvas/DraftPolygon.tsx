@@ -66,15 +66,26 @@ export default function DraftPolygon({
               />
             )}
             {isSnapped && (
-              <Circle
-                x={layout.offsetX + pctX * layout.drawW}
-                y={layout.offsetY + pctY * layout.drawH}
-                radius={6 / stageScale}
-                stroke="#ec4899"
-                strokeWidth={2 / stageScale}
-                fill="transparent"
-                listening={false}
-              />
+              <React.Fragment>
+                {/* Snap ring — filled + slightly larger so it's unmistakable on a
+                    busy plan, with a solid centre dot marking the exact point. */}
+                <Circle
+                  x={layout.offsetX + pctX * layout.drawW}
+                  y={layout.offsetY + pctY * layout.drawH}
+                  radius={8 / stageScale}
+                  stroke="#ec4899"
+                  strokeWidth={2.5 / stageScale}
+                  fill="rgba(236, 72, 153, 0.2)"
+                  listening={false}
+                />
+                <Circle
+                  x={layout.offsetX + pctX * layout.drawW}
+                  y={layout.offsetY + pctY * layout.drawH}
+                  radius={2 / stageScale}
+                  fill="#ec4899"
+                  listening={false}
+                />
+              </React.Fragment>
             )}
           </React.Fragment>
         );

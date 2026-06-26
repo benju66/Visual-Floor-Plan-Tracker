@@ -17,6 +17,10 @@ export type PdfWorkerRequest =
       buffer: ArrayBuffer;
       /** Base LOD render scale (e.g. devicePixelRatio, min 2) */
       baseScale: number;
+      /** Skip the full-page LOD pyramid (preview + base) and only load the page,
+       *  posting page-info. Used by the magnifier loupe, which never shows the
+       *  full page — it only renders small high-res viewport crops. */
+      skipLods?: boolean;
     }
   | { type: 'render-high'; loadId: number }
   | {

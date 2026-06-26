@@ -217,6 +217,32 @@ describe('getSnappedCoordinate', () => {
     expect(result.pctX).toBeCloseTo(0.5);
     expect(result.pctY).toBeCloseTo(0.6);
   });
+
+  // Interior-aware bias on a thick wall (two parallel faces). The cursor sits inside
+  // the wall body, marginally closer to the OUTER face.
+  describe('interior-aware snapping (thick walls)', () => {
+    // Inner face at y=0.500 (room is above), outer face at y=0.510.
+    const thickWall = fakeTree([
+      { lineData: { start: { pctX: 0.3, pctY: 0.5 }, end: { pctX: 0.7, pctY: 0.5 } } },
+      { lineData: { start: { pctX: 0.3, pctY: 0.51 }, end: { pctX: 0.7, pctY: 0.51 } } },
+    ]);
+
+    it('snaps to the nearer (outer) face when no interior hint is given', () => {
+      // Cursor at y=0.506: 0.006 from inner, 0.004 from outer → outer wins.
+      const result = getSnappedCoordinate(0.5, 0.506, thickWall, aspect, drawW, stageScale);
+      expect(result.snapped).toBe(true);
+      expect(result.pctY).toBeCloseTo(0.51);
+    });
+
+    it('snaps to the inner face when the interior is on that side', () => {
+      // Same cursor, but the room interior is above the wall (y=0.3). The interior
+      // hint is the 9th arg (after gridAware=false in the 8th slot — Phase 3c added it).
+      const result = getSnappedCoordinate(0.5, 0.506, thickWall, aspect, drawW, stageScale, 15, false, { pctX: 0.5, pctY: 0.3 });
+      expect(result.snapped).toBe(true);
+      expect(result.pctY).toBeCloseTo(0.5);
+      expect(result.pctX).toBeCloseTo(0.5);
+    });
+  });
 });
 
 describe('getSnappedCoordinate — grid-aware two-pass (Phase 3c)', () => {

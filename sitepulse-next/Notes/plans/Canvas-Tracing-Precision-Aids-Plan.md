@@ -32,6 +32,12 @@ Two of the four aids were already built and committed on an **unmerged** branch
 `claude/code-repo-review-2vre2c` (never reached `main`/production). Port that code
 by hand (see each phase); do not blind cherry-pick — the relevant commit is
 bundled with unrelated work. Pull exact source with:
+> **⚠️ Phase 1 reconciliation (2026-06-26):** since this plan was written, commit
+> `96fc108` (grid-aware snapping) merged to `main` and refactored `getSnappedCoordinate`
+> — it extracted the inner snap loop into a pure `snapAmongLines(...)` helper (called
+> twice) and added a `gridAware` 8th param. The `4cc9101` diff below **no longer applies
+> cleanly**. Treat it as the spec; re-home the math into `snapAmongLines` and add
+> `interiorPoint` as the **9th** param (after `gridAware`). See Phase 1 below.
 ```
 git show 4cc9101 -- sitepulse-next/src/utils/geometry.ts sitepulse-next/src/utils/geometry.test.ts sitepulse-next/src/components/FloorplanCanvas.tsx   # inside-face snap (Phase 1)
 git show claude/code-repo-review-2vre2c:sitepulse-next/src/components/canvas/LoupeOverlay.tsx     # Phase 3
@@ -136,16 +142,32 @@ deterministic, no `Date.now()`/`Math.random()` inside:
 ### Phase 1 — Inside-face-aware magnetic snapping  (port commit 4cc9101)
 - **Plain English:** the snap stops grabbing the outer face of thick walls and
   the wrong corner at junctions — it now hugs the inside line you're tracing.
-- **Scope:** Port the `geometry.ts` change (add `CORNER_ZONE_FRACTION = 0.6`; add
-  optional `interiorPoint` param that biases selection toward the room-interior
-  wall face; keep it **backward-compatible** — param defaults to null). Port the
-  added `geometry.test.ts` cases. Wire `FloorplanCanvas` to feed the interior hint:
-  the centroid of `draftPoints` once ≥3 are placed (freehand trace), and the
-  detected-room centroid in the fill-from-walls path **only if** that path exists on
-  `main` (it may not — if absent, skip that call site, don't port fill-from-walls).
+- **OUTCOME (2026-06-26 — owner-tested):** Inside-face bias SHIPPED and retained.
+  The `CORNER_ZONE_FRACTION = 0.6` corner-softening was **tried and REVERTED** — on
+  the owner's real arch sheets it made corners *harder* to grab (a regression), and
+  it wasn't solving a real problem there. KEY FINDING: the walls are genuinely
+  double-line (each face is a real vector), so inside-edge snapping IS possible — but
+  it's **resolution-gated**: at working zoom the snap radius is ~10× the wall
+  thickness, so the two faces can't be distinguished (feels like snapping to "the
+  middle"), worst at corners. The magnifier (Phase 3) is therefore the real enabler —
+  zooming separates the faces so the inside-face bias resolves. Auto-fill/flood-fill
+  (one-click room detection) is **rejected** — proven not to work well on arch
+  drawings previously; the end solution is the AI-trained tracer, not geometric fill.
+- **Scope (re-homed onto current `main` — see reconciliation note above):** Add
+  `CORNER_ZONE_FRACTION = 0.6` and thread the inside-face bias **into the
+  `snapAmongLines` helper** (where the inner loop now lives), tracking `*Eff`
+  interior-biased distances for selection vs `*Raw` for the radius/corner-zone tests
+  (the `farSidePenalty` logic from `4cc9101`). Add `interiorPoint` to
+  `getSnappedCoordinate` as the **9th** param (after the existing `gridAware` 8th) and
+  pass it through to **both** `snapAmongLines` calls; keep it **backward-compatible**
+  (defaults null). Port the added `geometry.test.ts` cases, moving the interior-hint
+  test's hint to the 9th arg (`..., 15, false, { pctX, pctY }`). Wire `FloorplanCanvas`
+  to feed the interior hint at the draw-mode trace call (~line 1598): the centroid of
+  `draftPointsRef.current` once ≥3 are placed, as arg 9 after `gridAwareSnapping`.
+  **There is no fill-from-walls snap call site on `main`** (confirmed) — skip it.
 - **Files:** `src/utils/geometry.ts`, `src/utils/geometry.test.ts`,
-  `src/components/FloorplanCanvas.tsx` (~11 lines, the two snap call sites in
-  draw-mode `onMouseMove`).
+  `src/components/FloorplanCanvas.tsx` (the draw-mode trace snap call site in
+  `onMouseMove`).
 - **Approval gates:** none beyond the standing "don't commit/push until Approved."
 - **Exit criteria:** typecheck + test + build green · new geometry tests pass ·
   live `dev:3010` click-through: trace a room over a thick-walled sheet in BOTH the
@@ -171,6 +193,13 @@ deterministic, no `Date.now()`/`Math.random()` inside:
   across reload, and visibility on light + dark sheets · verify-feature.
 
 ### Phase 3 — Magnifier loupe  (port commit 014fe85, magnifier parts only)
+- **STATUS (2026-06-26): BUILT** on branch `feat/canvas-precision-aids-phase1` (stacked
+  with the P1 work). Built ahead of P2 because owner-testing of P1 showed the magnifier
+  is the actual enabler for inside-edge precision (see P1 OUTCOME). Gates green (typecheck
+  + 545 vitest incl. 11 new `loupeMath` cases + build). Toggle = `M` or the new `Search`
+  icon in BOTH toolbars; `[`/`]` adjust magnification; snapping suspends while up
+  (`effectiveSnapping`); session-only (off on reload). NOT committed (awaiting owner
+  Approved + live `dev:3010` verify). Did NOT port invite/set-password/fill-from-walls.
 - **Plain English:** a magnifier lens that follows the cursor and shows a crisp,
   zoomed view for precise placement; toggle with `M` or a toolbar button.
 - **Scope:** Port new files `components/canvas/LoupeOverlay.tsx`,

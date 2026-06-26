@@ -130,7 +130,7 @@ async function renderFullPage(targetScale: number): Promise<ImageBitmap | null> 
 }
 
 async function handleLoad(msg: Extract<PdfWorkerRequest, { type: 'load' }>): Promise<void> {
-  const { loadId, buffer, baseScale } = msg;
+  const { loadId, buffer, baseScale, skipLods } = msg;
   try {
     if (pdfDoc) {
       await pdfDoc.destroy().catch(() => {});
@@ -165,6 +165,11 @@ async function handleLoad(msg: Extract<PdfWorkerRequest, { type: 'load' }>): Pro
       pageWidth: Math.floor((isRotated ? pageH : pageW) * baseSafe),
       pageHeight: Math.floor((isRotated ? pageW : pageH) * baseSafe),
     });
+
+    // Loupe path: the page is loaded and page-info is posted — that's all the
+    // magnifier needs. It drives high-res crops via 'render-viewport'; rendering
+    // the full-page LOD pyramid here would just be wasted work.
+    if (skipLods) return;
 
     const preview = await renderFullPage(PREVIEW_RENDER_SCALE);
     if (loadId !== currentLoadId) {

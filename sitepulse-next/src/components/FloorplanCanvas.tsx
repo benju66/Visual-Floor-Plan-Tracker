@@ -17,6 +17,8 @@ import CaptureLineOverlay from '@/components/canvas/CaptureLineOverlay';
 import GridlineOverlay, { type GridlineOverlayItem } from '@/components/canvas/GridlineOverlay';
 import MapLegend from '@/components/canvas/MapLegend';
 import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
+import LoupeOverlay from '@/components/canvas/LoupeOverlay';
+import { useLoupeRenderer } from '@/hooks/useLoupeRenderer';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
@@ -318,6 +320,19 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const [activeDragPolygon, setActiveDragPolygon] = useState<any>(null);
   const [contextMenu, setContextMenu] = useState<any>(null);
   const [isLegendSelected, setIsLegendSelected] = useState(false);
+  // Magnifier loupe. Press M (or the toolbar button) to toggle it — both drive
+  // the persistent `showMagnifier` setting. While it's on, magnetic snapping is
+  // suspended (`effectiveSnapping`) so node placement follows the cursor exactly;
+  // the user's toolbar snap preference is untouched and resumes when it's off.
+  const magnifierZoom = mapSettings?.magnifierZoom ?? 3;
+  const magnifierActive = !!mapSettings?.showMagnifier;
+  const effectiveSnapping = !!mapSettings?.enableSnapping && !magnifierActive;
+  const loupe = useLoupeRenderer(activeSheetId ?? null, pdfVersion ?? null, magnifierActive);
+  // Refs so the keyboard handler (created once) can read the live magnifier state.
+  const magnifierActiveRef = useRef(magnifierActive);
+  magnifierActiveRef.current = magnifierActive;
+  const magnifierZoomRef = useRef(magnifierZoom);
+  magnifierZoomRef.current = magnifierZoom;
 
   // Pointer position lives OUTSIDE React state — a per-mousemove setState here
   // re-rendered the entire canvas tree every frame during panning. Leaf consumers
@@ -453,6 +468,21 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         if (e.key === '1') onToolModeChange('select');
         if (e.key === '2') onToolModeChange('pan');
         if (e.key === '3') onToolModeChange('draw');
+
+        // M = toggle the magnifier loupe on/off (unified with the toolbar button).
+        // The `e.repeat` guard means holding the key flips it once, not every frame.
+        if (e.key.toLowerCase() === 'm' && !e.repeat) {
+          const cur = useSettingsStore.getState().mapSettings.showMagnifier;
+          useSettingsStore.getState().setMapSettings({ showMagnifier: !cur });
+        }
+
+        // While the loupe is up, [ and ] adjust its magnification (2×–8×),
+        // Photoshop-style. The live "N×" readout in the lens gives feedback.
+        if (magnifierActiveRef.current && (e.key === '[' || e.key === ']')) {
+          e.preventDefault();
+          const next = Math.min(8, Math.max(2, (magnifierZoomRef.current || 3) + (e.key === ']' ? 1 : -1)));
+          useSettingsStore.getState().setMapSettings({ magnifierZoom: next });
+        }
 
         // +/- for zoom (via ref to avoid block-scoped variable error)
         if (e.key === '=' || e.key === '+') handleZoomRef.current(1);
@@ -932,7 +962,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         const dy = Math.abs(pctY - lastPoint.pctY);
         if (dx > dy) pctY = lastPoint.pctY;
         else pctX = lastPoint.pctX;
-      } else if (mapSettings?.enableSnapping && lastSnapRef.current?.snapped) {
+      } else if (effectiveSnapping && lastSnapRef.current?.snapped) {
         // Consume the last snap computed by onMouseMove — avoids double-computation
         // and guarantees the committed point matches the visual snap ring.
         pctX = lastSnapRef.current.pctX;
@@ -1149,7 +1179,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     let pctX = overridePct ? overridePct.pctX : (node.x() - layout.offsetX) / layout.drawW;
     let pctY = overridePct ? overridePct.pctY : (node.y() - layout.offsetY) / layout.drawH;
 
-    if (!overridePct && mapSettings?.enableSnapping) {
+    if (!overridePct && effectiveSnapping) {
       const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15);
       if (snap.snapped) {
         pctX = snap.pctX;
@@ -1593,9 +1623,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // inline (no debounce/await) guarantees lastSnapRef is fresh when
             // handleStageClick commits the point on the very next event.
             let snap: { pctX: number; pctY: number; snapped: boolean } | null = null;
-            if (toolMode === 'draw' && mapSettings?.enableSnapping && drawW > 0 && drawH > 0) {
+            if (toolMode === 'draw' && effectiveSnapping && drawW > 0 && drawH > 0) {
+              // Interior hint: once ≥3 points are placed, the centroid of the trace so
+              // far tells the snap which wall face is the room interior — so on a thick
+              // wall it hugs the inside face instead of grabbing whichever is closest.
+              const interior = draftPointsRef.current.length >= 3
+                ? getCentroid(draftPointsRef.current)
+                : null;
               // Grid-aware on the trace path: prefer real walls over confirmed grid lines.
-              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15, gridAwareSnapping);
+              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15, gridAwareSnapping, interior);
               lastSnapRef.current = snap;
             } else {
               lastSnapRef.current = null;
@@ -1710,7 +1746,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   stageScale={stageScale}
                   vectorTree={vectorTree}
                   aspect={aspect}
-                  enableSnapping={mapSettings?.enableSnapping}
+                  enableSnapping={effectiveSnapping}
                   snappingStrength={mapSettings?.snappingStrength || 15}
                   isZoomedOut={isZoomedOut}
                   settings={settings}
@@ -1749,7 +1785,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 boxOrigin={boxOrigin}
                 stageScale={stageScale}
                 layout={layout}
-                enableSnapping={!!mapSettings?.enableSnapping}
+                enableSnapping={effectiveSnapping}
                 isShiftDown={isShiftDown}
                 toPixels={toPixels}
               />
@@ -1866,6 +1902,17 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
       {mapSettings?.showCrosshair && (
         <CrosshairOverlay pointerStore={pointerStore} />
+      )}
+
+      {magnifierActive && (
+        <LoupeOverlay
+          pointerStore={pointerStore}
+          stageRef={stageRef}
+          layout={layout}
+          magnification={magnifierZoom}
+          patch={loupe.patch}
+          requestPatch={loupe.requestPatch}
+        />
       )}
 
       {/* Lag Mode auto-enables the hover card so the schedule verdict is reachable
