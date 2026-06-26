@@ -261,6 +261,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   }, [image, activeSheetId]);
 
   const stageRef = useRef<any>(null);
+  // The 3rd (interactive-overlays) Konva layer — DraftPolygon's trace line,
+  // placed nodes, and snap ring. Handed to LoupeOverlay so the magnifier can
+  // composite the in-progress trace on top of its sharp PDF crop (Phase 4).
+  const overlayLayerRef = useRef<Konva.Layer | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const spaceWasPanRef = useRef<ToolMode | null>(null);
 
@@ -401,7 +405,13 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       if (e.key === 'Escape') {
         setIsLegendSelected(false);
         if (!isInputActive) {
-          if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
+          if (magnifierActiveRef.current) {
+            // Escape dismisses the magnifier first — one transient layer at a
+            // time, like the draft/tool backout below. A second Escape then
+            // clears the draft, a third returns to pan. Mirrors the M toggle.
+            e.stopImmediatePropagation();
+            useSettingsStore.getState().setMapSettings({ showMagnifier: false });
+          } else if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
             e.stopImmediatePropagation();
             setDraftPoints([]);
           } else if (toolMode === 'capture_line' && boxOriginRef.current) {
@@ -1774,8 +1784,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           </Layer>
 
           {/* Overlay layer: ephemeral, high-churn previews and editing chrome.
-              Per-frame redraws here never touch the units or PDF layers. */}
-          <Layer>
+              Per-frame redraws here never touch the units or PDF layers.
+              Ref'd so the magnifier loupe can composite the live trace (this
+              layer's DraftPolygon) onto its sharp PDF crop. */}
+          <Layer ref={overlayLayerRef}>
             {/* Pointer-following previews are mounted only in their tool mode, so
                 the pointer store has zero subscribers during plain pan/zoom. */}
             {toolMode === 'draw' && (
@@ -1908,6 +1920,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         <LoupeOverlay
           pointerStore={pointerStore}
           stageRef={stageRef}
+          overlayLayerRef={overlayLayerRef}
           layout={layout}
           magnification={magnifierZoom}
           patch={loupe.patch}

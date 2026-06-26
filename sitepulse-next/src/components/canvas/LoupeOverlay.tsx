@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from 'react';
+import type Konva from 'konva';
 import type { PointerStore } from '@/utils/pointerStore';
 import type { CanvasLayout } from '@/types/domain';
 import type { ViewportRect } from '@/utils/pdfRenderMath';
@@ -33,6 +34,13 @@ interface LoupeOverlayProps {
   pointerStore: PointerStore;
   /** The Konva Stage ref from FloorplanCanvas. */
   stageRef: React.RefObject<any>;
+  /**
+   * The interactive-overlays Konva layer (3rd `<Layer>`: DraftPolygon = trace
+   * line + placed nodes + snap ring). Composited over the sharp PDF crop so the
+   * trace shows up *inside* the lens, not just the bare drawing. Optional: when
+   * absent the lens still renders the PDF crop alone.
+   */
+  overlayLayerRef?: React.RefObject<Konva.Layer | null>;
   /** Current canvas layout (offsets + draw size), for pct→screen projection. */
   layout: CanvasLayout;
   /** Linear magnification over the current on-screen view. */
@@ -52,6 +60,7 @@ const REQUEST_SHRINK = 0.18;
 export default function LoupeOverlay({
   pointerStore,
   stageRef,
+  overlayLayerRef,
   layout,
   magnification = 3,
   size = 200,
@@ -132,6 +141,31 @@ export default function LoupeOverlay({
         } catch {
           // Bitmap was closed mid-frame (sheet switch) — fall back next frame.
         }
+        // Composite the interactive-overlays layer (in-progress dashed trace
+        // line, placed nodes, snap ring) over the sharp PDF crop. Unlike the
+        // soft path — which captures the WHOLE stage and so already includes
+        // these vectors — the sharp crop is only the pdf.js bitmap, so without
+        // this the trace vanishes inside the lens. We capture the same square
+        // screen region the crop covers (`srcCss` across, centered on the
+        // cursor, at the same `mag * dpr` pixel ratio), which maps 1:1 onto the
+        // lens canvas. The layer is transparent except where the trace draws,
+        // so PDF detail shows through. Only on the sharp path (avoid doubling
+        // work on the soft path, which already shows the trace).
+        const overlayLayer = overlayLayerRef?.current;
+        if (overlayLayer) {
+          try {
+            const cap = overlayLayer.toCanvas({
+              x: s.screenX - srcCss / 2,
+              y: s.screenY - srcCss / 2,
+              width: srcCss,
+              height: srcCss,
+              pixelRatio: mag * dpr,
+            });
+            ctx.drawImage(cap, 0, 0, canvas.width, canvas.height);
+          } catch {
+            // Layer not ready / degenerate region — keep the sharp PDF alone.
+          }
+        }
       } else {
         // Soft fallback — upscale the current on-screen render (instant).
         try {
@@ -168,7 +202,7 @@ export default function LoupeOverlay({
     drawRef.current = draw;
     draw();
     return pointerStore.subscribe(draw);
-  }, [pointerStore, stageRef, size, requestPatch]);
+  }, [pointerStore, stageRef, overlayLayerRef, size, requestPatch]);
 
   // A freshly-arrived patch should upgrade the lens to sharp even if the mouse
   // is momentarily still.
