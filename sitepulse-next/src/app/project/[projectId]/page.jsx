@@ -27,6 +27,7 @@ import { useParams } from 'next/navigation';
 import TopHeader from '@/components/TopHeader';
 import MapSidebar from '@/components/MapSidebar';
 import UnitNamingPopover from '@/components/UnitNamingPopover';
+import { recentSubtypeIdsFromUnits } from '@/utils/subtypes';
 import MapHorizontalToolbar from '@/components/MapHorizontalToolbar';
 import AddLevelModal from '@/components/AddLevelModal';
 import ConfirmModal from '@/components/ConfirmModal';
@@ -604,6 +605,7 @@ function App() {
                   projectType={project?.project_type || null}
                   initialSubtypeId={editingUnitId ? (units.find(u => u.id === editingUnitId)?.subtype_id || null) : null}
                   initialUnitType={editingUnitId ? (units.find(u => u.id === editingUnitId)?.unit_type || null) : null}
+                  recentSubtypeIds={recentSubtypeIdsFromUnits(units)}
                   saveNewUnitFromPopover={saveNewUnitFromPopover}
                   cancelUnitNaming={cancelUnitNaming}
                 />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import TaxonomyPicker from './TaxonomyPicker';
 
 export default function UnitNamingPopover({
@@ -9,12 +9,18 @@ export default function UnitNamingPopover({
   projectType = null,
   initialSubtypeId = null,
   initialUnitType = null,
+  recentSubtypeIds = [],
   saveNewUnitFromPopover,
   cancelUnitNaming,
 }) {
   // The active taxonomy pick for THIS save, or null = "leave type unchanged"
   // (on rename, preserves the location's existing role/sub-type; on create, no type).
   const [pick, setPick] = useState(null);
+
+  // Keyboard flow: name → Tab → type search → Tab → Save → Enter. Save here is
+  // never disabled, so focusing it directly (no effect) is fine.
+  const searchRef = useRef(null);
+  const saveRef = useRef(null);
 
   const selectedSubtypeId = pick
     ? (pick.kind === 'subtype' ? pick.subtypeId : null)
@@ -28,6 +34,7 @@ export default function UnitNamingPopover({
     <div
       className="absolute top-6 right-6 z-[60] w-64 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md"
       style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
+      onKeyDown={(e) => { if (e.key === 'Escape') cancelUnitNaming(); }}
     >
       <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">{editingUnitId ? 'Rename location' : 'Name this location'}</h2>
       <input
@@ -39,7 +46,7 @@ export default function UnitNamingPopover({
         onChange={(e) => setNewUnitName(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') handleSave();
-          if (e.key === 'Escape') cancelUnitNaming();
+          if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); searchRef.current?.focus(); }
         }}
       />
 
@@ -60,6 +67,11 @@ export default function UnitNamingPopover({
           selectedSubtypeId={selectedSubtypeId}
           onPick={setPick}
           variant="popover"
+          restrictToProjectType
+          recentSubtypeIds={recentSubtypeIds}
+          searchRef={searchRef}
+          onAdvance={() => saveRef.current?.focus()}
+          autoFocusSearch={false}
         />
       </div>
 
@@ -72,6 +84,7 @@ export default function UnitNamingPopover({
           Cancel
         </button>
         <button
+          ref={saveRef}
           type="button"
           onClick={handleSave}
           className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-white text-xs shadow-sm transition-colors"
