@@ -40,6 +40,10 @@ export interface MapSettings {
   showMagnifier?: boolean;
   /** Magnifier loupe magnification factor over the on-screen view (default 3). */
   magnifierZoom?: number;
+  /** Crosshair look (only when `showCrosshair` is on). 5 fixed presets; default
+   *  'lines' = today's two full-bleed dashed lines. Normal persisted field — does
+   *  NOT get the `showMagnifier` force-OFF-on-rehydrate treatment. */
+  crosshairStyle?: 'lines' | 'lines-dot' | 'ring' | 'ring-dot' | 'gap-cross';
 }
 
 export interface SettingsState {
@@ -76,7 +80,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, showMagnifier: false, magnifierZoom: 3, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, showMagnifier: false, magnifierZoom: 3, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),

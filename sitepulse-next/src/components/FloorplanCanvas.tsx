@@ -1322,7 +1322,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     removeNodeCursor: REMOVE_NODE_CURSOR,
   });
 
-  // Apply computedCursor to the Konva-generated container (it sits above the outer
+  // When the styled crosshair overlay is on it BECOMES the cursor: hide the native
+  // OS cursor over the drawing surface so the chosen look (lines / ring / dot /
+  // gap-cross) is what the user sees at the pointer. Scoped to the Konva container
+  // only — the toolbars and corner controls are separate elements and keep their
+  // normal cursor (so it reappears when interacting with them).
+  const canvasCursor = mapSettings?.showCrosshair ? 'none' : computedCursor;
+
+  // Apply canvasCursor to the Konva-generated container (it sits above the outer
   // wrapper div for the canvas area). This effect is now the ONLY writer of the
   // container cursor, so re-running on string change is sufficient — nothing else
   // can leave a value behind for it to miss.
@@ -1330,10 +1337,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     if (stageRef.current) {
       const container = stageRef.current.container();
       if (container) {
-        container.style.cursor = computedCursor;
+        container.style.cursor = canvasCursor;
       }
     }
-  }, [computedCursor]);
+  }, [canvasCursor]);
 
   // Anchor hover tracking by id. Leave only clears if it still owns the hover,
   // so a stale `leave` arriving after the next anchor's `enter` can't unset it.
@@ -1913,7 +1920,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       )}
 
       {mapSettings?.showCrosshair && (
-        <CrosshairOverlay pointerStore={pointerStore} />
+        <CrosshairOverlay pointerStore={pointerStore} style={mapSettings?.crosshairStyle} />
       )}
 
       {magnifierActive && (

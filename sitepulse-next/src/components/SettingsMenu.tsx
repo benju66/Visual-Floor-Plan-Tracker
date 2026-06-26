@@ -792,6 +792,24 @@ export default function SettingsMenu({
                 </div>
                 <div className="flex items-center justify-between mb-4">
                   <div>
+                    <span className="font-semibold block text-sm">Crosshair Style</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Lines, ring, dot, or CAD-style gap cross</span>
+                  </div>
+                  <select
+                    value={mapSettings?.crosshairStyle || 'lines'}
+                    disabled={!mapSettings?.showCrosshair}
+                    onChange={(e) => onUpdateMapSettings({ ...(mapSettings as MapSettings), crosshairStyle: e.target.value as MapSettings['crosshairStyle'] })}
+                    className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-white/10 rounded-lg p-1.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="lines">Lines</option>
+                    <option value="lines-dot">Lines + Dot</option>
+                    <option value="ring">Ring</option>
+                    <option value="ring-dot">Ring + Dot</option>
+                    <option value="gap-cross">Gap Cross</option>
+                  </select>
+                </div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
                     <span className="font-semibold block text-sm">Smooth Wheel Zoom</span>
                     <span className="text-xs text-slate-500 dark:text-slate-400">Glide when zooming with the mouse wheel instead of stepping</span>
                   </div>
