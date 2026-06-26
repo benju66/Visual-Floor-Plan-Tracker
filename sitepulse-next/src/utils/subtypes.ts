@@ -160,3 +160,124 @@ export function groupSubtypesByRole(subtypes: Subtype[]): Record<TopLevelRole, S
   }
   return groups;
 }
+
+// ---------------------------------------------------------------------------
+// Picker project-type filter + fuzzy search + recents (Type-Picker workstream).
+//
+// These three are PURE and currently DORMANT — Commit A lands them with tests;
+// Commit B wires them into the rewritten `TaxonomyPicker`. They change nothing
+// at runtime until a consumer calls them. Design notes live in
+// `Notes/plans/Type-Picker-Filter-Search-Keyboard-Plan.md` (§Architecture).
+// ---------------------------------------------------------------------------
+
+/**
+ * Restrict a sub-type list to those a given project type should SHOW (the
+ * project-type filter — opt-in; only the naming pickers pass it). A sub-type is
+ * kept when its `default_project_types` includes the project type (universal
+ * Common/Support entries list all project types, so they always pass), OR when
+ * its id is in `keepIds`. `keepIds` is the load-bearing safety rail: the
+ * location's currently-selected type and the AI-suggested type are forced in so
+ * edit/rename and accept-suggestion never render with nothing selected (plan §A3).
+ *
+ * `projectType == null` (project with no type set) returns the list unchanged —
+ * never restricts. Pure; does NOT filter by `status` (compose with
+ * {@link orderedSubtypesByRole}, which drops non-active rows + groups).
+ */
+export function restrictSubtypesToProjectType(
+  subtypes: Subtype[],
+  projectType: ProjectType | null,
+  keepIds: ReadonlySet<string> = new Set(),
+): Subtype[] {
+  if (projectType == null) return subtypes;
+  return subtypes.filter(
+    (s) => s.default_project_types.includes(projectType) || keepIds.has(s.id),
+  );
+}
+
+/** True when every char of `q` appears in `t` in order (gap-tolerant subsequence). */
+function isSubsequence(q: string, t: string): boolean {
+  let j = 0;
+  for (let i = 0; i < t.length && j < q.length; i++) {
+    if (t[i] === q[j]) j++;
+  }
+  return j === q.length;
+}
+
+/** True when `q` occurs in `t` at the start of a word (index 0 or after a non-alphanumeric). */
+function hasWordStart(t: string, q: string): boolean {
+  let from = 0;
+  for (;;) {
+    const idx = t.indexOf(q, from);
+    if (idx === -1) return false;
+    if (idx === 0 || !/[a-z0-9]/.test(t[idx - 1])) return true;
+    from = idx + 1;
+  }
+}
+
+/**
+ * Best (lowest) match rank of `q` against one text: 0 exact, 1 prefix, 2
+ * word-start, 3 substring, 4 subsequence, or `null` for no match. `q` is already
+ * lowercased + trimmed.
+ */
+function matchRank(text: string, q: string): number | null {
+  const t = text.toLowerCase();
+  if (t === q) return 0;
+  if (t.startsWith(q)) return 1;
+  if (hasWordStart(t, q)) return 2;
+  if (t.includes(q)) return 3;
+  if (isSubsequence(q, t)) return 4;
+  return null;
+}
+
+/**
+ * Fuzzy-rank a sub-type list against a free-text query, matching across the name
+ * AND every alias (so a synonym finds its canonical home). Best tier wins:
+ * exact > prefix > word-start > substring > subsequence; non-matches are
+ * dropped. Stable within a tier (preserves input order), so callers should pass
+ * the list pre-ordered. Empty/blank query returns a copy unchanged (caller shows
+ * its normal grouped view). Pure — no DB, no `Date`.
+ *
+ * In the picker this runs over the FULL active dictionary, bypassing the
+ * project-type filter — i.e. it IS the "find a hidden type" escape hatch (plan §A7).
+ */
+export function fuzzyRankSubtypes(subtypes: Subtype[], query: string): Subtype[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...subtypes];
+  const scored: { s: Subtype; rank: number; i: number }[] = [];
+  subtypes.forEach((s, i) => {
+    let best: number | null = matchRank(s.name, q);
+    for (const a of s.aliases) {
+      const r = matchRank(a, q);
+      if (r !== null && (best === null || r < best)) best = r;
+    }
+    if (best !== null) scored.push({ s, rank: best, i });
+  });
+  scored.sort((a, b) => a.rank - b.rank || a.i - b.i);
+  return scored.map((x) => x.s);
+}
+
+/**
+ * Derive the "Used in this project" recents row from locations already present:
+ * the de-duplicated `subtype_id`s, most-recent first, capped. No new storage —
+ * the picker reads what the consumer already loaded (plan §A6). Sorts by
+ * `created_at` as an ISO string (lexical compare = chronological for ISO 8601);
+ * a null/empty timestamp sorts last. Locations without a `subtype_id` are
+ * ignored. Pure — no `Date`.
+ */
+export function recentSubtypeIdsFromUnits(
+  units: ReadonlyArray<{ subtype_id: string | null; created_at: string | null }>,
+  cap = 6,
+): string[] {
+  const sorted = units
+    .filter((u): u is { subtype_id: string; created_at: string | null } => !!u.subtype_id)
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of sorted) {
+    if (seen.has(u.subtype_id)) continue;
+    seen.add(u.subtype_id);
+    out.push(u.subtype_id);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
