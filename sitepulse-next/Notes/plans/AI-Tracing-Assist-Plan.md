@@ -96,12 +96,15 @@ vector/text layers; the frontend renders it as a **distinct suggested overlay**;
    from `sheet_text`); (b) drag the axis line across the grid line (app snaps to the long straight vector it
    already detected). One grid annotation = `{ label, line(percent endpoints), axis: 'h'|'v' }`. Confirming
    grids also feeds calibration (grid lineweight/color → subtractable noise for snapping).
-4. **Door/window openings (subset).** **Drag a short line across the opening** (jamb to jamb) — NOT trace the
-   swing arc, NOT a loose box. The opening line is exactly what closes a room and can be widened to a detector
-   box later; the swing is decorative for our purposes (optional swing-direction tag only). Quick type tag:
-   `door | window | cased_opening`. Capture **interior + exterior** openings, but on a **subset of sheets** —
-   the manual trace already closes rooms today, so openings are a *future-facing* layer to (a) automate closing
-   and (b) feed the multi-task model, not a per-sheet requirement.
+4. **Openings as tagged room-boundary edges (revised design — see the Phase 4 kickoff).** While tracing,
+   the human marks a **floor-level passage** by tagging the polygon **edge** that crosses it: drop a jamb
+   node, hold a key, click the other jamb → that edge is an opening (`door | cased_opening | overhead |
+   pass_through`), shown in a distinct color; keep tracing. Openings ride the **unit** write/provenance
+   (not a separate floating-line table). **Windows are NOT tagged** (above the sill → not on the floor
+   boundary; they come free from CAD `A-Glaz`). Canonical openings + a room-connectivity graph are
+   **derived** by reconciliation (cross-wall pairing of the two inner-face edges); door-*objects*
+   (swing/type/count) are a separate, optional, anchored layer. Captured during the trace = near-free; feeds
+   room-closing + connectivity now and door-object detection later.
 5. **Detail callouts (passive/later).** Auto-extract circular reference bubbles ("4/A-501") from text + circle
    vectors into a cache. A cross-sheet navigation graph — valuable as a product feature, low synergy with the
    room model. Store now; build verify-UI only if/when it's prioritized.
@@ -136,7 +139,9 @@ payload in the same **percent space** as `polygon_coordinates`/`sheet_vectors`, 
   Prefer **columns on the existing `sheets` table** over a new table if `sheets` is the natural home; otherwise
   a `sheet_metadata` 1:1 table. Decide by reading `sheets` first.
 - **`sheet_gridlines`** — `[{ label, p1, p2, axis }]` per sheet (verified).
-- **`sheet_openings`** — `[{ p1, p2, type, swing? }]` per sheet (verified, subset cadence).
+- **`units.opening_edges`** — `[{ edgeIndex, type }]` per room (raw truth, rides the unit write/provenance).
+  Canonical openings + connectivity are **derived** by reconciliation; a `sheet_openings` *derived* table is
+  optional/later (only when connectivity/door-object features need a queryable store).
 - **`sheet_callouts`** — `[{ ref, sheet_target, detail_num, pctX, pctY }]` per sheet (passive extract).
 - **`drawing_set_profile`** — keyed by firm/project: observed wall/grid lineweight+color ranges, scale, notes.
 - **Accepted rooms** still write through the EXISTING `useCreateWorkbenchLabel` path (Milestone-1 provenance) —
@@ -229,13 +234,22 @@ Keep correctness framework-free and deterministic (pass inputs in; never call `D
   click-through on Aldi: walls/doors/grid pre-populate from layers and verify cleanly; a layerless sheet falls
   back gracefully · `verify-feature` → stop.
 
-### Phase 4 — door/window openings (subset cadence)
-- **Scope:** Opening tool — drag a line jamb-to-jamb + type tag (`door|window|cased_opening`), optional swing
-  direction. `sheet_openings` table. Suggested cadence surfaced in UI (this is a subset-of-sheets layer, not
-  per-sheet). Provenance + `trace_events` as usual.
-- **Approval gates:** ⛔ migration for `sheet_openings`.
-- **Exit:** typecheck + test + build · opening geometry/accept mapping unit-tested · live click-through marks
-  interior + exterior openings on a sample sheet · `verify-feature` → stop.
+### Phase 4 — openings as tagged room-boundary edges (full design in the Phase 4 kickoff)
+Built as **4a → 4b → 4c** (4d deferred). See `Notes/handoff/2026-06-25 - AI Tracing Assist Phase 4 Kickoff.md`.
+- **4a — inline opening-edge capture:** `units.opening_edges = [{ edgeIndex, type }]` (floor passages only,
+  NOT windows); tag edges during/after tracing; rides the unit write + M1 provenance; lifecycle rules for
+  polygon edits/delete. ⛔ migration (`units.opening_edges`).
+- **4b — reconciliation (pure logic):** derive canonical openings + connectivity by the **four-criterion
+  cross-wall pairing** (parallel + facing + projection-overlap + bounded wall-thickness separation), with
+  scale/wall-material strengtheners and a **confidence + flag** backstop (never alters raw tags). No schema.
+- **4c — review-DoD integration:** `WorkbenchReviewTable` gains an openings indicator, a "resolve flagged
+  openings" check, and the per-sheet **`fully_traced` completeness flag** (training-eligibility gate;
+  excludes partial sheets from the export). ⛔ migration (`sheets.fully_traced`).
+- **4d — door-OBJECT capture (deferred/optional):** click-opening → draw box; child of the opening;
+  below the free CAD `A-Door` path. Build only when door-detection is a goal.
+- **Exit (per slice):** typecheck + test + build · pure-logic unit-tested (edge re-indexing; the reconciliation
+  pairing fixtures incl. thick-wall offset, exterior singleton, two-doors-same-wall, type-conflict) · live
+  `dev:3010` click-through · `verify-feature` → stop.
 
 ### Phase 5 — detail callouts (passive extract)
 - **Scope:** Backend extract of reference bubbles ("4/A-501") from text + circle vectors → `sheet_callouts`
@@ -274,7 +288,9 @@ Keep correctness framework-free and deterministic (pass inputs in; never call `D
 - **Sheet metadata: columns on `sheets` vs. a new `sheet_metadata` table** — decide after reading `sheets`.
 - **Calibration scope: per-project vs. per-firm** — firm is the more general key, but a project may mix firms;
   start per-project, key by firm where known. Settle in Phase 3.
-- **Opening cadence UI** — how the app signals "this sheet is in the openings subset" — settle in Phase 4.
+- **Opening cadence / completeness** — *resolved:* the per-sheet `fully_traced` flag in the review DoD (4c)
+  is the signal; openings are gated by it (tag all passages on a sheet you mark complete), and partial sheets
+  are excluded from the training export rather than poisoning it.
 - **Sample coverage to validate assumptions** — we've only tested 3 vector, likely-multifamily sheets from a few
   firms. Before hardening: get a **scanned/raster** sheet (tests OCR fallback), a **different building type**
   (tests taxonomy/naming), and a **fourth firm** (tests style-variance). Only chase samples representative of
