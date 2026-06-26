@@ -6,6 +6,8 @@ import {
   toSuggestedGridline,
   deriveGridlineSource,
   mapPendingGridlinesToRow,
+  updateSavedGridline,
+  deleteSavedGridline,
   type PendingGridline,
 } from '@/utils/gridlineParse';
 import type { TextWord, PercentRect, Gridline } from '@/types/domain';
@@ -165,5 +167,71 @@ describe('mapPendingGridlinesToRow (accept-all bulk-confirm)', () => {
     const out = mapPendingGridlinesToRow([], existing);
     expect(out.gridlines).toHaveLength(1);
     expect(out.source).toBe('ai_accepted');
+  });
+});
+
+describe('updateSavedGridline (edit a saved grid)', () => {
+  const gl = (label: string, axis: 'h' | 'v' = 'v'): Gridline => ({
+    label,
+    p1: { pctX: 0.2, pctY: 0.1 },
+    p2: { pctX: 0.2, pctY: 0.9 },
+    axis,
+  });
+  const saved = () => ({ gridlines: [gl('A'), gl('B')], suggested: [gl('A'), gl('B')] });
+
+  it('relabels one grid and rolls source to ai_edited (suggested stays frozen)', () => {
+    const out = updateSavedGridline(saved(), 1, { label: '  B2 ' });
+    expect(out.gridlines[1].label).toBe('B2'); // trimmed
+    expect(out.suggested[1].label).toBe('B'); // frozen original untouched
+    expect(out.source).toBe('ai_edited');
+  });
+
+  it('repositions a grid and re-infers the axis from the new endpoints', () => {
+    const out = updateSavedGridline(saved(), 0, {
+      p1: { pctX: 0.1, pctY: 0.5 },
+      p2: { pctX: 0.9, pctY: 0.51 },
+    });
+    expect(out.gridlines[0].axis).toBe('h'); // now runs horizontally
+    expect(out.gridlines[0].p2).toEqual({ pctX: 0.9, pctY: 0.51 });
+    expect(out.gridlines[0].label).toBe('A'); // label untouched
+  });
+
+  it('keeps source ai_accepted when only the geometry moves (labels unchanged)', () => {
+    const out = updateSavedGridline(saved(), 0, { p1: { pctX: 0.3, pctY: 0.1 } });
+    expect(out.source).toBe('ai_accepted');
+  });
+
+  it('leaves the arrays unchanged for an out-of-range index', () => {
+    const s = saved();
+    const out = updateSavedGridline(s, 5, { label: 'Z' });
+    expect(out.gridlines).toEqual(s.gridlines);
+  });
+});
+
+describe('deleteSavedGridline', () => {
+  const gl = (label: string): Gridline => ({
+    label,
+    p1: { pctX: 0, pctY: 0 },
+    p2: { pctX: 0, pctY: 1 },
+    axis: 'v',
+  });
+
+  it('removes the grid from both the final and frozen arrays at the same index', () => {
+    const saved = { gridlines: [gl('A'), gl('B'), gl('C')], suggested: [gl('A'), gl('B'), gl('C')] };
+    const out = deleteSavedGridline(saved, 1);
+    expect(out.gridlines.map((g) => g.label)).toEqual(['A', 'C']);
+    expect(out.suggested.map((g) => g.label)).toEqual(['A', 'C']);
+    expect(out.source).toBe('ai_accepted');
+  });
+
+  it('handles deleting the last remaining grid (empty → human)', () => {
+    const out = deleteSavedGridline({ gridlines: [gl('A')], suggested: [gl('A')] }, 0);
+    expect(out.gridlines).toHaveLength(0);
+    expect(out.source).toBe('human');
+  });
+
+  it('leaves the arrays unchanged for an out-of-range index', () => {
+    const saved = { gridlines: [gl('A')], suggested: [gl('A')] };
+    expect(deleteSavedGridline(saved, 3).gridlines).toHaveLength(1);
   });
 });

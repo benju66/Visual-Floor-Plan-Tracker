@@ -145,3 +145,54 @@ export function mapPendingGridlinesToRow(
   const suggested = [...(existing?.suggested ?? []), ...keep.map(toSuggestedGridline)];
   return { gridlines, suggested, source: deriveGridlineSource(gridlines, suggested) };
 }
+
+/**
+ * Edit ONE already-saved grid (relabel and/or reposition) → a whole-row payload to
+ * upsert. Pure: pass the saved arrays in, never reads the DB. The FROZEN
+ * `suggested` proposals stay untouched (they're the original machine read — the
+ * before-vs-final training signal), so a human relabel correctly rolls the `source`
+ * to `ai_edited` via {@link deriveGridlineSource}. When the geometry moves and no
+ * explicit `axis` is given, the axis is re-inferred from the new endpoints. An
+ * out-of-range index returns the arrays unchanged. The label is trimmed.
+ */
+export function updateSavedGridline(
+  saved: { gridlines: Gridline[]; suggested: Gridline[] },
+  index: number,
+  patch: Partial<Pick<Gridline, 'label' | 'p1' | 'p2' | 'axis'>>,
+): GridlineRowPayload {
+  const suggested = saved.suggested;
+  if (index < 0 || index >= saved.gridlines.length) {
+    return { gridlines: saved.gridlines, suggested, source: deriveGridlineSource(saved.gridlines, suggested) };
+  }
+  const gridlines = saved.gridlines.map((g, i) => {
+    if (i !== index) return g;
+    const next: Gridline = { ...g, ...patch };
+    if (patch.label !== undefined) next.label = patch.label.trim();
+    // Re-infer orientation when the line moved but the caller didn't pin an axis.
+    if ((patch.p1 || patch.p2) && patch.axis === undefined) next.axis = inferAxis(next.p1, next.p2);
+    return next;
+  });
+  return { gridlines, suggested, source: deriveGridlineSource(gridlines, suggested) };
+}
+
+/**
+ * Delete ONE already-saved grid → a whole-row payload to upsert. Pure. Removes the
+ * grid from BOTH the final and the frozen-suggested arrays at the same index so they
+ * stay aligned, then re-derives the rolled-up `source`. An out-of-range index
+ * returns the arrays unchanged.
+ */
+export function deleteSavedGridline(
+  saved: { gridlines: Gridline[]; suggested: Gridline[] },
+  index: number,
+): GridlineRowPayload {
+  if (index < 0 || index >= saved.gridlines.length) {
+    return {
+      gridlines: saved.gridlines,
+      suggested: saved.suggested,
+      source: deriveGridlineSource(saved.gridlines, saved.suggested),
+    };
+  }
+  const gridlines = saved.gridlines.filter((_, i) => i !== index);
+  const suggested = saved.suggested.filter((_, i) => i !== index);
+  return { gridlines, suggested, source: deriveGridlineSource(gridlines, suggested) };
+}

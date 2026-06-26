@@ -156,6 +156,17 @@ export interface WorkbenchState {
    */
   pendingGridlines: PendingGridline[];
   setPendingGridlines: (val: Updater<PendingGridline[]>) => void;
+
+  /**
+   * Which already-SAVED grid (index into `sheet_gridlines.gridlines`) is selected
+   * for editing during a gridline session — `null` = none. Selecting one highlights
+   * it on the canvas (where it becomes draggable to reposition) and in the panel
+   * (where its label is editable and it can be deleted). Transient; cleared when the
+   * session closes or the tracer unmounts. Index-based because saved grids carry no
+   * stable id; a delete clears the selection rather than risk a stale index.
+   */
+  selectedGridlineIndex: number | null;
+  setSelectedGridlineIndex: (val: Updater<number | null>) => void;
 }
 
 export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
@@ -267,5 +278,12 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
   setPendingGridlines: (val) =>
     set((state) => ({
       pendingGridlines: typeof val === 'function' ? val(state.pendingGridlines) : val,
+    })),
+
+  selectedGridlineIndex: null,
+  setSelectedGridlineIndex: (val) =>
+    set((state) => ({
+      selectedGridlineIndex:
+        typeof val === 'function' ? val(state.selectedGridlineIndex) : val,
     })),
 }));

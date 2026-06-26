@@ -21,6 +21,8 @@ import {
   parseBubbleLabel,
   inferAxis,
   mapPendingGridlinesToRow,
+  updateSavedGridline,
+  deleteSavedGridline,
   type PendingGridline,
 } from '@/utils/gridlineParse';
 import { useCreateWorkbenchLabel, useUpdateWorkbenchLabel } from '@/hooks/useWorkbenchActions';
@@ -81,6 +83,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       wb.setIsGridlineOpen(false);
       wb.setGridProposal(null);
       wb.setPendingGridlines([]);
+      wb.setSelectedGridlineIndex(null);
     };
   }, [sheetId, setActiveSheetId, setToolMode, clearSelectedUnits]);
 
@@ -108,6 +111,8 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   const setGridProposal = useWorkbenchStore((s) => s.setGridProposal);
   const pendingGridlines = useWorkbenchStore((s) => s.pendingGridlines);
   const setPendingGridlines = useWorkbenchStore((s) => s.setPendingGridlines);
+  const selectedGridlineIndex = useWorkbenchStore((s) => s.selectedGridlineIndex);
+  const setSelectedGridlineIndex = useWorkbenchStore((s) => s.setSelectedGridlineIndex);
 
   const { data: subtypes = [] } = useSubtypes();
   const { data: units = [] } = useUnits(sheetId);
@@ -237,21 +242,58 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     }
   }, [savedGridlines, upsertGridlines, setPendingGridlines, setGridProposal]);
 
+  // ── Manage ALREADY-SAVED grids (Phase 3c follow-up): relabel / reposition /
+  // delete. Each maps the whole 1:1 saved array through a pure helper and banks one
+  // upsert (reusing the accept-all write hook). Online-first like the rest of the
+  // gridline path; errors surface via the panel's saveError.
+  const savedForEdit = useCallback(
+    () => ({
+      gridlines: savedGridlines?.gridlines ?? [],
+      suggested: savedGridlines?.suggested_gridlines ?? [],
+    }),
+    [savedGridlines],
+  );
+
+  const relabelSavedGridline = useCallback(
+    (index: number, label: string) => {
+      upsertGridlines.mutate(updateSavedGridline(savedForEdit(), index, { label }));
+    },
+    [savedForEdit, upsertGridlines],
+  );
+
+  // Drag-to-reposition commit: the canvas hands back snapped endpoints; the helper
+  // re-infers the axis from them and keeps the frozen suggested proposal intact.
+  const adjustSavedGridline = useCallback(
+    (index: number, p1: PercentPoint, p2: PercentPoint) => {
+      upsertGridlines.mutate(updateSavedGridline(savedForEdit(), index, { p1, p2 }));
+    },
+    [savedForEdit, upsertGridlines],
+  );
+
+  const deleteSavedGridlineAt = useCallback(
+    (index: number) => {
+      setSelectedGridlineIndex(null); // indices shift on delete — drop the selection
+      upsertGridlines.mutate(deleteSavedGridline(savedForEdit(), index));
+    },
+    [savedForEdit, upsertGridlines, setSelectedGridlineIndex],
+  );
+
   // End the gridline session (panel ✕). Discards the in-progress proposal + any
   // unaccepted captures (saved grids persist); mirrors the toolbar toggle's close.
   const closeGridlines = useCallback(() => {
     setIsGridlineOpen(false);
     setGridProposal(null);
     setPendingGridlines([]);
+    setSelectedGridlineIndex(null);
     setToolMode('pan');
-  }, [setIsGridlineOpen, setGridProposal, setPendingGridlines, setToolMode]);
+  }, [setIsGridlineOpen, setGridProposal, setPendingGridlines, setSelectedGridlineIndex, setToolMode]);
 
   // Saved + pending grids drawn on the canvas overlay (display-only). The
   // in-progress proposal (label read, no axis yet) isn't drawn here — the live
   // CaptureLineOverlay shows its line while dragging.
   const gridlineOverlays = useMemo<GridlineOverlayItem[]>(
     () => [
-      ...(savedGridlines?.gridlines ?? []).map((g) => ({ ...g, kind: 'saved' as const })),
+      ...(savedGridlines?.gridlines ?? []).map((g, i) => ({ ...g, kind: 'saved' as const, savedIndex: i })),
       ...pendingGridlines.map((p) => ({
         label: p.label,
         p1: p.p1,
@@ -451,6 +493,9 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
         onCaptureLine={handleCaptureLine}
         gridlineOverlays={gridlineOverlays}
         confirmedGridlines={savedGridlines?.gridlines}
+        editableGridlines={isGridlineOpen}
+        selectedGridlineIndex={selectedGridlineIndex}
+        onAdjustGridline={adjustSavedGridline}
         pendingPolygonPoints={pendingLabelPoints}
         onPendingPolygonMove={setPendingLabelPoints}
         onRenameUnit={handleRenameUnit}
@@ -472,7 +517,8 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
         <GridlinePanel
           proposal={gridProposal}
           pending={pendingGridlines}
-          savedCount={savedGridlines?.gridlines.length ?? 0}
+          saved={savedGridlines?.gridlines ?? []}
+          selectedSavedIndex={selectedGridlineIndex}
           isSaving={upsertGridlines.isPending}
           saveError={upsertGridlines.error instanceof Error ? upsertGridlines.error.message : null}
           onProposalLabelChange={(label) =>
@@ -485,6 +531,9 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
             setPendingGridlines((list) => list.filter((g) => g.id !== id))
           }
           onAcceptAll={acceptAllGridlines}
+          onSelectSaved={setSelectedGridlineIndex}
+          onRelabelSaved={relabelSavedGridline}
+          onDeleteSaved={deleteSavedGridlineAt}
           onClose={closeGridlines}
         />
       )}

@@ -89,6 +89,15 @@ interface FloorplanCanvasProps {
    * for display); this is only the saved/confirmed set that drives snap weighting.
    */
   confirmedGridlines?: Gridline[];
+  /**
+   * Gridline editing (AI Tracing Assist — Phase 3c follow-up). When `editableGridlines`
+   * is on (workbench gridline session), the SAVED grid at `selectedGridlineIndex`
+   * becomes draggable on the canvas; releasing it fires `onAdjustGridline` with the
+   * snapped new endpoints. Omitted on the live map.
+   */
+  editableGridlines?: boolean;
+  selectedGridlineIndex?: number | null;
+  onAdjustGridline?: (index: number, p1: Point, p2: Point) => void;
   onRenameUnit?: (unitId: string | null) => void;
   onDeleteUnit?: (unitId: string | string[] | null) => void;
   onInstantStamp?: (unitId: string, points: Point[]) => void;
@@ -114,6 +123,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onCaptureLine,
   gridlineOverlays,
   confirmedGridlines,
+  editableGridlines,
+  selectedGridlineIndex,
+  onAdjustGridline,
   onRenameUnit,
   onDeleteUnit,
   onInstantStamp,
@@ -1760,6 +1772,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 stageScale={stageScale}
                 layout={layout}
                 toPixels={toPixels}
+                editable={editableGridlines}
+                selectedSavedIndex={selectedGridlineIndex}
+                onAdjustSavedGridline={onAdjustGridline}
+                snap={snapPoint}
               />
             )}
 
