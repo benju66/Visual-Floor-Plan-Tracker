@@ -6,9 +6,13 @@ import {
   addAliasToList,
   filterSubtypesForAdmin,
   groupSubtypesByRole,
+  restrictSubtypesToProjectType,
+  fuzzyRankSubtypes,
+  recentSubtypeIdsFromUnits,
   type TaxonomyResult,
 } from './subtypes';
 import type { Subtype } from '@/types/domain';
+import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 
 function makeSubtype(over: Partial<Subtype> = {}): Subtype {
   return {
@@ -179,5 +183,75 @@ describe('groupSubtypesByRole', () => {
     const dict = [makeSubtype({ id: 'x', name: 'Weird', top_level_role: 'nonsense' as never })];
     const groups = groupSubtypesByRole(dict);
     expect(Object.values(groups).flat()).toEqual([]);
+  });
+});
+
+describe('restrictSubtypesToProjectType', () => {
+  const universal = makeSubtype({ id: 'u', name: 'Corridor', default_project_types: [...PROJECT_TYPES] });
+  const housing = makeSubtype({ id: 'h', name: 'Dwelling Unit', default_project_types: ['Housing'] });
+  const healthcare = makeSubtype({ id: 'k', name: 'Dental Operatory', default_project_types: ['Healthcare'] });
+  const dict = [universal, housing, healthcare];
+
+  it('keeps universal types and the project type’s own, drops other verticals', () => {
+    const out = restrictSubtypesToProjectType(dict, 'Housing').map(s => s.name);
+    expect(out).toEqual(['Corridor', 'Dwelling Unit']); // Dental Operatory dropped
+  });
+
+  it('forces in a kept id even when it would be filtered out', () => {
+    const out = restrictSubtypesToProjectType(dict, 'Housing', new Set(['k'])).map(s => s.name);
+    expect(out).toEqual(['Corridor', 'Dwelling Unit', 'Dental Operatory']);
+  });
+
+  it('returns the list unchanged when the project type is null', () => {
+    expect(restrictSubtypesToProjectType(dict, null)).toBe(dict);
+  });
+});
+
+describe('fuzzyRankSubtypes', () => {
+  const dict = [
+    makeSubtype({ id: '1', name: 'Lab' }),
+    makeSubtype({ id: '2', name: 'Teaching Lab' }),
+    makeSubtype({ id: '3', name: 'Collaboration Area' }),
+    makeSubtype({ id: '4', name: 'Salon Studio', aliases: ['Salon Suite'] }),
+  ];
+
+  it('ranks exact/prefix above word-start above substring', () => {
+    expect(fuzzyRankSubtypes(dict, 'lab').map(s => s.name))
+      .toEqual(['Lab', 'Teaching Lab', 'Collaboration Area']);
+  });
+
+  it('matches against an alias so a synonym finds its canonical type', () => {
+    expect(fuzzyRankSubtypes(dict, 'suite').map(s => s.name)).toEqual(['Salon Studio']);
+  });
+
+  it('returns a copy unchanged for a blank query', () => {
+    const out = fuzzyRankSubtypes(dict, '   ');
+    expect(out.map(s => s.name)).toEqual(dict.map(s => s.name));
+    expect(out).not.toBe(dict);
+  });
+
+  it('excludes non-matches', () => {
+    expect(fuzzyRankSubtypes(dict, 'zzz')).toEqual([]);
+  });
+});
+
+describe('recentSubtypeIdsFromUnits', () => {
+  const units = [
+    { subtype_id: 'a', created_at: '2026-01-03T00:00:00Z' },
+    { subtype_id: 'b', created_at: '2026-01-02T00:00:00Z' },
+    { subtype_id: 'a', created_at: '2026-01-01T00:00:00Z' }, // older dup of 'a'
+    { subtype_id: null, created_at: '2026-01-04T00:00:00Z' }, // ignored (no type)
+  ];
+
+  it('de-dupes to most-recent-first, ignoring typeless locations', () => {
+    expect(recentSubtypeIdsFromUnits(units)).toEqual(['a', 'b']);
+  });
+
+  it('respects the cap', () => {
+    expect(recentSubtypeIdsFromUnits(units, 1)).toEqual(['a']);
+  });
+
+  it('returns [] when nothing has a type', () => {
+    expect(recentSubtypeIdsFromUnits([{ subtype_id: null, created_at: null }])).toEqual([]);
   });
 });

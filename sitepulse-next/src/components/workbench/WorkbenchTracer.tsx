@@ -26,6 +26,7 @@ import {
   type PendingGridline,
 } from '@/utils/gridlineParse';
 import { useCreateWorkbenchLabel, useUpdateWorkbenchLabel } from '@/hooks/useWorkbenchActions';
+import { recentSubtypeIdsFromUnits } from '@/utils/subtypes';
 import { PROJECT_TYPES, type ProjectType } from '@/utils/locationTaxonomy';
 import { recordTraceEvent, labelSnapshotFromUnit, type TraceMethod, type TraceSource } from '@/utils/traceCapture';
 import {
@@ -143,6 +144,10 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     .filter((u) => u.id !== editingLabelId)
     .map((u) => u.unit_number)
     .filter((n): n is string => !!n && n.trim().length > 0);
+
+  // "Used in this project" recents for the type picker — the sub-types of locations
+  // already on this sheet, most-recent first (derived, no new storage).
+  const recentSubtypeIds = useMemo(() => recentSubtypeIdsFromUnits(units), [units]);
 
   // Feed the picker the SHEET's project type (per-drawing, from the Phase-5
   // sidecar) — workbench drawings are heterogeneous, so this is not a project-level type.
@@ -546,6 +551,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
           projectType={projectType}
           existingNames={existingNames}
           editingUnit={editingUnit}
+          recentSubtypeIds={recentSubtypeIds}
           suggestedPick={suggestedPick}
           isSuggested={!!labelSuggestion}
           isSaving={createLabel.isPending || updateLabel.isPending}

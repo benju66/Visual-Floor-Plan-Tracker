@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Info, Layers, CircleDashed, Sparkles } from 'lucide-react';
 import TaxonomyPicker from '@/components/TaxonomyPicker';
 import { normalizeLocationName, isNameUniqueOnSheet, suggestNextName } from '@/utils/workbenchNaming';
@@ -52,6 +52,8 @@ interface WorkbenchLabelPopoverProps {
   onCancel: () => void;
   /** When set, the popover edits this label (pre-fills type + flags); otherwise it creates. */
   editingUnit?: Unit | null;
+  /** Sub-type ids of locations already on this sheet — the picker's "Used in this project" row. */
+  recentSubtypeIds?: string[];
   /**
    * The AI taxonomy pre-selection for a freshly-traced room (AI Tracing Assist —
    * Phase 2). Only used in CREATE mode; the name is pre-filled separately via
@@ -72,6 +74,7 @@ export default function WorkbenchLabelPopover({
   onSave,
   onCancel,
   editingUnit,
+  recentSubtypeIds = [],
   suggestedPick = null,
   isSuggested = false,
 }: WorkbenchLabelPopoverProps) {
@@ -93,6 +96,28 @@ export default function WorkbenchLabelPopover({
   const typeName = pick ? pick.name : null;
   const isPending = pick?.kind === 'pending';
 
+  // Keyboard flow (plan §A4/§A5): name → Tab → search box → Tab → Save → Enter.
+  const nameRef = useRef<HTMLInputElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const saveRef = useRef<HTMLButtonElement | null>(null);
+  const advanceRequestedRef = useRef(false);
+
+  // Tab out of the type list requests focus on Save; do it from an effect so the
+  // button has re-rendered enabled (a disabled button can't take focus) after the
+  // pick commits.
+  const requestAdvanceToSave = () => { advanceRequestedRef.current = true; };
+  useEffect(() => {
+    if (advanceRequestedRef.current && canSave) {
+      advanceRequestedRef.current = false;
+      saveRef.current?.focus();
+    }
+  }, [pick, canSave]);
+
+  // Keep selected + AI-suggested types visible even when the project-type filter
+  // would hide them.
+  const selectedSubtypeId = pick && pick.kind === 'subtype' ? pick.subtypeId : null;
+  const suggestedSubtypeId = suggestedPick && suggestedPick.kind === 'subtype' ? suggestedPick.subtypeId : null;
+
   const handleSave = () => {
     if (!canSave || !pick) return;
     onSave({ pick, spansLevels, levelNote, hasVoid });
@@ -102,6 +127,7 @@ export default function WorkbenchLabelPopover({
     <div
       className="absolute top-6 right-6 z-[60] w-72 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md max-h-[calc(100vh-6rem)] overflow-y-auto overscroll-contain"
       style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
+      onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
     >
       <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">
         {isEditing ? 'Edit location' : 'Name this location'}
@@ -123,7 +149,9 @@ export default function WorkbenchLabelPopover({
       </p>
 
       <input
+        ref={nameRef}
         type="text"
+        // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
         className="w-full text-sm border border-slate-300/80 dark:border-white/15 rounded-xl px-2.5 py-1.5 bg-white/70 dark:bg-black/25 outline-none focus:ring-2 focus:ring-blue-500/50"
         placeholder="e.g. 1204"
@@ -131,7 +159,8 @@ export default function WorkbenchLabelPopover({
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') handleSave();
-          if (e.key === 'Escape') onCancel();
+          // Tab moves into the type search box (the list); Escape handled at the popover root.
+          if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); searchRef.current?.focus(); }
         }}
       />
 
@@ -170,9 +199,15 @@ export default function WorkbenchLabelPopover({
         <TaxonomyPicker
           subtypes={subtypes}
           projectType={projectType}
-          selectedSubtypeId={pick && pick.kind === 'subtype' ? pick.subtypeId : null}
+          selectedSubtypeId={selectedSubtypeId}
           onPick={setPick}
           variant="popover"
+          restrictToProjectType
+          suggestedSubtypeId={suggestedSubtypeId}
+          recentSubtypeIds={recentSubtypeIds}
+          searchRef={searchRef}
+          onAdvance={requestAdvanceToSave}
+          autoFocusSearch={false}
         />
       </div>
 
@@ -212,6 +247,7 @@ export default function WorkbenchLabelPopover({
           Cancel
         </button>
         <button
+          ref={saveRef}
           type="button"
           onClick={handleSave}
           disabled={!canSave}

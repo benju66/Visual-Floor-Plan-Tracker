@@ -1,7 +1,7 @@
 "use client";
 import React, { useState } from 'react';
 import {
-  Plus, Check, X, Search, AlertCircle, Loader2, Tag, CornerDownRight, Info,
+  Plus, Check, X, Search, AlertCircle, Loader2, Tag, CornerDownRight, Info, Building2,
 } from 'lucide-react';
 import {
   useSubtypes, useUpsertSubtype, useSetSubtypeStatus, useAddSubtypeAlias,
@@ -89,8 +89,8 @@ export default function LocationLibraryPanel({ canManage = true }: LocationLibra
       <div>
         <p className="text-xs text-slate-500 dark:text-slate-400 text-balance">
           A single shared list of location types used across <span className="font-semibold">all</span> projects.
-          Add or retire types, fold synonyms into a canonical name, and review the proposals your team tags
-          while tracing. Changes here apply everywhere.
+          Add or retire types, fold synonyms into a canonical name, choose which project types each one shows up
+          for, and review the proposals your team tags while tracing. Changes here apply everywhere.
         </p>
       </div>
 
@@ -180,7 +180,7 @@ export default function LocationLibraryPanel({ canManage = true }: LocationLibra
                 ))}
               </div>
               <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                Suggest first for (optional)
+                Show in these project types
               </div>
               <div className="mb-3 flex flex-wrap gap-1.5">
                 {PROJECT_TYPES.map(pt => {
@@ -267,6 +267,16 @@ export default function LocationLibraryPanel({ canManage = true }: LocationLibra
                       canManage={canManage}
                       onSetStatus={(status) => run(() => setStatus.mutateAsync({ id: s.id, status }))}
                       onAddAlias={(alias) => run(() => addAlias.mutateAsync({ id: s.id, alias }))}
+                      onSetProjectTypes={(defaults) =>
+                        run(() =>
+                          upsert.mutateAsync({
+                            id: s.id,
+                            name: s.name,
+                            role: s.top_level_role as TopLevelRole,
+                            defaultProjectTypes: defaults,
+                          }),
+                        )
+                      }
                     />
                   ))}
                 </div>
@@ -373,13 +383,32 @@ interface DictionaryRowProps {
   canManage: boolean;
   onSetStatus: (status: SubtypeStatus) => void;
   onAddAlias: (alias: string) => void;
+  onSetProjectTypes: (defaults: ProjectType[]) => void;
 }
 
-function DictionaryRow({ subtype, canManage, onSetStatus, onAddAlias }: DictionaryRowProps) {
+function DictionaryRow({ subtype, canManage, onSetStatus, onAddAlias, onSetProjectTypes }: DictionaryRowProps) {
   const aliasingId = useTaxonomyAdminStore(s => s.aliasingId);
   const setAliasingId = useTaxonomyAdminStore(s => s.setAliasingId);
   const open = aliasingId === subtype.id;
   const [aliasText, setAliasText] = useState('');
+
+  // Inline project-type visibility editor (which project types this type shows
+  // up for in the tracing picker). Local, transient state — multiple rows can be
+  // open independently; the draft commits as one upsert via onSetProjectTypes.
+  const [editingTypes, setEditingTypes] = useState(false);
+  const [draftTypes, setDraftTypes] = useState<ProjectType[]>(subtype.default_project_types);
+
+  const openTypes = () => { setDraftTypes(subtype.default_project_types); setEditingTypes(true); };
+  const toggleDraft = (pt: ProjectType) =>
+    setDraftTypes(prev => (prev.includes(pt) ? prev.filter(p => p !== pt) : [...prev, pt]));
+  const commitTypes = () => { onSetProjectTypes(draftTypes); setEditingTypes(false); };
+
+  const allTypes = subtype.default_project_types.length === PROJECT_TYPES.length;
+  const typesSummary = allTypes
+    ? 'All project types'
+    : subtype.default_project_types.length
+      ? subtype.default_project_types.join(', ')
+      : 'No project types';
 
   const commitAlias = () => {
     const v = aliasText.trim();
@@ -407,6 +436,14 @@ function DictionaryRow({ subtype, canManage, onSetStatus, onAddAlias }: Dictiona
           <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
+              onClick={() => (editingTypes ? setEditingTypes(false) : openTypes())}
+              className={`rounded-md p-1 transition-colors ${editingTypes ? 'text-sky-500 bg-sky-50 dark:bg-sky-500/10' : 'text-slate-400 hover:text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10'}`}
+              title="Choose which project types show this type"
+            >
+              <Building2 size={14} />
+            </button>
+            <button
+              type="button"
               onClick={() => { setAliasingId(open ? null : subtype.id); setAliasText(''); }}
               className="rounded-md p-1 text-slate-400 hover:text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"
               title="Add an alias (synonym)"
@@ -425,6 +462,55 @@ function DictionaryRow({ subtype, canManage, onSetStatus, onAddAlias }: Dictiona
           </div>
         )}
       </div>
+
+      {/* Current project-type visibility (always shown, read-only summary). */}
+      <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
+        <Building2 size={11} className="shrink-0" />
+        <span className="truncate" title={typesSummary}>{typesSummary}</span>
+      </div>
+
+      {editingTypes && canManage && (
+        <div className="mt-2 border-t border-slate-100 dark:border-white/5 pt-2">
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            Show in these project types
+          </div>
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {PROJECT_TYPES.map(pt => {
+              const on = draftTypes.includes(pt);
+              return (
+                <button
+                  key={pt}
+                  type="button"
+                  onClick={() => toggleDraft(pt)}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                    on
+                      ? 'border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-300'
+                      : 'border-slate-200 dark:border-white/10 text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10'
+                  }`}
+                >
+                  {pt}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={commitTypes}
+              className="flex items-center gap-1 rounded-md bg-sky-500 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 transition-colors"
+            >
+              <Check size={13} /> Save
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditingTypes(false)}
+              className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {subtype.aliases.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
