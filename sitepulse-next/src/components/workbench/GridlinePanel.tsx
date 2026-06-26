@@ -184,7 +184,7 @@ export default function GridlinePanel({
         <div className="mb-3 rounded-xl border border-violet-200 dark:border-violet-900/50 bg-violet-50/80 dark:bg-violet-950/30 p-2.5">
           <p className="flex items-center gap-1.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300 mb-2">
             <MousePointerClick size={13} className="shrink-0" />
-            Now drag a line across this grid line.
+            Now click the two ends of this grid line (pan between clicks).
           </p>
           <div className="flex items-center gap-2">
             <label htmlFor="gridProposalLabel" className="text-[10px] font-bold uppercase tracking-widest text-slate-400">

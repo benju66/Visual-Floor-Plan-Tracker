@@ -98,6 +98,8 @@ interface FloorplanCanvasProps {
   editableGridlines?: boolean;
   selectedGridlineIndex?: number | null;
   onAdjustGridline?: (index: number, p1: Point, p2: Point) => void;
+  /** Select a saved gridline from the canvas (Select tool), or `null` to clear. */
+  onSelectGridline?: (index: number | null) => void;
   onRenameUnit?: (unitId: string | null) => void;
   onDeleteUnit?: (unitId: string | string[] | null) => void;
   onInstantStamp?: (unitId: string, points: Point[]) => void;
@@ -126,6 +128,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   editableGridlines,
   selectedGridlineIndex,
   onAdjustGridline,
+  onSelectGridline,
   onRenameUnit,
   onDeleteUnit,
   onInstantStamp,
@@ -336,6 +339,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const [isShiftDown, setIsShiftDown] = useState(false);
   const [boxOrigin, setBoxOrigin] = useState<Point | null>(null);
+  // Fresh boxOrigin for the keydown handler (its effect doesn't depend on boxOrigin).
+  const boxOriginRef = useRef<Point | null>(null);
+  useEffect(() => { boxOriginRef.current = boxOrigin; }, [boxOrigin]);
 
   const aspect = layoutRef.current.drawW / Math.max(1, layoutRef.current.drawH);
   const lastBoxEndRef = useRef(0);
@@ -383,6 +389,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
             e.stopImmediatePropagation();
             setDraftPoints([]);
+          } else if (toolMode === 'capture_line' && boxOriginRef.current) {
+            // Cancel a half-placed grid axis (start node dropped, no end yet) but stay
+            // in capture mode so the next click can re-place it.
+            e.stopImmediatePropagation();
+            setBoxOrigin(null);
           } else if (toolMode !== 'pan') {
             onToolModeChange('pan');
           }
@@ -928,9 +939,25 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         pctY = lastSnapRef.current.pctY;
       }
       setDraftPoints([...draftPoints, { pctX, pctY }]);
+    } else if (toolMode === 'capture_line') {
+      // Two-click grid-axis placement (AI Tracing Assist — Phase 3c follow-up): the
+      // first click drops the START node, the second drops the END node and emits.
+      // Between clicks you can pan/zoom freely — no held drag (which was jumpy and
+      // awkward when zoomed in). Both ends snap to the detected vectors.
+      const snapped = snapPoint({ pctX, pctY });
+      if (!boxOrigin) {
+        setBoxOrigin(snapped);
+      } else {
+        if (Math.abs(snapped.pctX - boxOrigin.pctX) > 0.02 || Math.abs(snapped.pctY - boxOrigin.pctY) > 0.02) {
+          lastBoxEndRef.current = Date.now();
+          onCaptureLine?.(boxOrigin, snapped);
+        }
+        setBoxOrigin(null);
+      }
     } else if (['select', 'multi_select', 'add_node', 'delete_node'].includes(toolMode)) {
       if (e.target === stage || e.target.nodeType === 'Image' || e.target.attrs?.id === 'bg-rect') {
         onClearSelection();
+        onSelectGridline?.(null); // clicking empty canvas also drops a selected gridline
         setIsLegendSelected(false);
       }
     } else {
@@ -942,6 +969,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   useEffect(() => {
     setContextMenu(null);
+    // Drop any half-placed capture origin (e.g. a grid-axis start node) when the tool
+    // changes, so a stale start never gets paired with a later click.
+    setBoxOrigin(null);
   }, [toolMode]);
 
   const finishDrawing = () => {
@@ -1439,10 +1469,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               const pctX = (logicalX - layout.offsetX) / layout.drawW;
               const pctY = (logicalY - layout.offsetY) / layout.drawH;
               setBoxOrigin({ pctX, pctY });
-            } else if ((toolMode === 'capture_box' || toolMode === 'capture_line') && (!e.evt || e.evt.button === 0)) {
-              // Start a capture drag — a box (title-block read) or a line (grid axis).
-              // Same box-origin plumbing as the draw tool; pointer-up decides the
-              // emitted shape per toolMode.
+            } else if (toolMode === 'capture_box' && (!e.evt || e.evt.button === 0)) {
+              // Start a capture-box drag (title-block / grid-bubble read). Pointer-up
+              // emits the normalized rect. (The grid AXIS uses two-click placement via
+              // handleStageClick instead — easier than a hold-drag when zoomed in.)
               const stage = e.target.getStage();
               if (!stage) return;
               const pointer = stage.getPointerPosition();
@@ -1540,29 +1570,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               }
             }
 
-            // Capture-line drag complete (grid axis): snap BOTH endpoints to the
-            // detected vectors and emit. Requires a real drag (not a bare tap) so
-            // an accidental click never records a degenerate grid line.
-            if (toolMode === 'capture_line' && boxOrigin) {
-              const stage = e.target.getStage();
-              const lastSample = pointerStore.get();
-              const pointer = stage?.getPointerPosition()
-                || (lastSample ? { x: lastSample.screenX, y: lastSample.screenY } : null);
-              const origin = boxOrigin;
-              setBoxOrigin(null);
-              if (stage && pointer) {
-                const logicalX = (pointer.x - stage.x()) / stageScale;
-                const logicalY = (pointer.y - stage.y()) / stageScale;
-                const endPctX = (logicalX - layout.offsetX) / layout.drawW;
-                const endPctY = (logicalY - layout.offsetY) / layout.drawH;
-                if (Math.abs(endPctX - origin.pctX) > 0.02 || Math.abs(endPctY - origin.pctY) > 0.02) {
-                  const p1 = snapPoint(origin);
-                  const p2 = snapPoint({ pctX: endPctX, pctY: endPctY });
-                  lastBoxEndRef.current = Date.now();
-                  onCaptureLine?.(p1, p2);
-                }
-              }
-            }
+            // Note: the grid AXIS (capture_line) is placed with two clicks in
+            // handleStageClick, not a pointer-up drag — so there is no capture_line
+            // branch here.
           }}
           onMouseMove={(e) => {
             const stage = e.target.getStage();
@@ -1773,7 +1783,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 layout={layout}
                 toPixels={toPixels}
                 editable={editableGridlines}
+                selectMode={toolMode === 'select'}
                 selectedSavedIndex={selectedGridlineIndex}
+                onSelectGridline={onSelectGridline}
                 onAdjustSavedGridline={onAdjustGridline}
                 snap={snapPoint}
               />

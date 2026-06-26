@@ -283,6 +283,16 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     [savedForEdit, upsertGridlines, setSelectedGridlineIndex],
   );
 
+  // Canvas selection (Select tool clicks a saved grid): pick it AND open the panel so
+  // relabel/delete are right there. `null` (clicking empty canvas) just deselects.
+  const selectSavedGridlineFromCanvas = useCallback(
+    (index: number | null) => {
+      setSelectedGridlineIndex(index);
+      if (index !== null) setIsGridlineOpen(true);
+    },
+    [setSelectedGridlineIndex, setIsGridlineOpen],
+  );
+
   // End the gridline session (panel ✕). Discards the in-progress proposal + any
   // unaccepted captures (saved grids persist); mirrors the toolbar toggle's close.
   const closeGridlines = useCallback(() => {
@@ -501,6 +511,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
         editableGridlines={isGridlineOpen}
         selectedGridlineIndex={selectedGridlineIndex}
         onAdjustGridline={adjustSavedGridline}
+        onSelectGridline={selectSavedGridlineFromCanvas}
         pendingPolygonPoints={pendingLabelPoints}
         onPendingPolygonMove={setPendingLabelPoints}
         onRenameUnit={handleRenameUnit}

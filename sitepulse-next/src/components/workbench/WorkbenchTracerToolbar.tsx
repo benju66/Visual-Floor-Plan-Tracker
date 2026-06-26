@@ -117,7 +117,7 @@ export default function WorkbenchTracerToolbar({
           read its label, then drag the axis line across the grid line. */}
       <button
         type="button"
-        title="Capture gridlines — box a bubble, then drag its line"
+        title="Capture gridlines — box a bubble, then click its two ends"
         onClick={toggleGridlines}
         className={`${btnBase} ${isGridlineOpen ? btnActive : btnIdle}`}
       >
