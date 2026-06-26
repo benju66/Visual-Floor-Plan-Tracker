@@ -58,14 +58,91 @@ export interface SnapResult {
   snapped: boolean;
 }
 
+/**
+ * Find the best snap (corner gravity, else perpendicular edge projection) among a
+ * given set of vectors, within `snapRadiusX`. Aspect-corrected (Y divided by
+ * `aspect`). Pure — the shared inner core of {@link getSnappedCoordinate}, factored
+ * out so the grid-aware two-pass search can run it once over walls and once over the
+ * full set without duplicating the math.
+ */
+const snapAmongLines = (
+  lines: readonly RBushItem[],
+  cursorPctX: number,
+  cursorPctY: number,
+  aspect: number,
+  snapRadiusX: number,
+): SnapResult => {
+  let closestDist = Infinity;
+  let bestPoint = { pctX: cursorPctX, pctY: cursorPctY };
+
+  let closestVertexDist = Infinity;
+  let bestVertex: PercentPoint | null = null;
+
+  for (const { lineData } of lines) {
+    const { start, end } = lineData;
+
+    // Check vertices (corners) for priority snapping
+    const dStart = Math.sqrt(sqr(cursorPctX - start.pctX) + sqr((cursorPctY - start.pctY) / aspect));
+    if (dStart < closestVertexDist) {
+      closestVertexDist = dStart;
+      bestVertex = start;
+    }
+
+    const dEnd = Math.sqrt(sqr(cursorPctX - end.pctX) + sqr((cursorPctY - end.pctY) / aspect));
+    if (dEnd < closestVertexDist) {
+      closestVertexDist = dEnd;
+      bestVertex = end;
+    }
+
+    // Account for aspect ratio distortion in standard pct space calculations
+    const l2 = sqr(start.pctX - end.pctX) + sqr((start.pctY - end.pctY) / aspect);
+    if (l2 === 0) continue;
+
+    let t = ((cursorPctX - start.pctX) * (end.pctX - start.pctX) +
+            ((cursorPctY - start.pctY) / aspect) * ((end.pctY - start.pctY) / aspect)) / l2;
+    t = Math.max(0, Math.min(1, t));
+
+    const projX = start.pctX + t * (end.pctX - start.pctX);
+    const projY = start.pctY + t * (end.pctY - start.pctY);
+
+    const dist = Math.sqrt(sqr(cursorPctX - projX) + sqr((cursorPctY - projY) / aspect));
+
+    if (dist < closestDist) {
+      closestDist = dist;
+      bestPoint = { pctX: projX, pctY: projY };
+    }
+  }
+
+  // Corner gravity: if a vertex is within the snap radius, strictly prefer it over a straight edge projection
+  if (closestVertexDist < snapRadiusX && bestVertex !== null) {
+    return { pctX: bestVertex.pctX, pctY: bestVertex.pctY, snapped: true };
+  }
+
+  // Since closestDist uses aspect-corrected distance, it is in the scale of pctX.
+  if (closestDist < snapRadiusX) {
+    return { ...bestPoint, snapped: true };
+  }
+
+  return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
+};
+
 export const getSnappedCoordinate = (
-  cursorPctX: number, 
-  cursorPctY: number, 
-  rBushTree: RBush<RBushItem> | null, 
-  aspect: number, 
-  drawW: number, 
-  stageScale: number, 
-  strength: number = 15
+  cursorPctX: number,
+  cursorPctY: number,
+  rBushTree: RBush<RBushItem> | null,
+  aspect: number,
+  drawW: number,
+  stageScale: number,
+  strength: number = 15,
+  /**
+   * Grid-aware snapping (AI Tracing Assist — Phase 3c). When true, vectors tagged
+   * `isGrid` (collinear with a confirmed grid line) are DE-PRIORITIZED: snap to a
+   * real-wall vector first, and only fall back to the full set — so a grid line is
+   * preferred only when no wall is within range. A wall coincident with a grid still
+   * snaps (it survives the walls-first pass, or the fallback). Default false →
+   * byte-identical to the prior single-pass behavior (the live map never tags grids).
+   */
+  gridAware: boolean = false,
 ): SnapResult => {
   if (!rBushTree) return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
 
@@ -82,58 +159,18 @@ export const getSnappedCoordinate = (
 
   if (nearbyLines.length === 0) return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
 
-  let closestDist = Infinity;
-  let bestPoint = { pctX: cursorPctX, pctY: cursorPctY };
-  
-  let closestVertexDist = Infinity;
-  let bestVertex: PercentPoint | null = null;
-
-  nearbyLines.forEach(({ lineData }) => {
-    const { start, end } = lineData;
-    
-    // Check vertices (corners) for priority snapping
-    const dStart = Math.sqrt(sqr(cursorPctX - start.pctX) + sqr((cursorPctY - start.pctY) / aspect));
-    if (dStart < closestVertexDist) {
-       closestVertexDist = dStart;
-       bestVertex = start;
+  if (gridAware) {
+    // Walls-first: when some (but not all) nearby vectors are grid lines, try to snap
+    // to a non-grid wall before considering the grids. Only if no wall is within range
+    // do we fall through to the full set (so wall-on-grid coincident lines still snap).
+    const walls = nearbyLines.filter((l) => !l.isGrid);
+    if (walls.length > 0 && walls.length < nearbyLines.length) {
+      const wallSnap = snapAmongLines(walls, cursorPctX, cursorPctY, aspect, snapRadiusX);
+      if (wallSnap.snapped) return wallSnap;
     }
-    
-    const dEnd = Math.sqrt(sqr(cursorPctX - end.pctX) + sqr((cursorPctY - end.pctY) / aspect));
-    if (dEnd < closestVertexDist) {
-       closestVertexDist = dEnd;
-       bestVertex = end;
-    }
-    
-    // Account for aspect ratio distortion in standard pct space calculations
-    const l2 = sqr(start.pctX - end.pctX) + sqr((start.pctY - end.pctY) / aspect);
-    if (l2 === 0) return;
-
-    let t = ((cursorPctX - start.pctX) * (end.pctX - start.pctX) + 
-            ((cursorPctY - start.pctY) / aspect) * ((end.pctY - start.pctY) / aspect)) / l2;
-    t = Math.max(0, Math.min(1, t));
-
-    const projX = start.pctX + t * (end.pctX - start.pctX);
-    const projY = start.pctY + t * (end.pctY - start.pctY);
-
-    const dist = Math.sqrt(sqr(cursorPctX - projX) + sqr((cursorPctY - projY) / aspect));
-
-    if (dist < closestDist) {
-      closestDist = dist;
-      bestPoint = { pctX: projX, pctY: projY };
-    }
-  });
-
-  // Corner gravity: if a vertex is within the snap radius, strictly prefer it over a straight edge projection
-  if (closestVertexDist < snapRadiusX && bestVertex !== null) {
-    return { pctX: (bestVertex! as any).pctX, pctY: (bestVertex! as any).pctY, snapped: true };
   }
 
-  // Since closestDist uses aspect-corrected distance, it is in the scale of pctX.
-  if (closestDist < snapRadiusX) {
-    return { ...bestPoint, snapped: true };
-  }
-
-  return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
+  return snapAmongLines(nearbyLines, cursorPctX, cursorPctY, aspect, snapRadiusX);
 };
 
 /** Minimal layout shape for pct → logical-pixel conversion. */

@@ -162,7 +162,10 @@ describe('isPointInPolygon — ray-casting interior test', () => {
 // getSnappedCoordinate only needs an object with a `.search()` method, so we
 // stub RBush instead of pulling in the real spatial index. `as never` keeps the
 // stub assignable to the RBush<RBushItem> parameter without importing rbush.
-function fakeTree(items: { lineData: { start: PercentPoint; end: PercentPoint } }[]) {
+// `isGrid` is optional so existing (grid-naive) tests can omit it.
+function fakeTree(
+  items: { lineData: { start: PercentPoint; end: PercentPoint }; isGrid?: boolean }[],
+) {
   return { search: () => items } as never;
 }
 
@@ -213,5 +216,55 @@ describe('getSnappedCoordinate', () => {
     expect(result.snapped).toBe(false);
     expect(result.pctX).toBeCloseTo(0.5);
     expect(result.pctY).toBeCloseTo(0.6);
+  });
+});
+
+describe('getSnappedCoordinate — grid-aware two-pass (Phase 3c)', () => {
+  const aspect = 1;
+  const drawW = 1000;
+  const stageScale = 1; // snapRadiusX = 15 / 1000 = 0.015
+
+  // A grid line (isGrid) dead-on at y=0.5, and a real wall 0.005 below it at y=0.505.
+  // Both run x ∈ [0.3, 0.7]; their endpoints are ~0.2 away (no corner gravity).
+  const gridThenWall = () =>
+    fakeTree([
+      { lineData: { start: { pctX: 0.3, pctY: 0.5 }, end: { pctX: 0.7, pctY: 0.5 } }, isGrid: true },
+      { lineData: { start: { pctX: 0.3, pctY: 0.505 }, end: { pctX: 0.7, pctY: 0.505 } }, isGrid: false },
+    ]);
+
+  it('prefers the wall over a nearer grid line when grid-aware is on', () => {
+    // Cursor sits exactly on the grid (y=0.5). Grid-naive would snap to it (dist 0);
+    // grid-aware skips the grid and snaps to the wall 0.005 away.
+    const result = getSnappedCoordinate(0.5, 0.5, gridThenWall(), aspect, drawW, stageScale, 15, true);
+    expect(result.snapped).toBe(true);
+    expect(result.pctY).toBeCloseTo(0.505);
+  });
+
+  it('snaps to the nearer grid line when grid-aware is off (prior behavior)', () => {
+    const result = getSnappedCoordinate(0.5, 0.5, gridThenWall(), aspect, drawW, stageScale, 15, false);
+    expect(result.snapped).toBe(true);
+    expect(result.pctY).toBeCloseTo(0.5);
+  });
+
+  it('still snaps to a grid line when it is the only vector nearby (wall-on-grid fallback)', () => {
+    // Only a grid-tagged vector is in range; grid-aware must still snap (it is the
+    // wall there) rather than refuse — the down-weight-not-remove invariant.
+    const onlyGrid = fakeTree([
+      { lineData: { start: { pctX: 0.3, pctY: 0.5 }, end: { pctX: 0.7, pctY: 0.5 } }, isGrid: true },
+    ]);
+    const result = getSnappedCoordinate(0.5, 0.505, onlyGrid, aspect, drawW, stageScale, 15, true);
+    expect(result.snapped).toBe(true);
+    expect(result.pctY).toBeCloseTo(0.5);
+  });
+
+  it('is a no-op when no nearby vector is tagged as grid', () => {
+    // No grids in range → grid-aware behaves exactly like the single-pass search.
+    const onlyWall = fakeTree([
+      { lineData: { start: { pctX: 0.3, pctY: 0.5 }, end: { pctX: 0.7, pctY: 0.5 } }, isGrid: false },
+    ]);
+    const aware = getSnappedCoordinate(0.5, 0.505, onlyWall, aspect, drawW, stageScale, 15, true);
+    const naive = getSnappedCoordinate(0.5, 0.505, onlyWall, aspect, drawW, stageScale, 15, false);
+    expect(aware).toEqual(naive);
+    expect(aware.snapped).toBe(true);
   });
 });

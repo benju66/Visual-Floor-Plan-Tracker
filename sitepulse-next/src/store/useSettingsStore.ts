@@ -25,6 +25,11 @@ export interface MapSettings {
   /** Glide mouse-wheel zoom toward a target scale instead of stepping instantly.
    *  On by default; only an explicit `false` (user toggled it off) disables it. */
   smoothWheelZoom?: boolean;
+  /** Grid-aware snapping (AI Tracing Assist — Phase 3c): when a workbench sheet has
+   *  confirmed gridlines, de-prioritize snapping onto those grid lines so tracing
+   *  prefers real walls. On by default; only an explicit `false` disables it.
+   *  Inert on the live map (no confirmed grids → nothing tagged). */
+  gridAwareSnapping?: boolean;
   /** Persisted width (px) of the interactive-map right side panel. Desktop only. */
   sidebarWidth?: number;
   /** Lag Mode: color unit polygons by schedule variance instead of milestone color. */
@@ -65,7 +70,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, sidebarWidth: 320, colorByVariance: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),

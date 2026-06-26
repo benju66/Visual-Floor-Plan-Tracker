@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3 } from 'lucide-react';
+import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3, Grid2x2Check } from 'lucide-react';
 import { useMapStore, type ToolMode } from '@/store/useMapStore';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
@@ -19,11 +19,20 @@ const TOOLS: { id: ToolMode; label: string; icon: React.ElementType }[] = [
   { id: 'select', label: 'Select / adjust (1)', icon: MousePointer2 },
 ];
 
-export default function WorkbenchTracerToolbar({ isSnappingLoading }: { isSnappingLoading?: boolean }) {
+export default function WorkbenchTracerToolbar({
+  isSnappingLoading,
+  confirmedGridCount = 0,
+}: {
+  isSnappingLoading?: boolean;
+  /** How many gridlines are confirmed on this sheet — drives the grid-aware tooltip. */
+  confirmedGridCount?: number;
+}) {
   const toolMode = useMapStore((s) => s.toolMode);
   const setToolMode = useMapStore((s) => s.setToolMode);
   const setMapSettings = useSettingsStore((s) => s.setMapSettings);
   const enableSnapping = useHydratedStore((s) => s.mapSettings.enableSnapping, true);
+  // Grid-aware snapping (Phase 3c): default on; only an explicit `false` is off.
+  const gridAwareSnapping = useHydratedStore((s) => s.mapSettings.gridAwareSnapping, true) !== false;
 
   // Gridline annotator session (Phase 3b) + title-block flow share the capture-box
   // mode, so the two are mutually exclusive: activating one closes the other.
@@ -131,6 +140,25 @@ export default function WorkbenchTracerToolbar({ isSnappingLoading }: { isSnappi
           <Magnet size={18} />
         </button>
       )}
+
+      {/* Grid-aware snapping (AI Tracing Assist — Phase 3c): once this sheet's
+          gridlines are confirmed, prefer real walls over those grid lines while
+          tracing. Only meaningful with magnetic snapping on, so it disables with it. */}
+      <button
+        type="button"
+        disabled={!enableSnapping}
+        title={
+          !enableSnapping
+            ? 'Grid-aware snapping — enable magnetic snapping first'
+            : confirmedGridCount > 0
+              ? `Grid-aware snapping ${gridAwareSnapping ? 'on' : 'off'} — snapping tuned to ${confirmedGridCount} confirmed grid line${confirmedGridCount === 1 ? '' : 's'} (prefers walls)`
+              : 'Grid-aware snapping — confirm this sheet’s gridlines to tune it'
+        }
+        onClick={() => setMapSettings({ gridAwareSnapping: !gridAwareSnapping })}
+        className={`${btnBase} ${gridAwareSnapping && enableSnapping ? btnActive : btnIdle} ${!enableSnapping ? 'opacity-40 cursor-not-allowed' : ''}`}
+      >
+        <Grid2x2Check size={18} />
+      </button>
     </div>
   );
 }

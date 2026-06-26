@@ -424,7 +424,10 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
 
   return (
     <div className="relative flex-1 min-h-0 h-full">
-      <WorkbenchTracerToolbar isSnappingLoading={isSnappingLoading} />
+      <WorkbenchTracerToolbar
+        isSnappingLoading={isSnappingLoading}
+        confirmedGridCount={savedGridlines?.gridlines.length ?? 0}
+      />
 
       {/* Saved title-block facts (Phase 3a) — confirms persistence across reloads. */}
       {savedMetadata && (savedMetadata.sheet_number || savedMetadata.architect_firm) && (
@@ -447,6 +450,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
         onCaptureBox={handleCaptureBox}
         onCaptureLine={handleCaptureLine}
         gridlineOverlays={gridlineOverlays}
+        confirmedGridlines={savedGridlines?.gridlines}
         pendingPolygonPoints={pendingLabelPoints}
         onPendingPolygonMove={setPendingLabelPoints}
         onRenameUnit={handleRenameUnit}

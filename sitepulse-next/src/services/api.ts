@@ -162,6 +162,14 @@ export interface RBushItem {
   maxX: number;
   maxY: number;
   lineData: VectorLine;
+  /**
+   * AI Tracing Assist (Phase 3c — grid-aware snapping): true when this vector is
+   * collinear with + overlapping a confirmed grid line (`sheet_gridlines`). Tagged
+   * at tree-build time in `FloorplanCanvas` (never in the Query cache — AGENTS.md
+   * §5); absent on the live map (no confirmed grids there). `getSnappedCoordinate`
+   * de-prioritizes these when called grid-aware so tracing prefers real walls.
+   */
+  isGrid?: boolean;
 }
 
 export async function extractVectorsService(sheetId: string, token: string): Promise<ExtractVectorsResult> {

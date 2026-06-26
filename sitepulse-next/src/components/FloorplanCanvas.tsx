@@ -20,6 +20,7 @@ import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
+import { tagVectorsWithGrid } from '@/utils/gridAwareSnap';
 import { computeUnitVariance, varianceFill } from '@/utils/progressAnalytics';
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
 import { createPointerStore } from '@/utils/pointerStore';
@@ -32,7 +33,7 @@ import { useUnits, useMilestones, useUpdateWalkSequence } from '@/hooks/useProje
 import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
-import type { StatusLog, Unit, PercentPoint as Point } from '@/types/domain';
+import type { StatusLog, Unit, PercentPoint as Point, Gridline } from '@/types/domain';
 import { applicableMilestones } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { ToolMode } from '@/store/useMapStore';
@@ -80,6 +81,14 @@ interface FloorplanCanvasProps {
    * never hit-targets. Empty/omitted on the live map.
    */
   gridlineOverlays?: GridlineOverlayItem[];
+  /**
+   * The sheet's CONFIRMED gridlines (AI Tracing Assist — Phase 3c) — used to tag the
+   * snapping vectors that ARE grid lines so tracing de-prioritizes them (grid-aware
+   * snapping). Workbench-only: the live map omits it → nothing is tagged and snapping
+   * is unchanged. Distinct from `gridlineOverlays` (which also carries pending grids
+   * for display); this is only the saved/confirmed set that drives snap weighting.
+   */
+  confirmedGridlines?: Gridline[];
   onRenameUnit?: (unitId: string | null) => void;
   onDeleteUnit?: (unitId: string | string[] | null) => void;
   onInstantStamp?: (unitId: string, points: Point[]) => void;
@@ -104,6 +113,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onCaptureBox,
   onCaptureLine,
   gridlineOverlays,
+  confirmedGridlines,
   onRenameUnit,
   onDeleteUnit,
   onInstantStamp,
@@ -188,11 +198,26 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     // Defer the heavy spatial-index build off the render path.
     const timeoutId = setTimeout(() => {
       const tree = new RBush();
-      tree.load(rawVectors);
+      // Grid-aware snapping (Phase 3c): tag the vectors that ARE confirmed grid lines
+      // so the snap engine can de-prioritize them. The aspect is read from the live
+      // layout ref (not a dep) so we tag with the freshest sheet proportions without
+      // forcing a rebuild on every resize. No confirmed grids → passthrough untagged
+      // (live map / un-gridded sheets are unchanged). The tagged TREE stays in
+      // component state; only the raw JSON lives in the Query cache (AGENTS.md §5).
+      const classifyAspect = layoutRef.current.drawH > 0
+        ? layoutRef.current.drawW / layoutRef.current.drawH
+        : 1;
+      tree.load(tagVectorsWithGrid(rawVectors, confirmedGridlines, classifyAspect));
       setVectorTree(tree);
     }, 10);
     return () => clearTimeout(timeoutId);
-  }, [rawVectors]);
+  }, [rawVectors, confirmedGridlines]);
+
+  // Grid-aware snapping is live only when this sheet HAS confirmed grids (so some
+  // vectors are tagged) AND the toggle is on (default on; only an explicit false is
+  // off). False on the live map (no confirmedGridlines) → snapping is untouched.
+  const gridAwareSnapping =
+    !!confirmedGridlines?.length && mapSettings?.gridAwareSnapping !== false;
 
   const [originalWidth, setOriginalWidth] = useState(1000);
   const [originalHeight, setOriginalHeight] = useState(1000);
@@ -1547,7 +1572,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // handleStageClick commits the point on the very next event.
             let snap: { pctX: number; pctY: number; snapped: boolean } | null = null;
             if (toolMode === 'draw' && mapSettings?.enableSnapping && drawW > 0 && drawH > 0) {
-              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15);
+              // Grid-aware on the trace path: prefer real walls over confirmed grid lines.
+              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15, gridAwareSnapping);
               lastSnapRef.current = snap;
             } else {
               lastSnapRef.current = null;
