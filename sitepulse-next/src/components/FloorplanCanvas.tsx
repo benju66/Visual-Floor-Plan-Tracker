@@ -18,7 +18,9 @@ import GridlineOverlay, { type GridlineOverlayItem } from '@/components/canvas/G
 import MapLegend from '@/components/canvas/MapLegend';
 import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import LoupeOverlay from '@/components/canvas/LoupeOverlay';
+import MiniMapOverlay from '@/components/canvas/MiniMapOverlay';
 import { useLoupeRenderer } from '@/hooks/useLoupeRenderer';
+import { withVersion } from '@/utils/pdfSource';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
@@ -806,6 +808,38 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
     animationFrameRef.current = requestAnimationFrame(step);
   }, [viewportSync]);
+
+  // ── Mini-map navigation (Phase 5) ────────────────────────────────────────
+  // The bottom-right MiniMapOverlay hands back already-projected (unclamped)
+  // stage positions; the canvas owns the Konva stage, so clamping + applying
+  // live the move here keeps all stage knowledge in one place. Reuse the same
+  // primitives as wheel/zoom: clampStagePosition, animateViewport, viewportSync.
+  const miniMapRecenter = useCallback((target: { x: number; y: number }) => {
+    const scale = liveViewportRef.current.scale;
+    const lay = layoutRef.current;
+    const clamped = clampStagePosition(target, scale, lay, lay.stageW, lay.stageH);
+    animateViewport(scale, clamped, 250);
+  }, [animateViewport]);
+
+  const miniMapPanTo = useCallback((target: { x: number; y: number }) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const scale = stage.scaleX();
+    const lay = layoutRef.current;
+    const clamped = clampStagePosition(target, scale, lay, lay.stageW, lay.stageH);
+    stage.position(clamped);
+    stage.batchDraw();
+    liveViewportRef.current = { scale, x: clamped.x, y: clamped.y };
+    viewportSync.push(liveViewportRef.current);
+  }, [viewportSync]);
+
+  const miniMapPanEnd = useCallback(() => {
+    viewportSync.flush();
+  }, [viewportSync]);
+
+  const miniMapResize = useCallback((scale: number) => {
+    useSettingsStore.getState().setMapSettings({ miniMapScale: scale });
+  }, []);
 
   const handleWheel = (e: any) => {
     e.evt.preventDefault();
@@ -1932,6 +1966,24 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           magnification={magnifierZoom}
           patch={loupe.patch}
           requestPatch={loupe.requestPatch}
+        />
+      )}
+
+      {/* Mini-map (Phase 5): bottom-right thumbnail of the whole sheet with a
+          live viewport box; click recenters (eased), drag pans. Sits just above
+          the zoom pill. Reuses the live viewport/layout refs for zero-re-render
+          tracking — all rendering stays inside the overlay component (§3). */}
+      {mapSettings?.showMiniMap && layout.drawW > 0 && layout.drawH > 0 && (
+        <MiniMapOverlay
+          thumbnailUrl={imageUrl ? withVersion(imageUrl, pdfVersion) : ''}
+          aspect={layout.drawW / layout.drawH}
+          liveViewportRef={liveViewportRef}
+          layoutRef={layoutRef}
+          sizeScale={mapSettings?.miniMapScale ?? 1}
+          onRecenter={miniMapRecenter}
+          onPanTo={miniMapPanTo}
+          onPanEnd={miniMapPanEnd}
+          onResize={miniMapResize}
         />
       )}
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3, Grid2x2Check, Search, Crosshair } from 'lucide-react';
+import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3, Grid2x2Check, Search, Crosshair, Map } from 'lucide-react';
 import { useMapStore, type ToolMode } from '@/store/useMapStore';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import { useSettingsStore, useHydratedStore, type MapSettings } from '@/store/useSettingsStore';
@@ -35,6 +35,8 @@ export default function WorkbenchTracerToolbar({
   const gridAwareSnapping = useHydratedStore((s) => s.mapSettings.gridAwareSnapping, true) !== false;
   // Magnifier loupe (session-only; forced off on rehydrate, so default false).
   const showMagnifier = useHydratedStore((s) => s.mapSettings.showMagnifier, false);
+  // Mini-map (Phase 5): bottom-right thumbnail + viewport box. Default off.
+  const showMiniMap = useHydratedStore((s) => s.mapSettings.showMiniMap, false);
   // Crosshair overlay (Phase 2): on/off + which of the 5 looks. While it's on the
   // overlay replaces the OS cursor over the drawing surface (see FloorplanCanvas).
   const showCrosshair = useHydratedStore((s) => s.mapSettings.showCrosshair, false);
@@ -179,6 +181,17 @@ export default function WorkbenchTracerToolbar({
         className={`${btnBase} ${showMagnifier ? btnActive : btnIdle}`}
       >
         <Search size={18} />
+      </button>
+
+      {/* Mini-map (Phase 5): bottom-right thumbnail of the whole sheet with a
+          viewport box; click/drag it to jump around when zoomed in. */}
+      <button
+        type="button"
+        title={`${showMiniMap ? 'Hide' : 'Show'} mini-map`}
+        onClick={() => setMapSettings({ showMiniMap: !showMiniMap })}
+        className={`${btnBase} ${showMiniMap ? btnActive : btnIdle}`}
+      >
+        <Map size={18} />
       </button>
 
       <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />

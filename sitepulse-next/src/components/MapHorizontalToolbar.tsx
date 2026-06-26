@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Search } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Search, Map } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
 
@@ -194,6 +194,21 @@ export default function MapHorizontalToolbar({
         title={`${mapSettings?.showMagnifier ? 'Hide' : 'Show'} Magnifier (M) — suspends snapping while up; [ / ] to zoom`}
       >
         <Search size={18} />
+      </button>
+
+      {/* Mini-map: bottom-right thumbnail of the whole sheet with a viewport box;
+          click/drag it to jump around when zoomed in. */}
+      <button
+        type="button"
+        onClick={() => onUpdateMapSettings?.({ ...mapSettings, showMiniMap: !mapSettings?.showMiniMap })}
+        className={`p-2 rounded-full flex items-center justify-center transition-all ${
+          mapSettings?.showMiniMap
+            ? 'bg-blue-500 text-white shadow-sm scale-110'
+            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+        }`}
+        title={`${mapSettings?.showMiniMap ? 'Hide' : 'Show'} Mini-map`}
+      >
+        <Map size={18} />
       </button>
 
       <button

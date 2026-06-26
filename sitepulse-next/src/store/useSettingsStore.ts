@@ -44,6 +44,13 @@ export interface MapSettings {
    *  'lines' = today's two full-bleed dashed lines. Normal persisted field — does
    *  NOT get the `showMagnifier` force-OFF-on-rehydrate treatment. */
   crosshairStyle?: 'lines' | 'lines-dot' | 'ring' | 'ring-dot' | 'gap-cross';
+  /** Bottom-right mini-map: a thumbnail of the whole sheet with a box marking the
+   *  visible region; click/drag it to jump around. Default OFF. Plain persisted
+   *  bool — NOT the `showMagnifier` force-OFF-on-rehydrate treatment. */
+  showMiniMap?: boolean;
+  /** Mini-map size multiplier over the ~160×120 base envelope, set by dragging the
+   *  mini-map's corner handle (aspect stays locked). Default 1. Persisted. */
+  miniMapScale?: number;
 }
 
 export interface SettingsState {
@@ -80,7 +87,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, showMagnifier: false, magnifierZoom: 3, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, showMagnifier: false, magnifierZoom: 3, showMiniMap: false, miniMapScale: 1, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),
