@@ -34,6 +34,23 @@ export interface MapSettings {
   sidebarWidth?: number;
   /** Lag Mode: color unit polygons by schedule variance instead of milestone color. */
   colorByVariance?: boolean;
+  /** Magnifier loupe on/off. Session-only — deliberately NOT restored across
+   *  reloads (see persist `merge` below): a persisted-on loupe silently suspends
+   *  snapping every session, which reads as "the snap tool is broken". */
+  showMagnifier?: boolean;
+  /** Magnifier loupe magnification factor over the on-screen view (default 3). */
+  magnifierZoom?: number;
+  /** Crosshair look (only when `showCrosshair` is on). 5 fixed presets; default
+   *  'lines' = today's two full-bleed dashed lines. Normal persisted field — does
+   *  NOT get the `showMagnifier` force-OFF-on-rehydrate treatment. */
+  crosshairStyle?: 'lines' | 'lines-dot' | 'ring' | 'ring-dot' | 'gap-cross';
+  /** Bottom-right mini-map: a thumbnail of the whole sheet with a box marking the
+   *  visible region; click/drag it to jump around. Default OFF. Plain persisted
+   *  bool — NOT the `showMagnifier` force-OFF-on-rehydrate treatment. */
+  showMiniMap?: boolean;
+  /** Mini-map size multiplier over the ~160×120 base envelope, set by dragging the
+   *  mini-map's corner handle (aspect stays locked). Default 1. Persisted. */
+  miniMapScale?: number;
 }
 
 export interface SettingsState {
@@ -70,7 +87,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, showMagnifier: false, magnifierZoom: 3, showMiniMap: false, miniMapScale: 1, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),
@@ -93,6 +110,22 @@ export const useSettingsStore = create<SettingsState>()(
         legendPosition: state.legendPosition,
         colorMode: state.colorMode,
       }),
+      // Default shallow merge, but the magnifier loupe is forced OFF on every
+      // rehydrate. It's a transient placement aid that suspends snapping while
+      // up; restoring it as "on" across reloads silently kills the pink snap
+      // ring every session. `magnifierZoom` (a harmless preference) is kept.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<SettingsState>;
+        return {
+          ...current,
+          ...p,
+          mapSettings: {
+            ...current.mapSettings,
+            ...(p.mapSettings ?? {}),
+            showMagnifier: false,
+          },
+        };
+      },
     }
   )
 );

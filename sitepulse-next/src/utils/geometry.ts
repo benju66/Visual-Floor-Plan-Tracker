@@ -64,6 +64,14 @@ export interface SnapResult {
  * `aspect`). Pure — the shared inner core of {@link getSnappedCoordinate}, factored
  * out so the grid-aware two-pass search can run it once over walls and once over the
  * full set without duplicating the math.
+ *
+ * `interiorPoint` (optional) biases selection toward the wall face on the
+ * room-interior side: candidates whose offset from the cursor points AWAY from the
+ * interior are penalized, so on a thick wall the snap lands on the inside face the
+ * tracer is meant to follow even when the outer face is marginally closer. The bias
+ * affects SELECTION only (`*Eff` distances); the radius threshold and corner-zone
+ * test use the true cursor distance (`*Raw`), and the returned coordinate is never
+ * moved off the chosen line.
  */
 const snapAmongLines = (
   lines: readonly RBushItem[],
@@ -71,26 +79,52 @@ const snapAmongLines = (
   cursorPctY: number,
   aspect: number,
   snapRadiusX: number,
+  interiorPoint: PercentPoint | null = null,
 ): SnapResult => {
-  let closestDist = Infinity;
+  // Interior-aware bias setup. `dir` is the aspect-corrected direction from the
+  // cursor toward the room interior. A candidate offset pointing away from the
+  // interior (dot < 0) sits deeper into / through the wall, so push it back by
+  // INTERIOR_PENALTY (≥ the largest in-range distance) — that guarantees any
+  // interior-side face within range beats a far-side one, without ever moving the
+  // snapped coordinate itself off the chosen line.
+  const hasInterior = interiorPoint !== null;
+  const dirX = hasInterior ? interiorPoint.pctX - cursorPctX : 0;
+  const dirY = hasInterior ? (interiorPoint.pctY - cursorPctY) / aspect : 0;
+  const INTERIOR_PENALTY = snapRadiusX;
+  const farSidePenalty = (offX: number, offY: number) =>
+    hasInterior && offX * dirX + offY * dirY < 0 ? INTERIOR_PENALTY : 0;
+
+  // Edge projections and vertices are each tracked twice: `*Eff` (interior-biased)
+  // drives selection; `*Raw` (true cursor distance) drives the radius threshold.
+  let bestEdgeRaw = Infinity;
+  let bestEdgeEff = Infinity;
   let bestPoint = { pctX: cursorPctX, pctY: cursorPctY };
 
-  let closestVertexDist = Infinity;
+  let bestVertexRaw = Infinity;
+  let bestVertexEff = Infinity;
   let bestVertex: PercentPoint | null = null;
 
   for (const { lineData } of lines) {
     const { start, end } = lineData;
 
-    // Check vertices (corners) for priority snapping
-    const dStart = Math.sqrt(sqr(cursorPctX - start.pctX) + sqr((cursorPctY - start.pctY) / aspect));
-    if (dStart < closestVertexDist) {
-      closestVertexDist = dStart;
+    // Vertices (corners) — priority snapping, interior-biased.
+    const sOffX = start.pctX - cursorPctX;
+    const sOffY = (start.pctY - cursorPctY) / aspect;
+    const dStart = Math.sqrt(sOffX * sOffX + sOffY * sOffY);
+    const dStartEff = dStart + farSidePenalty(sOffX, sOffY);
+    if (dStartEff < bestVertexEff) {
+      bestVertexEff = dStartEff;
+      bestVertexRaw = dStart;
       bestVertex = start;
     }
 
-    const dEnd = Math.sqrt(sqr(cursorPctX - end.pctX) + sqr((cursorPctY - end.pctY) / aspect));
-    if (dEnd < closestVertexDist) {
-      closestVertexDist = dEnd;
+    const eOffX = end.pctX - cursorPctX;
+    const eOffY = (end.pctY - cursorPctY) / aspect;
+    const dEnd = Math.sqrt(eOffX * eOffX + eOffY * eOffY);
+    const dEndEff = dEnd + farSidePenalty(eOffX, eOffY);
+    if (dEndEff < bestVertexEff) {
+      bestVertexEff = dEndEff;
+      bestVertexRaw = dEnd;
       bestVertex = end;
     }
 
@@ -105,21 +139,27 @@ const snapAmongLines = (
     const projX = start.pctX + t * (end.pctX - start.pctX);
     const projY = start.pctY + t * (end.pctY - start.pctY);
 
-    const dist = Math.sqrt(sqr(cursorPctX - projX) + sqr((cursorPctY - projY) / aspect));
+    const pOffX = projX - cursorPctX;
+    const pOffY = (projY - cursorPctY) / aspect;
+    const dist = Math.sqrt(pOffX * pOffX + pOffY * pOffY);
+    const distEff = dist + farSidePenalty(pOffX, pOffY);
 
-    if (dist < closestDist) {
-      closestDist = dist;
+    if (distEff < bestEdgeEff) {
+      bestEdgeEff = distEff;
+      bestEdgeRaw = dist;
       bestPoint = { pctX: projX, pctY: projY };
     }
   }
 
-  // Corner gravity: if a vertex is within the snap radius, strictly prefer it over a straight edge projection
-  if (closestVertexDist < snapRadiusX && bestVertex !== null) {
+  // Corner gravity: if a vertex is within the snap radius, strictly prefer it over a
+  // straight edge projection. (Interior bias still steers WHICH vertex via `*Eff`;
+  // the radius test uses the true cursor distance `*Raw`.)
+  if (bestVertexRaw < snapRadiusX && bestVertex !== null) {
     return { pctX: bestVertex.pctX, pctY: bestVertex.pctY, snapped: true };
   }
 
-  // Since closestDist uses aspect-corrected distance, it is in the scale of pctX.
-  if (closestDist < snapRadiusX) {
+  // Since bestEdgeRaw uses aspect-corrected distance, it is in the scale of pctX.
+  if (bestEdgeRaw < snapRadiusX) {
     return { ...bestPoint, snapped: true };
   }
 
@@ -143,6 +183,15 @@ export const getSnappedCoordinate = (
    * byte-identical to the prior single-pass behavior (the live map never tags grids).
    */
   gridAware: boolean = false,
+  /**
+   * Optional interior reference (e.g. the centroid of the points placed so far while
+   * tracing a room). When supplied, the snap prefers the wall face on the INTERIOR
+   * side of the cursor — so on a thick wall it lands on the inside face the tracer is
+   * meant to follow, even when the outer face is a touch closer. Threaded into BOTH
+   * the walls-first and fallback passes. Default null → no bias (existing callers
+   * unaffected).
+   */
+  interiorPoint: PercentPoint | null = null,
 ): SnapResult => {
   if (!rBushTree) return { pctX: cursorPctX, pctY: cursorPctY, snapped: false };
 
@@ -165,12 +214,12 @@ export const getSnappedCoordinate = (
     // do we fall through to the full set (so wall-on-grid coincident lines still snap).
     const walls = nearbyLines.filter((l) => !l.isGrid);
     if (walls.length > 0 && walls.length < nearbyLines.length) {
-      const wallSnap = snapAmongLines(walls, cursorPctX, cursorPctY, aspect, snapRadiusX);
+      const wallSnap = snapAmongLines(walls, cursorPctX, cursorPctY, aspect, snapRadiusX, interiorPoint);
       if (wallSnap.snapped) return wallSnap;
     }
   }
 
-  return snapAmongLines(nearbyLines, cursorPctX, cursorPctY, aspect, snapRadiusX);
+  return snapAmongLines(nearbyLines, cursorPctX, cursorPctY, aspect, snapRadiusX, interiorPoint);
 };
 
 /** Minimal layout shape for pct → logical-pixel conversion. */

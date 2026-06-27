@@ -19,6 +19,10 @@ import OpeningEdgeOverlay, { type OpeningOverlayUnit, type OpeningEditTarget } f
 import { OPENING_TYPE_RGB, openingTypeForKey } from '@/utils/openingEdges';
 import MapLegend from '@/components/canvas/MapLegend';
 import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
+import LoupeOverlay from '@/components/canvas/LoupeOverlay';
+import MiniMapOverlay from '@/components/canvas/MiniMapOverlay';
+import { useLoupeRenderer } from '@/hooks/useLoupeRenderer';
+import { withVersion } from '@/utils/pdfSource';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
@@ -283,6 +287,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   }, [image, activeSheetId]);
 
   const stageRef = useRef<any>(null);
+  // The 3rd (interactive-overlays) Konva layer — DraftPolygon's trace line,
+  // placed nodes, and snap ring. Handed to LoupeOverlay so the magnifier can
+  // composite the in-progress trace on top of its sharp PDF crop (Phase 4).
+  const overlayLayerRef = useRef<Konva.Layer | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const spaceWasPanRef = useRef<ToolMode | null>(null);
 
@@ -357,6 +365,19 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const [activeDragPolygon, setActiveDragPolygon] = useState<any>(null);
   const [contextMenu, setContextMenu] = useState<any>(null);
   const [isLegendSelected, setIsLegendSelected] = useState(false);
+  // Magnifier loupe. Press M (or the toolbar button) to toggle it — both drive
+  // the persistent `showMagnifier` setting. While it's on, magnetic snapping is
+  // suspended (`effectiveSnapping`) so node placement follows the cursor exactly;
+  // the user's toolbar snap preference is untouched and resumes when it's off.
+  const magnifierZoom = mapSettings?.magnifierZoom ?? 3;
+  const magnifierActive = !!mapSettings?.showMagnifier;
+  const effectiveSnapping = !!mapSettings?.enableSnapping && !magnifierActive;
+  const loupe = useLoupeRenderer(activeSheetId ?? null, pdfVersion ?? null, magnifierActive);
+  // Refs so the keyboard handler (created once) can read the live magnifier state.
+  const magnifierActiveRef = useRef(magnifierActive);
+  magnifierActiveRef.current = magnifierActive;
+  const magnifierZoomRef = useRef(magnifierZoom);
+  magnifierZoomRef.current = magnifierZoom;
 
   // Pointer position lives OUTSIDE React state — a per-mousemove setState here
   // re-rendered the entire canvas tree every frame during panning. Leaf consumers
@@ -463,7 +484,13 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       if (e.key === 'Escape') {
         setIsLegendSelected(false);
         if (!isInputActive) {
-          if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
+          if (magnifierActiveRef.current) {
+            // Escape dismisses the magnifier first — one transient layer at a
+            // time, like the draft/tool backout below. A second Escape then
+            // clears the draft, a third returns to pan. Mirrors the M toggle.
+            e.stopImmediatePropagation();
+            useSettingsStore.getState().setMapSettings({ showMagnifier: false });
+          } else if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
             e.stopImmediatePropagation();
             setDraftPoints([]);
             setDraftOpeningEdges([]);
@@ -536,6 +563,21 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         if (e.key === '1') onToolModeChange('select');
         if (e.key === '2') onToolModeChange('pan');
         if (e.key === '3') onToolModeChange('draw');
+
+        // M = toggle the magnifier loupe on/off (unified with the toolbar button).
+        // The `e.repeat` guard means holding the key flips it once, not every frame.
+        if (e.key.toLowerCase() === 'm' && !e.repeat) {
+          const cur = useSettingsStore.getState().mapSettings.showMagnifier;
+          useSettingsStore.getState().setMapSettings({ showMagnifier: !cur });
+        }
+
+        // While the loupe is up, [ and ] adjust its magnification (2×–8×),
+        // Photoshop-style. The live "N×" readout in the lens gives feedback.
+        if (magnifierActiveRef.current && (e.key === '[' || e.key === ']')) {
+          e.preventDefault();
+          const next = Math.min(8, Math.max(2, (magnifierZoomRef.current || 3) + (e.key === ']' ? 1 : -1)));
+          useSettingsStore.getState().setMapSettings({ magnifierZoom: next });
+        }
 
         // +/- for zoom (via ref to avoid block-scoped variable error)
         if (e.key === '=' || e.key === '+') handleZoomRef.current(1);
@@ -850,6 +892,38 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     animationFrameRef.current = requestAnimationFrame(step);
   }, [viewportSync]);
 
+  // ── Mini-map navigation (Phase 5) ────────────────────────────────────────
+  // The bottom-right MiniMapOverlay hands back already-projected (unclamped)
+  // stage positions; the canvas owns the Konva stage, so clamping + applying
+  // live the move here keeps all stage knowledge in one place. Reuse the same
+  // primitives as wheel/zoom: clampStagePosition, animateViewport, viewportSync.
+  const miniMapRecenter = useCallback((target: { x: number; y: number }) => {
+    const scale = liveViewportRef.current.scale;
+    const lay = layoutRef.current;
+    const clamped = clampStagePosition(target, scale, lay, lay.stageW, lay.stageH);
+    animateViewport(scale, clamped, 250);
+  }, [animateViewport]);
+
+  const miniMapPanTo = useCallback((target: { x: number; y: number }) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const scale = stage.scaleX();
+    const lay = layoutRef.current;
+    const clamped = clampStagePosition(target, scale, lay, lay.stageW, lay.stageH);
+    stage.position(clamped);
+    stage.batchDraw();
+    liveViewportRef.current = { scale, x: clamped.x, y: clamped.y };
+    viewportSync.push(liveViewportRef.current);
+  }, [viewportSync]);
+
+  const miniMapPanEnd = useCallback(() => {
+    viewportSync.flush();
+  }, [viewportSync]);
+
+  const miniMapResize = useCallback((scale: number) => {
+    useSettingsStore.getState().setMapSettings({ miniMapScale: scale });
+  }, []);
+
   const handleWheel = (e: any) => {
     e.evt.preventDefault();
     const stage = e.target.getStage();
@@ -1015,7 +1089,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         const dy = Math.abs(pctY - lastPoint.pctY);
         if (dx > dy) pctY = lastPoint.pctY;
         else pctX = lastPoint.pctX;
-      } else if (mapSettings?.enableSnapping && lastSnapRef.current?.snapped) {
+      } else if (effectiveSnapping && lastSnapRef.current?.snapped) {
         // Consume the last snap computed by onMouseMove — avoids double-computation
         // and guarantees the committed point matches the visual snap ring.
         pctX = lastSnapRef.current.pctX;
@@ -1241,7 +1315,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     let pctX = overridePct ? overridePct.pctX : (node.x() - layout.offsetX) / layout.drawW;
     let pctY = overridePct ? overridePct.pctY : (node.y() - layout.offsetY) / layout.drawH;
 
-    if (!overridePct && mapSettings?.enableSnapping) {
+    if (!overridePct && effectiveSnapping) {
       const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15);
       if (snap.snapped) {
         pctX = snap.pctX;
@@ -1374,7 +1448,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     removeNodeCursor: REMOVE_NODE_CURSOR,
   });
 
-  // Apply computedCursor to the Konva-generated container (it sits above the outer
+  // When the styled crosshair overlay is on it BECOMES the cursor: hide the native
+  // OS cursor over the drawing surface so the chosen look (lines / ring / dot /
+  // gap-cross) is what the user sees at the pointer. Scoped to the Konva container
+  // only — the toolbars and corner controls are separate elements and keep their
+  // normal cursor (so it reappears when interacting with them).
+  const canvasCursor = mapSettings?.showCrosshair ? 'none' : computedCursor;
+
+  // Apply canvasCursor to the Konva-generated container (it sits above the outer
   // wrapper div for the canvas area). This effect is now the ONLY writer of the
   // container cursor, so re-running on string change is sufficient — nothing else
   // can leave a value behind for it to miss.
@@ -1382,10 +1463,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     if (stageRef.current) {
       const container = stageRef.current.container();
       if (container) {
-        container.style.cursor = computedCursor;
+        container.style.cursor = canvasCursor;
       }
     }
-  }, [computedCursor]);
+  }, [canvasCursor]);
 
   // Anchor hover tracking by id. Leave only clears if it still owns the hover,
   // so a stale `leave` arriving after the next anchor's `enter` can't unset it.
@@ -1685,9 +1766,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // inline (no debounce/await) guarantees lastSnapRef is fresh when
             // handleStageClick commits the point on the very next event.
             let snap: { pctX: number; pctY: number; snapped: boolean } | null = null;
-            if (toolMode === 'draw' && mapSettings?.enableSnapping && drawW > 0 && drawH > 0) {
+            if (toolMode === 'draw' && effectiveSnapping && drawW > 0 && drawH > 0) {
+              // Interior hint: once ≥3 points are placed, the centroid of the trace so
+              // far tells the snap which wall face is the room interior — so on a thick
+              // wall it hugs the inside face instead of grabbing whichever is closest.
+              const interior = draftPointsRef.current.length >= 3
+                ? getCentroid(draftPointsRef.current)
+                : null;
               // Grid-aware on the trace path: prefer real walls over confirmed grid lines.
-              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15, gridAwareSnapping);
+              snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, drawW, liveScale, mapSettings.snappingStrength || 15, gridAwareSnapping, interior);
               lastSnapRef.current = snap;
             } else {
               lastSnapRef.current = null;
@@ -1802,7 +1889,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   stageScale={stageScale}
                   vectorTree={vectorTree}
                   aspect={aspect}
-                  enableSnapping={mapSettings?.enableSnapping}
+                  enableSnapping={effectiveSnapping}
                   snappingStrength={mapSettings?.snappingStrength || 15}
                   isZoomedOut={isZoomedOut}
                   settings={settings}
@@ -1830,8 +1917,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           </Layer>
 
           {/* Overlay layer: ephemeral, high-churn previews and editing chrome.
-              Per-frame redraws here never touch the units or PDF layers. */}
-          <Layer>
+              Per-frame redraws here never touch the units or PDF layers.
+              Ref'd so the magnifier loupe can composite the live trace (this
+              layer's DraftPolygon) onto its sharp PDF crop. */}
+          <Layer ref={overlayLayerRef}>
             {/* Pointer-following previews are mounted only in their tool mode, so
                 the pointer store has zero subscribers during plain pan/zoom. */}
             {toolMode === 'draw' && (
@@ -1841,7 +1930,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 boxOrigin={boxOrigin}
                 stageScale={stageScale}
                 layout={layout}
-                enableSnapping={!!mapSettings?.enableSnapping}
+                enableSnapping={effectiveSnapping}
                 isShiftDown={isShiftDown}
                 toPixels={toPixels}
                 openingEdges={openingCaptureEnabled ? draftOpeningEdges : undefined}
@@ -1972,7 +2061,37 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       )}
 
       {mapSettings?.showCrosshair && (
-        <CrosshairOverlay pointerStore={pointerStore} />
+        <CrosshairOverlay pointerStore={pointerStore} style={mapSettings?.crosshairStyle} />
+      )}
+
+      {magnifierActive && (
+        <LoupeOverlay
+          pointerStore={pointerStore}
+          stageRef={stageRef}
+          overlayLayerRef={overlayLayerRef}
+          layout={layout}
+          magnification={magnifierZoom}
+          patch={loupe.patch}
+          requestPatch={loupe.requestPatch}
+        />
+      )}
+
+      {/* Mini-map (Phase 5): bottom-right thumbnail of the whole sheet with a
+          live viewport box; click recenters (eased), drag pans. Sits just above
+          the zoom pill. Reuses the live viewport/layout refs for zero-re-render
+          tracking — all rendering stays inside the overlay component (§3). */}
+      {mapSettings?.showMiniMap && layout.drawW > 0 && layout.drawH > 0 && (
+        <MiniMapOverlay
+          thumbnailUrl={imageUrl ? withVersion(imageUrl, pdfVersion) : ''}
+          aspect={layout.drawW / layout.drawH}
+          liveViewportRef={liveViewportRef}
+          layoutRef={layoutRef}
+          sizeScale={mapSettings?.miniMapScale ?? 1}
+          onRecenter={miniMapRecenter}
+          onPanTo={miniMapPanTo}
+          onPanEnd={miniMapPanEnd}
+          onResize={miniMapResize}
+        />
       )}
 
       {/* Lag Mode auto-enables the hover card so the schedule verdict is reachable

@@ -792,6 +792,24 @@ export default function SettingsMenu({
                 </div>
                 <div className="flex items-center justify-between mb-4">
                   <div>
+                    <span className="font-semibold block text-sm">Crosshair Style</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Lines, ring, dot, or CAD-style gap cross</span>
+                  </div>
+                  <select
+                    value={mapSettings?.crosshairStyle || 'lines'}
+                    disabled={!mapSettings?.showCrosshair}
+                    onChange={(e) => onUpdateMapSettings({ ...(mapSettings as MapSettings), crosshairStyle: e.target.value as MapSettings['crosshairStyle'] })}
+                    className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-white/10 rounded-lg p-1.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="lines">Lines</option>
+                    <option value="lines-dot">Lines + Dot</option>
+                    <option value="ring">Ring</option>
+                    <option value="ring-dot">Ring + Dot</option>
+                    <option value="gap-cross">Gap Cross</option>
+                  </select>
+                </div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
                     <span className="font-semibold block text-sm">Smooth Wheel Zoom</span>
                     <span className="text-xs text-slate-500 dark:text-slate-400">Glide when zooming with the mouse wheel instead of stepping</span>
                   </div>
@@ -801,6 +819,21 @@ export default function SettingsMenu({
                       className="sr-only peer"
                       checked={mapSettings?.smoothWheelZoom !== false}
                       onChange={(e) => onUpdateMapSettings({ ...(mapSettings as MapSettings), smoothWheelZoom: e.target.checked })}
+                    />
+                    <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
+                  </label>
+                </div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <span className="font-semibold block text-sm">Mini-map</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Bottom-right thumbnail with a viewport box; click or drag to jump around</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={mapSettings?.showMiniMap || false}
+                      onChange={(e) => onUpdateMapSettings({ ...(mapSettings as MapSettings), showMiniMap: e.target.checked })}
                     />
                     <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
                   </label>
