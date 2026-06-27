@@ -64,6 +64,42 @@ describe('buildRoomSuggestion', () => {
     expect(buildRoomSuggestion(room, [], DICT)).toBeNull();
     expect(buildRoomSuggestion(room, null, DICT)).toBeNull();
   });
+
+  it('routes the type guess through a live ALIAS — "UNIT 101" → Dwelling Unit (lever D1)', () => {
+    const dict: Subtype[] = [{ ...subtype('sub-dwelling', 'Dwelling Unit', 'program'), aliases: ['Unit'] }];
+    const s = buildRoomSuggestion(room, [word('UNIT', 0.45, 0.5), word('101', 0.55, 0.5)], dict);
+    expect(s).toEqual({
+      unitNumber: 'UNIT 101',
+      role: 'program',
+      subtypeId: 'sub-dwelling',
+      subtypeName: 'Dwelling Unit',
+    });
+  });
+
+  it('reaches a housing/hotel type the keyword seed lacks, straight from the dictionary', () => {
+    const dict: Subtype[] = [subtype('sub-guest', 'Guestroom', 'program')];
+    const s = buildRoomSuggestion(room, [word('GUESTROOM', 0.5, 0.5)], dict);
+    expect(s?.subtypeId).toBe('sub-guest');
+    expect(s?.role).toBe('program');
+  });
+
+  it('prefers the live dictionary over the keyword seed when an owner alias differs', () => {
+    // The keyword seed maps OFFICE → "Office"; an owner alias re-pointing "Office" to
+    // a different live type must win (the dictionary is the source of truth).
+    const dict: Subtype[] = [{ ...subtype('sub-private', 'Private Office', 'program'), aliases: ['Office'] }];
+    const s = buildRoomSuggestion(room, [word('OFFICE', 0.5, 0.5)], dict);
+    expect(s?.subtypeId).toBe('sub-private');
+    expect(s?.subtypeName).toBe('Private Office');
+  });
+
+  it('falls back to the keyword seed when the dictionary has no matching name/alias', () => {
+    // "CONFERENCE" word-start-matches no single-word dictionary name here, so the seed
+    // (CONFERENCE → "Conference Room") resolves against the live row.
+    const dict: Subtype[] = [subtype('sub-conf', 'Conference Room', 'program')];
+    const s = buildRoomSuggestion(room, [word('CONFERENCE', 0.4, 0.5), word('200', 0.6, 0.5)], dict);
+    expect(s?.subtypeId).toBe('sub-conf');
+    expect(s?.subtypeName).toBe('Conference Room');
+  });
 });
 
 describe('suggestionToPick', () => {

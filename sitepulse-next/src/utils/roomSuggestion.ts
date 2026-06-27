@@ -13,6 +13,7 @@
  */
 import { matchRoomName } from '@/utils/roomNameMatch';
 import { suggestTaxonomyFromText } from '@/utils/locationTaxonomy';
+import { matchSubtypeForName } from '@/utils/subtypes';
 import { normalizeLocationName } from '@/utils/workbenchNaming';
 import type { LabelSnapshot, TraceSource } from '@/utils/traceCapture';
 import type { TaxonomyResult } from '@/utils/subtypes';
@@ -24,7 +25,7 @@ import type { PercentPoint, Subtype, TextWord, TopLevelRole } from '@/types/doma
  * logic changes materially so old and new suggestions stay distinguishable at
  * training time (mirrors `spec_version` for the annotation rulebook).
  */
-export const ROOM_TEXT_MODEL_VERSION = 'text-prefill-v1';
+export const ROOM_TEXT_MODEL_VERSION = 'text-prefill-v2';
 
 /**
  * The FROZEN original machine proposal for a freshly-traced room. Stored in
@@ -60,18 +61,30 @@ export function buildRoomSuggestion(
   const nameMatch = matchRoomName(polygon, words);
   const unitNumber = nameMatch?.unitNumber ?? null;
 
-  const taxo = suggestTaxonomyFromText(unitNumber);
   let role: TopLevelRole | null = null;
   let subtypeId: string | null = null;
   let subtypeName: string | null = null;
-  if (taxo) {
-    role = taxo.role;
-    // Resolve the seed name to a selectable (active) dictionary row. If the seed
+
+  // D1 — type guess. PRIMARY: the LIVE dictionary + its aliases (so an owner alias
+  // like "Unit" → "Dwelling Unit", and housing/hotel types the keyword seed lacks,
+  // are reachable), resolving straight to a selectable `subtype_id` + its role.
+  const dictMatch = matchSubtypeForName(subtypes, unitNumber);
+  if (dictMatch) {
+    role = dictMatch.top_level_role as TopLevelRole;
+    subtypeId = dictMatch.id;
+    subtypeName = dictMatch.name;
+  } else {
+    // FALLBACK: the hard-coded keyword seed for sheets whose dictionary is sparse.
+    // Resolve its seed name to a selectable (active) dictionary row; if the seed
     // isn't present, keep role + name for the frozen record but DON'T pre-select a
     // type (see suggestionToPick) — we never auto-propose a new dictionary entry.
-    const dict = subtypes.find((s) => s.status === 'active' && s.name === taxo.subtypeName);
-    subtypeName = dict ? dict.name : taxo.subtypeName;
-    subtypeId = dict ? dict.id : null;
+    const taxo = suggestTaxonomyFromText(unitNumber);
+    if (taxo) {
+      role = taxo.role;
+      const dict = subtypes.find((s) => s.status === 'active' && s.name === taxo.subtypeName);
+      subtypeName = dict ? dict.name : taxo.subtypeName;
+      subtypeId = dict ? dict.id : null;
+    }
   }
 
   if (!unitNumber && !role) return null;

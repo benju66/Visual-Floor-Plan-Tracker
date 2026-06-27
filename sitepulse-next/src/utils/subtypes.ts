@@ -257,6 +257,49 @@ export function fuzzyRankSubtypes(subtypes: Subtype[], query: string): Subtype[]
 }
 
 /**
+ * Match a free-text room name (e.g. an auto-filled "UNIT 101") to its best
+ * dictionary sub-type, scanning the canonical name AND every alias of each ACTIVE
+ * sub-type. This is the alias-aware type guess for room tracing (AI Tracing Assist —
+ * Trace Naming & Type Assist Phase 1, lever D1): an owner alias ("Unit" → "Dwelling
+ * Unit") and housing/hotel types that the hard-coded keyword seed ignores entirely
+ * both become reachable, because it reads the LIVE dictionary the user maintains.
+ *
+ * Direction is flipped from {@link fuzzyRankSubtypes}: here the room NAME is the
+ * haystack and each dictionary term is the needle — we want "Office" found INSIDE
+ * "OFFICE 110". It reuses the same {@link matchRank} tiers (no forked ranking) but
+ * caps the accepted tier at `maxRank` (default 2 = word-start) so only a HIGH-
+ * confidence appearance of a dictionary term pre-selects a type; loose substring /
+ * subsequence hits (ranks 3–4) never auto-guess. Best (lowest) rank wins; ties break
+ * by the dictionary's input order. Returns `null` when nothing clears the bar (blank
+ * name, no match, or only weak matches) — the user then picks a type by hand.
+ *
+ * Pure — no DB, no `Date`.
+ */
+export function matchSubtypeForName(
+  subtypes: Subtype[],
+  name: string | null | undefined,
+  maxRank = 2,
+): Subtype | null {
+  const haystack = (name ?? '').trim().toLowerCase();
+  if (!haystack) return null;
+  let bestSubtype: Subtype | null = null;
+  let bestRank = Number.POSITIVE_INFINITY;
+  for (const s of subtypes) {
+    if (s.status !== 'active') continue;
+    let best: number | null = matchRank(haystack, s.name.toLowerCase());
+    for (const a of s.aliases) {
+      const r = matchRank(haystack, a.toLowerCase());
+      if (r !== null && (best === null || r < best)) best = r;
+    }
+    if (best !== null && best <= maxRank && best < bestRank) {
+      bestRank = best;
+      bestSubtype = s;
+    }
+  }
+  return bestSubtype;
+}
+
+/**
  * Derive the "Used in this project" recents row from locations already present:
  * the de-duplicated `subtype_id`s, most-recent first, capped. No new storage —
  * the picker reads what the consumer already loaded (plan §A6). Sorts by
