@@ -1,0 +1,61 @@
+-- ============================================================
+-- Migration: Workbench "fully traced" completeness flag (AI Tracing Assist — Phase 4c)
+-- Purpose: Add the per-sheet training-eligibility gate to the review lifecycle.
+--          A reviewer ticks `fully_traced` to declare "every room AND every floor
+--          passage on this sheet is traced" — i.e. this drawing is a clean,
+--          exhaustively-labeled training example. Partial / product-use sheets stay
+--          `false` and are EXCLUDED from the (future) training-corpus export, so
+--          normal team usage never poisons the corpus. The flag also feeds the
+--          review Definition-of-Done (the "Mark reviewed" gate). See:
+--            - Notes/plans/AI-Tracing-Assist-Plan.md (§ Phase 4)
+--            - Notes/handoff/2026-06-26 - AI Tracing Assist Phase 4c Kickoff.md
+--            - Notes/handoff/archive/2026-06-25 - AI Tracing Assist Phase 4 Kickoff.md (§ 4c)
+--
+--          It lives on the per-drawing sidecar `workbench_sheets`, beside the rest
+--          of the review lifecycle (`review_state` / `reviewed_by` / `reviewed_at` /
+--          `deleted_at`), NOT on `sheets` — it is review/completeness state, not a
+--          property of the drawing itself. The frontend `WorkbenchSheet` domain type
+--          derives the new column automatically from the generated Row type.
+--
+-- ADDITIVE + NULLABLE-DEFAULTED. `NOT NULL DEFAULT false` auto-backfills every
+-- existing sidecar row to `false` (a row is "not certified complete" until a human
+-- says so), so there is no separate UPDATE. Nothing in status_logs /
+-- status_audit_log / the offline sync pipeline is touched, and the live app is
+-- unaffected (the column is unread by any live-project surface).
+--
+-- RLS: UNCHANGED. Setting `fully_traced` is a plain UPDATE to `workbench_sheets`,
+-- already covered by the existing "Privileged members can update workbench_sheets"
+-- policy (owner/admin/pm, TO authenticated, never anon — see
+-- 20260617_workbench_schema.sql). No policy is added, widened, or granted to anon.
+--
+-- IDEMPOTENT: safe to re-run. The single step is guarded with ADD COLUMN IF NOT EXISTS.
+-- ============================================================
+
+-- ============================================================
+-- STEP 1: workbench_sheets.fully_traced — the completeness / training-eligibility gate.
+-- BOOLEAN NOT NULL DEFAULT false. false = not certified complete (excluded from the
+-- future training export + blocks "Mark reviewed"); true = every room and every
+-- floor passage on this sheet is traced. The reviewer toggles it from the review
+-- screen via the privileged `workbench_sheets` UPDATE policy.
+-- ============================================================
+ALTER TABLE workbench_sheets
+  ADD COLUMN IF NOT EXISTS fully_traced BOOLEAN NOT NULL DEFAULT false;
+
+-- ============================================================
+-- VERIFICATION (run after applying; read-only — NOT part of the migration):
+--
+--   -- the column exists, is NOT NULL, and defaults to false:
+--   SELECT column_name, data_type, is_nullable, column_default
+--     FROM information_schema.columns
+--     WHERE table_name = 'workbench_sheets'
+--       AND column_name = 'fully_traced';
+--   -- expect: fully_traced | boolean | NO | false
+--
+--   -- every existing sidecar row backfilled to false (none auto-certified):
+--   SELECT count(*) AS certified FROM workbench_sheets WHERE fully_traced;
+--   -- expect: 0
+--
+--   -- RLS unchanged: still exactly the four Phase-3 policies, none touching anon:
+--   SELECT policyname, cmd, roles FROM pg_policies
+--     WHERE tablename = 'workbench_sheets' ORDER BY cmd;
+-- ============================================================

@@ -460,6 +460,53 @@ export function useUpdateWorkbenchReviewState(containerId: string | undefined) {
   });
 }
 
+/** Set a workbench drawing's per-sheet completeness flag (AI Tracing Assist — Phase 4c). */
+export interface SetWorkbenchFullyTracedInput {
+  /** The drawing's `sheets` id (= `workbench_sheets.sheet_id`). */
+  sheetId: string;
+  /** The new value of `fully_traced` (the reviewer's completeness declaration). */
+  fullyTraced: boolean;
+}
+
+/**
+ * Toggle a workbench drawing's `workbench_sheets.fully_traced` flag — the per-sheet
+ * training-eligibility gate (AI Tracing Assist — Phase 4c). The reviewer ticks it to
+ * declare "every room AND every floor passage on this sheet is traced," which is one
+ * of the Definition-of-Done checks gating "Mark reviewed" AND the broad filter that
+ * keeps partial / product-use sheets out of the (future) training-corpus export. A
+ * SLIM wrapper writing ONLY that one boolean — it leaves the review state, reviewer
+ * stamps, and every label untouched.
+ *
+ * Online-first TanStack mutation; carries the same `kind='workbench'` write-site
+ * guard as the other workbench writes (the container is resolved by an IDB-persisted
+ * query, so a poisoned cache could in theory point it at a live project — the cheap
+ * re-check closes that hole) and invalidates ONLY the workbench drawings key, so a
+ * completeness change can never touch a live-project surface.
+ */
+export function useSetWorkbenchFullyTraced(containerId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: SetWorkbenchFullyTracedInput): Promise<void> => {
+      if (!containerId) {
+        throw new Error('The Drawing Library is still loading — try again in a moment.');
+      }
+      await assertWorkbenchContainer(containerId);
+
+      const { error } = await supabase
+        .from('workbench_sheets')
+        .update({ fully_traced: input.fullyTraced })
+        .eq('sheet_id', input.sheetId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      if (containerId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.workbenchSheets(containerId) });
+      }
+    },
+  });
+}
+
 /** Identify the workbench drawing to archive, plus who archived it (provenance). */
 export interface ArchiveWorkbenchDrawingInput {
   /** The drawing's `sheets` id (= `workbench_sheets.sheet_id`). */

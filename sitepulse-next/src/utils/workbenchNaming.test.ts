@@ -5,6 +5,7 @@ import {
   suggestNextName,
   definitionOfDoneChecks,
   type LabelForReview,
+  type ReviewCompleteness,
 } from './workbenchNaming';
 
 describe('normalizeLocationName', () => {
@@ -80,25 +81,31 @@ describe('definitionOfDoneChecks', () => {
     { unit_number: '301', top_level_role: 'program' },
     { unit_number: '302', top_level_role: 'support' },
   ];
+  // The §4c review-completeness inputs in their "all clear" state, so the naming
+  // tests below isolate the check they target.
+  const clear: ReviewCompleteness = { flaggedOpenings: 0, flaggedDetail: null, fullyTraced: true };
 
-  it('passes when every label is named, trimmed, unique, and typed', () => {
-    const result = definitionOfDoneChecks(ok);
+  it('passes when every label is named, trimmed, unique, typed, openings-clear, and complete', () => {
+    const result = definitionOfDoneChecks(ok, clear);
     expect(result.passed).toBe(true);
     expect(result.totalLabels).toBe(2);
     expect(result.checks.every((c) => c.passed)).toBe(true);
   });
 
   it('fails an empty drawing (no labels)', () => {
-    const result = definitionOfDoneChecks([]);
+    const result = definitionOfDoneChecks([], clear);
     expect(result.passed).toBe(false);
     expect(result.checks.find((c) => c.id === 'has-labels')?.passed).toBe(false);
   });
 
   it('flags an unnamed label', () => {
-    const result = definitionOfDoneChecks([
-      { unit_number: '301', top_level_role: 'program' },
-      { unit_number: '  ', top_level_role: 'program' },
-    ]);
+    const result = definitionOfDoneChecks(
+      [
+        { unit_number: '301', top_level_role: 'program' },
+        { unit_number: '  ', top_level_role: 'program' },
+      ],
+      clear,
+    );
     expect(result.passed).toBe(false);
     const named = result.checks.find((c) => c.id === 'all-named');
     expect(named?.passed).toBe(false);
@@ -106,27 +113,62 @@ describe('definitionOfDoneChecks', () => {
   });
 
   it('flags stray whitespace in a name', () => {
-    const result = definitionOfDoneChecks([{ unit_number: 'Room  1', top_level_role: 'program' }]);
+    const result = definitionOfDoneChecks([{ unit_number: 'Room  1', top_level_role: 'program' }], clear);
     expect(result.checks.find((c) => c.id === 'names-trimmed')?.passed).toBe(false);
   });
 
   it('flags duplicate names (normalized, case-insensitive)', () => {
-    const result = definitionOfDoneChecks([
-      { unit_number: 'Room 1', top_level_role: 'program' },
-      { unit_number: 'room 1', top_level_role: 'support' },
-    ]);
+    const result = definitionOfDoneChecks(
+      [
+        { unit_number: 'Room 1', top_level_role: 'program' },
+        { unit_number: 'room 1', top_level_role: 'support' },
+      ],
+      clear,
+    );
     const unique = result.checks.find((c) => c.id === 'names-unique');
     expect(unique?.passed).toBe(false);
     expect(unique?.detail).toBe('1 duplicated');
   });
 
   it('flags a label missing a role/type', () => {
-    const result = definitionOfDoneChecks([
-      { unit_number: '301', top_level_role: 'program' },
-      { unit_number: '302', top_level_role: null },
-    ]);
+    const result = definitionOfDoneChecks(
+      [
+        { unit_number: '301', top_level_role: 'program' },
+        { unit_number: '302', top_level_role: null },
+      ],
+      clear,
+    );
     const typed = result.checks.find((c) => c.id === 'all-typed');
     expect(typed?.passed).toBe(false);
     expect(typed?.detail).toBe('1 without a type');
+  });
+
+  // ── AI Tracing Assist §4c — the two new sign-off checks ──
+
+  it('blocks sign-off while an opening is flagged, surfacing the reason', () => {
+    const result = definitionOfDoneChecks(ok, { flaggedOpenings: 1, flaggedDetail: '1 type conflict', fullyTraced: true });
+    expect(result.passed).toBe(false);
+    const openings = result.checks.find((c) => c.id === 'openings-resolved');
+    expect(openings?.passed).toBe(false);
+    expect(openings?.detail).toBe('1 type conflict');
+  });
+
+  it('falls back to a generic flagged count when no reason detail is given', () => {
+    const result = definitionOfDoneChecks(ok, { flaggedOpenings: 2, fullyTraced: true });
+    expect(result.checks.find((c) => c.id === 'openings-resolved')?.detail).toBe('2 flagged');
+  });
+
+  it('blocks sign-off until the sheet is marked fully traced', () => {
+    const result = definitionOfDoneChecks(ok, { flaggedOpenings: 0, fullyTraced: false });
+    expect(result.passed).toBe(false);
+    const complete = result.checks.find((c) => c.id === 'sheet-complete');
+    expect(complete?.passed).toBe(false);
+    expect(complete?.detail).toBe('Confirm completeness below');
+  });
+
+  it('passes the §4c checks once openings are clear and the sheet is complete', () => {
+    const result = definitionOfDoneChecks(ok, clear);
+    expect(result.checks.find((c) => c.id === 'openings-resolved')?.passed).toBe(true);
+    expect(result.checks.find((c) => c.id === 'sheet-complete')?.passed).toBe(true);
   });
 });

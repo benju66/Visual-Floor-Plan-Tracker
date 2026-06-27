@@ -106,13 +106,29 @@ export interface LabelForReview {
   top_level_role: string | null;
 }
 
-/** A single Definition-of-Done check result (standard §9). */
+/** A single Definition-of-Done check result (standard §9 + AI Tracing Assist §4c). */
 export interface DoDCheck {
-  id: 'has-labels' | 'all-named' | 'names-trimmed' | 'names-unique' | 'all-typed';
+  id: 'has-labels' | 'all-named' | 'names-trimmed' | 'names-unique' | 'all-typed' | 'openings-resolved' | 'sheet-complete';
   label: string;
   passed: boolean;
   /** Short failure context (e.g. "2 unnamed"), or null when the check passes. */
   detail: string | null;
+}
+
+/**
+ * The review-completeness inputs the §4c checks need, computed by the caller (the
+ * review screen) and passed in so this module stays pure + free of geometry deps.
+ * Flagged-opening state is RECOMPUTED LIVE from the rooms' current tags
+ * (`summarizeFlaggedOpenings` in `openingReview.ts`) — there is no stored
+ * "acknowledged" flag; a human resolves a flag by editing the tags until it clears.
+ */
+export interface ReviewCompleteness {
+  /** Count of canonical openings still flagged for a human (type conflict / ambiguous match). */
+  flaggedOpenings: number;
+  /** Short reason summary for the flagged openings (e.g. "1 type conflict"); null when none. */
+  flaggedDetail?: string | null;
+  /** The per-sheet `workbench_sheets.fully_traced` flag — the training-eligibility gate. */
+  fullyTraced: boolean;
 }
 
 export interface DefinitionOfDoneResult {
@@ -123,13 +139,19 @@ export interface DefinitionOfDoneResult {
 }
 
 /**
- * Compute the standard §9 Definition-of-Done checklist for a drawing's labels:
- * at least one label; every label named; names trimmed; names unique on the sheet;
- * every label carries a role (the canonical `top_level_role`, the single source of
- * truth for type per AGENTS.md §4). A drawing may only be marked `reviewed` when
- * `passed` is true. Pure — never mutates its input.
+ * Compute the Definition-of-Done checklist for a drawing's labels. The standard §9
+ * naming checks: at least one label; every label named; names trimmed; names unique
+ * on the sheet; every label carries a role (the canonical `top_level_role`, the
+ * single source of truth for type per AGENTS.md §4). Plus the AI Tracing Assist §4c
+ * sign-off checks ANDed in: no unresolved flagged openings (recomputed live from the
+ * tags), and the sheet declared fully traced (the training-eligibility gate). A
+ * drawing may only be marked `reviewed` when `passed` is true. Pure — never mutates
+ * its input.
  */
-export function definitionOfDoneChecks(labels: readonly LabelForReview[]): DefinitionOfDoneResult {
+export function definitionOfDoneChecks(
+  labels: readonly LabelForReview[],
+  review: ReviewCompleteness,
+): DefinitionOfDoneResult {
   const total = labels.length;
 
   const unnamed = labels.filter((l) => normalizeLocationName(l.unit_number ?? '').length === 0).length;
@@ -174,6 +196,18 @@ export function definitionOfDoneChecks(labels: readonly LabelForReview[]): Defin
       label: 'Every location has a role + type',
       passed: total > 0 && untyped === 0,
       detail: untyped > 0 ? `${untyped} without a type` : null,
+    },
+    {
+      id: 'openings-resolved',
+      label: 'Openings reconciled (no conflicts)',
+      passed: review.flaggedOpenings === 0,
+      detail: review.flaggedOpenings > 0 ? review.flaggedDetail ?? `${review.flaggedOpenings} flagged` : null,
+    },
+    {
+      id: 'sheet-complete',
+      label: 'Marked fully traced',
+      passed: review.fullyTraced === true,
+      detail: review.fullyTraced ? null : 'Confirm completeness below',
     },
   ];
 

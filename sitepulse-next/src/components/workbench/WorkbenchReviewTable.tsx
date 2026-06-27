@@ -1,11 +1,15 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
-import { Check, X, Trash2, Loader2, Layers, CircleDashed, ClipboardCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Check, X, Trash2, Loader2, Layers, CircleDashed, ClipboardCheck, DoorOpen } from 'lucide-react';
 import TaxonomyPicker from '@/components/TaxonomyPicker';
 import { useUnits, useDeleteUnit } from '@/hooks/useProjectQueries';
 import { useSubtypes } from '@/hooks/useSubtypes';
-import { useUpdateWorkbenchLabel, useUpdateWorkbenchReviewState } from '@/hooks/useWorkbenchActions';
+import {
+  useUpdateWorkbenchLabel,
+  useUpdateWorkbenchReviewState,
+  useSetWorkbenchFullyTraced,
+} from '@/hooks/useWorkbenchActions';
 import {
   REVIEW_STATE_LABELS,
   REVIEW_STATE_BADGE,
@@ -13,6 +17,7 @@ import {
   type WorkbenchReviewState,
 } from '@/utils/workbench';
 import { definitionOfDoneChecks, normalizeLocationName, isNameUniqueOnSheet } from '@/utils/workbenchNaming';
+import { summarizeFlaggedOpenings } from '@/utils/openingReview';
 import { PROJECT_TYPES, type ProjectType } from '@/utils/locationTaxonomy';
 import type { TaxonomyResult } from '@/utils/subtypes';
 import type { Subtype, Unit, WorkbenchDrawing } from '@/types/domain';
@@ -42,11 +47,17 @@ export default function WorkbenchReviewTable({ drawing, containerId, userId, onC
   const updateLabel = useUpdateWorkbenchLabel(sheetId);
   const deleteUnit = useDeleteUnit(sheetId);
   const updateReview = useUpdateWorkbenchReviewState(containerId);
+  const setFullyTraced = useSetWorkbenchFullyTraced(containerId);
 
   const reviewState = narrowReviewState(drawing.workbench?.review_state);
   const projectType = asProjectType(drawing.workbench?.sheet_project_type);
+  const fullyTraced = drawing.workbench?.fully_traced === true;
+  // Recompute reconciliation live from the rooms' current opening tags (§4c) — a
+  // human resolves a flag by editing the tags on the canvas until this clears.
+  const flaggedOpenings = summarizeFlaggedOpenings(units);
   const dod = definitionOfDoneChecks(
     units.map((u) => ({ unit_number: u.unit_number, top_level_role: u.top_level_role })),
+    { flaggedOpenings: flaggedOpenings.count, flaggedDetail: flaggedOpenings.detail, fullyTraced },
   );
 
   useEffect(() => {
@@ -108,6 +119,34 @@ export default function WorkbenchReviewTable({ drawing, containerId, userId, onC
           </div>
         </div>
 
+        {/* Completeness flag (§4c) — the per-sheet training-eligibility gate. */}
+        <div className="shrink-0 px-5 py-2.5 border-b border-slate-200 dark:border-white/10">
+          <label className="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={fullyTraced}
+              disabled={setFullyTraced.isPending}
+              onChange={(e) => setFullyTraced.mutate({ sheetId, fullyTraced: e.target.checked })}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 dark:border-white/20 text-emerald-500 focus:ring-emerald-400/40 disabled:opacity-50"
+            />
+            <span className="text-xs leading-snug">
+              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                Every room and every floor passage on this sheet is traced
+              </span>
+              <span className="block text-[11px] text-slate-400">
+                Confirms this drawing is a complete, clean training example. Leave unticked for partial or
+                in-progress sheets.
+              </span>
+            </span>
+            {setFullyTraced.isPending && <Loader2 size={13} className="mt-0.5 animate-spin text-slate-400" />}
+          </label>
+          {setFullyTraced.isError && (
+            <p className="mt-1 text-[11px] text-rose-500">
+              {setFullyTraced.error instanceof Error ? setFullyTraced.error.message : 'Could not update completeness.'}
+            </p>
+          )}
+        </div>
+
         {/* Editable table */}
         <div className="flex-1 min-h-0 overflow-y-auto">
           {units.length === 0 ? (
@@ -121,6 +160,7 @@ export default function WorkbenchReviewTable({ drawing, containerId, userId, onC
                   <th className="text-left font-bold px-3 py-2 w-8">#</th>
                   <th className="text-left font-bold px-3 py-2">Name</th>
                   <th className="text-left font-bold px-3 py-2">Type</th>
+                  <th className="text-center font-bold px-2 py-2" title="Tagged openings (doorways / passages)">Open</th>
                   <th className="text-center font-bold px-2 py-2">2-Lvl</th>
                   <th className="text-center font-bold px-2 py-2">Void</th>
                   <th className="px-2 py-2 w-10" />
@@ -132,6 +172,7 @@ export default function WorkbenchReviewTable({ drawing, containerId, userId, onC
                     key={unit.id}
                     unit={unit}
                     index={i + 1}
+                    openingCount={unit.opening_edges.length}
                     subtypes={subtypes}
                     projectType={projectType}
                     otherNames={units
@@ -203,6 +244,7 @@ interface RowPatch {
 function WorkbenchReviewRow({
   unit,
   index,
+  openingCount,
   subtypes,
   projectType,
   otherNames,
@@ -211,6 +253,7 @@ function WorkbenchReviewRow({
 }: {
   unit: Unit;
   index: number;
+  openingCount: number;
   subtypes: Subtype[];
   projectType: ProjectType | null;
   otherNames: string[];
@@ -325,6 +368,23 @@ function WorkbenchReviewRow({
               />
             </div>
           </>
+        )}
+      </td>
+
+      {/* Openings — passage count (read-only; tagged on the canvas, edited there). */}
+      <td className="px-2 py-2 text-center">
+        {openingCount > 0 ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-md border border-emerald-400/60 bg-emerald-50 dark:bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums"
+            title={`${openingCount} tagged opening${openingCount === 1 ? '' : 's'}`}
+          >
+            <DoorOpen size={12} />
+            {openingCount}
+          </span>
+        ) : (
+          <span className="text-slate-300 dark:text-slate-600" title="No tagged openings">
+            –
+          </span>
         )}
       </td>
 

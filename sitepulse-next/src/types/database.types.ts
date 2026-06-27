@@ -190,6 +190,7 @@ export interface Database {
           review_state: string
           reviewed_by: string | null
           reviewed_at: string | null
+          fully_traced: boolean
           deleted_at: string | null
           deleted_by: string | null
           source_building: string | null
@@ -205,6 +206,7 @@ export interface Database {
           review_state?: string
           reviewed_by?: string | null
           reviewed_at?: string | null
+          fully_traced?: boolean
           deleted_at?: string | null
           deleted_by?: string | null
           source_building?: string | null
@@ -220,6 +222,7 @@ export interface Database {
           review_state?: string
           reviewed_by?: string | null
           reviewed_at?: string | null
+          fully_traced?: boolean
           deleted_at?: string | null
           deleted_by?: string | null
           source_building?: string | null

@@ -116,7 +116,12 @@ export function summarizeCorpus(
     else vectorQuality.unknown += 1;
 
     const labels = unitsBySheet[drawing.id] ?? [];
-    if (definitionOfDoneChecks(labels).passed) dodReadyCount += 1;
+    // The corpus strip measures the §9 NAMING Definition-of-Done only (its data is
+    // names + roles). The §4c sign-off gates — no flagged openings + `fully_traced` —
+    // are per-sheet review state recomputed live on the review screen, not corpus
+    // health, and the corpus query doesn't fetch opening geometry, so they're held
+    // "all clear" here to preserve this count's original meaning.
+    if (definitionOfDoneChecks(labels, { flaggedOpenings: 0, fullyTraced: true }).passed) dodReadyCount += 1;
 
     for (const label of labels) {
       totalLabels += 1;
