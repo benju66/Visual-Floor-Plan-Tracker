@@ -7,6 +7,7 @@ import type {
   Project, Sheet, Unit, Milestone, StatusLog, Profile, ProjectMember,
   TemporalState, MilestoneOverride, ProjectContact, ProjectContactInsert
 } from '@/types/domain';
+import { isOpeningEdgeArray } from '@/types/domain';
 import type { 
   UpdateUnitGeometryVars, BulkUpdateStatusVars, UpdateStatusVars 
 } from '@/types/mutations';
@@ -316,6 +317,20 @@ export function useMilestoneOverrides(projectId: string) {
   });
 }
 
+/**
+ * Narrow units' `opening_edges` JSONB (Phase 4a) on EVERY read — not just a fresh
+ * fetch. The units query is persisted to IndexedDB (offline-first), so a drawing
+ * cached BEFORE this column existed rehydrates with rows that lack the field; a
+ * consumer that trusts the non-null `Unit['opening_edges']` type would then read
+ * `undefined.length` and crash. Running this in React Query's `select` (not the
+ * queryFn) applies it to rehydrated + optimistic cache too (AGENTS.md §6). Defined
+ * at module scope so the select stays referentially stable (no extra re-renders),
+ * and only the rows that actually need fixing get a new object (ref-stable otherwise).
+ */
+function selectUnitsWithOpeningEdges(rows: Unit[]): Unit[] {
+  return rows.map((u) => (isOpeningEdgeArray(u.opening_edges) ? u : { ...u, opening_edges: [] }));
+}
+
 export function useUnits(sheetId: string) {
   return useQuery({
     queryKey: queryKeys.units(sheetId),
@@ -325,7 +340,8 @@ export function useUnits(sheetId: string) {
       if (error) throw error;
       return data as unknown as Unit[];
     },
-    enabled: !!sheetId
+    enabled: !!sheetId,
+    select: selectUnitsWithOpeningEdges,
   });
 }
 

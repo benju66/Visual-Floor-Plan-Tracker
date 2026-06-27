@@ -15,6 +15,8 @@ import PendingPolygon from '@/components/canvas/PendingPolygon';
 import CaptureBoxOverlay from '@/components/canvas/CaptureBoxOverlay';
 import CaptureLineOverlay from '@/components/canvas/CaptureLineOverlay';
 import GridlineOverlay, { type GridlineOverlayItem } from '@/components/canvas/GridlineOverlay';
+import OpeningEdgeOverlay, { type OpeningOverlayUnit, type OpeningEditTarget } from '@/components/canvas/OpeningEdgeOverlay';
+import { OPENING_TYPE_RGB, openingTypeForKey } from '@/utils/openingEdges';
 import MapLegend from '@/components/canvas/MapLegend';
 import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
@@ -33,7 +35,7 @@ import { useUnits, useMilestones, useUpdateWalkSequence } from '@/hooks/useProje
 import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
-import type { StatusLog, Unit, PercentPoint as Point, Gridline } from '@/types/domain';
+import type { StatusLog, Unit, PercentPoint as Point, Gridline, OpeningEdge, OpeningType } from '@/types/domain';
 import { applicableMilestones } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { ToolMode } from '@/store/useMapStore';
@@ -60,7 +62,12 @@ interface FloorplanCanvasProps {
   onUpdateUnitPolygon?: (unitId: string, points: Point[]) => void;
   onUpdateUnitIconOffset?: (unitId: string, offsetX: number, offsetY: number) => void;
   onDuplicateUnit?: (unitId: string | null) => void;
-  onPolygonComplete: (points: Point[]) => void;
+  /**
+   * A trace finished. `openingEdges` (AI Tracing Assist — Phase 4a) carries any
+   * floor-level passages tagged during the trace (`[{ edgeIndex, type }]`); it is
+   * undefined on the live map and the quick box-draw (no per-edge tagging there).
+   */
+  onPolygonComplete: (points: Point[], openingEdges?: OpeningEdge[]) => void;
   /**
    * Workbench capture-box tool (AI Tracing Assist — Phase 3a). Fires when the
    * user finishes a `capture_box` rubber-band drag, with the normalized
@@ -102,6 +109,18 @@ interface FloorplanCanvasProps {
   onSelectGridline?: (index: number | null) => void;
   onRenameUnit?: (unitId: string | null) => void;
   onDeleteUnit?: (unitId: string | string[] | null) => void;
+  /**
+   * Opening-edge capture (AI Tracing Assist — Phase 4a). When `openingCaptureEnabled`
+   * (workbench openings session), holding the opening key while tracing marks the next
+   * placed edge as an opening of `activeOpeningType`. `openingOverlays` draws saved
+   * rooms' openings; `openingEditTarget` + `onToggleOpeningEdge` make a selected room's
+   * boundary edges clickable to tag/clear. All omitted on the live map (inert there).
+   */
+  openingCaptureEnabled?: boolean;
+  activeOpeningType?: OpeningType;
+  openingOverlays?: OpeningOverlayUnit[];
+  openingEditTarget?: OpeningEditTarget | null;
+  onToggleOpeningEdge?: (unitId: string, edgeIndex: number) => void;
   onInstantStamp?: (unitId: string, points: Point[]) => void;
   pendingPolygonPoints?: Point[] | null;
   onPendingPolygonMove?: (points: Point[]) => void;
@@ -131,6 +150,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onSelectGridline,
   onRenameUnit,
   onDeleteUnit,
+  openingCaptureEnabled,
+  activeOpeningType,
+  openingOverlays,
+  openingEditTarget,
+  onToggleOpeningEdge,
   onInstantStamp,
   pendingPolygonPoints,
   onPendingPolygonMove,
@@ -290,6 +314,21 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const draftPointsRef = useRef(draftPoints);
   useEffect(() => { draftPointsRef.current = draftPoints; }, [draftPoints]);
 
+  // Opening-edge capture (AI Tracing Assist — Phase 4a). The in-progress opening tags
+  // of a half-drawn trace are an ephemeral DRAW buffer co-located with `draftPoints`
+  // (the same category of canvas-local draw state, never persisted), handed up to
+  // `onPolygonComplete` when the polygon closes. The session/active-type tool settings
+  // live in `useWorkbenchStore` (passed in as props) per AGENTS.md §2.
+  const [draftOpeningEdges, setDraftOpeningEdges] = useState<OpeningEdge[]>([]);
+  const draftOpeningEdgesRef = useRef(draftOpeningEdges);
+  useEffect(() => { draftOpeningEdgesRef.current = draftOpeningEdges; }, [draftOpeningEdges]);
+  // Which opening TYPE key (D/C/H/P) is currently held — while one is down, the next
+  // placed edge becomes an opening of that type. The ref drives the commit (read
+  // synchronously on click); the state drives the armed cursor tint. Only wired when
+  // openingCaptureEnabled (workbench); the live map never subscribes.
+  const heldOpeningTypeRef = useRef<OpeningType | null>(null);
+  const [armedOpeningType, setArmedOpeningType] = useState<OpeningType | null>(null);
+
   const unitsRef = useRef(units);
   useEffect(() => { unitsRef.current = units; }, [units]);
 
@@ -343,6 +382,44 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const boxOriginRef = useRef<Point | null>(null);
   useEffect(() => { boxOriginRef.current = boxOrigin; }, [boxOrigin]);
 
+  // Opening hold-keys (Phase 4a): track which TYPE key (D/C/H/P) is held, only while
+  // opening capture is enabled (workbench), so the live map never even subscribes.
+  // While one is down, the next edge placed during a trace is tagged an opening of
+  // that type (committed in handleStageClick). Tapping a key to SET the active type
+  // (for edit-after click-to-tag) is handled by the tracer, not here.
+  useEffect(() => {
+    if (!openingCaptureEnabled) {
+      heldOpeningTypeRef.current = null;
+      setArmedOpeningType(null);
+      return;
+    }
+    const isTypingTarget = () =>
+      document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
+    const down = (e: KeyboardEvent) => {
+      if (isTypingTarget() || e.metaKey || e.ctrlKey || e.altKey) return;
+      const type = openingTypeForKey(e.key);
+      if (!type) return;
+      heldOpeningTypeRef.current = type;
+      setArmedOpeningType(type);
+    };
+    const up = (e: KeyboardEvent) => {
+      const type = openingTypeForKey(e.key);
+      if (!type || heldOpeningTypeRef.current !== type) return;
+      heldOpeningTypeRef.current = null;
+      setArmedOpeningType(null);
+    };
+    const clear = () => { heldOpeningTypeRef.current = null; setArmedOpeningType(null); };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', clear);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', clear);
+      clear();
+    };
+  }, [openingCaptureEnabled]);
+
   const aspect = layoutRef.current.drawW / Math.max(1, layoutRef.current.drawH);
   const lastBoxEndRef = useRef(0);
   // Tracks the last snap result from onMouseMove — consumed by handleStageClick to guarantee
@@ -389,6 +466,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
             e.stopImmediatePropagation();
             setDraftPoints([]);
+            setDraftOpeningEdges([]);
           } else if (toolMode === 'capture_line' && boxOriginRef.current) {
             // Cancel a half-placed grid axis (start node dropped, no end yet) but stay
             // in capture mode so the next click can re-place it.
@@ -428,15 +506,20 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
           e.preventDefault();
           e.stopImmediatePropagation();
+          // Undo the last vertex; drop any opening tag whose edge no longer exists
+          // (the removed vertex was the end of edge newLen-1).
+          const newLen = draftPointsRef.current.length - 1;
           setDraftPoints(prev => prev.slice(0, -1));
+          setDraftOpeningEdges(prev => prev.filter(o => o.edgeIndex <= newLen - 2));
         }
       }
-      
+
       if (toolMode === 'draw' && e.key === 'Enter') {
         if (!isInputActive && draftPointsRef.current.length > 2) {
           e.stopImmediatePropagation();
-          onPolygonComplete(draftPointsRef.current);
+          onPolygonComplete(draftPointsRef.current, draftOpeningEdgesRef.current);
           setDraftPoints([]);
+          setDraftOpeningEdges([]);
         }
       }
 
@@ -534,7 +617,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   }, []);
 
   useEffect(() => {
-    if (toolMode !== 'draw') setDraftPoints([]);
+    if (toolMode !== 'draw') { setDraftPoints([]); setDraftOpeningEdges([]); }
     if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
       onClearSelection();
     }
@@ -938,6 +1021,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         pctX = lastSnapRef.current.pctX;
         pctY = lastSnapRef.current.pctY;
       }
+      // Opening capture (Phase 4a): if a type key (D/C/H/P) is held and this isn't the
+      // first vertex, the edge from the previous vertex to this new one is an opening
+      // of the held type. The new edge's start vertex is the current last index.
+      const heldType = heldOpeningTypeRef.current;
+      if (openingCaptureEnabled && heldType && draftPoints.length > 0) {
+        const edgeIndex = draftPoints.length - 1;
+        setDraftOpeningEdges(prev => [...prev.filter(o => o.edgeIndex !== edgeIndex), { edgeIndex, type: heldType }]);
+      }
       setDraftPoints([...draftPoints, { pctX, pctY }]);
     } else if (toolMode === 'capture_line') {
       // Two-click grid-axis placement (AI Tracing Assist — Phase 3c follow-up): the
@@ -976,8 +1067,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const finishDrawing = () => {
     if (draftPoints.length > 2) {
-      onPolygonComplete(draftPoints);
+      onPolygonComplete(draftPoints, draftOpeningEdges);
       setDraftPoints([]);
+      setDraftOpeningEdges([]);
     }
   };
 
@@ -1752,6 +1844,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 enableSnapping={!!mapSettings?.enableSnapping}
                 isShiftDown={isShiftDown}
                 toPixels={toPixels}
+                openingEdges={openingCaptureEnabled ? draftOpeningEdges : undefined}
+                openingArmed={!!armedOpeningType}
+                activeOpeningRGB={OPENING_TYPE_RGB[armedOpeningType ?? activeOpeningType ?? 'door']}
               />
             )}
 
@@ -1788,6 +1883,18 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 onSelectGridline={onSelectGridline}
                 onAdjustSavedGridline={onAdjustGridline}
                 snap={snapPoint}
+              />
+            )}
+
+            {/* Opening edges (Phase 4a): saved rooms' tagged passages + edit-after. */}
+            {((openingOverlays && openingOverlays.length > 0) || openingEditTarget) && (
+              <OpeningEdgeOverlay
+                items={openingOverlays ?? []}
+                stageScale={stageScale}
+                layout={layout}
+                toPixels={toPixels}
+                editTarget={openingEditTarget ?? null}
+                onToggleEdge={onToggleOpeningEdge}
               />
             )}
 

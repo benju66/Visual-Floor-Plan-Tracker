@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Updater } from '@/types/utils';
-import type { PercentPoint, PercentRect, TitleBlockFields } from '@/types/domain';
+import type { OpeningEdge, OpeningType, PercentPoint, PercentRect, TitleBlockFields } from '@/types/domain';
 import type { RoomSuggestion } from '@/utils/roomSuggestion';
 import type { PendingGridline } from '@/utils/gridlineParse';
 import {
@@ -77,6 +77,15 @@ export interface WorkbenchState {
   /** The just-traced polygon awaiting a name + type (null = nothing pending). */
   pendingLabelPoints: PercentPoint[] | null;
   setPendingLabelPoints: (val: Updater<PercentPoint[] | null>) => void;
+
+  /**
+   * Opening edges tagged on the just-traced polygon (Phase 4a), carried from the
+   * canvas into the naming popover so they bank with the room on save. Index-aligned
+   * with {@link pendingLabelPoints}; a node move keeps indices, so they stay valid.
+   * Cleared with the rest of the pending-trace state on save/cancel.
+   */
+  pendingOpeningEdges: OpeningEdge[];
+  setPendingOpeningEdges: (val: Updater<OpeningEdge[]>) => void;
 
   /**
    * The FROZEN AI name/type proposal for the polygon currently being named (AI
@@ -167,6 +176,24 @@ export interface WorkbenchState {
    */
   selectedGridlineIndex: number | null;
   setSelectedGridlineIndex: (val: Updater<number | null>) => void;
+
+  // ── Opening-edge capture (AI Tracing Assist — Phase 4a) ──
+  // Tool settings for tagging floor-level passages on a room's perimeter. Per
+  // AGENTS.md §2 these live in the store (not useState). The transient in-progress
+  // tags of a half-drawn trace stay co-located with the canvas's draft polygon (the
+  // same ephemeral draw buffer), and are handed up only when the polygon closes.
+
+  /**
+   * Whether the openings session is active. While true, an "Openings" panel shows the
+   * active type, holding the opening key during a trace marks the next edge, and a
+   * saved room's boundary edges become clickable to tag/clear (edit-after).
+   */
+  isOpeningModeOpen: boolean;
+  setIsOpeningModeOpen: (val: Updater<boolean>) => void;
+
+  /** The opening type applied by the next tag (in-draw or edit-after). Defaults to `door`. */
+  activeOpeningType: OpeningType;
+  setActiveOpeningType: (val: Updater<OpeningType>) => void;
 }
 
 export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
@@ -218,6 +245,12 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
   setPendingLabelPoints: (val) =>
     set((state) => ({
       pendingLabelPoints: typeof val === 'function' ? val(state.pendingLabelPoints) : val,
+    })),
+
+  pendingOpeningEdges: [],
+  setPendingOpeningEdges: (val) =>
+    set((state) => ({
+      pendingOpeningEdges: typeof val === 'function' ? val(state.pendingOpeningEdges) : val,
     })),
 
   labelSuggestion: null,
@@ -285,5 +318,17 @@ export const useWorkbenchStore = create<WorkbenchState>()((set) => ({
     set((state) => ({
       selectedGridlineIndex:
         typeof val === 'function' ? val(state.selectedGridlineIndex) : val,
+    })),
+
+  isOpeningModeOpen: false,
+  setIsOpeningModeOpen: (val) =>
+    set((state) => ({
+      isOpeningModeOpen: typeof val === 'function' ? val(state.isOpeningModeOpen) : val,
+    })),
+
+  activeOpeningType: 'door',
+  setActiveOpeningType: (val) =>
+    set((state) => ({
+      activeOpeningType: typeof val === 'function' ? val(state.activeOpeningType) : val,
     })),
 }));

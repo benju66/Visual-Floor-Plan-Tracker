@@ -23,7 +23,8 @@ import {
   type TraceSource,
   type LabelSnapshot,
 } from '@/utils/traceCapture';
-import type { PercentPoint, Sheet, Unit } from '@/types/domain';
+import { normalizeOpeningEdges } from '@/utils/openingEdges';
+import type { OpeningEdge, PercentPoint, Sheet, Unit } from '@/types/domain';
 
 /**
  * Re-check that `containerId` is still the hidden `kind='workbench'` container
@@ -248,6 +249,13 @@ export interface CreateWorkbenchLabelInput {
   modelVersion?: string | null;
   /** Wall-clock ms the user spent on this trace (the speed metric); null if untimed. */
   durationMs?: number | null;
+  /**
+   * Opening edges tagged on the room's perimeter during the trace (AI Tracing Assist
+   * — Phase 4a): floor-level passages `[{ edgeIndex, type }]`, referenced by the
+   * polygon edge's start vertex. Rides the unit write (NOT a separate table);
+   * normalized against the polygon before insert. Default `[]` (a plain trace).
+   */
+  openingEdges?: OpeningEdge[];
 }
 
 /**
@@ -352,10 +360,14 @@ export function useCreateWorkbenchLabel(sheetId: string) {
       const levelNote = input.spansLevels ? input.levelNote.trim() || null : null;
       const method: TraceMethod = input.method ?? 'manual';
       const source: TraceSource = input.source ?? 'human';
+      // Opening edges (Phase 4a): normalized against the polygon so a stray tag never
+      // persists. Rides this same unit insert + M1 provenance — no parallel write path.
+      const openingEdges = normalizeOpeningEdges(input.openingEdges ?? [], input.points.length);
       const created = (await createUnit.mutateAsync({
         sheet_id: sheetId,
         unit_number: name,
         polygon_coordinates: input.points,
+        opening_edges: openingEdges,
         unit_type: taxonomy.unit_type,
         top_level_role: taxonomy.top_level_role,
         subtype_id: taxonomy.subtype_id,
@@ -717,6 +729,86 @@ export function useUpdateWorkbenchLabel(sheetId: string) {
 
       return updated;
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+    },
+  });
+}
+
+/** Set a workbench room's opening edges (Phase 4a) — the in-draw bank + edit-after path. */
+export interface UpdateWorkbenchOpeningEdgesInput {
+  /** The `units` row whose opening tags change. */
+  unitId: string;
+  /** The full new opening-edge list (toggled by the caller); normalized before write. */
+  openingEdges: OpeningEdge[];
+  /** The room's polygon vertex count — out-of-range tags are dropped against it. */
+  polygonLength: number;
+}
+
+/**
+ * Write a workbench room's `opening_edges` (AI Tracing Assist — Phase 4a) — the
+ * edit-after correction path (select a saved room → click a boundary edge → set /
+ * clear its opening type). A SLIM wrapper over a direct `units` update that writes
+ * ONLY the opening tags (normalized against the polygon); it deliberately leaves the
+ * room's name / type / geometry / provenance untouched, because an opening tag is
+ * additive boundary metadata, not a re-trace or a re-name. The human action is
+ * captured in the immutable `trace_events` log as an `update_geometry` event (the
+ * tags are part of the room's boundary), carrying the room's existing method/source.
+ *
+ * No container kind-guard read: like {@link useUpdateWorkbenchLabel}, this targets an
+ * existing row by id and never changes its parent sheet, so it cannot contaminate a
+ * live surface. Online-first; optimistic so the overlay re-colors instantly;
+ * invalidates only `units(sheetId)` (+ the all-project prefix the other unit writes
+ * already touch — contamination-safe, no rollup is keyed by a workbench sheet's ids).
+ */
+export function useUpdateWorkbenchOpeningEdges(sheetId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    retry: false,
+    mutationFn: async (input: UpdateWorkbenchOpeningEdgesInput): Promise<Unit> => {
+      const before =
+        queryClient.getQueryData<Unit[]>(queryKeys.units(sheetId))?.find((u) => u.id === input.unitId) ?? null;
+      const cleaned = normalizeOpeningEdges(input.openingEdges, input.polygonLength);
+
+      const { data, error } = await supabase
+        .from('units')
+        .update({ opening_edges: cleaned as never })
+        .eq('id', input.unitId)
+        .select()
+        .single();
+      if (error) throw error;
+      const updated = data as unknown as Unit;
+
+      // Append the immutable edit event (best-effort; never blocks the save). Opening
+      // tags are boundary geometry, so this is an `update_geometry` action; the
+      // polygon itself is unchanged (before === after polygon).
+      await recordTraceEvent({
+        sheetId,
+        unitId: input.unitId,
+        eventType: 'update_geometry',
+        method: (before?.method as TraceMethod | null) ?? 'manual',
+        source: (before?.source as TraceSource | null) ?? null,
+        beforePolygon: before?.polygon_coordinates ?? null,
+        afterPolygon: updated.polygon_coordinates ?? null,
+        beforeLabel: before ? labelSnapshotFromUnit(before) : null,
+        afterLabel: labelSnapshotFromUnit(updated),
+        groupKey: sheetId,
+      });
+
+      return updated;
+    },
+    onMutate: async (input) => {
+      // Optimistic: re-color the canvas overlay immediately (the tags are cheap, valid
+      // shapes from the caller). The refetch in onSettled reconciles with the server.
+      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
+      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) =>
+        old ? old.map((u) => (u.id === input.unitId ? { ...u, opening_edges: input.openingEdges } : u)) : old,
+      );
+      return {};
+    },
+    onError: () => {},
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['all_project_units'] });

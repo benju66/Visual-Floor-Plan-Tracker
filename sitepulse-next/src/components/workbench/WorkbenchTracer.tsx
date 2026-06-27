@@ -5,9 +5,11 @@ import { FileWarning } from 'lucide-react';
 import { ScanText } from 'lucide-react';
 import FloorplanCanvas from '@/components/FloorplanCanvas';
 import type { GridlineOverlayItem } from '@/components/canvas/GridlineOverlay';
+import type { OpeningOverlayUnit, OpeningEditTarget } from '@/components/canvas/OpeningEdgeOverlay';
 import WorkbenchLabelPopover, { type WorkbenchLabelMeta } from './WorkbenchLabelPopover';
 import TitleBlockPopover from './TitleBlockPopover';
 import GridlinePanel from './GridlinePanel';
+import OpeningModePanel from './OpeningModePanel';
 import WorkbenchTracerToolbar from './WorkbenchTracerToolbar';
 import { useMapStore } from '@/store/useMapStore';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
@@ -25,7 +27,12 @@ import {
   deleteSavedGridline,
   type PendingGridline,
 } from '@/utils/gridlineParse';
-import { useCreateWorkbenchLabel, useUpdateWorkbenchLabel } from '@/hooks/useWorkbenchActions';
+import {
+  useCreateWorkbenchLabel,
+  useUpdateWorkbenchLabel,
+  useUpdateWorkbenchOpeningEdges,
+} from '@/hooks/useWorkbenchActions';
+import { resolveOpenings, toggleOpeningEdge, openingTypeForKey } from '@/utils/openingEdges';
 import { recentSubtypeIdsFromUnits } from '@/utils/subtypes';
 import { PROJECT_TYPES, type ProjectType } from '@/utils/locationTaxonomy';
 import { recordTraceEvent, labelSnapshotFromUnit, type TraceMethod, type TraceSource } from '@/utils/traceCapture';
@@ -36,7 +43,7 @@ import {
   deriveSuggestionSource,
   ROOM_TEXT_MODEL_VERSION,
 } from '@/utils/roomSuggestion';
-import type { PercentPoint, WorkbenchDrawing } from '@/types/domain';
+import type { OpeningEdge, PercentPoint, WorkbenchDrawing } from '@/types/domain';
 
 // Location Labeling Workbench — tracing view. Mounts the REUSED, unchanged
 // `FloorplanCanvas` on a workbench drawing and wires its `onPolygonComplete` to the
@@ -55,6 +62,8 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   const setActiveSheetId = useMapStore((s) => s.setActiveSheetId);
   const setToolMode = useMapStore((s) => s.setToolMode);
   const clearSelectedUnits = useMapStore((s) => s.clearSelectedUnits);
+  const toolMode = useMapStore((s) => s.toolMode);
+  const selectedUnitIds = useMapStore((s) => s.selectedUnitIds);
 
   // Point the SHARED canvas at this workbench sheet. The canvas reads
   // `activeSheetId` (and `useUnits`/`useSnappingVectors` off it) from `useMapStore`
@@ -85,6 +94,9 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       wb.setGridProposal(null);
       wb.setPendingGridlines([]);
       wb.setSelectedGridlineIndex(null);
+      wb.setIsOpeningModeOpen(false);
+      wb.setActiveOpeningType('door');
+      wb.setPendingOpeningEdges([]);
     };
   }, [sheetId, setActiveSheetId, setToolMode, clearSelectedUnits]);
 
@@ -114,6 +126,13 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   const setPendingGridlines = useWorkbenchStore((s) => s.setPendingGridlines);
   const selectedGridlineIndex = useWorkbenchStore((s) => s.selectedGridlineIndex);
   const setSelectedGridlineIndex = useWorkbenchStore((s) => s.setSelectedGridlineIndex);
+  // Opening-edge capture (Phase 4a) floating state.
+  const isOpeningModeOpen = useWorkbenchStore((s) => s.isOpeningModeOpen);
+  const setIsOpeningModeOpen = useWorkbenchStore((s) => s.setIsOpeningModeOpen);
+  const activeOpeningType = useWorkbenchStore((s) => s.activeOpeningType);
+  const setActiveOpeningType = useWorkbenchStore((s) => s.setActiveOpeningType);
+  const pendingOpeningEdges = useWorkbenchStore((s) => s.pendingOpeningEdges);
+  const setPendingOpeningEdges = useWorkbenchStore((s) => s.setPendingOpeningEdges);
 
   const { data: subtypes = [] } = useSubtypes();
   const { data: units = [] } = useUnits(sheetId);
@@ -131,6 +150,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   const upsertGridlines = useUpsertSheetGridlines(sheetId);
   const createLabel = useCreateWorkbenchLabel(sheetId);
   const updateLabel = useUpdateWorkbenchLabel(sheetId);
+  const updateOpeningEdges = useUpdateWorkbenchOpeningEdges(sheetId);
   const deleteUnit = useDeleteUnit(sheetId);
 
   // The label currently being edited in-place (canvas "Rename"), or null when the
@@ -159,9 +179,12 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   // draft. The geometry stays 100% hand-traced; only the name is assisted. Degrades
   // silently to a blank popover when nothing is suggested.
   const handlePolygonComplete = useCallback(
-    (points: PercentPoint[]) => {
+    (points: PercentPoint[], openingEdges?: OpeningEdge[]) => {
       setEditingLabelId(null);
       setPendingLabelPoints(points);
+      // Carry any in-draw opening tags (Phase 4a) into the naming popover so they bank
+      // with the room on save (index-aligned with the polygon).
+      setPendingOpeningEdges(openingEdges ?? []);
       const suggestion = buildRoomSuggestion(points, sheetWords, subtypes);
       setLabelSuggestion(suggestion);
       setLabelDraftName(suggestion?.unitNumber ?? '');
@@ -170,6 +193,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     [
       setEditingLabelId,
       setPendingLabelPoints,
+      setPendingOpeningEdges,
       setLabelSuggestion,
       setLabelDraftName,
       setIsLabelNamingOpen,
@@ -408,6 +432,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     }
     setIsLabelNamingOpen(false);
     setPendingLabelPoints(null);
+    setPendingOpeningEdges([]);
     setLabelDraftName('');
     setEditingLabelId(null);
     setLabelSuggestion(null);
@@ -418,6 +443,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     sheetId,
     setIsLabelNamingOpen,
     setPendingLabelPoints,
+    setPendingOpeningEdges,
     setLabelDraftName,
     setEditingLabelId,
     setLabelSuggestion,
@@ -461,6 +487,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
             spansLevels: meta.spansLevels,
             levelNote: meta.levelNote,
             hasVoid: meta.hasVoid,
+            openingEdges: pendingOpeningEdges,
             ...suggestionProvenance,
           });
         }
@@ -470,8 +497,113 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
         // labeler can retry without re-tracing.
       }
     },
-    [labelDraftName, editingLabelId, pendingLabelPoints, labelSuggestion, createLabel, updateLabel, drawing, cancelNaming],
+    [labelDraftName, editingLabelId, pendingLabelPoints, pendingOpeningEdges, labelSuggestion, createLabel, updateLabel, drawing, cancelNaming],
   );
+
+  // ── Opening edges (Phase 4a): derived overlays + the edit-after toggle ──
+  // The room whose boundary edges are clickable: a single selected saved room while
+  // the openings session is active and the Select tool is in hand.
+  const openingEditTarget = useMemo<OpeningEditTarget | null>(() => {
+    if (!isOpeningModeOpen || toolMode !== 'select' || selectedUnitIds.length !== 1) return null;
+    const unit = units.find((u) => u.id === selectedUnitIds[0]);
+    if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length < 3) return null;
+    return { unitId: unit.id, polygon: unit.polygon_coordinates, edges: unit.opening_edges };
+  }, [isOpeningModeOpen, toolMode, selectedUnitIds, units]);
+
+  // Saved rooms' openings to draw (display). The pending (un-named) trace shows its
+  // own tags too. The edit-target room is drawn by the overlay's clickable layer, so
+  // it's excluded here to avoid double-drawing the same segments.
+  const openingOverlays = useMemo<OpeningOverlayUnit[]>(() => {
+    const items: OpeningOverlayUnit[] = [];
+    for (const u of units) {
+      if (u.id === openingEditTarget?.unitId) continue;
+      if (!u.opening_edges.length || !u.polygon_coordinates) continue;
+      const segments = resolveOpenings(u.polygon_coordinates, u.opening_edges);
+      if (segments.length) items.push({ unitId: u.id, segments });
+    }
+    if (pendingLabelPoints && pendingOpeningEdges.length) {
+      const segments = resolveOpenings(pendingLabelPoints, pendingOpeningEdges);
+      if (segments.length) items.push({ unitId: 'PENDING', segments });
+    }
+    return items;
+  }, [units, pendingLabelPoints, pendingOpeningEdges, openingEditTarget]);
+
+  // Total tagged passages on the sheet (the panel readout).
+  const totalOpenings = useMemo(
+    () => units.reduce((sum, u) => sum + u.opening_edges.length, 0),
+    [units],
+  );
+
+  // Edit-after: click a saved room's boundary edge → toggle it against the active
+  // type (set / replace / clear), banked through the openings update hook.
+  const toggleOpeningEdgeOnUnit = useCallback(
+    (unitId: string, edgeIndex: number) => {
+      const unit = units.find((u) => u.id === unitId);
+      if (!unit || !unit.polygon_coordinates) return;
+      const next = toggleOpeningEdge(unit.opening_edges, edgeIndex, activeOpeningType);
+      updateOpeningEdges.mutate({ unitId, openingEdges: next, polygonLength: unit.polygon_coordinates.length });
+    },
+    [units, activeOpeningType, updateOpeningEdges],
+  );
+
+  // Toggle the openings session (toolbar door button + the `O` shortcut). Opening it
+  // closes the capture-box sessions (one annotation flow at a time) and drops into the
+  // Trace tool — the headline flow is "hold D/C/H/P while tracing"; edit-after just
+  // needs the Select tool. Closing returns to Pan. Mirrors the gridline/title toggles.
+  const toggleOpenings = useCallback(() => {
+    if (isOpeningModeOpen) {
+      setIsOpeningModeOpen(false);
+      setToolMode('pan');
+    } else {
+      setIsTitleBlockOpen(false);
+      setIsGridlineOpen(false);
+      setGridProposal(null);
+      setPendingGridlines([]);
+      setIsOpeningModeOpen(true);
+      setToolMode('draw');
+    }
+  }, [
+    isOpeningModeOpen,
+    setIsOpeningModeOpen,
+    setToolMode,
+    setIsTitleBlockOpen,
+    setIsGridlineOpen,
+    setGridProposal,
+    setPendingGridlines,
+  ]);
+
+  // End the openings session (panel ✕) — discards nothing saved.
+  const closeOpeningMode = useCallback(() => {
+    setIsOpeningModeOpen(false);
+    setToolMode('pan');
+  }, [setIsOpeningModeOpen, setToolMode]);
+
+  // Keyboard: `O` toggles the openings tool from anywhere on the tracer; while the
+  // tool is open, D/C/H/P set the active opening type (for the panel + edit-after
+  // click-to-tag — the in-draw "hold to mark" is handled inside the canvas). Ignored
+  // while typing in an input and for modifier/auto-repeat keypresses.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA') return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        toggleOpenings();
+        return;
+      }
+      if (useWorkbenchStore.getState().isOpeningModeOpen) {
+        const type = openingTypeForKey(e.key);
+        if (type) setActiveOpeningType(type);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleOpenings, setActiveOpeningType]);
+
+  const editingOpeningUnitName = openingEditTarget
+    ? units.find((u) => u.id === openingEditTarget.unitId)?.unit_number ?? null
+    : null;
 
   const saveError = createLabel.error ?? updateLabel.error;
 
@@ -484,6 +616,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       <WorkbenchTracerToolbar
         isSnappingLoading={isSnappingLoading}
         confirmedGridCount={savedGridlines?.gridlines.length ?? 0}
+        onToggleOpenings={toggleOpenings}
       />
 
       {/* Saved title-block facts (Phase 3a) — confirms persistence across reloads. */}
@@ -512,6 +645,11 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
         selectedGridlineIndex={selectedGridlineIndex}
         onAdjustGridline={adjustSavedGridline}
         onSelectGridline={selectSavedGridlineFromCanvas}
+        openingCaptureEnabled={isOpeningModeOpen}
+        activeOpeningType={activeOpeningType}
+        openingOverlays={openingOverlays}
+        openingEditTarget={openingEditTarget}
+        onToggleOpeningEdge={toggleOpeningEdgeOnUnit}
         pendingPolygonPoints={pendingLabelPoints}
         onPendingPolygonMove={setPendingLabelPoints}
         onRenameUnit={handleRenameUnit}
@@ -551,6 +689,16 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
           onRelabelSaved={relabelSavedGridline}
           onDeleteSaved={deleteSavedGridlineAt}
           onClose={closeGridlines}
+        />
+      )}
+
+      {isOpeningModeOpen && (
+        <OpeningModePanel
+          activeType={activeOpeningType}
+          onActiveTypeChange={setActiveOpeningType}
+          totalOpenings={totalOpenings}
+          editingUnitName={editingOpeningUnitName}
+          onClose={closeOpeningMode}
         />
       )}
 

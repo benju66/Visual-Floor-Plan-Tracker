@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3, Grid2x2Check } from 'lucide-react';
+import { Hand, PenLine, MousePointer2, Magnet, Loader2, ScanText, Grid3x3, Grid2x2Check, DoorOpen } from 'lucide-react';
 import { useMapStore, type ToolMode } from '@/store/useMapStore';
 import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
@@ -22,10 +22,17 @@ const TOOLS: { id: ToolMode; label: string; icon: React.ElementType }[] = [
 export default function WorkbenchTracerToolbar({
   isSnappingLoading,
   confirmedGridCount = 0,
+  onToggleOpenings,
 }: {
   isSnappingLoading?: boolean;
   /** How many gridlines are confirmed on this sheet — drives the grid-aware tooltip. */
   confirmedGridCount?: number;
+  /**
+   * Toggle the openings session (Phase 4a). Owned by the tracer so the same handler
+   * backs both this button and the `O` keyboard shortcut; it coordinates closing the
+   * capture-box sessions and the tool switch.
+   */
+  onToggleOpenings?: () => void;
 }) {
   const toolMode = useMapStore((s) => s.toolMode);
   const setToolMode = useMapStore((s) => s.setToolMode);
@@ -42,6 +49,12 @@ export default function WorkbenchTracerToolbar({
   const setPendingGridlines = useWorkbenchStore((s) => s.setPendingGridlines);
   const setIsTitleBlockOpen = useWorkbenchStore((s) => s.setIsTitleBlockOpen);
 
+  // Openings session (Phase 4a) — tag floor-level passages while tracing / on a
+  // selected room. Independent of the capture-box sessions; opening it closes them
+  // (one annotation flow at a time) and drops into the trace tool for the common flow.
+  const isOpeningModeOpen = useWorkbenchStore((s) => s.isOpeningModeOpen);
+  const setIsOpeningModeOpen = useWorkbenchStore((s) => s.setIsOpeningModeOpen);
+
   // Title block is "active" only when capturing a box OUTSIDE a gridline session
   // (inside one, capture_box reads a grid bubble instead).
   const titleBlockActive = toolMode === 'capture_box' && !isGridlineOpen;
@@ -51,6 +64,7 @@ export default function WorkbenchTracerToolbar({
       setToolMode('pan');
     } else {
       setIsGridlineOpen(false);
+      setIsOpeningModeOpen(false);
       setGridProposal(null);
       setToolMode('capture_box');
     }
@@ -64,11 +78,13 @@ export default function WorkbenchTracerToolbar({
       setToolMode('pan');
     } else {
       setIsTitleBlockOpen(false);
+      setIsOpeningModeOpen(false);
       setGridProposal(null);
       setIsGridlineOpen(true);
       setToolMode('capture_box'); // step 1: box a grid bubble
     }
   };
+
 
   const btnBase = 'p-2 rounded-full flex items-center justify-center transition-all';
   const btnActive = 'bg-violet-500 text-white shadow-sm scale-110';
@@ -122,6 +138,18 @@ export default function WorkbenchTracerToolbar({
         className={`${btnBase} ${isGridlineOpen ? btnActive : btnIdle}`}
       >
         <Grid3x3 size={18} />
+      </button>
+
+      {/* Openings (AI Tracing Assist — Phase 4a): tag floor-level passages. Toggle with
+          this button or the `O` key; hold D/C/H/P while tracing, or click a selected
+          room's edges. */}
+      <button
+        type="button"
+        title="Tag openings (O) — hold D/C/H/P while tracing, or click a selected room's edges"
+        onClick={onToggleOpenings}
+        className={`${btnBase} ${isOpeningModeOpen ? btnActive : btnIdle}`}
+      >
+        <DoorOpen size={18} />
       </button>
 
       <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />

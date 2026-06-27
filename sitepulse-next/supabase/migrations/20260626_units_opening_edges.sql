@@ -1,0 +1,57 @@
+-- ============================================================
+-- Migration: units.opening_edges (AI Tracing Assist — Phase 4a)
+-- Purpose: Capture floor-level passages (door / cased opening / overhead /
+--          pass-through) tagged on a room's perimeter WHILE tracing — as a JSONB
+--          array of tagged polygon EDGES on the existing `units` row, NOT a separate
+--          per-sheet table. Each entry is `{ edgeIndex, type }`, where `edgeIndex` is
+--          the index of the edge's START vertex
+--          (`polygon_coordinates[edgeIndex] → [(edgeIndex + 1) % n]`). Referencing by
+--          index — not coordinate — lets a tag ride polygon edits. Openings are part
+--          of the room, so they ride the EXISTING unit write path + Milestone-1
+--          provenance + `trace_events`; canonical openings + a room-connectivity
+--          graph are DERIVED later by reconciliation (Phase 4b), never captured twice.
+--          See: Notes/handoff/2026-06-25 - AI Tracing Assist Phase 4 Kickoff.md (§4a),
+--               Notes/plans/AI-Tracing-Assist-Plan.md (§ Phase 4),
+--               docs/ANNOTATION_SPEC.md (§2 geometry).
+--
+-- WHY A COLUMN, NOT A TABLE: an opening tagged on the boundary you're already
+-- tracing is free, perfectly located, and attributed to its room — so it belongs ON
+-- the room. This mirrors how the Phase-7 label flags (spans_levels / has_void) and
+-- the M1 provenance columns already live on `units`. No new RLS: the column rides the
+-- existing `units` row-level security unchanged.
+--
+-- ONE additive change: a single nullable-defaulted column on `units`. Nothing
+-- existing reads or writes it, and the `NOT NULL DEFAULT '[]'` backfills every
+-- existing row with an empty array (no room has openings until one is tagged).
+--
+-- NON-DESTRUCTIVE: adds a column with a safe default; touches no existing data, no
+-- constraints, no `status_logs` / `status_audit_log` (untouched — openings are
+-- geometry metadata, never a tracked status). IDEMPOTENT: `ADD COLUMN IF NOT EXISTS`.
+-- ============================================================
+
+-- ============================================================
+-- STEP 1: units.opening_edges — the room's tagged floor passages.
+--   opening_edges  JSONB array `[{ edgeIndex:int, type:'door'|'cased_opening'|
+--                  'overhead'|'pass_through' }]`. `edgeIndex` = the polygon edge's
+--                  START-vertex index (same percent-space polygon as
+--                  polygon_coordinates). `type` is plain TEXT inside the JSON (no
+--                  CHECK enum — a new opening type never needs a migration, matching
+--                  the trace_events / location-taxonomy convention). NOT NULL
+--                  DEFAULT '[]' so every row always carries a well-formed array and
+--                  the frontend guard (isOpeningEdgeArray) never sees null.
+-- ============================================================
+ALTER TABLE units
+  ADD COLUMN IF NOT EXISTS opening_edges JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- ============================================================
+-- VERIFICATION (run after applying; read-only — NOT part of the migration):
+--
+--   -- column present, correct type / default / not-null:
+--   SELECT column_name, data_type, is_nullable, column_default
+--     FROM information_schema.columns
+--     WHERE table_name = 'units' AND column_name = 'opening_edges';
+--   -- expect: jsonb | NO | '[]'::jsonb
+--
+--   -- every existing row backfilled to an empty array (no NULLs):
+--   SELECT count(*) FROM units WHERE opening_edges IS NULL;   -- expect 0
+-- ============================================================

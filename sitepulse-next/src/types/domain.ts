@@ -7,6 +7,20 @@ import { PROJECT_TYPES, type ProjectType, type TopLevelRole } from '@/utils/loca
 // derived from database.types.ts.
 export type { ProjectType, TopLevelRole };
 
+// ── Opening edges (AI Tracing Assist — Phase 4a) ──
+// A floor-level passage tagged on a room's perimeter while tracing: the polygon
+// EDGE the tracer marks as a doorway. `edgeIndex` is the index of the edge's START
+// vertex (`polygon_coordinates[edgeIndex] → [(edgeIndex+1) % n]`), so a tag rides
+// polygon edits by index. The four types are floor passages ONLY — windows are NOT
+// tagged (a window sits above the sill, so the floor boundary is solid beneath it).
+// The DB column is JSONB on `units`; the type union is the source of truth (plain
+// TEXT inside the JSON, so a new type never needs a migration). Lives here (the type
+// registry, AGENTS.md §6) alongside Gridline; the pure helpers are in
+// `src/utils/openingEdges.ts` and import these (utils → domain, no cycle).
+export const OPENING_TYPES = ['door', 'cased_opening', 'overhead', 'pass_through'] as const;
+export type OpeningType = (typeof OPENING_TYPES)[number];
+export type OpeningEdge = { edgeIndex: number; type: OpeningType };
+
 export type Project    = Database['public']['Tables']['projects']['Row'];
 export type Sheet      = Database['public']['Tables']['sheets']['Row'];
 // Per-drawing sidecar for the Location Labeling Workbench (1:1 with a workbench
@@ -20,7 +34,10 @@ export type WorkbenchSheet = Database['public']['Tables']['workbench_sheets']['R
 // via the dedicated workbench hooks (`src/hooks/useWorkbench.ts`), which always
 // scope to the container so a workbench row can never reach a live surface.
 export type WorkbenchDrawing = Sheet & { workbench: WorkbenchSheet | null };
-export type Unit = Omit<Database['public']['Tables']['units']['Row'], 'polygon_coordinates'> & { polygon_coordinates: PercentPoint[] | null };
+// `opening_edges` (Phase 4a) is NOT NULL DEFAULT '[]' in the DB, so it always reads
+// back as an array; narrowed off `Json` to {@link OpeningEdge}[] at the query
+// boundary via {@link isOpeningEdgeArray} (AGENTS.md §6), like polygon_coordinates.
+export type Unit = Omit<Database['public']['Tables']['units']['Row'], 'polygon_coordinates' | 'opening_edges'> & { polygon_coordinates: PercentPoint[] | null; opening_edges: OpeningEdge[] };
 export type Milestone  = Database['public']['Tables']['project_milestones']['Row'];
 export type StatusLog  = Database['public']['Tables']['status_logs']['Row'];
 export type Profile    = Database['public']['Tables']['profiles']['Row'];
@@ -255,6 +272,24 @@ export function isGridlineArray(val: unknown): val is Gridline[] {
       ((g as Gridline).axis === 'h' || (g as Gridline).axis === 'v') &&
       isPt((g as Gridline).p1) &&
       isPt((g as Gridline).p2),
+  );
+}
+
+/**
+ * Narrows `units.opening_edges` (typed `Json` by the generator) to {@link OpeningEdge}[]
+ * at the query boundary (AGENTS.md §6). An empty array is valid (a room with no
+ * tagged passages — the common case). Fully null-safe per element: a null /
+ * non-object / malformed element yields `false`, never throws — `edgeIndex` must be
+ * a non-negative integer and `type` one of the canonical {@link OPENING_TYPES}.
+ */
+export function isOpeningEdgeArray(val: unknown): val is OpeningEdge[] {
+  if (!Array.isArray(val)) return false;
+  return val.every(
+    e =>
+      !!e && typeof e === 'object' &&
+      Number.isInteger((e as OpeningEdge).edgeIndex) &&
+      (e as OpeningEdge).edgeIndex >= 0 &&
+      (OPENING_TYPES as readonly string[]).includes((e as OpeningEdge).type),
   );
 }
 

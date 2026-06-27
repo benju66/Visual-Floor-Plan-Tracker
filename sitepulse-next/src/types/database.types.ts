@@ -247,6 +247,7 @@ export interface Database {
           level_note: string | null
           has_void: boolean | null
           polygon_coordinates: Json
+          opening_edges: Json
           icon_offset_x: number | null
           icon_offset_y: number | null
           walk_sequence: number | null
@@ -272,6 +273,7 @@ export interface Database {
           level_note?: string | null
           has_void?: boolean | null
           polygon_coordinates: Json
+          opening_edges?: Json
           icon_offset_x?: number | null
           icon_offset_y?: number | null
           walk_sequence?: number | null
@@ -297,6 +299,7 @@ export interface Database {
           level_note?: string | null
           has_void?: boolean | null
           polygon_coordinates?: Json
+          opening_edges?: Json
           icon_offset_x?: number | null
           icon_offset_y?: number | null
           walk_sequence?: number | null

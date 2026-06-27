@@ -1,7 +1,8 @@
 import React from 'react';
 import { Line, Circle } from 'react-konva';
 import { usePointerSample, type PointerStore } from '@/utils/pointerStore';
-import type { PercentPoint, CanvasLayout } from '@/types/domain';
+import { OPENING_TYPE_RGB } from '@/utils/openingEdges';
+import type { OpeningEdge, PercentPoint, CanvasLayout } from '@/types/domain';
 
 export interface DraftPolygonProps {
   draftPoints: PercentPoint[];
@@ -12,6 +13,16 @@ export interface DraftPolygonProps {
   enableSnapping: boolean;
   isShiftDown: boolean;
   toPixels: (points: PercentPoint[]) => number[];
+  /**
+   * Opening edges tagged so far on the in-progress trace (AI Tracing Assist —
+   * Phase 4a). Edge `i` spans `draftPoints[i] → draftPoints[i+1]`, so a tag is drawn
+   * as a colored overlay on that placed segment. Empty/omitted on the live map.
+   */
+  openingEdges?: OpeningEdge[];
+  /** True while the opening hold-key is down — tint the cursor ghost so it's obvious. */
+  openingArmed?: boolean;
+  /** The active opening type's color (rgb triplet), used to tint the armed ghost line. */
+  activeOpeningRGB?: string;
 }
 
 /**
@@ -29,7 +40,10 @@ export default function DraftPolygon({
   layout,
   enableSnapping,
   isShiftDown,
-  toPixels
+  toPixels,
+  openingEdges,
+  openingArmed,
+  activeOpeningRGB,
 }: DraftPolygonProps) {
   const sample = usePointerSample(pointerStore);
 
@@ -53,13 +67,18 @@ export default function DraftPolygon({
           isSnapped = true;
         }
 
+        // While the opening key is held, the next placed edge becomes an opening — tint
+        // the cursor ghost in the active type's color so it's unmistakable.
+        const armed = openingArmed && draftPoints.length > 0;
+        const ghostStroke = armed && activeOpeningRGB ? `rgb(${activeOpeningRGB})` : 'rgba(59, 130, 246, 0.4)';
+
         return (
           <React.Fragment>
             {draftPoints.length > 0 && (
               <Line
                 points={toPixels([...draftPoints, {pctX, pctY}])}
-                stroke="rgba(59, 130, 246, 0.4)"
-                strokeWidth={2 / stageScale}
+                stroke={ghostStroke}
+                strokeWidth={(armed ? 3 : 2) / stageScale}
                 dash={[6 / stageScale, 6 / stageScale]}
                 closed={false}
                 listening={false}
@@ -108,6 +127,22 @@ export default function DraftPolygon({
             closed={false}
             listening={false}
           />
+          {/* Opening edges tagged so far, colored over the placed segment they sit on. */}
+          {(openingEdges ?? []).map((oe) => {
+            const a = draftPoints[oe.edgeIndex];
+            const b = draftPoints[oe.edgeIndex + 1];
+            if (!a || !b) return null; // closing edge isn't placed yet during draw
+            return (
+              <Line
+                key={`draft-opening-${oe.edgeIndex}`}
+                points={toPixels([a, b])}
+                stroke={`rgb(${OPENING_TYPE_RGB[oe.type]})`}
+                strokeWidth={4 / stageScale}
+                lineCap="round"
+                listening={false}
+              />
+            );
+          })}
           {/* Confirmed draft circles */}
           {draftPoints.map((pt, i) => (
             <Circle
