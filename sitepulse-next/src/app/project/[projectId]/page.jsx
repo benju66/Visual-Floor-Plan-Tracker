@@ -218,6 +218,7 @@ function App() {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
     newUnitName, setNewUnitName,
+    suggestedPick, isSuggested,
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,
@@ -605,6 +606,8 @@ function App() {
                   projectType={project?.project_type || null}
                   initialSubtypeId={editingUnitId ? (units.find(u => u.id === editingUnitId)?.subtype_id || null) : null}
                   initialUnitType={editingUnitId ? (units.find(u => u.id === editingUnitId)?.unit_type || null) : null}
+                  initialPick={suggestedPick}
+                  isSuggested={isSuggested}
                   recentSubtypeIds={recentSubtypeIdsFromUnits(units)}
                   saveNewUnitFromPopover={saveNewUnitFromPopover}
                   cancelUnitNaming={cancelUnitNaming}

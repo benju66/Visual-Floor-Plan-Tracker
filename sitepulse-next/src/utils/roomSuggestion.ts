@@ -154,16 +154,23 @@ export function suggestedLabelFromSuggestion(s: RoomSuggestion): LabelSnapshot {
  *
  * Names are compared in normalized form (trim + collapse spaces, standard §4) so a
  * whitespace-only difference still reads as "accepted unchanged".
+ *
+ * `finalPick` may be `null`: the workbench requires a type so always passes one, but
+ * the live project map's type is OPTIONAL (Phase 4), so a saved room may carry no
+ * pick. A null pick is treated as "no type" — it matches a suggestion that itself
+ * proposed no concrete sub-type (e.g. a name-only suggestion accepted as-is → still
+ * `ai_accepted`), and counts as an edit against a suggestion that DID propose a type.
  */
 export function deriveSuggestionSource(
   original: RoomSuggestion,
   finalName: string,
-  finalPick: TaxonomyResult,
+  finalPick: TaxonomyResult | null,
 ): TraceSource {
   const nameSame =
     normalizeLocationName(original.unitNumber ?? '') === normalizeLocationName(finalName);
-  const finalSubtypeId = finalPick.kind === 'subtype' ? finalPick.subtypeId : null;
+  const finalSubtypeId = finalPick?.kind === 'subtype' ? finalPick.subtypeId : null;
+  const finalRole = finalPick?.role ?? null;
   const typeSame =
-    (original.subtypeId ?? null) === finalSubtypeId && (original.role ?? null) === finalPick.role;
+    (original.subtypeId ?? null) === finalSubtypeId && (original.role ?? null) === finalRole;
   return nameSame && typeSame ? 'ai_accepted' : 'ai_edited';
 }

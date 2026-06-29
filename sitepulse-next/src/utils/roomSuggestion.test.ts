@@ -240,4 +240,20 @@ describe('deriveSuggestionSource — accept vs edit', () => {
     const pendingPick: TaxonomyResult = { kind: 'pending', role: 'support', name: 'Kitchen' };
     expect(deriveSuggestionSource(roleOnly, 'KITCHEN', pendingPick)).toBe('ai_accepted');
   });
+
+  // The live project map's type is optional (Phase 4), so a saved room may carry no
+  // pick at all — deriveSuggestionSource must tolerate a null finalPick.
+  it('is ai_accepted when a name-only suggestion is saved with no type (null pick)', () => {
+    const nameOnly: RoomSuggestion = { unitNumber: '417', role: null, subtypeId: null, subtypeName: null };
+    expect(deriveSuggestionSource(nameOnly, '417', null)).toBe('ai_accepted');
+  });
+
+  it('is ai_edited when a typed suggestion is saved with the type dropped (null pick)', () => {
+    expect(deriveSuggestionSource(original, 'OFFICE 110', null)).toBe('ai_edited');
+  });
+
+  it('is ai_edited when a name-only suggestion is saved under a different name (null pick)', () => {
+    const nameOnly: RoomSuggestion = { unitNumber: '417', role: null, subtypeId: null, subtypeName: null };
+    expect(deriveSuggestionSource(nameOnly, '418', null)).toBe('ai_edited');
+  });
 });

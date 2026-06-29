@@ -10,8 +10,23 @@ import {
 import type { Project, Unit, PercentPoint, StatusLog, Milestone, TemporalState, Sheet, MilestoneOverride } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
 import { buildApplicabilityIndex, hasSequenceGaps, nextApplicableIndex } from '@/utils/applicability';
-import { useProposePendingSubtype } from '@/hooks/useSubtypes';
+import { useProposePendingSubtype, useSubtypes } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult, type TaxonomyUnitFields } from '@/utils/subtypes';
+import { useSheetText } from '@/hooks/useSheetText';
+import { useNamingVocabulary } from '@/hooks/useNamingVocabulary';
+import {
+  buildRoomSuggestion,
+  suggestionToPick,
+  suggestedLabelFromSuggestion,
+  deriveSuggestionSource,
+  ROOM_TEXT_MODEL_VERSION,
+} from '@/utils/roomSuggestion';
+import {
+  recordTraceEvent,
+  labelSnapshotFromUnit,
+  ANNOTATION_SPEC_VERSION,
+  type TraceSource,
+} from '@/utils/traceCapture';
 
 export function useMapActions(project: Project | null | undefined) {
   const queryClient = useQueryClient();
@@ -26,6 +41,8 @@ export function useMapActions(project: Project | null | undefined) {
   const setEditingUnitId = useMapStore(s => s.setEditingUnitId);
   const pendingPolygonPoints = useMapStore(s => s.pendingPolygonPoints);
   const setPendingPolygonPoints = useMapStore(s => s.setPendingPolygonPoints);
+  const mapLabelSuggestion = useMapStore(s => s.mapLabelSuggestion);
+  const setMapLabelSuggestion = useMapStore(s => s.setMapLabelSuggestion);
   const quickStatusUnitId = useMapStore(s => s.quickStatusUnitId);
   const setQuickStatusUnitId = useMapStore(s => s.setQuickStatusUnitId);
   const quickMilestoneUnitId = useMapStore(s => s.quickMilestoneUnitId);
@@ -63,6 +80,15 @@ export function useMapActions(project: Project | null | undefined) {
   const resolveTaxonomy = (pick: TaxonomyResult): Promise<TaxonomyUnitFields> =>
     taxonomyResultToUnitFields(pick, (vars) => proposePendingMutation.mutateAsync(vars));
 
+  // ── Room-name auto-fill on the project map (AI Tracing Assist — Phase 4) ──
+  // The SAME naming "brain" the workbench uses, now wired onto the live draw flow.
+  // All three reads are best-effort and degrade silently (no session / offline / a
+  // scanned sheet) to "no suggestion", exactly like the workbench — they can never
+  // block or break a trace.
+  const { data: subtypes = [] } = useSubtypes();
+  const { words: sheetWords } = useSheetText(activeSheetId || null);
+  const { vocabulary } = useNamingVocabulary();
+
   const {
     undoStack, setUndoStack,
     redoStack, setRedoStack,
@@ -70,8 +96,15 @@ export function useMapActions(project: Project | null | undefined) {
   } = useUndoRedo({ toolMode, sheetId: activeSheetId });
 
   const handlePolygonComplete = (points: PercentPoint[]) => {
+    setEditingUnitId(null);
     setPendingPolygonPoints(points);
-    setNewUnitName('');
+    // Read the sheet words inside the polygon, propose a name + type, and pre-fill the
+    // naming popover (Phase 4). The geometry stays 100% hand-traced; only the name/type
+    // are assisted. The FROZEN proposal is held until save/cancel so the suggested-vs-
+    // final delta is the training signal. Degrades silently to a blank popover.
+    const suggestion = buildRoomSuggestion(points, sheetWords, subtypes, vocabulary);
+    setMapLabelSuggestion(suggestion);
+    setNewUnitName(suggestion?.unitNumber ?? '');
     setUnitNamingOpen(true);
   };
 
@@ -103,6 +136,7 @@ export function useMapActions(project: Project | null | undefined) {
       pctY: p.pctY + 0.02
     }));
     
+    setMapLabelSuggestion(null); // a duplicate is not an AI-suggested trace
     setPendingPolygonPoints(newPoints);
     setNewUnitName(`${sourceUnit.unit_number} (Copy)`);
     setUnitNamingOpen(true);
@@ -144,6 +178,7 @@ export function useMapActions(project: Project | null | undefined) {
      const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
      const unit = units.find(u => u.id === unitId);
      if (!unit) return;
+     setMapLabelSuggestion(null); // a rename is an edit, never an AI suggestion
      setEditingUnitId(unitId);
      setNewUnitName(unit.unit_number);
      setUnitNamingOpen(true);
@@ -198,6 +233,14 @@ export function useMapActions(project: Project | null | undefined) {
            }
          }
 
+         // Capture provenance (Phase 4) — mirror useCreateWorkbenchLabel. Geometry is
+         // hand-traced (method='manual'); a room born from a suggestion records whether
+         // the human kept it (ai_accepted) or changed it (ai_edited) plus the FROZEN
+         // original proposal, while a plain manual draw stays human. The trace_events
+         // row + frozen suggested_label make map-drawn rooms first-class training data.
+         const suggestion = mapLabelSuggestion;
+         const source: TraceSource = suggestion ? deriveSuggestionSource(suggestion, name, pick) : 'human';
+
          const data = await createUnitMutation.mutateAsync({
              sheet_id: activeSheetId,
              unit_number: name,
@@ -205,8 +248,31 @@ export function useMapActions(project: Project | null | undefined) {
              unit_type: taxonomy?.unit_type ?? null,
              top_level_role: taxonomy?.top_level_role ?? null,
              subtype_id: taxonomy?.subtype_id ?? null,
-             computed_area: finalComputedArea
+             computed_area: finalComputedArea,
+             method: 'manual',
+             source,
+             model_version: suggestion ? ROOM_TEXT_MODEL_VERSION : null,
+             suggested_label: (suggestion ? suggestedLabelFromSuggestion(suggestion) : null) as Unit['suggested_label'],
+             suggested_polygon: null,
+             review_status: source === 'human' ? 'confirmed' : 'unreviewed',
+             spec_version: ANNOTATION_SPEC_VERSION,
          });
+
+         // Append the immutable create event (best-effort; never blocks the save). The
+         // group_key is the sheet id, matching the workbench, so map-drawn rooms group
+         // correctly in the corpus (ANNOTATION_SPEC §5).
+         void recordTraceEvent({
+           sheetId: activeSheetId,
+           unitId: (data as Unit).id,
+           eventType: 'create',
+           method: 'manual',
+           source,
+           afterPolygon: pendingPolygonPoints,
+           afterLabel: labelSnapshotFromUnit(data as Unit),
+           modelVersion: suggestion ? ROOM_TEXT_MODEL_VERSION : null,
+           groupKey: activeSheetId,
+         });
+
          setUndoStack(prev => {
              const next = [...prev, { actionType: 'CREATE_UNIT' as const, unitData: data as any }];
              return next.length > 50 ? next.slice(next.length - 50) : next;
@@ -214,6 +280,7 @@ export function useMapActions(project: Project | null | undefined) {
          setRedoStack([]);
          setUnitNamingOpen(false);
          setPendingPolygonPoints(null);
+         setMapLabelSuggestion(null);
          setNewUnitName('');
          showToast('Location saved.', 'success');
       }
@@ -223,10 +290,27 @@ export function useMapActions(project: Project | null | undefined) {
   };
 
   const cancelUnitNaming = () => {
+    // Dismissing a freshly-traced room that HAD a suggestion = rejecting it (the user
+    // walked away rather than confirm/edit). Record the reject with the FROZEN proposal
+    // as the before-state; no unit is written. A rename (editingUnitId set) carries no
+    // suggestion, so it never rejects. Best-effort — never blocks (Phase 4).
+    if (mapLabelSuggestion && !editingUnitId) {
+      void recordTraceEvent({
+        sheetId: activeSheetId,
+        eventType: 'reject_suggestion',
+        method: 'manual',
+        source: 'ai_suggested',
+        beforePolygon: pendingPolygonPoints,
+        beforeLabel: suggestedLabelFromSuggestion(mapLabelSuggestion),
+        modelVersion: ROOM_TEXT_MODEL_VERSION,
+        groupKey: activeSheetId,
+      });
+    }
     setUnitNamingOpen(false);
     setPendingPolygonPoints(null);
     setEditingUnitId(null);
     setNewUnitName('');
+    setMapLabelSuggestion(null);
   };
 
   const handleDeleteUnit = (unitId: string) => {
@@ -542,10 +626,18 @@ export function useMapActions(project: Project | null | undefined) {
     }
   };
 
+  // The AI taxonomy pre-selection + the "suggested from the sheet" hint for the naming
+  // popover — CREATE mode only (a rename carries no suggestion). The name pre-fill rides
+  // on newUnitName; this seeds the popover's active type pick so an accepted suggestion
+  // still saves with its type even when the user never opens the picker.
+  const suggestedPick = !editingUnitId && mapLabelSuggestion ? suggestionToPick(mapLabelSuggestion) : null;
+  const isSuggested = !editingUnitId && !!mapLabelSuggestion;
+
   return {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
     newUnitName, setNewUnitName,
+    suggestedPick, isSuggested,
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,
