@@ -18,6 +18,7 @@ export interface Database {
           procore_project_id: string | null
           procore_company_id: string | null
           project_type: string | null
+          ai_training_enabled: boolean
           created_at: string | null
         }
         Insert: {
@@ -28,6 +29,7 @@ export interface Database {
           procore_project_id?: string | null
           procore_company_id?: string | null
           project_type?: string | null
+          ai_training_enabled?: boolean
           created_at?: string | null
         }
         Update: {
@@ -38,6 +40,7 @@ export interface Database {
           procore_project_id?: string | null
           procore_company_id?: string | null
           project_type?: string | null
+          ai_training_enabled?: boolean
           created_at?: string | null
         }
         Relationships: []

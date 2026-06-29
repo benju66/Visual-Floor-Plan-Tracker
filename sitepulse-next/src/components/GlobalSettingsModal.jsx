@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings, Folder, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings, Folder, Trash2, AlertTriangle, Sparkles } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/providers/AuthProvider';
 import LocationLibraryPanel from '@/components/taxonomy/LocationLibraryPanel';
 import { deleteProjectService } from '@/services/api';
 
-export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, onProjectDeleted }) {
+export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, onProjectDeleted, onProjectUpdated }) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   
@@ -33,6 +33,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
   const [confirmText, setConfirmText] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [projectStatus, setProjectStatus] = useState({ type: '', message: '' });
+
+  // Per-project AI-training opt-out toggle (left of Delete). `trainingOverrides`
+  // holds the optimistic per-project value while a write is in flight / since the
+  // modal opened; `trainingSavingId` drives the in-flight disable + spinner.
+  const [trainingOverrides, setTrainingOverrides] = useState({});
+  const [trainingSavingId, setTrainingSavingId] = useState(null);
 
   // New State for Global Team
   const [globalTeam, setGlobalTeam] = useState([]);
@@ -77,6 +83,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
       setConfirmProject(null);
       setConfirmText('');
       setProjectStatus({ type: '', message: '' });
+      setTrainingOverrides({});
+      setTrainingSavingId(null);
     }
   }, [isOpen]);
 
@@ -265,6 +273,38 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
     }
   };
 
+  // Flip a project's AI-training contribution on/off. Optimistic: update the local
+  // override immediately, write to `projects.ai_training_enabled` (RLS allows the
+  // owner/admin who can see this tab), and revert on failure. Default-ON, so the
+  // displayed state is `override ?? (flag !== false)`.
+  const handleToggleTraining = async (project) => {
+    const currentOn = trainingOverrides[project.id] ?? (project.ai_training_enabled !== false);
+    const next = !currentOn;
+    setTrainingSavingId(project.id);
+    setTrainingOverrides(prev => ({ ...prev, [project.id]: next }));
+    setProjectStatus({ type: '', message: '' });
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ ai_training_enabled: next })
+        .eq('id', project.id);
+      if (error) throw error;
+      onProjectUpdated?.(project.id, { ai_training_enabled: next });
+      setProjectStatus({
+        type: 'success',
+        message: next
+          ? `“${project.name}” now contributes to AI training.`
+          : `“${project.name}” will no longer contribute to AI training.`,
+      });
+    } catch (err) {
+      console.error('AI-training toggle failed:', err);
+      setTrainingOverrides(prev => ({ ...prev, [project.id]: currentOn })); // revert
+      setProjectStatus({ type: 'error', message: err.message || 'Failed to update AI-training setting.' });
+    } finally {
+      setTrainingSavingId(null);
+    }
+  };
+
   const handleDeleteProject = async (project) => {
     setDeletingId(project.id);
     setProjectStatus({ type: '', message: '' });
@@ -356,6 +396,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
                     const isArmed = confirmProject?.id === project.id;
                     const isDeleting = deletingId === project.id;
                     const canConfirm = confirmText.trim() === project.name && !isDeleting;
+                    const trainingOn = trainingOverrides[project.id] ?? (project.ai_training_enabled !== false);
+                    const isTrainingSaving = trainingSavingId === project.id;
                     return (
                       <div key={project.id} className="p-4 px-5">
                         <div className="flex items-center justify-between gap-3">
@@ -370,14 +412,42 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
                               )}
                             </div>
                           </div>
-                          {!isArmed && (
-                            <button
-                              onClick={() => { setConfirmProject(project); setConfirmText(''); setProjectStatus({ type: '', message: '' }); }}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+                          <div className="flex items-center gap-3 shrink-0">
+                            {/* AI-training contribution toggle (left of Delete). When OFF,
+                                traces in this project stop feeding the training corpus AND
+                                the live naming-vocabulary learning. Default ON. */}
+                            <label
+                              className="flex items-center gap-2 cursor-pointer select-none"
+                              title={trainingOn
+                                ? 'Locations traced in this project help train the AI (naming + future auto-tracing). Click to stop this project contributing.'
+                                : 'This project is excluded from AI training. Click to let it contribute again.'}
                             >
-                              <Trash2 size={14} /> Delete
-                            </button>
-                          )}
+                              <Sparkles size={14} className={trainingOn ? 'text-sky-500' : 'text-slate-400 dark:text-slate-600'} />
+                              <span className={`text-xs font-semibold hidden sm:inline ${trainingOn ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'}`}>
+                                AI training
+                              </span>
+                              <span className="relative inline-flex items-center">
+                                <input
+                                  type="checkbox"
+                                  className="sr-only peer"
+                                  disabled={isTrainingSaving}
+                                  checked={trainingOn}
+                                  onChange={() => handleToggleTraining(project)}
+                                />
+                                <span className="w-9 h-5 bg-slate-200 dark:bg-slate-700 rounded-full peer peer-checked:bg-sky-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4 peer-disabled:opacity-50"></span>
+                              </span>
+                              {isTrainingSaving && <Loader2 size={14} className="animate-spin text-slate-400" />}
+                            </label>
+
+                            {!isArmed && (
+                              <button
+                                onClick={() => { setConfirmProject(project); setConfirmText(''); setProjectStatus({ type: '', message: '' }); }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+                              >
+                                <Trash2 size={14} /> Delete
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         {isArmed && (
