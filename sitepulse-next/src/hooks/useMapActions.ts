@@ -655,6 +655,7 @@ export function useMapActions(project: Project | null | undefined) {
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,
     quickMilestoneUnitId, setQuickMilestoneUnitId,
+    pendingPolygonPoints, setPendingPolygonPoints,
     toast, setToast,
     handlePolygonComplete,
     handleUpdateUnitPolygon,
