@@ -66,4 +66,54 @@ describe('matchRoomName', () => {
     const result = matchRoomName(room, [word('214B', 0.5, 0.5)]);
     expect(result?.unitNumber).toBe('214B');
   });
+
+  it('drops a square-footage note (the value AND its unit) — "250 SF"', () => {
+    // Name + number on one line; the SF callout on the line just below.
+    const result = matchRoomName(room, [
+      word('OFFICE', 0.4, 0.5),
+      word('110', 0.6, 0.5),
+      word('250', 0.4, 0.53),
+      word('SF', 0.5, 0.53),
+    ]);
+    expect(result?.unitNumber).toBe('OFFICE 110');
+    expect(result?.words.some((w) => w.text === '250' || w.text === 'SF')).toBe(false);
+  });
+
+  it('drops a dimension token (feet/inch marks) — "10\'-0\\""', () => {
+    const result = matchRoomName(room, [
+      word('CONFERENCE', 0.4, 0.45),
+      word('201', 0.6, 0.45),
+      word("10'-0\"", 0.5, 0.65),
+    ]);
+    expect(result?.unitNumber).toBe('CONFERENCE 201');
+  });
+
+  it('drops an equipment/MEP tag — "EF-1"', () => {
+    // Both words are the only two lines, so line-limiting alone would keep EF-1;
+    // it survives only the noise filter dropping it.
+    const result = matchRoomName(room, [
+      word('MECH', 0.5, 0.5),
+      word('EF-1', 0.3, 0.3),
+    ]);
+    expect(result?.unitNumber).toBe('MECH');
+  });
+
+  it('keeps only the 1–2 lines nearest the centroid (drops far-away interior text)', () => {
+    // A plain alphabetic stray near the top edge — no noise filter would catch it, so
+    // only centroid line-limiting can drop it.
+    const result = matchRoomName(room, [
+      word('EXISTING', 0.5, 0.22),
+      word('OFFICE', 0.5, 0.5),
+      word('110', 0.5, 0.55),
+    ]);
+    expect(result?.unitNumber).toBe('OFFICE 110');
+    expect(result?.words.some((w) => w.text === 'EXISTING')).toBe(false);
+  });
+
+  it('falls back to a confirmable draft when ALL interior text is noise', () => {
+    // An SF-only room: nothing survives the noise filter, so we keep the raw interior
+    // rather than suggest nothing.
+    const result = matchRoomName(room, [word('250', 0.45, 0.5), word('SF', 0.55, 0.5)]);
+    expect(result?.unitNumber).toBe('250 SF');
+  });
 });

@@ -8,6 +8,7 @@ import {
   groupSubtypesByRole,
   restrictSubtypesToProjectType,
   fuzzyRankSubtypes,
+  matchSubtypeForName,
   recentSubtypeIdsFromUnits,
   type TaxonomyResult,
 } from './subtypes';
@@ -232,6 +233,51 @@ describe('fuzzyRankSubtypes', () => {
 
   it('excludes non-matches', () => {
     expect(fuzzyRankSubtypes(dict, 'zzz')).toEqual([]);
+  });
+});
+
+describe('matchSubtypeForName', () => {
+  const dict = [
+    makeSubtype({ id: 'office', name: 'Office' }),
+    makeSubtype({ id: 'dwelling', name: 'Dwelling Unit', aliases: ['Unit', 'Apt'] }),
+    makeSubtype({ id: 'guest', name: 'Guestroom' }),
+    makeSubtype({ id: 'lab', name: 'Lab', aliases: ['Laboratory'] }),
+  ];
+
+  it('finds a type by a word-start match inside the room name ("OFFICE 110" → Office)', () => {
+    expect(matchSubtypeForName(dict, 'OFFICE 110')?.id).toBe('office');
+  });
+
+  it('matches via an owner ALIAS so "UNIT 101" resolves to Dwelling Unit', () => {
+    expect(matchSubtypeForName(dict, 'UNIT 101')?.id).toBe('dwelling');
+  });
+
+  it('reaches a housing/hotel type the keyword seed ignores ("GUESTROOM 204" → Guestroom)', () => {
+    expect(matchSubtypeForName(dict, 'GUESTROOM 204')?.id).toBe('guest');
+  });
+
+  it('rejects a loose substring/subsequence hit by default (no "Lab" from "COLLABORATION")', () => {
+    // "lab" only occurs mid-word in "collaboration" — rank 3, above the word-start cap.
+    expect(matchSubtypeForName(dict, 'COLLABORATION 5')).toBeNull();
+  });
+
+  it('honours a relaxed maxRank when the caller opts in', () => {
+    expect(matchSubtypeForName(dict, 'COLLABORATION 5', 3)?.id).toBe('lab');
+  });
+
+  it('ignores non-active rows (only selectable types are ever pre-selected)', () => {
+    const pendingOnly = [makeSubtype({ id: 'p', name: 'Office', status: 'pending' })];
+    expect(matchSubtypeForName(pendingOnly, 'OFFICE 110')).toBeNull();
+  });
+
+  it('returns null for a blank / null name', () => {
+    expect(matchSubtypeForName(dict, '')).toBeNull();
+    expect(matchSubtypeForName(dict, '   ')).toBeNull();
+    expect(matchSubtypeForName(dict, null)).toBeNull();
+  });
+
+  it('returns null when no dictionary name/alias matches', () => {
+    expect(matchSubtypeForName(dict, '417')).toBeNull();
   });
 });
 
