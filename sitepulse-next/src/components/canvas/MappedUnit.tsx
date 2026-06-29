@@ -153,6 +153,16 @@ export const MappedUnitComponent = ({
      currentStroke = '#10b981';
   }
 
+  // Draw tool active: lightly shade already-traced polygons that carry no status
+  // fill of their own (e.g. the labeling workbench, which passes no statuses) so
+  // you can see what's already been traced while drawing new ones. Faint and under
+  // the multiply fill, so the drawing underneath stays readable; the fill Line is
+  // listening={false}, so it never intercepts a draw click. Live-map units keep
+  // their status color (guarded by !activeStatus).
+  if (toolMode === 'draw' && !activeStatus) {
+    currentFill = mixAlpha('#60a5fa', 0.12);
+  }
+
   const basePolygon = optimisticCoords || (unit.polygon_coordinates as PercentPoint[]);
   const currentPoints = toPixels(
     activeDragNode?.unitId === unit.id
