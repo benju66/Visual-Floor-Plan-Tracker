@@ -16,6 +16,7 @@ import { useWorkbenchStore } from '@/store/useWorkbenchStore';
 import { useSubtypes } from '@/hooks/useSubtypes';
 import { useSnappingVectors, useUnits, useDeleteUnit } from '@/hooks/useProjectQueries';
 import { useSheetText } from '@/hooks/useSheetText';
+import { useNamingVocabulary } from '@/hooks/useNamingVocabulary';
 import { useSheetMetadata, useUpsertSheetMetadata } from '@/hooks/useSheetMetadata';
 import { useSheetGridlines, useUpsertSheetGridlines } from '@/hooks/useSheetGridlines';
 import { parseTitleBlock } from '@/utils/titleBlockParse';
@@ -140,6 +141,10 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   // The sheet's cached PDF words feed room-name auto-fill (online-only; degrades to
   // no suggestion when null/empty — a scanned sheet or no session).
   const { words: sheetWords } = useSheetText(sheetId);
+  // The company-wide learned naming vocabulary (Phase 2) — sharpens the name (drops
+  // learned noise) and guesses the type from confirmed history. Best-effort: degrades
+  // to an empty model ("no learning") offline or on error, never blocking a trace.
+  const { vocabulary } = useNamingVocabulary();
   // The sheet's confirmed title-block facts (Phase 3a) — drives the saved chip and
   // persists across reloads. Null until the user reads the title block once.
   const { metadata: savedMetadata } = useSheetMetadata(sheetId);
@@ -185,7 +190,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       // Carry any in-draw opening tags (Phase 4a) into the naming popover so they bank
       // with the room on save (index-aligned with the polygon).
       setPendingOpeningEdges(openingEdges ?? []);
-      const suggestion = buildRoomSuggestion(points, sheetWords, subtypes);
+      const suggestion = buildRoomSuggestion(points, sheetWords, subtypes, vocabulary);
       setLabelSuggestion(suggestion);
       setLabelDraftName(suggestion?.unitNumber ?? '');
       setIsLabelNamingOpen(true);
@@ -199,6 +204,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
       setIsLabelNamingOpen,
       sheetWords,
       subtypes,
+      vocabulary,
     ],
   );
 

@@ -26,6 +26,11 @@ export const queryKeys = {
   projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
   currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
   subtypes:           ()                         => ['subtypes'] as const,
+  // Company-wide learned naming vocabulary (Trace Naming & Type Assist Phase 2):
+  // a paginated read of every confirmed room the user can see (RLS-scoped to their
+  // project memberships), folded into a plain-JSON frequency model. Keyed globally
+  // (not per-project) — learning is cross-project. Warm-cached + best-effort.
+  namingVocabulary:   ()                         => ['naming_vocabulary'] as const,
   // Location Labeling Workbench (Phase 4): the single hidden kind='workbench'
   // container and its drawings. Distinct keys keep workbench reads isolated from
   // every live-project surface (contamination guard — AGENTS.md §2).

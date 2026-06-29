@@ -15,6 +15,7 @@ import { matchRoomName } from '@/utils/roomNameMatch';
 import { suggestTaxonomyFromText } from '@/utils/locationTaxonomy';
 import { matchSubtypeForName } from '@/utils/subtypes';
 import { normalizeLocationName } from '@/utils/workbenchNaming';
+import { subtypeIdFromVocabulary, type NamingVocabulary } from '@/utils/namingVocabulary';
 import type { LabelSnapshot, TraceSource } from '@/utils/traceCapture';
 import type { TaxonomyResult } from '@/utils/subtypes';
 import type { PercentPoint, Subtype, TextWord, TopLevelRole } from '@/types/domain';
@@ -25,7 +26,7 @@ import type { PercentPoint, Subtype, TextWord, TopLevelRole } from '@/types/doma
  * logic changes materially so old and new suggestions stay distinguishable at
  * training time (mirrors `spec_version` for the annotation rulebook).
  */
-export const ROOM_TEXT_MODEL_VERSION = 'text-prefill-v2';
+export const ROOM_TEXT_MODEL_VERSION = 'text-prefill-v3';
 
 /**
  * The FROZEN original machine proposal for a freshly-traced room. Stored in
@@ -51,14 +52,22 @@ export interface RoomSuggestion {
  * suggested (e.g. a scanned sheet, a blank room) — the caller then leaves the
  * popover empty for a fully-manual label (no reject signal, no provenance).
  *
- * Pure: pass the sheet words + the loaded sub-type dictionary in.
+ * Pure: pass the sheet words + the loaded sub-type dictionary in. The optional
+ * `vocabulary` (Phase 2 — the company-wide learned model) adds two signals; OMIT it
+ * and behaviour is identical to Phase 1:
+ *   - lever C: feed confirmed name-token frequencies to {@link matchRoomName} so it
+ *     drops words never seen as real names (learned noise);
+ *   - lever D2: when the dictionary/keyword guess can't pre-select a concrete type,
+ *     fall back to the `subtype_id` most often paired with this name in history,
+ *     resolved to a LIVE active row (never pre-selects a stale/removed sub-type).
  */
 export function buildRoomSuggestion(
   polygon: PercentPoint[],
   words: TextWord[] | null | undefined,
   subtypes: Subtype[],
+  vocabulary?: NamingVocabulary | null,
 ): RoomSuggestion | null {
-  const nameMatch = matchRoomName(polygon, words);
+  const nameMatch = matchRoomName(polygon, words, vocabulary?.nameTokenCounts);
   const unitNumber = nameMatch?.unitNumber ?? null;
 
   let role: TopLevelRole | null = null;
@@ -84,6 +93,22 @@ export function buildRoomSuggestion(
       const dict = subtypes.find((s) => s.status === 'active' && s.name === taxo.subtypeName);
       subtypeName = dict ? dict.name : taxo.subtypeName;
       subtypeId = dict ? dict.id : null;
+    }
+  }
+
+  // D2 — learned name→type. Fills the gap when D1 couldn't pre-select a concrete
+  // sub-type (no live dict match AND the keyword seed didn't resolve to a real row):
+  // propose the sub-type this name is most often paired with in confirmed history,
+  // resolved against the LIVE active dictionary. A resolved D1 match always wins.
+  if (subtypeId === null) {
+    const learnedId = subtypeIdFromVocabulary(vocabulary, unitNumber);
+    if (learnedId) {
+      const live = subtypes.find((s) => s.status === 'active' && s.id === learnedId);
+      if (live) {
+        role = live.top_level_role as TopLevelRole;
+        subtypeId = live.id;
+        subtypeName = live.name;
+      }
     }
   }
 

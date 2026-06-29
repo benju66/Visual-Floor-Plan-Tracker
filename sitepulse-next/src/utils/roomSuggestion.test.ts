@@ -8,6 +8,7 @@ import {
 } from './roomSuggestion';
 import type { PercentPoint, Subtype, TextWord } from '@/types/domain';
 import type { TaxonomyResult } from '@/utils/subtypes';
+import { buildNamingVocabulary } from '@/utils/namingVocabulary';
 
 // A minimal active dictionary covering the seed names the keyword map can resolve.
 function subtype(id: string, name: string, role: Subtype['top_level_role']): Subtype {
@@ -99,6 +100,70 @@ describe('buildRoomSuggestion', () => {
     const s = buildRoomSuggestion(room, [word('CONFERENCE', 0.4, 0.5), word('200', 0.6, 0.5)], dict);
     expect(s?.subtypeId).toBe('sub-conf');
     expect(s?.subtypeName).toBe('Conference Room');
+  });
+});
+
+describe('buildRoomSuggestion — vocabulary-aware (Phase 2, levers C + D2)', () => {
+  // A dictionary with Dwelling Unit present but NO "Unit" alias — so D1 cannot reach
+  // it from the name "UNIT 5B" on its own. Learning (D2) must.
+  const dict: Subtype[] = [
+    subtype('sub-dwelling', 'Dwelling Unit', 'program'),
+    subtype('sub-office', 'Office', 'program'),
+  ];
+
+  it('D2: proposes the most-paired type when the dictionary alias would not match alone', () => {
+    // Confirm a few "UNIT NNN" rooms as Dwelling Unit, then trace another "UNIT".
+    const vocab = buildNamingVocabulary([
+      { unit_number: 'UNIT 101', subtype_id: 'sub-dwelling' },
+      { unit_number: 'UNIT 102', subtype_id: 'sub-dwelling' },
+    ]);
+    // Sanity: without learning, D1 leaves the type unguessed for this name.
+    const noLearn = buildRoomSuggestion(room, [word('UNIT', 0.45, 0.5), word('201', 0.55, 0.5)], dict);
+    expect(noLearn?.subtypeId).toBeNull();
+    // With learning, D2 fills it in, resolved to the live row.
+    const s = buildRoomSuggestion(room, [word('UNIT', 0.45, 0.5), word('201', 0.55, 0.5)], dict, vocab);
+    expect(s).toEqual({
+      unitNumber: 'UNIT 201',
+      role: 'program',
+      subtypeId: 'sub-dwelling',
+      subtypeName: 'Dwelling Unit',
+    });
+  });
+
+  it('D2: never overrides a resolved D1 dictionary match', () => {
+    // History pairs "OFFICE" with Dwelling Unit (noise), but D1 resolves OFFICE → Office.
+    const vocab = buildNamingVocabulary([{ unit_number: 'OFFICE 1', subtype_id: 'sub-dwelling' }]);
+    const s = buildRoomSuggestion(room, [word('OFFICE', 0.5, 0.5)], dict, vocab);
+    expect(s?.subtypeId).toBe('sub-office');
+  });
+
+  it('D2: does not pre-select a learned subtype that is no longer a LIVE active row', () => {
+    const vocab = buildNamingVocabulary([{ unit_number: 'UNIT 9', subtype_id: 'sub-removed' }]);
+    const s = buildRoomSuggestion(room, [word('UNIT', 0.45, 0.5), word('9', 0.55, 0.5)], dict, vocab);
+    expect(s?.subtypeId).toBeNull();
+    expect(s?.unitNumber).toBe('UNIT 9');
+  });
+
+  it('lever C: drops a learned-noise token from the suggested name', () => {
+    // "NIC" was never confirmed as a name; "OFFICE" has been. The vocabulary scrubs it.
+    const vocab = buildNamingVocabulary([
+      { unit_number: 'OFFICE 110', subtype_id: 'sub-office' },
+      { unit_number: 'OFFICE 112', subtype_id: 'sub-office' },
+    ]);
+    const s = buildRoomSuggestion(
+      room,
+      [word('OFFICE', 0.45, 0.5), word('NIC', 0.6, 0.5), word('210', 0.52, 0.55)],
+      dict,
+      vocab,
+    );
+    expect(s?.unitNumber).toBe('OFFICE 210');
+  });
+
+  it('an empty vocabulary leaves the Phase-1 suggestion unchanged', () => {
+    const vocab = buildNamingVocabulary([]);
+    const withEmpty = buildRoomSuggestion(room, [word('OFFICE', 0.5, 0.48), word('110', 0.5, 0.52)], DICT, vocab);
+    const without = buildRoomSuggestion(room, [word('OFFICE', 0.5, 0.48), word('110', 0.5, 0.52)], DICT);
+    expect(withEmpty).toEqual(without);
   });
 });
 

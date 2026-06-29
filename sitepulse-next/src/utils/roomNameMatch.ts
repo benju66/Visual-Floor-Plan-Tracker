@@ -10,6 +10,7 @@
  * is still 100% hand-traced; only the NAME is assisted.
  */
 import { isPointInPolygon, getCentroid } from '@/utils/geometry';
+import { normalizeNameToken, isNameToken } from '@/utils/namingVocabulary';
 import type { PercentPoint, TextWord } from '@/types/domain';
 
 /**
@@ -97,6 +98,40 @@ interface TextLine {
   words: TextWord[];
 }
 
+/**
+ * Lever C (Trace Naming & Type Assist Phase 2): drop LEARNED noise. Given the final
+ * candidate words and a frequency table of name tokens the user has actually
+ * confirmed ({@link normalizeNameToken} keys → counts), remove the alphabetic name
+ * words that have NEVER been seen as a real room name — but ONLY when at least one
+ * candidate name word HAS been seen. That evidence gate is load-bearing: with an
+ * empty/unhelpful table (early on, offline, or a brand-new name) NOTHING is dropped,
+ * so the function degrades exactly to the Phase-1 behaviour. Number tokens and
+ * alphanumeric designators (the "Number" half of "Name + Number") are never eligible
+ * and always kept. If scrubbing would somehow remove everything, the input is
+ * returned unchanged (never suggest nothing because of learned noise).
+ */
+function scrubLearnedNoise(
+  words: TextWord[],
+  knownNameTokens: Record<string, number> | null | undefined,
+): TextWord[] {
+  if (!knownNameTokens) return words;
+  let hasRecognized = false;
+  let hasUnrecognized = false;
+  for (const w of words) {
+    const tok = normalizeNameToken(w.text);
+    if (!isNameToken(tok)) continue; // numbers/designators aren't name words
+    if ((knownNameTokens[tok] ?? 0) > 0) hasRecognized = true;
+    else hasUnrecognized = true;
+  }
+  if (!hasRecognized || !hasUnrecognized) return words; // no confident signal → keep all
+  const kept = words.filter((w) => {
+    const tok = normalizeNameToken(w.text);
+    if (!isNameToken(tok)) return true; // keep the number / designator
+    return (knownNameTokens[tok] ?? 0) > 0; // keep only words seen as real names
+  });
+  return kept.length > 0 ? kept : words;
+}
+
 /** Cluster words into text lines by vertical proximity (read top-to-bottom). */
 function groupLines(words: TextWord[]): TextLine[] {
   const sorted = words.slice().sort((a, b) => a.pctY - b.pctY);
@@ -129,15 +164,22 @@ function groupLines(words: TextWord[]): TextLine[] {
  *   3. Keep only the 1–2 text lines NEAREST the polygon centroid (the convention puts
  *      the label on one or two stacked lines) and drop far-away interior text rather
  *      than joining every interior word.
- *   4. Join the survivors in reading order → the candidate `unit_number`.
+ *   4. (Phase 2, optional) Drop LEARNED noise: with a frequency table of confirmed
+ *      name tokens, scrub alphabetic words never seen as a real room name — but only
+ *      when another candidate word HAS been seen (see {@link scrubLearnedNoise}).
+ *   5. Join the survivors in reading order → the candidate `unit_number`.
  *
  * Returns `null` when the polygon has no interior words at all (e.g. a scanned sheet
  * with no text layer, or a blank room) — the caller then leaves the popover empty for
  * a fully-manual name. Never throws.
+ *
+ * `knownNameTokens` is optional; omit it (or pass `null`) and the matcher behaves
+ * exactly as Phase 1. It is a PLAIN object (normalized token → count), never a `Set`.
  */
 export function matchRoomName(
   polygon: PercentPoint[],
   words: TextWord[] | null | undefined,
+  knownNameTokens?: Record<string, number> | null,
 ): RoomNameMatch | null {
   if (!polygon || polygon.length < 3 || !words || words.length === 0) return null;
 
@@ -166,7 +208,11 @@ export function matchRoomName(
   lines.sort((a, b) => Math.abs(a.y - centroidY) - Math.abs(b.y - centroidY));
   const nearest = lines.slice(0, 2).flatMap((l) => l.words);
 
-  const candidates = nearest.slice().sort(byReadingOrder);
+  const ordered2 = nearest.slice().sort(byReadingOrder);
+  // Phase 2 / lever C: drop tokens the vocabulary has never seen as a real name
+  // (evidence-gated; a no-op without the table). Geometry/position filtering above
+  // is unchanged.
+  const candidates = scrubLearnedNoise(ordered2, knownNameTokens);
   const unitNumber = candidates
     .map((w) => w.text.trim())
     .filter((t) => t.length > 0)
