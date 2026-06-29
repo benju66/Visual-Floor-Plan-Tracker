@@ -74,6 +74,15 @@ export default function DashboardPage() {
     setProjects(prev => prev.filter(p => p.projects?.id !== projectId));
   };
 
+  // After an admin toggles a project setting in Global Settings (e.g. the
+  // AI-training opt-out), patch the nested project in local state so the change
+  // sticks without a full refetch.
+  const handleProjectUpdated = (projectId, patch) => {
+    setProjects(prev => prev.map(p => (
+      p.projects?.id === projectId ? { ...p, projects: { ...p.projects, ...patch } } : p
+    )));
+  };
+
   const handleCreateProject = async (e) => {
     e.preventDefault();
     if (!newProjectName.trim() || !session?.user?.id) return;
@@ -311,6 +320,7 @@ export default function DashboardPage() {
         onClose={() => setIsGlobalSettingsOpen(false)}
         adminProjects={adminProjects}
         onProjectDeleted={handleProjectDeleted}
+        onProjectUpdated={handleProjectUpdated}
       />
     </div>
   );

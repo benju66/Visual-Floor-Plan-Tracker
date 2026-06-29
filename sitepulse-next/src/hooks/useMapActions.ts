@@ -27,6 +27,7 @@ import {
   ANNOTATION_SPEC_VERSION,
   type TraceSource,
 } from '@/utils/traceCapture';
+import { isProjectTrainingEnabled } from '@/utils/trainingGate';
 
 export function useMapActions(project: Project | null | undefined) {
   const queryClient = useQueryClient();
@@ -88,6 +89,12 @@ export function useMapActions(project: Project | null | undefined) {
   const { data: subtypes = [] } = useSubtypes();
   const { words: sheetWords } = useSheetText(activeSheetId || null);
   const { vocabulary } = useNamingVocabulary();
+
+  // Per-project AI-training opt-out (Global Settings → Projects). When this project
+  // is opted OUT, we still BUILD a name/type suggestion (the autofill is a UX aid),
+  // but we DON'T persist any training data: no provenance on the units row and no
+  // trace_events. Default-ON — only an explicit false disables capture.
+  const trainingEnabled = isProjectTrainingEnabled(project);
 
   const {
     undoStack, setUndoStack,
@@ -249,29 +256,35 @@ export function useMapActions(project: Project | null | undefined) {
              top_level_role: taxonomy?.top_level_role ?? null,
              subtype_id: taxonomy?.subtype_id ?? null,
              computed_area: finalComputedArea,
-             method: 'manual',
-             source,
-             model_version: suggestion ? ROOM_TEXT_MODEL_VERSION : null,
-             suggested_label: (suggestion ? suggestedLabelFromSuggestion(suggestion) : null) as Unit['suggested_label'],
+             // Training provenance is persisted ONLY when this project is opted in.
+             // Opted out → every provenance field is null and the room is just a
+             // normal location (no corpus contribution).
+             method: trainingEnabled ? 'manual' : null,
+             source: trainingEnabled ? source : null,
+             model_version: trainingEnabled && suggestion ? ROOM_TEXT_MODEL_VERSION : null,
+             suggested_label: (trainingEnabled && suggestion ? suggestedLabelFromSuggestion(suggestion) : null) as Unit['suggested_label'],
              suggested_polygon: null,
-             review_status: source === 'human' ? 'confirmed' : 'unreviewed',
-             spec_version: ANNOTATION_SPEC_VERSION,
+             review_status: trainingEnabled ? (source === 'human' ? 'confirmed' : 'unreviewed') : null,
+             spec_version: trainingEnabled ? ANNOTATION_SPEC_VERSION : null,
          });
 
          // Append the immutable create event (best-effort; never blocks the save). The
          // group_key is the sheet id, matching the workbench, so map-drawn rooms group
-         // correctly in the corpus (ANNOTATION_SPEC §5).
-         void recordTraceEvent({
-           sheetId: activeSheetId,
-           unitId: (data as Unit).id,
-           eventType: 'create',
-           method: 'manual',
-           source,
-           afterPolygon: pendingPolygonPoints,
-           afterLabel: labelSnapshotFromUnit(data as Unit),
-           modelVersion: suggestion ? ROOM_TEXT_MODEL_VERSION : null,
-           groupKey: activeSheetId,
-         });
+         // correctly in the corpus (ANNOTATION_SPEC §5). Skipped entirely when the
+         // project is opted out of training.
+         if (trainingEnabled) {
+           void recordTraceEvent({
+             sheetId: activeSheetId,
+             unitId: (data as Unit).id,
+             eventType: 'create',
+             method: 'manual',
+             source,
+             afterPolygon: pendingPolygonPoints,
+             afterLabel: labelSnapshotFromUnit(data as Unit),
+             modelVersion: suggestion ? ROOM_TEXT_MODEL_VERSION : null,
+             groupKey: activeSheetId,
+           });
+         }
 
          setUndoStack(prev => {
              const next = [...prev, { actionType: 'CREATE_UNIT' as const, unitData: data as any }];
@@ -294,7 +307,7 @@ export function useMapActions(project: Project | null | undefined) {
     // walked away rather than confirm/edit). Record the reject with the FROZEN proposal
     // as the before-state; no unit is written. A rename (editingUnitId set) carries no
     // suggestion, so it never rejects. Best-effort — never blocks (Phase 4).
-    if (mapLabelSuggestion && !editingUnitId) {
+    if (trainingEnabled && mapLabelSuggestion && !editingUnitId) {
       void recordTraceEvent({
         sheetId: activeSheetId,
         eventType: 'reject_suggestion',

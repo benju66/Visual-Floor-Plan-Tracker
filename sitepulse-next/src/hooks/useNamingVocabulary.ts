@@ -2,12 +2,16 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 import { queryKeys } from '@/types/queryKeys';
 import { paginateAll } from '@/utils/pagination';
+import { excludeUntrainableRooms } from '@/utils/trainingGate';
 import {
   buildNamingVocabulary,
   EMPTY_VOCABULARY,
   type ConfirmedRoom,
   type NamingVocabulary,
 } from '@/utils/namingVocabulary';
+
+/** A confirmed room plus the `sheet_id` used to attribute it to a project (for opt-out filtering). */
+type ConfirmedRoomRow = ConfirmedRoom & { sheet_id: string | null };
 
 /**
  * Load the company-wide learned naming vocabulary (Trace Naming & Type Assist
@@ -24,10 +28,13 @@ import {
  * PostgREST caps a SELECT at 1000 rows; without it the model would silently learn
  * from only the first 1000 rooms (AGENTS.md / the 1000-row-cap note).
  *
- * Only `unit_number` + `subtype_id` are read — NOT the historical `top_level_role`.
+ * Only `unit_number` + `subtype_id` feed the model — NOT the historical `top_level_role`.
  * D2 resolves its learned `subtype_id` against the LIVE dictionary and takes the role
  * from there, so a sub-type's governed role is always authoritative and never derived
  * from a stale per-room copy (AGENTS.md §4: `top_level_role` is governed centrally).
+ * `sheet_id` is also read, but only to honour the per-project AI-training opt-out
+ * (Global Settings → Projects): rooms in a project flagged `ai_training_enabled = false`
+ * are excluded from the model. Default-ON, so an un-flagged corpus learns exactly as before.
  *
  * Best-effort + online-only, exactly like `useSheetText`: no session, an offline
  * device, or any query error all degrade to the EMPTY vocabulary ("no learning"),
@@ -45,19 +52,42 @@ export function useNamingVocabulary() {
       }
 
       try {
+        // Per-project AI-training opt-out: collect the sheet ids of any project the
+        // user can see that is opted OUT (`ai_training_enabled = false`), so their
+        // rooms can be excluded below. RLS scopes both reads to the user's projects.
+        // The COMMON case is zero opted-out projects → the sheets query is skipped and
+        // the set stays empty, so learning is byte-for-byte unchanged from before.
+        const excludedSheetIds = new Set<string>();
+        const { data: offProjects, error: offErr } = await supabase
+          .from('projects')
+          .select('id')
+          .eq('ai_training_enabled', false);
+        if (offErr) throw offErr;
+        const offProjectIds = (offProjects ?? []).map((p) => p.id);
+        if (offProjectIds.length > 0) {
+          const { data: offSheets, error: sheetsErr } = await supabase
+            .from('sheets')
+            .select('id')
+            .in('project_id', offProjectIds);
+          if (sheetsErr) throw sheetsErr;
+          for (const s of offSheets ?? []) excludedSheetIds.add(s.id as string);
+        }
+
         // Page through every confirmed room the user can see (RLS scopes the set).
         // A stable `.order('id')` keeps pages non-overlapping; `paginateAll` stops on
-        // the first short page. Only the three learning columns are selected.
-        const rooms = await paginateAll<ConfirmedRoom>(async (from, size) => {
+        // the first short page. `sheet_id` rides along only to filter out opted-out
+        // projects (it is not part of the learning signal).
+        const rawRooms = await paginateAll<ConfirmedRoomRow>(async (from, size) => {
           const { data, error: pageError } = await supabase
             .from('units')
-            .select('unit_number, subtype_id')
+            .select('unit_number, subtype_id, sheet_id')
             .order('id', { ascending: true })
             .range(from, from + size - 1);
           if (pageError) throw pageError;
-          return (data ?? []) as ConfirmedRoom[];
+          return (data ?? []) as ConfirmedRoomRow[];
         });
 
+        const rooms = excludeUntrainableRooms(rawRooms, excludedSheetIds);
         return buildNamingVocabulary(rooms);
       } catch (err) {
         console.warn('Naming vocabulary unavailable (learning disabled):', err);
