@@ -1,12 +1,49 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeLocationName,
+  toTitleCaseName,
   isNameUniqueOnSheet,
   suggestNextName,
   definitionOfDoneChecks,
   type LabelForReview,
   type ReviewCompleteness,
 } from './workbenchNaming';
+
+describe('toTitleCaseName', () => {
+  it('re-cases all-caps words to Title Case', () => {
+    expect(toTitleCaseName('OFFICE')).toBe('Office');
+    expect(toTitleCaseName('CONFERENCE ROOM')).toBe('Conference Room');
+  });
+
+  it('keeps room numbers and unit designators verbatim', () => {
+    expect(toTitleCaseName('OFFICE 110')).toBe('Office 110');
+    expect(toTitleCaseName('UNIT 5B')).toBe('Unit 5B');
+    expect(toTitleCaseName('A-101')).toBe('A-101');
+    expect(toTitleCaseName('STAIR 2')).toBe('Stair 2');
+  });
+
+  it('capitalizes across hyphen / slash parts but not after an apostrophe', () => {
+    expect(toTitleCaseName('MULTI-PURPOSE')).toBe('Multi-Purpose');
+    expect(toTitleCaseName('IN/OUT')).toBe('In/Out');
+    expect(toTitleCaseName("MEN'S RESTROOM")).toBe("Men's Restroom");
+  });
+
+  it('normalizes whitespace first', () => {
+    expect(toTitleCaseName('  CONFERENCE   ROOM 200 ')).toBe('Conference Room 200');
+  });
+
+  it('returns an empty string for blank input', () => {
+    expect(toTitleCaseName('   ')).toBe('');
+  });
+
+  it('holds acronyms uppercase when given a keep set', () => {
+    const keep = new Set(['mdf', 'av']);
+    expect(toTitleCaseName('MDF ROOM', keep)).toBe('MDF Room');
+    expect(toTitleCaseName('av closet', keep)).toBe('AV Closet');
+    // Without the keep set, the same words Title-Case normally.
+    expect(toTitleCaseName('MDF ROOM')).toBe('Mdf Room');
+  });
+});
 
 describe('normalizeLocationName', () => {
   it('trims surrounding whitespace', () => {

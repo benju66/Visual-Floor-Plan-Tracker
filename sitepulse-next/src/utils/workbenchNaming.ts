@@ -19,6 +19,37 @@ export function normalizeLocationName(raw: string): string {
   return raw.trim().replace(/\s+/g, ' ');
 }
 
+const NO_KEEP_UPPERCASE: ReadonlySet<string> = new Set();
+
+/** Title-case a single space-delimited word, preserving designators + apostrophes. */
+function titleCaseWord(word: string, keepUppercase: ReadonlySet<string>): string {
+  // A token containing any digit is a room number or unit designator ("110", "5B",
+  // "A-101") — keep it exactly as drawn, never re-cased.
+  if (/\d/.test(word)) return word;
+  // An initialism the caller wants left uppercase ("MDF" must not become "Mdf").
+  const key = word.toLowerCase().replace(/^[^a-z0-9]+/, '').replace(/[^a-z0-9]+$/, '');
+  if (key && keepUppercase.has(key)) return word.toUpperCase();
+  // Lowercase the word, then capitalize the first letter and any letter that starts a
+  // hyphen/slash sub-part ("multi-purpose" → "Multi-Purpose", "in/out" → "In/Out"),
+  // but NOT a letter after an apostrophe ("men's" stays "Men's").
+  return word.toLowerCase().replace(/(^|[-/])([a-z])/g, (_, sep, ch) => sep + ch.toUpperCase());
+}
+
+/**
+ * Re-case a location name to Title Case for display / auto-fill. Architectural sheets
+ * label rooms in ALL CAPS ("OFFICE 110"), but we surface them mixed-case
+ * ("Office 110"): whitespace is normalized, each word is capitalized (incl. across
+ * hyphen/slash parts), and any word with a DIGIT is left verbatim so room numbers and
+ * unit designators keep their exact form ("110", "5B", "A-101").
+ *
+ * Pass `keepUppercase` (normalized lower-case keys) to hold true acronyms uppercase —
+ * e.g. the architectural-abbreviation layer passes its `ACRONYM_KEEP` set so "MDF"
+ * stays "MDF". Omit it and every alphabetic word is Title-Cased. Pure.
+ */
+export function toTitleCaseName(raw: string, keepUppercase: ReadonlySet<string> = NO_KEEP_UPPERCASE): string {
+  return normalizeLocationName(raw).split(' ').map(w => titleCaseWord(w, keepUppercase)).join(' ');
+}
+
 /** Case- and whitespace-insensitive comparison key for two location names. */
 function nameKey(name: string): string {
   return normalizeLocationName(name).toLowerCase();

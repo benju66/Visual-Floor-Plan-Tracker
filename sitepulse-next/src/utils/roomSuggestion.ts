@@ -15,6 +15,7 @@ import { matchRoomName } from '@/utils/roomNameMatch';
 import { suggestTaxonomyFromText } from '@/utils/locationTaxonomy';
 import { matchSubtypeForName } from '@/utils/subtypes';
 import { normalizeLocationName } from '@/utils/workbenchNaming';
+import { expandRoomName } from '@/utils/roomAbbreviations';
 import { subtypeIdFromVocabulary, type NamingVocabulary } from '@/utils/namingVocabulary';
 import type { LabelSnapshot, TraceSource } from '@/utils/traceCapture';
 import type { TaxonomyResult } from '@/utils/subtypes';
@@ -68,7 +69,11 @@ export function buildRoomSuggestion(
   vocabulary?: NamingVocabulary | null,
 ): RoomSuggestion | null {
   const nameMatch = matchRoomName(polygon, words, vocabulary?.nameTokenCounts);
-  const unitNumber = nameMatch?.unitNumber ?? null;
+  // Clean up the raw all-caps sheet text: expand standard architectural abbreviations
+  // ("STOR 101" → "Storage 101") and Title-Case it, keeping room numbers / designators
+  // verbatim. Expansion ALSO sharpens the type guess below (the expanded word matches the
+  // dictionary far better than the abbreviation); those lookups are case-insensitive.
+  const unitNumber = nameMatch?.unitNumber ? expandRoomName(nameMatch.unitNumber) : null;
 
   let role: TopLevelRole | null = null;
   let subtypeId: string | null = null;
