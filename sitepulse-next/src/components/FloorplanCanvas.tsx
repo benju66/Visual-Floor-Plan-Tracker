@@ -1806,8 +1806,20 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             dimensions.height,
           )}
           onDragStart={(e) => {
+            const evt = e.evt;
+            // Middle mouse button must ALWAYS pan the drawing, never move a shape.
+            // A shape (the deepest draggable under the cursor) claims the drag
+            // first, so Konva skips the stage's own pan; hand the drag back to the
+            // stage here. The zero-delta `dragend` this fires on the shape is a
+            // no-op (handlePolygonDragEnd guards dx===0&&dy===0; the pending
+            // polygon resets to its origin). Covers selected units, the naming-
+            // popup pending polygon, and gridline/node drags alike.
+            if (evt && evt.button === 1 && e.target !== stageRef.current) {
+              e.target.stopDrag();
+              stageRef.current?.startDrag({ evt });
+              return;
+            }
             if (e.target === stageRef.current) {
-              const evt = e.evt;
               if (toolMode !== 'pan' && (!evt || evt.button !== 1)) {
                  e.target.stopDrag();
               }

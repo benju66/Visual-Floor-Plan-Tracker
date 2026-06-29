@@ -258,6 +258,12 @@ export default function TaxonomyPicker({
               }`}
             >
               <span className="flex-1 truncate">{s.name}</span>
+              {/* The location category (Primary Spaces / Common Areas / Back of
+                  House / Other), shown on every row so the role is legible even in
+                  the flat search view where the group headers are absent. */}
+              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                {roleLabel(s.top_level_role as TopLevelRole, projectType)}
+              </span>
               {isSelected && <Check size={15} className="shrink-0 text-sky-500" />}
             </li>
           );
