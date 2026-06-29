@@ -20,6 +20,15 @@ export interface TaxonomyAdminState {
   /** Sub-type id whose inline "add alias" input is open, or null. */
   aliasingId: string | null;
   setAliasingId: (id: string | null) => void;
+
+  /**
+   * Alias suggestions the user has waved off this session (`${subtypeId}::${token}`
+   * keys). Session-scoped like the rest of this store — a dismissed suggestion can
+   * reappear next time the modal is opened; accepting one removes it permanently (it
+   * becomes a real alias the dictionary then resolves).
+   */
+  dismissedAliasKeys: string[];
+  dismissAliasSuggestion: (key: string) => void;
 }
 
 export const useTaxonomyAdminStore = create<TaxonomyAdminState>()((set) => ({
@@ -31,4 +40,8 @@ export const useTaxonomyAdminStore = create<TaxonomyAdminState>()((set) => ({
 
   aliasingId: null,
   setAliasingId: (id) => set({ aliasingId: id }),
+
+  dismissedAliasKeys: [],
+  dismissAliasSuggestion: (key) =>
+    set((s) => (s.dismissedAliasKeys.includes(key) ? s : { dismissedAliasKeys: [...s.dismissedAliasKeys, key] })),
 }));

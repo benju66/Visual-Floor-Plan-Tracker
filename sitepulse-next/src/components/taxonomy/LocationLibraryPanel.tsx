@@ -1,12 +1,14 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  Plus, Check, X, Search, AlertCircle, Loader2, Tag, CornerDownRight, Info, Building2,
+  Plus, Check, X, Search, AlertCircle, Loader2, Tag, CornerDownRight, Info, Building2, Sparkles,
 } from 'lucide-react';
 import {
   useSubtypes, useUpsertSubtype, useSetSubtypeStatus, useAddSubtypeAlias,
 } from '@/hooks/useSubtypes';
+import { useNamingVocabulary } from '@/hooks/useNamingVocabulary';
 import { useTaxonomyAdminStore } from '@/store/useTaxonomyAdminStore';
+import { suggestAliasCandidates } from '@/utils/aliasSuggestions';
 import { filterSubtypesForAdmin, groupSubtypesByRole, type AdminStatusFilter } from '@/utils/subtypes';
 import { CANONICAL_ROLES, PROJECT_TYPES, roleLabel } from '@/utils/locationTaxonomy';
 import type { Subtype, SubtypeStatus, TopLevelRole, ProjectType } from '@/types/domain';
@@ -49,11 +51,18 @@ interface LocationLibraryPanelProps {
  */
 export default function LocationLibraryPanel({ canManage = true }: LocationLibraryPanelProps) {
   const { data: subtypes = [], isLoading } = useSubtypes();
+  const { vocabulary } = useNamingVocabulary();
   const upsert = useUpsertSubtype();
   const setStatus = useSetSubtypeStatus();
   const addAlias = useAddSubtypeAlias();
 
-  const { statusFilter, setStatusFilter, search, setSearch } = useTaxonomyAdminStore();
+  const { statusFilter, setStatusFilter, search, setSearch, dismissedAliasKeys, dismissAliasSuggestion } =
+    useTaxonomyAdminStore();
+
+  // Alias proposals learned from confirmed rooms (Item 4) — names you keep typing for a
+  // type the dictionary can't match yet. Pure + memoized; minus the ones waved off.
+  const aliasCandidates = useMemo(() => suggestAliasCandidates(vocabulary, subtypes), [vocabulary, subtypes]);
+  const visibleAliasCandidates = aliasCandidates.filter((c) => !dismissedAliasKeys.includes(c.key));
 
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
@@ -129,6 +138,54 @@ export default function LocationLibraryPanel({ canManage = true }: LocationLibra
                   })
                 }
               />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Suggested aliases (learned from your tracing) ────────────── */}
+      {canManage && visibleAliasCandidates.length > 0 && (
+        <section className="rounded-xl border border-violet-200 dark:border-violet-500/30 bg-violet-50/60 dark:bg-violet-500/5 p-3">
+          <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-violet-800 dark:text-violet-300">
+            <Sparkles size={15} /> Suggested from your tracing
+            <span className="rounded-full bg-violet-200 dark:bg-violet-900/50 px-1.5 py-0.5 text-[10px] font-bold">
+              {visibleAliasCandidates.length}
+            </span>
+          </h3>
+          <p className="mb-2.5 text-[11px] text-violet-700/80 dark:text-violet-300/70">
+            Names you keep typing for a type the dictionary can’t match yet. Add one as an alias and it’ll auto-fill
+            the type next time you trace it — anywhere, on every project.
+          </p>
+          <div className="space-y-2">
+            {visibleAliasCandidates.map(c => (
+              <div
+                key={c.key}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200/70 dark:border-violet-500/20 bg-white dark:bg-black/20 p-2.5"
+              >
+                <div className="min-w-0 text-sm text-slate-700 dark:text-slate-200">
+                  <span className="font-semibold">“{c.alias}”</span>
+                  <span className="text-slate-400"> → </span>
+                  <span className="font-semibold">{c.subtypeName}</span>
+                  <span className="ml-2 text-[11px] text-slate-400">seen {c.support}×</span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => run(() => addAlias.mutateAsync({ id: c.subtypeId, alias: c.alias }))}
+                    className="flex items-center gap-1 rounded-md bg-violet-500 px-2 py-1 text-[11px] font-bold text-white hover:bg-violet-600 transition-colors"
+                  >
+                    <Check size={13} /> Add alias
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => dismissAliasSuggestion(c.key)}
+                    className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                    title="Not a synonym — hide this"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </section>

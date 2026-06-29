@@ -43,7 +43,7 @@ describe('buildRoomSuggestion', () => {
   it('combines name match + resolved taxonomy into a full suggestion', () => {
     const s = buildRoomSuggestion(room, [word('OFFICE', 0.5, 0.48), word('110', 0.5, 0.52)], DICT);
     expect(s).toEqual({
-      unitNumber: 'OFFICE 110',
+      unitNumber: 'Office 110',
       role: 'program',
       subtypeId: 'sub-office',
       subtypeName: 'Office',
@@ -57,7 +57,7 @@ describe('buildRoomSuggestion', () => {
 
   it('keeps role + name but leaves subtypeId null when the seed is absent from the dictionary', () => {
     const s = buildRoomSuggestion(room, [word('KITCHEN', 0.5, 0.5)], []); // empty dict
-    expect(s).toEqual({ unitNumber: 'KITCHEN', role: 'support', subtypeId: null, subtypeName: 'Kitchen' });
+    expect(s).toEqual({ unitNumber: 'Kitchen', role: 'support', subtypeId: null, subtypeName: 'Kitchen' });
   });
 
   it('returns null when nothing can be suggested (no interior words)', () => {
@@ -70,7 +70,7 @@ describe('buildRoomSuggestion', () => {
     const dict: Subtype[] = [{ ...subtype('sub-dwelling', 'Dwelling Unit', 'program'), aliases: ['Unit'] }];
     const s = buildRoomSuggestion(room, [word('UNIT', 0.45, 0.5), word('101', 0.55, 0.5)], dict);
     expect(s).toEqual({
-      unitNumber: 'UNIT 101',
+      unitNumber: 'Unit 101',
       role: 'program',
       subtypeId: 'sub-dwelling',
       subtypeName: 'Dwelling Unit',
@@ -123,7 +123,7 @@ describe('buildRoomSuggestion — vocabulary-aware (Phase 2, levers C + D2)', ()
     // With learning, D2 fills it in, resolved to the live row.
     const s = buildRoomSuggestion(room, [word('UNIT', 0.45, 0.5), word('201', 0.55, 0.5)], dict, vocab);
     expect(s).toEqual({
-      unitNumber: 'UNIT 201',
+      unitNumber: 'Unit 201',
       role: 'program',
       subtypeId: 'sub-dwelling',
       subtypeName: 'Dwelling Unit',
@@ -141,7 +141,7 @@ describe('buildRoomSuggestion — vocabulary-aware (Phase 2, levers C + D2)', ()
     const vocab = buildNamingVocabulary([{ unit_number: 'UNIT 9', subtype_id: 'sub-removed' }]);
     const s = buildRoomSuggestion(room, [word('UNIT', 0.45, 0.5), word('9', 0.55, 0.5)], dict, vocab);
     expect(s?.subtypeId).toBeNull();
-    expect(s?.unitNumber).toBe('UNIT 9');
+    expect(s?.unitNumber).toBe('Unit 9');
   });
 
   it('lever C: drops a learned-noise token from the suggested name', () => {
@@ -156,7 +156,7 @@ describe('buildRoomSuggestion — vocabulary-aware (Phase 2, levers C + D2)', ()
       dict,
       vocab,
     );
-    expect(s?.unitNumber).toBe('OFFICE 210');
+    expect(s?.unitNumber).toBe('Office 210');
   });
 
   it('an empty vocabulary leaves the Phase-1 suggestion unchanged', () => {
