@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { PercentPoint } from '@/types/domain';
 import type { Updater } from '@/types/utils';
+import type { RoomSuggestion } from '@/utils/roomSuggestion';
 
 // `capture_box` is a workbench-only mode (AI Tracing Assist — Phase 3a): a
 // rubber-band box drag over a region to read (e.g. the title block). `capture_line`
@@ -48,6 +49,14 @@ export interface MapState {
 
   pendingPolygonPoints: PercentPoint[] | null;
   setPendingPolygonPoints: (val: Updater<PercentPoint[] | null>) => void;
+
+  // The FROZEN room-name/type proposal for the polygon currently being named on the
+  // project map (AI Tracing Assist — Phase 4), or null for a plain manual draw. Mirrors
+  // the workbench's `useWorkbenchStore.labelSuggestion`: set the moment a polygon closes
+  // and held un-mutated until save/cancel so the suggested-vs-final delta stays the
+  // training signal. Plain JSON (IDB-safe) and intentionally NOT persisted (transient).
+  mapLabelSuggestion: RoomSuggestion | null;
+  setMapLabelSuggestion: (val: Updater<RoomSuggestion | null>) => void;
 
   selectedFile: File | null;
   setSelectedFile: (val: Updater<File | null>) => void;
@@ -100,6 +109,9 @@ export const useMapStore = create<MapState>()(
 
       pendingPolygonPoints: null,
       setPendingPolygonPoints: (val) => set((state) => ({ pendingPolygonPoints: typeof val === 'function' ? val(state.pendingPolygonPoints) : val })),
+
+      mapLabelSuggestion: null,
+      setMapLabelSuggestion: (val) => set((state) => ({ mapLabelSuggestion: typeof val === 'function' ? val(state.mapLabelSuggestion) : val })),
 
       selectedFile: null,
       setSelectedFile: (val) => set((state) => ({ selectedFile: typeof val === 'function' ? val(state.selectedFile) : val })),

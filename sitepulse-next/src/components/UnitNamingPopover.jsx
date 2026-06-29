@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import TaxonomyPicker from './TaxonomyPicker';
 
 export default function UnitNamingPopover({
@@ -9,13 +10,17 @@ export default function UnitNamingPopover({
   projectType = null,
   initialSubtypeId = null,
   initialUnitType = null,
+  initialPick = null,
+  isSuggested = false,
   recentSubtypeIds = [],
   saveNewUnitFromPopover,
   cancelUnitNaming,
 }) {
   // The active taxonomy pick for THIS save, or null = "leave type unchanged"
   // (on rename, preserves the location's existing role/sub-type; on create, no type).
-  const [pick, setPick] = useState(null);
+  // Seeded from the AI suggestion (Phase 4) so an accepted name/type saves WITH its
+  // type even if the user never opens the picker; null for rename / a plain draw.
+  const [pick, setPick] = useState(initialPick);
 
   // Keyboard flow: name → Tab → type search → Tab → Save → Enter. Save here is
   // never disabled, so focusing it directly (no effect) is fine.
@@ -37,6 +42,16 @@ export default function UnitNamingPopover({
       onKeyDown={(e) => { if (e.key === 'Escape') cancelUnitNaming(); }}
     >
       <h2 className="text-sm font-bold mb-1.5 text-slate-900 dark:text-white">{editingUnitId ? 'Rename location' : 'Name this location'}</h2>
+
+      {/* AI Tracing Assist (Phase 4): the name/type were pre-filled from the sheet's own
+          text — confirm or edit. Display-only. */}
+      {!editingUnitId && isSuggested && (
+        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-violet-600 dark:text-violet-300">
+          <Sparkles size={13} className="shrink-0" />
+          Suggested from the sheet — confirm or edit.
+        </p>
+      )}
+
       <input
         type="text"
         autoFocus
