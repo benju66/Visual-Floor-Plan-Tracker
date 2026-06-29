@@ -116,4 +116,41 @@ describe('matchRoomName', () => {
     const result = matchRoomName(room, [word('250', 0.45, 0.5), word('SF', 0.55, 0.5)]);
     expect(result?.unitNumber).toBe('250 SF');
   });
+
+  // ── Lever C (Phase 2): learned-noise scrubbing ────────────────────────────
+  describe('learned-noise scrubbing (knownNameTokens)', () => {
+    it('drops a never-seen alphabetic token when another token IS seen as a name', () => {
+      // "NIC" (not-in-contract annotation) sits on the same line as a real name the
+      // vocabulary knows. Hard-coded filters miss "NIC"; the frequency table drops it.
+      const result = matchRoomName(
+        room,
+        [word('OFFICE', 0.45, 0.5), word('NIC', 0.6, 0.5), word('110', 0.52, 0.55)],
+        { office: 5 },
+      );
+      expect(result?.unitNumber).toBe('OFFICE 110');
+      expect(result?.words.some((w) => w.text === 'NIC')).toBe(false);
+    });
+
+    it('keeps the room number even when its name word is scrubbed', () => {
+      const result = matchRoomName(room, [word('OFFICE', 0.45, 0.5), word('TYP', 0.6, 0.5)], {
+        office: 3,
+      });
+      expect(result?.unitNumber).toBe('OFFICE');
+    });
+
+    it('keeps EVERYTHING when no candidate token has been seen (no confident signal)', () => {
+      // A brand-new name the vocabulary has never encountered → behaves like Phase 1.
+      const result = matchRoomName(room, [word('GALLERY', 0.45, 0.5), word('FOYER', 0.6, 0.5)], {
+        office: 5,
+      });
+      expect(result?.unitNumber).toBe('GALLERY FOYER');
+    });
+
+    it('is a no-op without a table — identical to Phase 1', () => {
+      const a = matchRoomName(room, [word('OFFICE', 0.45, 0.5), word('NIC', 0.6, 0.5)]);
+      const b = matchRoomName(room, [word('OFFICE', 0.45, 0.5), word('NIC', 0.6, 0.5)], null);
+      expect(a?.unitNumber).toBe('OFFICE NIC');
+      expect(b?.unitNumber).toBe('OFFICE NIC');
+    });
+  });
 });
