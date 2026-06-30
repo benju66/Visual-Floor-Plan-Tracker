@@ -6,7 +6,7 @@
 > - `sitepulse-next/Notes/plans/Drawing-Tool-Excellence-Plan.md` (Phase 2 + "Pure logic to extract" + "Hard guardrails")
 > - `sitepulse-next/AGENTS.md`
 >
-> Branch off `main` (Phase 1 is on `feat/drawing-tool-excellence-phase-1`; if it hasn't merged yet, branch off that instead so you build on the `isEditingPending` gate). Build **only Phase 2**: (1) make pending node drags reuse the SAME `getSnappedCoordinate` call saved-unit editing uses, and (2) add `src/utils/polygonValidity.ts` (+ test) and surface a non-blocking self-intersection warning. No migration. Don't commit or push until I say "Approved."
+> Work on the existing **`feat/drawing-tool-excellence-phase-2`** branch (already cut off `main`, which carries the merged Phase 1 `isEditingPending` gate — PR #9, merge `7be519f`). Build **only Phase 2**: (1) make pending node drags reuse the SAME `getSnappedCoordinate` call saved-unit editing uses, and (2) add `src/utils/polygonValidity.ts` (+ test) and surface a non-blocking self-intersection warning. No migration. Don't commit or push until I say "Approved."
 
 ---
 
