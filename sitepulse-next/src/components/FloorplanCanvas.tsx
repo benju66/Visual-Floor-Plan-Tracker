@@ -25,7 +25,7 @@ import { useLoupeRenderer } from '@/hooks/useLoupeRenderer';
 import { withVersion } from '@/utils/pdfSource';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
-import { distToSegment, getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
+import { distToSegment, getCentroid, getSnappedCoordinate, isFinitePolygon, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
 import { tagVectorsWithGrid } from '@/utils/gridAwareSnap';
 import { computeUnitVariance, varianceFill } from '@/utils/progressAnalytics';
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
@@ -403,6 +403,24 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const boxOriginRef = useRef<Point | null>(null);
   useEffect(() => { boxOriginRef.current = boxOrigin; }, [boxOrigin]);
 
+  // Drawing Tool Excellence — Phase 1 (interaction-state hardening). The instant a
+  // trace closes we stay in `toolMode === 'draw'` and open the naming popover over an
+  // editable PENDING polygon. `isEditingPending` is the single derived gate that makes
+  // EVERY draw-only gesture inert during that window — box-draw arm/complete AND the
+  // add-vertex click — so a long corner drag, a stray click, or a press-drag on empty
+  // canvas can't be misread as "start a new box/draft" and silently replace the
+  // not-yet-saved shape. Node drag, whole-shape drag, flip/rotate and naming all stay
+  // live (they don't gate on this). Chosen over a dedicated `ToolMode 'edit_pending'`:
+  // a derived guard keeps the change surgical (AGENTS.md §3 "keep FloorplanCanvas
+  // lean") and avoids rippling a new mode through the toolMode-reset effects, the
+  // toolbar, and the workbench tool wiring. boxOrigin/draftPoints are already cleared
+  // before a pending polygon opens (box-complete and Enter/finish both null them), so
+  // this gate only has to keep NEW ones from arming — nothing to mop up on entry.
+  const isEditingPending = !!pendingPolygonPoints;
+  // Fresh read for the window-level keydown handler (created once; not a dep of it).
+  const isEditingPendingRef = useRef(isEditingPending);
+  isEditingPendingRef.current = isEditingPending;
+
   // Opening hold-keys (Phase 4a): track which TYPE key (D/C/H/P) is held, only while
   // opening capture is enabled (workbench), so the live map never even subscribes.
   // While one is down, the next edge placed during a trace is tagged an opening of
@@ -499,6 +517,13 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // in capture mode so the next click can re-place it.
             e.stopImmediatePropagation();
             setBoxOrigin(null);
+          } else if (isEditingPendingRef.current) {
+            // Drawing Tool Excellence — Phase 1. A freshly-traced polygon is open for
+            // naming. Esc must NOT fall through to the tool backout below: switching to
+            // 'pan' here would strand the pending polygon + naming popover in a half-live
+            // state. When the naming input has focus (the default on open) the popover's
+            // own Esc handler already cancels; this branch just makes Esc a safe no-op
+            // when focus is elsewhere instead of a confusing tool switch.
           } else if (toolMode !== 'pan') {
             onToolModeChange('pan');
           }
@@ -1081,7 +1106,12 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         
         onInstantStamp?.(selectedUnitIds[0], translatedPoints);
       }
-    } else if (toolMode === 'draw') {
+    } else if (toolMode === 'draw' && !isEditingPending) {
+      // `!isEditingPending` (Phase 1): while a freshly-traced polygon is open for naming
+      // we're still nominally in draw mode, but a click on the canvas (or on a pending
+      // anchor, whose click bubbles up to the Stage) must NOT start a SECOND draft on top
+      // of it — that left stray draft dots over the shape being named. The add-vertex
+      // tool only arms again once the pending polygon is saved or cancelled.
       if (Date.now() - lastBoxEndRef.current < 200) return;
       if (e.evt.shiftKey && draftPoints.length > 0) {
         const lastPoint = draftPoints[draftPoints.length - 1];
@@ -1302,6 +1332,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         pctX: p.pctX + dx,
         pctY: p.pctY + dy
       }));
+      if (!isFinitePolygon(newPoints)) {
+        console.warn('[geometry] polygon move produced an invalid shape — not saving', unit.id);
+        return;
+      }
       onUpdateUnitPolygon?.(unit.id, newPoints);
     }
   };
@@ -1328,6 +1362,12 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     
     const newPoints = [...unit.polygon_coordinates];
     newPoints[index] = { pctX, pctY };
+    // Never persist a corrupt shape (NaN/off-canvas from a bad drag). Better to
+    // leave the saved geometry untouched than to write a degenerate polygon.
+    if (!isFinitePolygon(newPoints)) {
+      console.warn('[geometry] node move produced an invalid polygon — not saving', unitId);
+      return;
+    }
     onUpdateUnitPolygon?.(unitId, newPoints);
   };
 
@@ -1632,14 +1672,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           onPointerDown={(e) => {
             if (toolMode === 'pan' || (e.evt && e.evt.button === 1)) {
               setIsDraggingCanvas(true);
-            } else if (toolMode === 'draw' && (!e.evt || e.evt.button === 0) && draftPoints.length === 0 && !pendingPolygonPoints) {
+            } else if (toolMode === 'draw' && (!e.evt || e.evt.button === 0) && draftPoints.length === 0 && !isEditingPending) {
               // The box-drag shortcut (press-drag-release → rectangle room) stays live in
               // draw mode. But after a trace completes we remain in draw mode with the
               // naming popover open over an editable pending polygon. Pressing one of that
               // polygon's anchor nodes bubbles pointerdown up to the stage; without the
-              // `!pendingPolygonPoints` guard it would arm a box here, and a node drag past
+              // `!isEditingPending` guard it would arm a box here, and a node drag past
               // the box threshold would commit it — replacing the traced shape with a 4-pt
-              // bounding rectangle. Suppress box-arming while a pending polygon is being named.
+              // bounding rectangle (and the node-drag ↔ box-complete race could collapse it
+              // to a triangle). Suppress box-arming while a pending polygon is being named.
               const stage = e.target.getStage();
               if (!stage) return;
               const pointer = stage.getPointerPosition();
@@ -1691,7 +1732,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             }
 
             // Existing draw logic...
-            if (toolMode === 'draw' && boxOrigin && !pendingPolygonPoints) {
+            // `!isEditingPending` (Phase 1): never complete a box over a polygon that's
+            // already pending/being named — the shared gate that also blocks box-arming.
+            if (toolMode === 'draw' && boxOrigin && !isEditingPending) {
               const stage = e.target.getStage();
               if (!stage) return;
               const lastSample = pointerStore.get();

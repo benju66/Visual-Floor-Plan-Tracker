@@ -32,6 +32,7 @@ import {
   useCreateWorkbenchLabel,
   useUpdateWorkbenchLabel,
   useUpdateWorkbenchOpeningEdges,
+  useUpdateWorkbenchGeometry,
 } from '@/hooks/useWorkbenchActions';
 import { resolveOpenings, toggleOpeningEdge, openingTypeForKey } from '@/utils/openingEdges';
 import { recentSubtypeIdsFromUnits } from '@/utils/subtypes';
@@ -156,6 +157,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
   const createLabel = useCreateWorkbenchLabel(sheetId);
   const updateLabel = useUpdateWorkbenchLabel(sheetId);
   const updateOpeningEdges = useUpdateWorkbenchOpeningEdges(sheetId);
+  const updateGeometry = useUpdateWorkbenchGeometry(sheetId);
   const deleteUnit = useDeleteUnit(sheetId);
 
   // The label currently being edited in-place (canvas "Rename"), or null when the
@@ -419,6 +421,16 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
     [deleteUnit, units, sheetId],
   );
 
+  // Persist a node move from the "Select / adjust" tool. Without this the canvas's
+  // node drag was a no-op write (visual only), so the polygon reverted to its saved
+  // shape on the next refetch. Geometry-only + optimistic; the label is untouched.
+  const handleUpdateUnitPolygon = useCallback(
+    (unitId: string, points: PercentPoint[]) => {
+      updateGeometry.mutate({ unitId, points });
+    },
+    [updateGeometry],
+  );
+
   const cancelNaming = useCallback(() => {
     // Dismissing a freshly-traced room that HAD a suggestion = rejecting it (the user
     // walked away rather than confirm/edit). Record the reject as training signal with
@@ -660,6 +672,7 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
         onPendingPolygonMove={setPendingLabelPoints}
         onRenameUnit={handleRenameUnit}
         onDeleteUnit={handleDeleteUnit}
+        onUpdateUnitPolygon={handleUpdateUnitPolygon}
       />
 
       {isTitleBlockOpen && (
