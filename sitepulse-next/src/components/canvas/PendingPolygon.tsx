@@ -25,6 +25,11 @@ export interface PendingPolygonProps {
   toPixels: (points: PercentPoint[]) => number[];
   setActiveDragPolygon: (payload: { unitId: string; dx: number; dy: number } | null) => void;
   onPendingPolygonMove?: (points: PercentPoint[]) => void;
+  /** Phase 4 — insert a vertex at the midpoint of edge `edgeIndex` (point i → i+1,
+   *  wrapping the closing edge). Routes through the parent's history wrapper. */
+  onInsertVertex?: (edgeIndex: number) => void;
+  /** Phase 4 — delete vertex `index` (parent guards against dropping below 3). */
+  onDeleteVertex?: (index: number) => void;
   setActiveDragNode: (payload: { unitId: string; index: number; pctX: number; pctY: number; isSnapped?: boolean } | null) => void;
   onAnchorEnter: (id: string) => void;
   onAnchorLeave: (id: string) => void;
@@ -47,12 +52,20 @@ export default function PendingPolygon({
   toPixels,
   setActiveDragPolygon,
   onPendingPolygonMove,
+  onInsertVertex,
+  onDeleteVertex,
   setActiveDragNode,
   onAnchorEnter,
   onAnchorLeave,
   setHoveredPendingPolygon
 }: PendingPolygonProps) {
   if (!pendingPolygonPoints || pendingPolygonPoints.length <= 2) return null;
+
+  // Phase 4 vertex affordances (insert "+" / alt-click delete) are hidden mid-drag:
+  // a node/whole-shape drag in progress would put the edge midpoints out of date and
+  // the extra glyphs would only clutter the gesture. They reappear at rest.
+  const isDragging = activeDragNode?.unitId === 'PENDING' || activeDragPolygon?.unitId === 'PENDING';
+  const canDeleteVertex = pendingPolygonPoints.length > 3;
 
   // Amber warning palette for a self-overlapping ("bow-tie") shape; violet otherwise.
   const fillColor = isSelfIntersecting ? 'rgba(245, 158, 11, 0.25)' : 'rgba(139, 92, 246, 0.2)';
@@ -153,10 +166,49 @@ export default function PendingPolygon({
             newPoints[i] = { pctX, pctY };
             onPendingPolygonMove?.(newPoints);
           }}
+          // Phase 4 — alt/option-click an anchor to delete that corner. Alt-click keeps
+          // the small shape uncluttered (no per-anchor "×") and mirrors the lightweight
+          // anchor feel; the parent blocks dropping below a triangle. cancelBubble stops
+          // the click from reaching the stage (pan / box-arm). A plain click is inert.
+          onClick={(e) => {
+            if (!e.evt.altKey || !canDeleteVertex) return;
+            e.cancelBubble = true;
+            onDeleteVertex?.(i);
+          }}
           onMouseEnter={() => onAnchorEnter(`PENDING:${i}`)}
           onMouseLeave={() => onAnchorLeave(`PENDING:${i}`)}
         />
       ))}
+
+      {/* Phase 4 — edge-midpoint "+" inserts a corner on that edge (incl. the closing
+          edge). Violet hit-circle matching the anchor palette, with a white "+" glyph;
+          radii scale by stageScale so the target stays comfortable when zoomed out.
+          Hidden mid-drag (see isDragging). */}
+      {!isDragging && onInsertVertex && pendingPolygonPoints.map((pt, i) => {
+        const next = pendingPolygonPoints[(i + 1) % pendingPolygonPoints.length];
+        const mx = layout.offsetX + ((pt.pctX + next.pctX) / 2) * layout.drawW;
+        const my = layout.offsetY + ((pt.pctY + next.pctY) / 2) * layout.drawH;
+        const r = 6 / stageScale;
+        const arm = 3 / stageScale;
+        return (
+          <React.Fragment key={`pending-insert-${i}`}>
+            <Circle
+              x={mx}
+              y={my}
+              radius={r}
+              fill={strokeColor}
+              stroke="#fff"
+              strokeWidth={1 / stageScale}
+              opacity={0.85}
+              perfectDrawEnabled={false}
+              onMouseDown={(e) => { e.cancelBubble = true; }}
+              onClick={(e) => { e.cancelBubble = true; onInsertVertex(i); }}
+            />
+            <Line points={[mx - arm, my, mx + arm, my]} stroke="#fff" strokeWidth={1.5 / stageScale} listening={false} perfectDrawEnabled={false} />
+            <Line points={[mx, my - arm, mx, my + arm]} stroke="#fff" strokeWidth={1.5 / stageScale} listening={false} perfectDrawEnabled={false} />
+          </React.Fragment>
+        );
+      })}
 
       {/* Snap ring — mirrors MappedUnit/DraftPolygon's visual language so pending
           editing reads identically to saved-unit editing. */}
