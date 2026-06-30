@@ -268,6 +268,26 @@ export const nearestCentroidWithin = (
 };
 
 /**
+ * Sanity guard for a polygon about to be PERSISTED. It must have at least 3
+ * vertices and every coordinate must be a finite number within a generous
+ * percent-space bound (rooms live in 0–1; we allow slight overflow). Catches
+ * NaN/Infinity or wildly off-canvas points produced by a bad drag/transform so a
+ * corrupt shape can never be written to the row. Deliberately permissive on size
+ * (a small or thin room is valid) — it rejects the impossible, not the unusual.
+ */
+export const isFinitePolygon = (points: PercentPoint[] | null | undefined): boolean => {
+  if (!Array.isArray(points) || points.length < 3) return false;
+  return points.every(
+    (p) =>
+      p != null &&
+      Number.isFinite(p.pctX) &&
+      Number.isFinite(p.pctY) &&
+      p.pctX > -1 && p.pctX < 2 &&
+      p.pctY > -1 && p.pctY < 2,
+  );
+};
+
+/**
  * Converts any CSS color string to rgba() with the given alpha.
  * Handles: hex (#RGB or #RRGGBB), rgb(...), rgba(...).
  * Used by StampPreview and MappedUnit fill calculations.

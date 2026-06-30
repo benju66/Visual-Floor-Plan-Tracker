@@ -221,6 +221,14 @@ stamp `at`). This is where load-bearing correctness lives — test it hard.
 
 > Phases 1–5 = precision (no migrations — schema is already live). Phases 6–8 =
 > analytics (⛔ migrations). Each phase is one fresh session.
+>
+> **Cross-plan sequencing (added 2026-06-30):** `Notes/plans/Drawing-Tool-Excellence-Plan.md`
+> Phase 1 (interaction-state hardening) should land **before** Phase 2 here (adds
+> `ToolMode 'calibrate'`) and Phase 4 (adds `ToolMode 'measure'`). Those phases add
+> two new canvas tools; doing them on top of today's implicit "pending phase rides
+> on `'draw'` mode" handling re-opens the gesture-overlap bug class. When adding
+> `'calibrate'`/`'measure'`, respect that plan's pending-edit guard. Phase **5b**
+> (live measurement) is the former "item 5" folded in here.
 
 ### Phase 1 — Rescue the scale foundation (code only, no migration)
 - **Scope:** Branch off `main`. Port from `claude/code-repo-review-2vre2c` (cherry-
@@ -316,6 +324,38 @@ stamp `at`). This is where load-bearing correctness lives — test it hard.
 - **Approval gates:** none.
 - **Exit criteria:** `typecheck` + `test` + `build` green · live: calibrate, then
   verify against a different known dimension → sensible percent error · close with
+  `verify-feature`.
+
+### Phase 5b — Live measurement overlay while drawing/editing (toggleable)
+> Added 2026-06-30 (owner decision). This is the former "item 5" from the Drawing
+> Tool Excellence review — it lives HERE, not in that plan, because it depends
+> entirely on this plan's scale (`scale_units_per_px`) and `measure.ts`. Build it
+> AFTER Phase 4 (it reuses `lengthFt` / `formatFeetInchesFraction`). It assumes the
+> Drawing Tool Excellence plan's Phase 1 (interaction-state hardening) has landed so
+> the draw/edit state it reads is clean.
+- **Plain-English:** as you trace a room (and as you drag its corners while naming
+  it), show each edge's length in feet-inches and the running area in sq ft, right
+  on the canvas — so you can see the size as you draw. A toggle turns it off for a
+  clean view.
+- **Scope:**
+  1. A live overlay on the **draft** polyline (`DraftPolygon`) and the **pending**
+     polygon (`PendingPolygon`): per-edge feet-inches labels (reuse
+     `lengthFt` + `formatFeetInchesFraction` against the sheet's `scale_units_per_px`
+     and base-image dims) and a running **area** readout (reuse
+     `computeAreaFromUnitsPerPx`). Match the existing canvas label styling; keep it
+     ephemeral (nothing persists).
+  2. A **toggle** (default ON while drawing) persisted in `mapSettings`
+     (`useSettingsStore`, via `useHydratedStore`) — `mapSettings.showLiveMeasure` —
+     surfaced where the other canvas toggles live (e.g. `MapHorizontalToolbar` /
+     the scale popover). **Owner requirement: must be switch-off-able.**
+  3. Degrade cleanly when the sheet has **no scale** (`units_per_px` null): show
+     pixel-relative hints or hide lengths, and nudge the user to set a scale — never
+     show a wrong number.
+- **Approval gates:** none (UI overlay; reads scale + geometry only; no migration).
+- **Exit criteria:** `typecheck` + `test` + `build` green · live on `dev:3010`:
+  trace a room on a calibrated sheet → edge lengths + area read correctly and update
+  as you drag a pending corner; toggle hides/shows the overlay and the setting
+  persists across reload; an un-scaled sheet shows no wrong numbers · close with
   `verify-feature`.
 
 > --- Precision half complete. Owner shares the company cost-code list before Phase 6. ---

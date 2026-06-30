@@ -432,7 +432,10 @@ export const MappedUnitComponent = ({
              setOptimisticCoords(newPoints);
 
              setActiveDragNode(null);
-             handleAnchorDragEnd(e, unit.id, i);
+             // Persist the EXACT point just drawn (overridePct) so the saved vertex
+             // equals what the user saw on release — never re-derived/re-snapped from
+             // a different basis (which could desync the shape).
+             handleAnchorDragEnd(e, unit.id, i, { pctX, pctY });
            }}
            onClick={(e) => handleAnchorClick(e, unit.id, i)}
            onTap={(e) => handleAnchorClick(e, unit.id, i)}
@@ -489,7 +492,14 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
     (prevProps.activeDragPolygon?.unitId !== prevProps.unit.id ? true :
       prevProps.activeDragPolygon?.dx === nextProps.activeDragPolygon?.dx &&
       prevProps.activeDragPolygon?.dy === nextProps.activeDragPolygon?.dy) &&
+    // Compare ALL four layout fields, not just drawW: if drawH/offsetX/offsetY
+    // change without drawW (e.g. the PDF's real aspect settles in after first
+    // render), a stale closure here would let a node drag compute coordinates
+    // against the old draw rect — saving a distorted/compressed polygon.
     prevProps.layout.drawW === nextProps.layout.drawW &&
+    prevProps.layout.drawH === nextProps.layout.drawH &&
+    prevProps.layout.offsetX === nextProps.layout.offsetX &&
+    prevProps.layout.offsetY === nextProps.layout.offsetY &&
     prevStatus?.temporal_state === nextStatus?.temporal_state &&
     prevStatus?.milestone === nextStatus?.milestone
   );

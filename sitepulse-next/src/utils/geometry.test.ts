@@ -6,12 +6,46 @@ import {
   distToSegmentSquared,
   getCentroid,
   getSnappedCoordinate,
+  isFinitePolygon,
   isPointInPolygon,
   mixAlpha,
   nearestCentroidWithin,
   type CentroidTarget,
 } from './geometry';
 import type { PercentPoint } from '@/types/domain';
+
+describe('isFinitePolygon — corrupt-shape persistence guard', () => {
+  const tri: PercentPoint[] = [
+    { pctX: 0.1, pctY: 0.1 },
+    { pctX: 0.3, pctY: 0.1 },
+    { pctX: 0.2, pctY: 0.3 },
+  ];
+  it('accepts a normal polygon (>=3 finite, in-bounds points)', () => {
+    expect(isFinitePolygon(tri)).toBe(true);
+  });
+  it('accepts a small / thin room (size is not rejected)', () => {
+    expect(isFinitePolygon([
+      { pctX: 0.5, pctY: 0.5 },
+      { pctX: 0.5001, pctY: 0.5 },
+      { pctX: 0.5, pctY: 0.5001 },
+    ])).toBe(true);
+  });
+  it('rejects fewer than 3 vertices', () => {
+    expect(isFinitePolygon([{ pctX: 0.1, pctY: 0.1 }, { pctX: 0.2, pctY: 0.2 }])).toBe(false);
+  });
+  it('rejects NaN / Infinity coordinates', () => {
+    expect(isFinitePolygon([{ pctX: NaN, pctY: 0.1 }, ...tri])).toBe(false);
+    expect(isFinitePolygon([{ pctX: Infinity, pctY: 0.1 }, ...tri])).toBe(false);
+  });
+  it('rejects wildly off-canvas points', () => {
+    expect(isFinitePolygon([{ pctX: 50, pctY: 0.1 }, ...tri])).toBe(false);
+  });
+  it('rejects null / empty / non-array', () => {
+    expect(isFinitePolygon(null)).toBe(false);
+    expect(isFinitePolygon(undefined)).toBe(false);
+    expect(isFinitePolygon([])).toBe(false);
+  });
+});
 
 describe('nearestCentroidWithin — walk-route drop targeting', () => {
   const layout = { offsetX: 0, offsetY: 0, drawW: 1000, drawH: 1000 };

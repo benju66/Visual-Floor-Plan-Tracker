@@ -862,3 +862,87 @@ export function useUpdateWorkbenchOpeningEdges(sheetId: string) {
     },
   });
 }
+
+/** Set a workbench room's polygon after a node move (the "Select / adjust" tool). */
+export interface UpdateWorkbenchGeometryInput {
+  /** The `units` row whose polygon changes. */
+  unitId: string;
+  /** The full new vertex list (one node moved by the caller). */
+  points: PercentPoint[];
+}
+
+/**
+ * Persist a workbench room's polygon after a node move — the missing geometry-edit
+ * write that left "Select / adjust" node drags visual-only (they reverted to the saved
+ * shape on the next refetch — "snaps back to a square"). A SLIM sibling of
+ * {@link useUpdateWorkbenchOpeningEdges}: it writes ONLY `polygon_coordinates` and
+ * records an `update_geometry` trace event (before/after polygon — the human's shape
+ * correction, the training signal), leaving the room's name / type / provenance
+ * untouched (nudging a vertex is not a re-name).
+ *
+ * No container kind-guard read: like the other unit writes it targets an existing row
+ * by id and never changes its parent sheet, so it cannot contaminate a live surface.
+ * Online-first; optimistic so the moved shape stays put instantly AND the cache holds
+ * the new vertices — so MappedUnit's optimistic preview reconciles to the saved shape,
+ * not the pre-move rectangle. Invalidates only `units(sheetId)` (+ the contamination-
+ * safe all-project prefix the other unit writes already touch).
+ */
+export function useUpdateWorkbenchGeometry(sheetId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    retry: false,
+    mutationFn: async (input: UpdateWorkbenchGeometryInput): Promise<Unit> => {
+      const before =
+        queryClient.getQueryData<Unit[]>(queryKeys.units(sheetId))?.find((u) => u.id === input.unitId) ?? null;
+
+      const { data, error } = await supabase
+        .from('units')
+        .update({ polygon_coordinates: input.points as never })
+        .eq('id', input.unitId)
+        .select()
+        .single();
+      if (error) throw error;
+      const updated = data as unknown as Unit;
+
+      // Append the immutable edit event (best-effort; never blocks the save). A node
+      // move is a boundary correction, so this is an `update_geometry` action carrying
+      // the before/after polygon; the label itself is unchanged.
+      await recordTraceEvent({
+        sheetId,
+        unitId: input.unitId,
+        eventType: 'update_geometry',
+        method: (before?.method as TraceMethod | null) ?? 'manual',
+        source: (before?.source as TraceSource | null) ?? null,
+        beforePolygon: before?.polygon_coordinates ?? null,
+        afterPolygon: updated.polygon_coordinates ?? null,
+        beforeLabel: before ? labelSnapshotFromUnit(before) : null,
+        afterLabel: labelSnapshotFromUnit(updated),
+        groupKey: sheetId,
+      });
+
+      return updated;
+    },
+    onMutate: async (input) => {
+      // Optimistic: keep the moved shape on the canvas immediately and seed the cache
+      // with the new vertices, so MappedUnit's optimistic preview reconciles to the NEW
+      // saved geometry (not the pre-move rectangle) when it clears.
+      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
+      const previous = queryClient.getQueryData<Unit[]>(queryKeys.units(sheetId));
+      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) =>
+        old ? old.map((u) => (u.id === input.unitId ? { ...u, polygon_coordinates: input.points } : u)) : old,
+      );
+      return { previous };
+    },
+    onError: (_err, _input, context) => {
+      // Roll the canvas back to the last saved shape if the write failed.
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.units(sheetId), context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+    },
+  });
+}
