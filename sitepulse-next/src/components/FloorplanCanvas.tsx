@@ -1450,11 +1450,61 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     if (toolMode !== 'delete_node') return;
     const unit = units.find(u => u.id === unitId);
     if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length <= 3) return;
-    
+
     const newPoints = [...unit.polygon_coordinates];
     newPoints.splice(index, 1);
     onUpdateUnitPolygon?.(unitId, newPoints);
   };
+
+  // Drawing Tool Excellence — Phase 4. Pending-polygon vertex insert/delete: the
+  // not-yet-saved twins of handleAddNodeToPolygon / handleAnchorClick above. Both
+  // write through handlePendingPolygonEdit (NOT the raw onPendingPolygonMove) so the
+  // edit lands in the Phase 3 in-memory undo history and Ctrl+Z works on it. They
+  // read the live points from a ref, so the callbacks stay referentially stable and
+  // PendingPolygon's props don't churn.
+  const handleInsertPendingVertex = useCallback((edgeIndex: number) => {
+    const pts = pendingPolygonPointsRef.current;
+    if (!pts || pts.length < 3) return;
+    const p1 = pts[edgeIndex];
+    const p2 = pts[(edgeIndex + 1) % pts.length];
+    if (!p1 || !p2) return;
+    // Insert at the edge midpoint the "+" marks (predictable; no pointer math).
+    const midpoint = { pctX: (p1.pctX + p2.pctX) / 2, pctY: (p1.pctY + p2.pctY) / 2 };
+    const newPoints = [...pts];
+    newPoints.splice(edgeIndex + 1, 0, midpoint);
+    // Guard like handleAnchorDragEnd — never apply a degenerate/off-canvas shape.
+    if (!isFinitePolygon(newPoints)) return;
+    handlePendingPolygonEdit(newPoints);
+  }, [handlePendingPolygonEdit]);
+
+  const handleDeletePendingVertex = useCallback((index: number) => {
+    const pts = pendingPolygonPointsRef.current;
+    // Mirror handleAnchorClick's <= 3 guard — never drop below a triangle.
+    if (!pts || pts.length <= 3) return;
+    const newPoints = [...pts];
+    newPoints.splice(index, 1);
+    if (!isFinitePolygon(newPoints)) return;
+    handlePendingPolygonEdit(newPoints);
+  }, [handlePendingPolygonEdit]);
+
+  // Saved-unit midpoint "+" insert — the same affordance as the pending one, brought
+  // to selected saved rooms so adding a corner is consistent across both (no need to
+  // switch into the add_node tool). Persists via onUpdateUnitPolygon (which already
+  // pushes a DB undo action). Reads units/callback from refs so the callback stays
+  // referentially stable and MappedUnit's memo doesn't churn.
+  const handleInsertSavedVertex = useCallback((unitId: string, edgeIndex: number) => {
+    const unit = unitsRef.current.find(u => u.id === unitId);
+    if (!unit || !unit.polygon_coordinates) return;
+    const pts = unit.polygon_coordinates;
+    const p1 = pts[edgeIndex];
+    const p2 = pts[(edgeIndex + 1) % pts.length];
+    if (!p1 || !p2) return;
+    const midpoint = { pctX: (p1.pctX + p2.pctX) / 2, pctY: (p1.pctY + p2.pctY) / 2 };
+    const newPoints = [...pts];
+    newPoints.splice(edgeIndex + 1, 0, midpoint);
+    if (!isFinitePolygon(newPoints)) return;
+    onUpdateUnitPolygonRef.current?.(unitId, newPoints);
+  }, []);
 
   // Stable identity (keyed on layout) so memoized children don't re-render on
   // unrelated parent renders.
@@ -2061,6 +2111,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   setActiveDragNode={setActiveDragNode}
                   handleAnchorDragEnd={handleAnchorDragEnd}
                   handleAnchorClick={handleAnchorClick}
+                  onInsertVertex={handleInsertSavedVertex}
                 />
               ))}
           </Layer>
@@ -2163,6 +2214,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               toPixels={toPixels}
               setActiveDragPolygon={setActiveDragPolygon}
               onPendingPolygonMove={handlePendingPolygonEdit}
+              onInsertVertex={handleInsertPendingVertex}
+              onDeleteVertex={handleDeletePendingVertex}
               setActiveDragNode={setActiveDragNode}
               onAnchorEnter={handleAnchorEnter}
               onAnchorLeave={handleAnchorLeave}

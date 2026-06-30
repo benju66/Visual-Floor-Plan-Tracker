@@ -65,6 +65,9 @@ export interface MappedUnitProps {
   setActiveDragNode: (payload: { unitId: string; index: number; pctX: number; pctY: number; isSnapped?: boolean } | null) => void;
   handleAnchorDragEnd: (e: any, unitId: string, index: number, overridePct?: PercentPoint) => void;
   handleAnchorClick: (e: any, unitId: string, index: number) => void;
+  /** Insert a corner at the midpoint of edge `edgeIndex` (point i → i+1, wrapping the
+   *  closing edge) on this saved unit. Mirrors the pending polygon's "+" affordance. */
+  onInsertVertex?: (unitId: string, edgeIndex: number) => void;
 }
 
 export const MappedUnitComponent = ({
@@ -102,7 +105,8 @@ export const MappedUnitComponent = ({
   setHoveredIcon,
   setActiveDragNode,
   handleAnchorDragEnd,
-  handleAnchorClick
+  handleAnchorClick,
+  onInsertVertex
 }: MappedUnitProps) => {
   const [prevCoordinates, setPrevCoordinates] = useState(unit.polygon_coordinates);
   const [optimisticCoords, setOptimisticCoords] = useState<PercentPoint[] | null>(null);
@@ -121,6 +125,13 @@ export const MappedUnitComponent = ({
   
   const highlight = (isSelected || isHovered) && toolMode !== 'route';
   const isFilteredOut = activeStatus && temporalFilters && !temporalFilters.includes(tState);
+
+  // While a corner on THIS unit is being dragged, thin the outline and drop its glow
+  // so the node stays clearly visible during precise placement (the bold 4px highlight
+  // + 18px shadow otherwise swallows the dot, worse the further you zoom in). The
+  // resting selected look is unchanged.
+  const draggingThisNode = activeDragNode?.unitId === unit.id;
+  const showGlow = highlight && !draggingThisNode;
 
   let strokeDash: number[] = [];
   let currentFill = fillColor;
@@ -240,12 +251,16 @@ export const MappedUnitComponent = ({
         <Line
           points={currentPoints}
           stroke={isRouteDropTarget ? '#10b981' : highlight ? (isSelected ? '#8b5cf6' : '#0ea5e9') : currentStroke}
-          strokeWidth={(isRouteDropTarget ? 4.0 : dim ? 1.0 : (highlight ? 4.0 : 2.5)) * (settings?.markupThickness || 1)}
+          strokeWidth={
+            draggingThisNode
+              ? 1.5 / stageScale // thin + zoom-stable so the dragged corner stays visible
+              : (isRouteDropTarget ? 4.0 : dim ? 1.0 : (highlight ? 4.0 : 2.5)) * (settings?.markupThickness || 1)
+          }
           dash={strokeDash}
           closed={true}
-          shadowColor={isRouteDropTarget ? 'rgba(16, 185, 129, 0.85)' : highlight ? (isSelected ? 'rgba(139, 92, 246, 0.85)' : 'rgba(14, 165, 233, 0.85)') : 'transparent'}
-          shadowBlur={isRouteDropTarget ? 18 : highlight ? 18 : 0}
-          shadowOpacity={isRouteDropTarget ? 0.9 : highlight ? 0.9 : 0}
+          shadowColor={isRouteDropTarget ? 'rgba(16, 185, 129, 0.85)' : showGlow ? (isSelected ? 'rgba(139, 92, 246, 0.85)' : 'rgba(14, 165, 233, 0.85)') : 'transparent'}
+          shadowBlur={isRouteDropTarget ? 18 : showGlow ? 18 : 0}
+          shadowOpacity={isRouteDropTarget ? 0.9 : showGlow ? 0.9 : 0}
           listening={!isFilteredOut}
           perfectDrawEnabled={false}
           shadowForStrokeEnabled={false}
@@ -443,7 +458,40 @@ export const MappedUnitComponent = ({
            onMouseLeave={() => onAnchorLeave(`${unit.id}:${i}`)}
          />
       ))}
-      
+
+      {/* Edge-midpoint "+" to add a corner — the saved-unit twin of the pending
+          polygon's affordance. Shown on a selected room while editing (select/add_node),
+          hidden mid-drag so it doesn't clutter or sit on stale midpoints. Clicking
+          inserts a corner at that edge's midpoint (persisted, DB-undoable). */}
+      {isSelected && onInsertVertex && ['select', 'add_node'].includes(toolMode) &&
+        !draggingThisNode && activeDragPolygon?.unitId !== unit.id &&
+        basePolygon.length >= 3 && basePolygon.map((pt, i) => {
+          const next = basePolygon[(i + 1) % basePolygon.length];
+          const mx = layout.offsetX + ((pt.pctX + next.pctX) / 2) * layout.drawW;
+          const my = layout.offsetY + ((pt.pctY + next.pctY) / 2) * layout.drawH;
+          const r = 6 / stageScale;
+          const arm = 3 / stageScale;
+          return (
+            <React.Fragment key={`insert-${i}`}>
+              <Circle
+                x={mx}
+                y={my}
+                radius={r}
+                fill="#8b5cf6"
+                stroke="#fff"
+                strokeWidth={1 / stageScale}
+                opacity={0.85}
+                perfectDrawEnabled={false}
+                onMouseDown={(e) => { e.cancelBubble = true; }}
+                onClick={(e) => { e.cancelBubble = true; onInsertVertex(unit.id, i); }}
+                onTap={(e) => { e.cancelBubble = true; onInsertVertex(unit.id, i); }}
+              />
+              <Line points={[mx - arm, my, mx + arm, my]} stroke="#fff" strokeWidth={1.5 / stageScale} listening={false} perfectDrawEnabled={false} />
+              <Line points={[mx, my - arm, mx, my + arm]} stroke="#fff" strokeWidth={1.5 / stageScale} listening={false} perfectDrawEnabled={false} />
+            </React.Fragment>
+          );
+        })}
+
       {isSelected && activeDragNode?.unitId === unit.id && activeDragNode?.isSnapped && (
          <Circle
            x={layout.offsetX + activeDragNode.pctX * layout.drawW}
