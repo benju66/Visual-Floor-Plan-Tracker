@@ -27,6 +27,7 @@ import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, isFinitePolygon, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
 import { isSelfIntersecting } from '@/utils/polygonValidity';
+import { pushSnapshot, undo as undoEditHistory, redo as redoEditHistory, seedEditHistory, emptyEditHistory, type EditHistory } from '@/utils/editHistory';
 import { tagVectorsWithGrid } from '@/utils/gridAwareSnap';
 import { computeUnitVariance, varianceFill } from '@/utils/progressAnalytics';
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
@@ -347,6 +348,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const onUpdateUnitPolygonRef = useRef(onUpdateUnitPolygon);
   useEffect(() => { onUpdateUnitPolygonRef.current = onUpdateUnitPolygon; }, [onUpdateUnitPolygon]);
 
+  // Fresh reads for the window-level keydown handler + the pending-edit seed effect
+  // (Drawing Tool Excellence — Phase 3). The handler is created once per toolMode and
+  // reads these via refs so it never closes over stale props.
+  const pendingPolygonPointsRef = useRef(pendingPolygonPoints);
+  useEffect(() => { pendingPolygonPointsRef.current = pendingPolygonPoints; }, [pendingPolygonPoints]);
+  const onPendingPolygonMoveRef = useRef(onPendingPolygonMove);
+  useEffect(() => { onPendingPolygonMoveRef.current = onPendingPolygonMove; }, [onPendingPolygonMove]);
+
   const layoutRef = useRef({ offsetX: 0, offsetY: 0, drawW: 0, drawH: 0, stageW: 0, stageH: 0 });
   
   const [hoveredUnit, setHoveredUnit] = useState<string | null>(null);
@@ -421,6 +430,34 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // Fresh read for the window-level keydown handler (created once; not a dep of it).
   const isEditingPendingRef = useRef(isEditingPending);
   isEditingPendingRef.current = isEditingPending;
+
+  // Drawing Tool Excellence — Phase 3 (undo/redo for the NOT-YET-SAVED polygon). A
+  // local, in-memory history of `pendingPolygonPoints` snapshots, kept fully isolated
+  // from the DB-backed saved-unit `useUndoRedo` (no DB writes; nothing enters the
+  // offline IDB mutation queue, `status_logs`, or the `pendingChanges` buffer). It is
+  // SEEDED with the freshly-traced shape the instant a pending polygon opens (so the
+  // first Ctrl+Z returns to the original trace) and CLEARED when the polygon is saved
+  // or cancelled (pending → null), so the next trace starts with a clean stack. Held in
+  // a ref — the keydown handler mutates it without re-binding, and the React tree never
+  // needs to re-render off it. The effect keys ONLY on the open/close transition (never
+  // on `pendingPolygonPoints`), so an edit mid-session can't wipe the history; it reads
+  // the opening points from a ref for the same reason.
+  const editHistoryRef = useRef<EditHistory>(emptyEditHistory());
+  useEffect(() => {
+    editHistoryRef.current = isEditingPending
+      ? seedEditHistory(pendingPolygonPointsRef.current ?? [])
+      : emptyEditHistory();
+  }, [isEditingPending]);
+
+  // Wrap `onPendingPolygonMove`: record each committed pending edit (node move,
+  // whole-shape move, flip) into the history, then apply it. Undo/redo replay snapshots
+  // back through the RAW `onPendingPolygonMove` (via its ref) so they don't re-enter the
+  // history here. Stable identity (depends only on the prop) so PendingPolygon's props
+  // stay referentially steady.
+  const handlePendingPolygonEdit = useCallback((newPoints: Point[]) => {
+    editHistoryRef.current = pushSnapshot(editHistoryRef.current, newPoints);
+    onPendingPolygonMove?.(newPoints);
+  }, [onPendingPolygonMove]);
 
   // Drawing Tool Excellence — Phase 2 (validity warning). Run the LIVE pending shape
   // (with any in-progress node-drag applied via activeDragNode) through the pure
@@ -570,6 +607,24 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             }
           });
         }
+      }
+
+      // Drawing Tool Excellence — Phase 3. While a freshly-traced polygon is open for
+      // naming, Ctrl/Cmd+Z steps back through this session's local edit history and
+      // Ctrl/Cmd+Shift+Z re-applies — entirely separate from the DB-backed saved-unit
+      // undo. Gated on `isEditingPendingRef` so it takes priority over the draft-vertex
+      // undo below; `stopImmediatePropagation` keeps it from also tripping that or the
+      // parent's saved-unit `useUndoRedo`. Skipped while a text input is focused so
+      // Ctrl+Z inside the name field still does native text undo (not geometry undo).
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && isEditingPendingRef.current && !isInputActive) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const result = e.shiftKey
+          ? redoEditHistory(editHistoryRef.current)
+          : undoEditHistory(editHistoryRef.current);
+        editHistoryRef.current = result.history;
+        if (result.current) onPendingPolygonMoveRef.current?.(result.current);
+        return;
       }
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
@@ -1266,7 +1321,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
         newPoints.forEach(p => p.pctY = centerY - (p.pctY - centerY));
       }
-      onPendingPolygonMove?.(newPoints);
+      // Phase 3: route through the history-recording wrapper so a flip is one undo step.
+      handlePendingPolygonEdit(newPoints);
       return;
     }
 
@@ -2106,7 +2162,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               isSelfIntersecting={pendingSelfIntersects}
               toPixels={toPixels}
               setActiveDragPolygon={setActiveDragPolygon}
-              onPendingPolygonMove={onPendingPolygonMove}
+              onPendingPolygonMove={handlePendingPolygonEdit}
               setActiveDragNode={setActiveDragNode}
               onAnchorEnter={handleAnchorEnter}
               onAnchorLeave={handleAnchorLeave}
