@@ -73,6 +73,10 @@ Thumbs.db
 .claude/
 skills-lock.json
 
+# Playwright MCP browser-automation artifacts (per-session console logs + page
+# snapshots dumped during manual canvas verification). Throwaway, never tracked.
+.playwright-mcp/
+
 # Local-only working data — real project schedules, client floor-plan PDFs, and
 # the Procore contact directory export (PII). Reference material kept on-disk only;
 # never commit (guards against an accidental `git add -A`).
