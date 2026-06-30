@@ -1632,7 +1632,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           onPointerDown={(e) => {
             if (toolMode === 'pan' || (e.evt && e.evt.button === 1)) {
               setIsDraggingCanvas(true);
-            } else if (toolMode === 'draw' && (!e.evt || e.evt.button === 0) && draftPoints.length === 0) {
+            } else if (toolMode === 'draw' && (!e.evt || e.evt.button === 0) && draftPoints.length === 0 && !pendingPolygonPoints) {
+              // The box-drag shortcut (press-drag-release → rectangle room) stays live in
+              // draw mode. But after a trace completes we remain in draw mode with the
+              // naming popover open over an editable pending polygon. Pressing one of that
+              // polygon's anchor nodes bubbles pointerdown up to the stage; without the
+              // `!pendingPolygonPoints` guard it would arm a box here, and a node drag past
+              // the box threshold would commit it — replacing the traced shape with a 4-pt
+              // bounding rectangle. Suppress box-arming while a pending polygon is being named.
               const stage = e.target.getStage();
               if (!stage) return;
               const pointer = stage.getPointerPosition();
@@ -1684,7 +1691,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             }
 
             // Existing draw logic...
-            if (toolMode === 'draw' && boxOrigin) {
+            if (toolMode === 'draw' && boxOrigin && !pendingPolygonPoints) {
               const stage = e.target.getStage();
               if (!stage) return;
               const lastSample = pointerStore.get();
