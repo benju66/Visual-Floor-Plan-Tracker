@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeH
 import { Stage, Layer, Image as KonvaImage } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
-import { Check } from 'lucide-react';
+import { Check, AlertTriangle } from 'lucide-react';
 import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 import ViewportControls from '@/components/canvas/ViewportControls';
 import ContextActionDock from '@/components/canvas/ContextActionDock';
@@ -26,6 +26,7 @@ import { withVersion } from '@/utils/pdfSource';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, isFinitePolygon, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
+import { isSelfIntersecting } from '@/utils/polygonValidity';
 import { tagVectorsWithGrid } from '@/utils/gridAwareSnap';
 import { computeUnitVariance, varianceFill } from '@/utils/progressAnalytics';
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
@@ -420,6 +421,23 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // Fresh read for the window-level keydown handler (created once; not a dep of it).
   const isEditingPendingRef = useRef(isEditingPending);
   isEditingPendingRef.current = isEditingPending;
+
+  // Drawing Tool Excellence — Phase 2 (validity warning). Run the LIVE pending shape
+  // (with any in-progress node-drag applied via activeDragNode) through the pure
+  // self-intersection check so a "bow-tie" lights up the moment a corner crosses the
+  // shape and clears the moment it's dragged back out. A whole-shape drag is a pure
+  // translation — it can't change self-intersection — so activeDragPolygon is ignored
+  // here. This only WARNS (amber tint + a note); saving a bow-tie stays allowed.
+  const pendingSelfIntersects = useMemo(() => {
+    if (!pendingPolygonPoints || pendingPolygonPoints.length < 4) return false;
+    const live =
+      activeDragNode?.unitId === 'PENDING'
+        ? pendingPolygonPoints.map((p, i) =>
+            i === activeDragNode.index ? { pctX: activeDragNode.pctX, pctY: activeDragNode.pctY } : p,
+          )
+        : pendingPolygonPoints;
+    return isSelfIntersecting(live);
+  }, [pendingPolygonPoints, activeDragNode]);
 
   // Opening hold-keys (Phase 4a): track which TYPE key (D/C/H/P) is held, only while
   // opening capture is enabled (workbench), so the live map never even subscribes.
@@ -1580,9 +1598,22 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         </div>
       )}
 
-      <ViewportControls 
-        resetView={resetView} 
-        handleZoom={handleZoom} 
+      {/* Drawing Tool Excellence — Phase 2: non-blocking self-intersection warning.
+          Appears while naming a freshly-traced room whose shape overlaps itself (a
+          "bow-tie", which yields a wrong square-footage) and clears the moment it's
+          fixed. Sits below the top-right naming popover; saving stays allowed. */}
+      {isEditingPending && pendingSelfIntersects && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[55] pointer-events-none">
+          <div className="flex items-center gap-2 bg-amber-500/95 text-white px-3 py-1.5 rounded-full shadow-lg border border-white/20 backdrop-blur-sm">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span className="text-xs font-semibold">This shape overlaps itself — its area may be wrong.</span>
+          </div>
+        </div>
+      )}
+
+      <ViewportControls
+        resetView={resetView}
+        handleZoom={handleZoom}
       />
 
       <ZoomIndicator
@@ -2068,6 +2099,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               stageScale={stageScale}
               layout={layout}
               isShiftDown={isShiftDown}
+              vectorTree={vectorTree}
+              aspect={aspect}
+              enableSnapping={effectiveSnapping}
+              snappingStrength={mapSettings?.snappingStrength || 15}
+              isSelfIntersecting={pendingSelfIntersects}
               toPixels={toPixels}
               setActiveDragPolygon={setActiveDragPolygon}
               onPendingPolygonMove={onPendingPolygonMove}
