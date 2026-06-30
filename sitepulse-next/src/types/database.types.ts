@@ -143,6 +143,9 @@ export interface Database {
           tile_image_height: number | null
           scale_ratio: number | null
           scale_preset: string | null
+          scale_units_per_px: number | null
+          scale_unit: string | null
+          scale_calibration: Json | null
           active_scopes: Json | null
           milestone_schedules: Json | null
           created_at: string | null
@@ -159,6 +162,9 @@ export interface Database {
           tile_image_height?: number | null
           scale_ratio?: number | null
           scale_preset?: string | null
+          scale_units_per_px?: number | null
+          scale_unit?: string | null
+          scale_calibration?: Json | null
           active_scopes?: Json | null
           milestone_schedules?: Json | null
           created_at?: string | null
@@ -175,6 +181,9 @@ export interface Database {
           tile_image_height?: number | null
           scale_ratio?: number | null
           scale_preset?: string | null
+          scale_units_per_px?: number | null
+          scale_unit?: string | null
+          scale_calibration?: Json | null
           active_scopes?: Json | null
           milestone_schedules?: Json | null
           created_at?: string | null
