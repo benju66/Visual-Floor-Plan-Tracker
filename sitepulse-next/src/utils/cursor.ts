@@ -70,6 +70,9 @@ export function getToolCursor(s: ToolCursorState): string {
     case 'capture_line':
       // Drag the grid axis line across a grid line — crosshair, like draw.
       return 'crosshair';
+    case 'calibrate':
+      // Drop a 2-point line on a known dimension — crosshair, like draw.
+      return 'crosshair';
     case 'stamp':
       return 'copy';
     case 'add_node':

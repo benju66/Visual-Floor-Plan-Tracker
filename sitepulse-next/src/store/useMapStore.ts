@@ -11,7 +11,11 @@ import type { RoomSuggestion } from '@/utils/roomSuggestion';
 // the SHARED toolMode the workbench already drives (pan/draw/select) and are never
 // exposed by the live MapHorizontalToolbar; the canvas treats them as inert no-ops
 // unless an `onCaptureBox` / `onCaptureLine` handler is wired (the workbench tracer).
-export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node' | 'capture_box' | 'capture_line';
+// `calibrate` (Scale, Measure & Production Rates — Phase 2b) is a transient
+// 2-point tool: drop two snapped points across a known dimension, type its real
+// length, and the drawing's `scale_units_per_px` is set. It reuses the draw click
+// path + snapping + loupe and cleans up on tool change / Esc like the others.
+export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node' | 'capture_box' | 'capture_line' | 'calibrate';
 export type RouteSubMode = 'move' | 'add' | 'remove';
 
 export interface MapState {
