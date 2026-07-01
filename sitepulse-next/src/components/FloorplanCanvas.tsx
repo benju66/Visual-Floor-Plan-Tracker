@@ -10,6 +10,7 @@ import ContextActionDock from '@/components/canvas/ContextActionDock';
 import CanvasContextMenu from '@/components/CanvasContextMenu';
 import MappedUnit from '@/components/canvas/MappedUnit';
 import DraftPolygon from '@/components/canvas/DraftPolygon';
+import MeasureReadout from '@/components/canvas/MeasureReadout';
 import StampPreview from '@/components/canvas/StampPreview';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import CaptureBoxOverlay from '@/components/canvas/CaptureBoxOverlay';
@@ -39,6 +40,7 @@ import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import { useUnits, useMilestones, useUpdateWalkSequence, useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
 import { unitsPerPxFromCalibration, parseFeetInches } from '@/utils/scale';
+import { FRACTION_LABELS, type FractionDenominator } from '@/utils/measure';
 import { loadImageDimensions } from '@/utils/imageDimensions';
 import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
@@ -346,6 +348,21 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const [calibrateInput, setCalibrateInput] = useState('');
   const [calibrateError, setCalibrateError] = useState(false);
 
+  // ── Standalone measure tool (Phase 4) ─────────────────────────────────────
+  // An ephemeral 2..N-point polyline the user drops on a CALIBRATED drawing to
+  // read a running length in fractional feet-inches. Isolated from `draftPoints`
+  // (like calibrate) so it never leaks into the trace path. Persists NOTHING.
+  const [measurePoints, setMeasurePoints] = useState<Point[]>([]);
+  const measurePointsRef = useRef(measurePoints);
+  useEffect(() => { measurePointsRef.current = measurePoints; }, [measurePoints]);
+  // Selected fraction precision for the readout (¼" / ⅛" / 1⁄16"). A UI preference
+  // held across measurements; defaults to ¼".
+  const [measureDenom, setMeasureDenom] = useState<FractionDenominator>(4);
+  // Base-image natural pixel dims — the SAME basis the area/calibration math uses.
+  // Loaded once on entering measure mode (falls back to the on-canvas dims only when
+  // there's no base image, where the two bases are equal anyway).
+  const [measureBasis, setMeasureBasis] = useState<{ width: number; height: number } | null>(null);
+
   // Opening-edge capture (AI Tracing Assist — Phase 4a). The in-progress opening tags
   // of a half-drawn trace are an ephemeral DRAW buffer co-located with `draftPoints`
   // (the same category of canvas-local draw state, never persisted), handed up to
@@ -602,6 +619,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             setCalibratePrompt(null);
             setCalibrateInput('');
             setCalibrateError(false);
+          } else if (toolMode === 'measure' && measurePointsRef.current.length > 0) {
+            // Clear the current measurement run but stay in measure mode; a second Esc
+            // (no points left) falls through to return to pan.
+            e.stopImmediatePropagation();
+            setMeasurePoints([]);
           } else if (isEditingPendingRef.current) {
             // Drawing Tool Excellence — Phase 1. A freshly-traced polygon is open for
             // naming. Esc must NOT fall through to the tool backout below: switching to
@@ -791,6 +813,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     // Clear any half-placed calibration line + length prompt whenever we leave the
     // calibrate tool, so a stale point/prompt never bleeds into another mode.
     if (toolMode !== 'calibrate') { setCalibratePoints([]); setCalibratePrompt(null); setCalibrateInput(''); setCalibrateError(false); }
+    // Drop the ephemeral measure run whenever we leave the measure tool (the fraction
+    // preference is intentionally kept). Nothing here persists.
+    if (toolMode !== 'measure') { setMeasurePoints([]); }
     if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
       onClearSelection();
     }
@@ -806,6 +831,22 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolMode]);
+
+  // Load the base-image natural pixel dims once when the measure tool opens — the
+  // SAME basis calibration/area use (NOT the on-canvas pdf.js render). Falls back to
+  // the on-canvas dims only when there's no base image (raster sheets, equal bases).
+  useEffect(() => {
+    if (toolMode !== 'measure') return;
+    let cancelled = false;
+    (async () => {
+      const dims = await loadImageDimensions(activeSheet?.base_image_url);
+      if (cancelled) return;
+      setMeasureBasis(
+        dims ?? (originalWidth && originalHeight ? { width: originalWidth, height: originalHeight } : null),
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [toolMode, activeSheet?.base_image_url, originalWidth, originalHeight]);
 
   const layout = useMemo(() => {
     const stageW = dimensions.width;
@@ -1258,6 +1299,19 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       } else {
         setCalibratePoints(next);
       }
+    } else if (toolMode === 'measure') {
+      // Drop a snapped point onto the running measurement polyline. Consume the fresh
+      // snap from onMouseMove so the committed point matches the visual ring.
+      if (effectiveSnapping && lastSnapRef.current?.snapped) {
+        pctX = lastSnapRef.current.pctX;
+        pctY = lastSnapRef.current.pctY;
+      }
+      const pts = measurePointsRef.current;
+      const last = pts[pts.length - 1];
+      // Ignore a click that lands on essentially the last point (prevents a
+      // zero-length segment, e.g. from an accidental double-click / stutter).
+      if (last && Math.abs(last.pctX - pctX) < 1e-4 && Math.abs(last.pctY - pctY) < 1e-4) return;
+      setMeasurePoints([...pts, { pctX, pctY }]);
     } else if (toolMode === 'capture_line') {
       // Two-click grid-axis placement (AI Tracing Assist — Phase 3c follow-up): the
       // first click drops the START node, the second drops the END node and emits.
@@ -1886,6 +1940,84 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         </div>
       )}
 
+      {/* Measure panel (Phase 4): fraction selector + live running-length readout.
+          Ephemeral — nothing persists. Stops native pointer events so choosing a
+          fraction doesn't pan/zoom the map. */}
+      {toolMode === 'measure' && (
+        <div
+          className="absolute left-1/2 top-4 -translate-x-1/2 z-40 pointer-events-auto"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div
+            className="rounded-2xl border shadow-xl backdrop-blur-md px-4 py-3 w-72"
+            style={{
+              background: 'var(--glass-bg, rgba(255, 255, 255, 0.95))',
+              borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
+            }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-bold text-slate-700 dark:text-slate-200">Measure</div>
+              <button
+                type="button"
+                onClick={() => onToolModeChange('pan')}
+                className="text-[11px] font-semibold rounded-lg px-2 py-1 text-slate-500 hover:text-slate-700 hover:bg-white/60 dark:text-slate-300 dark:hover:bg-white/10 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+
+            {typeof activeSheet?.scale_units_per_px === 'number' && activeSheet.scale_units_per_px > 0 ? (
+              <>
+                {/* Fraction precision selector */}
+                <div className="flex gap-1 mb-2">
+                  {([4, 8, 16] as const).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setMeasureDenom(d)}
+                      className={`flex-1 text-xs font-semibold rounded-lg px-2 py-1 transition-colors tabular-nums
+                        ${measureDenom === d
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-slate-500/10 text-slate-600 dark:text-slate-300 hover:bg-slate-500/20'}`}
+                    >
+                      {FRACTION_LABELS[d]}
+                    </button>
+                  ))}
+                </div>
+
+                <MeasureReadout
+                  points={measurePoints}
+                  pointerStore={pointerStore}
+                  imgW={measureBasis?.width ?? 0}
+                  imgH={measureBasis?.height ?? 0}
+                  unitsPerPx={activeSheet.scale_units_per_px}
+                  denom={measureDenom}
+                  enableSnapping={effectiveSnapping}
+                />
+
+                <div className="flex gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setMeasurePoints([])}
+                    disabled={measurePoints.length === 0}
+                    className="flex-1 text-xs font-semibold rounded-lg px-3 py-1.5 bg-slate-500/10 text-slate-600 dark:text-slate-300 hover:bg-slate-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
+                  Click points to measure. Esc or Clear starts over.
+                </p>
+              </>
+            ) : (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                This drawing has no scale yet. Set one with the ruler tool, then measure.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <ZoomIndicator
         stageScale={stageScale}
         onZoomToLevel={zoomToLevel}
@@ -2117,7 +2249,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // inline (no debounce/await) guarantees lastSnapRef is fresh when
             // handleStageClick commits the point on the very next event.
             let snap: { pctX: number; pctY: number; snapped: boolean } | null = null;
-            if ((toolMode === 'draw' || toolMode === 'calibrate') && effectiveSnapping && drawW > 0 && drawH > 0) {
+            if ((toolMode === 'draw' || toolMode === 'calibrate' || toolMode === 'measure') && effectiveSnapping && drawW > 0 && drawH > 0) {
               // Interior hint: once ≥3 points are placed, the centroid of the trace so
               // far tells the snap which wall face is the room interior — so on a thick
               // wall it hugs the inside face instead of grabbing whichever is closest.
@@ -2314,6 +2446,21 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 stageScale={stageScale}
                 layout={layout}
                 enableSnapping={effectiveSnapping && !calibratePrompt}
+                isShiftDown={isShiftDown}
+                toPixels={toPixels}
+              />
+            )}
+
+            {/* Measure polyline (Phase 4) — reuse the draft preview: cursor ghost +
+                snap ring while dropping the 2..N points of an ephemeral measurement. */}
+            {toolMode === 'measure' && (
+              <DraftPolygon
+                draftPoints={measurePoints}
+                pointerStore={pointerStore}
+                boxOrigin={null}
+                stageScale={stageScale}
+                layout={layout}
+                enableSnapping={effectiveSnapping}
                 isShiftDown={isShiftDown}
                 toPixels={toPixels}
               />
