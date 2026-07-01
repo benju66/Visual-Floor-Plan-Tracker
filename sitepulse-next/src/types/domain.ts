@@ -177,6 +177,27 @@ export type Subtype = Omit<
 };
 export type SubtypeInsert = Database['public']['Tables']['subtypes']['Insert'];
 
+// Global governed activity dictionary row (Scheduling Foundation Slice A, Phase 2).
+// The company-wide canonical activity list a project activity points at via
+// activities.dictionary_id — the SAME governed-dictionary pattern as {@link Subtype}
+// (aliases + default_project_types + status active/pending/deprecated + the
+// "Other (pending)" sentinel), for scheduling instead of location taxonomy. The two
+// JSONB columns are narrowed off the generated `Json` to their real shapes at the
+// query boundary (reusing {@link isStringArray} / {@link isProjectTypeArray}),
+// exactly like Subtype narrows `aliases` / `default_project_types`. `type` is the
+// activity kind (task/milestone), `track` an optional default grouping hint, and
+// `cost_code_id` is reserved for Slice B.
+export type ActivityType = 'task' | 'milestone';
+export type ActivityDictionaryStatus = 'active' | 'pending' | 'deprecated';
+export type ActivityDictionaryEntry = Omit<
+  Database['public']['Tables']['activity_dictionary']['Row'],
+  'aliases' | 'default_project_types'
+> & {
+  aliases: string[];
+  default_project_types: ProjectType[];
+};
+export type ActivityDictionaryInsert = Database['public']['Tables']['activity_dictionary']['Insert'];
+
 export type TemporalState = 'planned' | 'ongoing' | 'completed' | 'none';
 export type MemberRole    = 'admin' | 'pm' | 'superintendent' | 'viewer';
 export type TrackName     = string;

@@ -40,6 +40,7 @@ const mkMs = (name: string, sequence_order: number, color = '#111'): Milestone =
   track: 'Construction',
   type: 'task',
   applies_to_unit_types: null,
+  dictionary_id: null,
   created_at: null,
 });
 

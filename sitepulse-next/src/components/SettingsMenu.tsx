@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle } from 'lucide-react';
+import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle, Link2 } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -11,7 +11,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getAppliesTo } from '@/types/domain';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 import { useUIStore } from '@/store/useUIStore';
-import type { Milestone, Sheet, ProjectContact } from '@/types/domain';
+import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
+import { resolveActivityByName, activityPickToFields, type ActivityPickResult } from '@/utils/activityDictionary';
+import ActivityDictionaryField from '@/components/ActivityDictionaryField';
+import type { Milestone, Sheet, ProjectContact, ActivityDictionaryEntry, ActivityType } from '@/types/domain';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
 interface SortableMilestoneItemProps {
@@ -103,6 +106,15 @@ function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEd
              {savedRule && (
                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 bg-slate-200/70 dark:bg-slate-800 px-1.5 py-0.5 rounded-full shrink-0" title={`Applies only to: ${savedRule.join(', ')}`}>
                  {savedRule.length} type{savedRule.length === 1 ? '' : 's'}
+               </span>
+             )}
+             {m.dictionary_id ? (
+               <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 shrink-0" title="Linked to the company activity dictionary">
+                 <Link2 size={10} />
+               </span>
+             ) : (
+               <span className="text-[9px] font-bold uppercase tracking-widest text-amber-600/80 dark:text-amber-400/80 bg-amber-100/70 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-full shrink-0" title="Not yet linked to the company activity dictionary (review queue)">
+                 Review
                </span>
              )}
           </div>
@@ -489,7 +501,7 @@ interface SettingsMenuProps {
   setColorMode: (mode: string) => void;
   onAttachOriginal: (file: File) => void;
   milestones?: Milestone[];
-  onAddMilestone?: (name: string, color: string, track: string) => void;
+  onAddMilestone?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
   onUpdateMilestone?: (id: string, oldName: string, newName: string, newColor: string) => void;
   onDeleteMilestone?: (id: string) => void;
   mapSettings?: MapSettings;
@@ -544,6 +556,10 @@ export default function SettingsMenu({
   const [newSettingsTrackInput, setNewSettingsTrackInput] = useState('');
   const [newMilestoneName, setNewMilestoneName] = useState('');
   const [newMilestoneColor, setNewMilestoneColor] = useState('#3b82f6');
+  // The explicitly-picked dictionary entry for the activity being added (null = free-typed).
+  const [selectedDictEntry, setSelectedDictEntry] = useState<ActivityDictionaryEntry | null>(null);
+  const { data: activityDictionary = [] } = useActivityDictionary();
+  const proposePendingActivity = useProposePendingActivity();
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
   const [editMilestoneName, setEditMilestoneName] = useState('');
   const [editMilestoneColor, setEditMilestoneColor] = useState('');
@@ -575,6 +591,27 @@ export default function SettingsMenu({
   if (!open) return null;
 
   const currentScopeMilestones = milestones.filter(m => m.track === activeSettingsTrack).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
+
+  // Add an activity from the governed dictionary: link it if the typed name matches an
+  // entry by name OR alias (or one was picked from the dropdown); otherwise propose it as
+  // "Other (pending)" (non-blocking) and link to that. A denied propose (RLS) degrades to
+  // an unlinked activity (dictionary_id = null → the review queue) — the add is never blocked.
+  const handleAddActivityFromDictionary = async () => {
+    const trimmed = newMilestoneName.trim();
+    if (!trimmed) return;
+    const picked =
+      selectedDictEntry && selectedDictEntry.name.trim().toLowerCase() === trimmed.toLowerCase()
+        ? selectedDictEntry
+        : resolveActivityByName(activityDictionary, trimmed);
+    const result: ActivityPickResult = picked
+      ? { kind: 'entry', dictionaryId: picked.id, name: picked.name, track: picked.track, type: picked.type as ActivityType }
+      : { kind: 'pending', name: trimmed, track: null };
+    const fields = await activityPickToFields(result, vars => proposePendingActivity.mutateAsync(vars));
+    // The activity keeps the track tab the user is on; the dictionary track is only a hint.
+    onAddMilestone?.(fields.name, newMilestoneColor, activeSettingsTrack, fields.dictionary_id);
+    setNewMilestoneName('');
+    setSelectedDictEntry(null);
+  };
 
   const handleDragEnd = (event: any) => {
     const { active, over } = event;
@@ -931,12 +968,12 @@ export default function SettingsMenu({
               </div>
 
               <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder={`Add to ${activeSettingsTrack}...`}
+                <ActivityDictionaryField
                   value={newMilestoneName}
-                  onChange={e => setNewMilestoneName(e.target.value)}
-                  className="flex-1 bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                  onChange={setNewMilestoneName}
+                  selectedEntry={selectedDictEntry}
+                  onSelectEntry={setSelectedDictEntry}
+                  placeholder={`Add to ${activeSettingsTrack}...`}
                 />
                 <input
                   type="color"
@@ -946,14 +983,14 @@ export default function SettingsMenu({
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    onAddMilestone?.(newMilestoneName, newMilestoneColor, activeSettingsTrack);
-                    setNewMilestoneName('');
-                  }}
+                  onClick={handleAddActivityFromDictionary}
                   className="h-10 px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-lg flex items-center justify-center transition-colors shadow-sm"
                 >
                   <Plus size={18} />
                 </button>
+              </div>
+              <div className="mt-1.5 text-[11px] text-slate-400">
+                Pick a company-standard activity (matched by name or alias) to keep naming consistent across projects, or type a new one — it'll be proposed automatically.
               </div>
 
               <div className="mt-2 flex-col flex space-y-1">

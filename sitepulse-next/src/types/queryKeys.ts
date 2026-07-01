@@ -26,6 +26,10 @@ export const queryKeys = {
   projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
   currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
   subtypes:           ()                         => ['subtypes'] as const,
+  // Global governed activity dictionary (Scheduling Foundation Slice A, Phase 2).
+  // Cross-project (not project-scoped) — keyed globally + shared across projects,
+  // exactly like `subtypes`. Read = any member; writes (propose/admin) = privileged.
+  activityDictionary: ()                         => ['activity_dictionary'] as const,
   // Company-wide learned naming vocabulary (Trace Naming & Type Assist Phase 2):
   // a paginated read of every confirmed room the user can see (RLS-scoped to their
   // project memberships), folded into a plain-JSON frequency model. Keyed globally
