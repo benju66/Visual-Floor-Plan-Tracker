@@ -73,6 +73,9 @@ export function getToolCursor(s: ToolCursorState): string {
     case 'calibrate':
       // Drop a 2-point line on a known dimension — crosshair, like draw.
       return 'crosshair';
+    case 'measure':
+      // Drop 2..N points to read a running length — crosshair, like draw.
+      return 'crosshair';
     case 'stamp':
       return 'copy';
     case 'add_node':

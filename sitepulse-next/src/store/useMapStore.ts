@@ -15,7 +15,10 @@ import type { RoomSuggestion } from '@/utils/roomSuggestion';
 // 2-point tool: drop two snapped points across a known dimension, type its real
 // length, and the drawing's `scale_units_per_px` is set. It reuses the draw click
 // path + snapping + loupe and cleans up on tool change / Esc like the others.
-export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node' | 'capture_box' | 'capture_line' | 'calibrate';
+// `measure` (Phase 4) is its ephemeral read-only sibling: drop 2..N snapped points
+// on a calibrated drawing and read the running length back in fractional
+// feet-inches. It persists NOTHING and cleans up its draft on tool change / Esc.
+export type ToolMode = 'pan' | 'draw' | 'stamp' | 'select' | 'multi_select' | 'route' | 'add_node' | 'delete_node' | 'capture_box' | 'capture_line' | 'calibrate' | 'measure';
 export type RouteSubMode = 'move' | 'add' | 'remove';
 
 export interface MapState {
