@@ -5,11 +5,12 @@ import { uploadFloorplanService, deleteSheetStorageService } from '@/services/ap
 import { invalidatePdfBytes } from '@/utils/pdfByteCache';
 import {
   buildWorkbenchSidecarInsert,
-  computeLabelArea,
   REVIEW_STATES,
   type WorkbenchReviewState,
   type WorkbenchSidecarFields,
 } from '@/utils/workbench';
+import { computeAreaFromUnitsPerPx } from '@/utils/scale';
+import { loadImageDimensions } from '@/utils/imageDimensions';
 import { normalizeLocationName } from '@/utils/workbenchNaming';
 import { useCreateUnit } from '@/hooks/useProjectQueries';
 import { useProposePendingSubtype } from '@/hooks/useSubtypes';
@@ -226,7 +227,7 @@ export interface CreateWorkbenchLabelInput {
    * blocks the save until one is chosen and this hook refuses a null pick.
    */
   pick: TaxonomyResult;
-  /** The workbench drawing's `sheets` row — supplies base_image_url + scale_ratio for area. */
+  /** The workbench drawing's `sheets` row — supplies base_image_url + scale_units_per_px for area. */
   sheet: Sheet;
   /** Standard §7 — the location reads as one space but spans two levels (loft/mezzanine). */
   spansLevels: boolean;
@@ -256,21 +257,6 @@ export interface CreateWorkbenchLabelInput {
    * normalized against the polygon before insert. Default `[]` (a plain trace).
    */
   openingEdges?: OpeningEdge[];
-}
-
-/**
- * Read a converted-preview image's natural pixel dimensions (browser-only).
- * Resolves `null` if the image is missing or has no intrinsic size, so a label
- * still saves area-less — never throws and never blocks the trace.
- */
-function loadImageDimensions(src: string): Promise<{ width: number; height: number } | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () =>
-      resolve(img.naturalWidth && img.naturalHeight ? { width: img.naturalWidth, height: img.naturalHeight } : null);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
 }
 
 /**
@@ -341,13 +327,20 @@ export function useCreateWorkbenchLabel(sheetId: string) {
       );
 
       // Real-world area, exactly like the live create: measure the converted
-      // preview, then shoelace × scale_ratio (null when un-scaled — still saves).
+      // preview, then the CORRECT area math — pixelArea × scale_units_per_px²
+      // (Phase 3; replaces the dimensionally-wrong × scale_ratio). Null when
+      // un-scaled — the label still saves, area-less.
       let computed_area: number | null = null;
       const baseImageUrl = input.sheet.base_image_url;
       if (baseImageUrl) {
         const dims = await loadImageDimensions(baseImageUrl);
         if (dims) {
-          computed_area = computeLabelArea(input.points, dims.width, dims.height, input.sheet.scale_ratio);
+          computed_area = computeAreaFromUnitsPerPx(
+            input.points,
+            dims.width,
+            dims.height,
+            input.sheet.scale_units_per_px,
+          );
         }
       }
 

@@ -6,6 +6,7 @@ import { getTemporalStateStyle } from '@/components/ui/FieldStatusAtoms';
 import DatesInline from '@/components/ui/DatesInline';
 import { isMilestoneApplicable, type ApplicabilityIndex } from '@/utils/applicability';
 import { summarizeUnit } from '@/utils/unitProgress';
+import { formatArea } from '@/utils/scale';
 import { useUnitHistory, useProjectMembers } from '@/hooks/useProjectQueries';
 import type { Milestone, StatusLog, TemporalState, Unit } from '@/types/domain';
 
@@ -167,8 +168,10 @@ function UnitInspector({
             <Footprints size={13} /> Walk #{unit.walk_sequence}
           </span>
         )}
-        {unit.computed_area != null && (
-          <span className="tabular-nums">{Math.round(unit.computed_area).toLocaleString()} sq</span>
+        {unit.computed_area != null && Number.isFinite(unit.computed_area) && (
+          <span className="tabular-nums font-semibold text-slate-600 dark:text-slate-300">
+            {formatArea(unit.computed_area)}
+          </span>
         )}
       </div>
 

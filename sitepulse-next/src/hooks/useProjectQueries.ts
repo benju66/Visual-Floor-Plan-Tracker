@@ -581,6 +581,50 @@ export function useUpdateUnitFields(sheetId: string) {
   });
 }
 
+/**
+ * Bulk-refresh `units.computed_area` for a drawing (Scale, Measure & Production
+ * Rates — Phase 3, "Recalculate areas"). The caller (ScaleControl) has already
+ * recomputed each area from the sheet's current `scale_units_per_px`; this hook
+ * only writes them. Each write is a plain `units.computed_area` column update via
+ * the same online path as the other unit mutations — NOT `status_logs`, NOT the
+ * offline `pendingChanges` buffer (AGENTS.md §2; online-first is intentional).
+ *
+ * Sequential writes keep it simple and cache-consistent — a sheet holds at most a
+ * few dozen units. Returns the number of rows written.
+ */
+export interface RecalculateAreaUpdate {
+  unitId: string;
+  computed_area: number | null;
+}
+
+export function useRecalculateSheetAreas(sheetId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async (updates: RecalculateAreaUpdate[]): Promise<number> => {
+      for (const { unitId, computed_area } of updates) {
+        const { error } = await supabase.from('units').update({ computed_area }).eq('id', unitId);
+        if (error) throw error;
+      }
+      return updates.length;
+    },
+    onMutate: async (updates) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
+      const byId = new Map(updates.map(u => [u.unitId, u.computed_area]));
+      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => {
+        if (!old) return old;
+        return old.map(u => byId.has(u.id) ? { ...u, computed_area: byId.get(u.id) ?? null } : u);
+      });
+      return {};
+    },
+    onError: () => {},
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+    }
+  });
+}
+
 export function useDeleteUnit(sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({

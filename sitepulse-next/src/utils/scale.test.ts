@@ -126,6 +126,32 @@ describe('computeAreaFromUnitsPerPx', () => {
     expect(computeAreaFromUnitsPerPx(square, 0, 100, 1)).toBeNull();
     expect(computeAreaFromUnitsPerPx(square, 100, 0, 1)).toBeNull();
   });
+
+  it('the new area differs from the retired × scale_ratio math and is dimensionally correct (Phase 3)', () => {
+    // Reproduce a real create-path scenario at a 1/4" = 1' preset, 288-DPI render:
+    //   legacy scale_ratio  = realFeetPerPaperInch × 12  (real IN per paper IN, per ScaleControl)
+    //   canonical units_per_px = presetUnitsPerPx(realFeetPerPaperInch)  (ft per px)
+    const realFeetPerPaperInch = 4; // 1/4" = 1'
+    const legacyScaleRatio = realFeetPerPaperInch * 12; // = 48
+    const unitsPerPx = presetUnitsPerPx(realFeetPerPaperInch)!; // = 4 / 288 ft/px
+
+    // Pixel area of the unit square over a 100×100 base image = 10,000 px².
+    const pixelArea = 10000;
+
+    // OLD (dimensionally wrong): pixelArea × linear ratio.
+    const oldArea = pixelArea * legacyScaleRatio; // 480,000 — nonsense "sq ft"
+    // NEW (correct): pixelArea × units_per_px².
+    const newArea = computeAreaFromUnitsPerPx(square, 100, 100, unitsPerPx)!;
+
+    // They must NOT agree — the whole point of the fix.
+    expect(newArea).not.toBeCloseTo(oldArea, 6);
+
+    // And the new value is the true real-world area: a 100 px side at 288 px per
+    // paper inch is 100/288 paper-in → × 4 ft/paper-in ≈ 1.389 ft; squared ≈ 1.929 sq ft.
+    const sideFt = (100 / ESTIMATED_RENDER_DPI) * realFeetPerPaperInch;
+    expect(newArea).toBeCloseTo(sideFt * sideFt, 6);
+    expect(newArea).toBeCloseTo(1.929, 3);
+  });
 });
 
 describe('parseFeetInches', () => {
