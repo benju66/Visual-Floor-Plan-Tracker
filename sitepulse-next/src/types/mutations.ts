@@ -1,10 +1,18 @@
 import type { StatusLogInsert, TemporalState, PercentPoint, StatusLog } from './domain';
 
-export interface UpdateStatusVars extends Omit<StatusLogInsert, 'id' | 'created_at'> {}
+// The status_logs write payload keys by `activity_id` (from StatusLogInsert). The
+// optional `milestone` name is carried ONLY for the optimistic cache entry's display
+// (StatusLog synthesizes it on read); it is stripped before the RPC call.
+export interface UpdateStatusVars extends Omit<StatusLogInsert, 'id' | 'created_at'> {
+  milestone?: string;
+}
 
 export interface BulkUpdateStatusVars {
   unitIds: string[];
+  /** Control sentinels + the activity NAME (used for optimistic display). */
   milestone: string | '__KEEP_EXISTING__' | null;
+  /** The stable slot key. Resolved from the milestone name when it is a real activity. */
+  activity_id?: string | null;
   color: string;
   temporal_state: TemporalState | '__KEEP_EXISTING__';
   track: string;

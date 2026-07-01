@@ -147,7 +147,7 @@ export interface Database {
           scale_unit: string | null
           scale_calibration: Json | null
           active_scopes: Json | null
-          milestone_schedules: Json | null
+          activity_schedules: Json | null
           created_at: string | null
           pdf_version: string | null
         }
@@ -166,7 +166,7 @@ export interface Database {
           scale_unit?: string | null
           scale_calibration?: Json | null
           active_scopes?: Json | null
-          milestone_schedules?: Json | null
+          activity_schedules?: Json | null
           created_at?: string | null
           pdf_version?: string | null
         }
@@ -185,7 +185,7 @@ export interface Database {
           scale_unit?: string | null
           scale_calibration?: Json | null
           active_scopes?: Json | null
-          milestone_schedules?: Json | null
+          activity_schedules?: Json | null
           created_at?: string | null
           pdf_version?: string | null
         }
@@ -443,7 +443,7 @@ export interface Database {
         }
         Relationships: []
       }
-      project_milestones: {
+      activities: {
         Row: {
           id: string
           project_id: string | null
@@ -451,6 +451,7 @@ export interface Database {
           name: string
           color: string
           track: string
+          type: string
           applies_to_unit_types: Json | null
           created_at: string | null
         }
@@ -461,6 +462,7 @@ export interface Database {
           name: string
           color: string
           track?: string
+          type?: string
           applies_to_unit_types?: Json | null
           created_at?: string | null
         }
@@ -471,15 +473,16 @@ export interface Database {
           name?: string
           color?: string
           track?: string
+          type?: string
           applies_to_unit_types?: Json | null
           created_at?: string | null
         }
         Relationships: []
       }
-      milestone_applicability_overrides: {
+      activity_applicability_overrides: {
         Row: {
           id: string
-          milestone_id: string
+          activity_id: string
           unit_id: string
           is_applicable: boolean
           created_by: string | null
@@ -488,7 +491,7 @@ export interface Database {
         }
         Insert: {
           id?: string
-          milestone_id: string
+          activity_id: string
           unit_id: string
           is_applicable: boolean
           created_by?: string | null
@@ -497,7 +500,7 @@ export interface Database {
         }
         Update: {
           id?: string
-          milestone_id?: string
+          activity_id?: string
           unit_id?: string
           is_applicable?: boolean
           created_by?: string | null
@@ -506,13 +509,13 @@ export interface Database {
         }
         Relationships: [
           {
-            foreignKeyName: "milestone_applicability_overrides_milestone_id_fkey"
-            columns: ["milestone_id"]
-            referencedRelation: "project_milestones"
+            foreignKeyName: "activity_applicability_overrides_activity_id_fkey"
+            columns: ["activity_id"]
+            referencedRelation: "activities"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "milestone_applicability_overrides_unit_id_fkey"
+            foreignKeyName: "activity_applicability_overrides_unit_id_fkey"
             columns: ["unit_id"]
             referencedRelation: "units"
             referencedColumns: ["id"]
@@ -523,7 +526,7 @@ export interface Database {
         Row: {
           id: string
           unit_id: string | null
-          milestone: string
+          activity_id: string
           status_color: string
           temporal_state: string
           track: string
@@ -536,7 +539,7 @@ export interface Database {
         Insert: {
           id?: string
           unit_id?: string | null
-          milestone: string
+          activity_id: string
           status_color: string
           temporal_state?: string
           track?: string
@@ -549,7 +552,7 @@ export interface Database {
         Update: {
           id?: string
           unit_id?: string | null
-          milestone?: string
+          activity_id?: string
           status_color?: string
           temporal_state?: string
           track?: string
@@ -559,12 +562,20 @@ export interface Database {
           client_timestamp?: string | null
           created_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "status_logs_activity_id_fkey"
+            columns: ["activity_id"]
+            referencedRelation: "activities"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       status_audit_log: {
         Row: {
           id: string
           unit_id: string | null
+          activity_id: string | null
           milestone: string
           status_color: string
           temporal_state: string
@@ -579,6 +590,7 @@ export interface Database {
         Insert: {
           id?: string
           unit_id?: string | null
+          activity_id?: string | null
           milestone: string
           status_color?: string
           temporal_state?: string
@@ -593,6 +605,7 @@ export interface Database {
         Update: {
           id?: string
           unit_id?: string | null
+          activity_id?: string | null
           milestone?: string
           status_color?: string
           temporal_state?: string
@@ -604,7 +617,14 @@ export interface Database {
           user_id?: string | null
           changed_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "status_audit_log_activity_id_fkey"
+            columns: ["activity_id"]
+            referencedRelation: "activities"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       profiles: {
         Row: {

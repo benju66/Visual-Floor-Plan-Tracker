@@ -51,7 +51,7 @@ export default function CascadePanel({
   // Seed the draft from the level's saved defaults whenever it opens / changes level.
   useEffect(() => {
     if (!open || !sheet) return;
-    setDraft(((sheet.milestone_schedules as MilestoneSchedules) || {}) as MilestoneSchedules);
+    setDraft(((sheet.activity_schedules as MilestoneSchedules) || {}) as MilestoneSchedules);
     setConfirming(false);
     setOverrideExisting(false);
   }, [open, sheet]);
@@ -82,7 +82,7 @@ export default function CascadePanel({
 
   const saveDefaults = () => {
     if (!sheet) return;
-    updateSheetSchedule.mutate({ sheetId: sheet.id, milestone_schedules: draft });
+    updateSheetSchedule.mutate({ sheetId: sheet.id, activity_schedules: draft });
     setToast({ message: 'Level dates saved.', type: 'success' });
   };
 
@@ -91,8 +91,8 @@ export default function CascadePanel({
     setBusy(true);
     try {
       // Persist the level defaults that were just applied, then write the slots.
-      await updateSheetSchedule.mutateAsync({ sheetId: sheet.id, milestone_schedules: draft });
-      await bulkInsert.mutateAsync(writes as StatusLog[]);
+      await updateSheetSchedule.mutateAsync({ sheetId: sheet.id, activity_schedules: draft });
+      await bulkInsert.mutateAsync(writes as unknown as StatusLog[]);
       setToast({ message: `Applied to ${affectedUnits} location${affectedUnits === 1 ? '' : 's'}.`, type: 'success' });
       onClose();
     } catch (err) {

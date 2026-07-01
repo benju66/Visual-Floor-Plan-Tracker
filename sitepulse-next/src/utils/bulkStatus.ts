@@ -18,7 +18,7 @@ export interface BulkStatusInput {
   units: Unit[];
   /** Raw current-state logs across the working scope (one row per unit×track×milestone). */
   currentLogs: StatusLog[];
-  milestone: Pick<Milestone, 'name' | 'color' | 'track'>;
+  milestone: Pick<Milestone, 'id' | 'name' | 'color' | 'track'>;
   state: TemporalState;
   /** ISO offline-capture timestamp, stamped once per bulk action. */
   capturedAt: string;

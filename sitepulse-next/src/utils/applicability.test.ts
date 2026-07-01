@@ -21,8 +21,8 @@ const ms = (id: string, appliesTo: string[] | null = null, name = id) =>
 const un = (id: string, unitType: string | null = 'Apartment Unit') =>
   ({ id, unit_type: unitType });
 
-const ov = (milestoneId: string, unitId: string, isApplicable: boolean) =>
-  ({ milestone_id: milestoneId, unit_id: unitId, is_applicable: isApplicable });
+const ov = (activityId: string, unitId: string, isApplicable: boolean) =>
+  ({ activity_id: activityId, unit_id: unitId, is_applicable: isApplicable });
 
 describe('buildApplicabilityIndex', () => {
   it('maps rules and overrides into plain records', () => {

@@ -1067,7 +1067,7 @@ export default function SettingsMenu({
                            {expandedSchedules[sheet.id] && (
                              <div className="mt-2 space-y-2">
                                {milestones.filter(m => activeScopes.includes(m.track)).map(m => {
-                                 const schedule = ((sheet.milestone_schedules as any) || {})[m.name] || { start_date: '', end_date: '' };
+                                 const schedule = ((sheet.activity_schedules as any) || {})[m.name] || { start_date: '', end_date: '' };
                                  return (
                                    <div key={m.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-black/20 p-2 rounded border border-slate-200 dark:border-white/10 text-xs">
                                       <div className="font-medium flex items-center gap-2 mb-1 sm:mb-0 w-1/3">
@@ -1081,8 +1081,8 @@ export default function SettingsMenu({
                                             type="date"
                                             value={schedule.start_date || ''}
                                             onChange={(e) => {
-                                              const newSchedules = { ...((sheet.milestone_schedules as any) || {}), [m.name]: { ...schedule, start_date: e.target.value } };
-                                              updateSheetScheduleMutation.mutate({ sheetId: sheet.id, milestone_schedules: newSchedules });
+                                              const newSchedules = { ...((sheet.activity_schedules as any) || {}), [m.name]: { ...schedule, start_date: e.target.value } };
+                                              updateSheetScheduleMutation.mutate({ sheetId: sheet.id, activity_schedules: newSchedules });
                                             }}
                                             className="px-1.5 py-0.5 border rounded dark:bg-slate-800 dark:border-slate-600 outline-none"
                                           />
@@ -1093,8 +1093,8 @@ export default function SettingsMenu({
                                             type="date"
                                             value={schedule.end_date || ''}
                                             onChange={(e) => {
-                                              const newSchedules = { ...((sheet.milestone_schedules as any) || {}), [m.name]: { ...schedule, end_date: e.target.value } };
-                                              updateSheetScheduleMutation.mutate({ sheetId: sheet.id, milestone_schedules: newSchedules });
+                                              const newSchedules = { ...((sheet.activity_schedules as any) || {}), [m.name]: { ...schedule, end_date: e.target.value } };
+                                              updateSheetScheduleMutation.mutate({ sheetId: sheet.id, activity_schedules: newSchedules });
                                             }}
                                             className="px-1.5 py-0.5 border rounded dark:bg-slate-800 dark:border-slate-600 outline-none"
                                           />

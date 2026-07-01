@@ -66,7 +66,10 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           await supabase.from('units').insert([unit as any]);
         }
         if (logs?.length) {
-          await supabase.from('status_logs').upsert(logs as any, { onConflict: 'unit_id,track,milestone' });
+          // Strip the synthesized `milestone` name (not a status_logs column); the slot
+          // key is (unit_id, activity_id).
+          const rows = logs.map(({ milestone, ...rest }: any) => rest);
+          await supabase.from('status_logs').upsert(rows as any, { onConflict: 'unit_id,activity_id' });
         }
         break;
       }
@@ -74,26 +77,24 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
       case 'UPDATE_STATUS':
         queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
           if (!old) return old;
-          const track = action.oldLog ? action.oldLog.track : action.newLog?.track;
-          const milestone = action.oldLog ? action.oldLog.milestone : action.newLog?.milestone;
-          const filtered = old.filter(s => !(s.unit_id === action.unitId && s.track === track && s.milestone === milestone));
+          const ref = action.oldLog ?? action.newLog;
+          const activityId = ref?.activity_id;
+          const filtered = old.filter(s => !(s.unit_id === action.unitId && s.activity_id === activityId));
           if (action.oldLog) {
             return [...filtered, action.oldLog];
           } else {
-            return [...filtered, { unit_id: action.unitId, track, milestone, temporal_state: 'none', id: `temp_${Date.now()}`, created_at: new Date().toISOString() } as StatusLog];
+            return [...filtered, { unit_id: action.unitId, track: ref?.track, activity_id: activityId, milestone: ref?.milestone ?? '', temporal_state: 'none', id: `temp_${Date.now()}`, created_at: new Date().toISOString() } as StatusLog];
           }
         });
-        
+
         let insertObj: any;
         if (action.oldLog) {
-          const { id, created_at, ...rest } = action.oldLog as any;
+          const { id, created_at, milestone, ...rest } = action.oldLog as any;
           insertObj = rest;
         } else {
-          const track = action.newLog?.track;
-          const milestone = action.newLog?.milestone;
-          insertObj = { unit_id: action.unitId, track, milestone, temporal_state: 'none' };
+          insertObj = { unit_id: action.unitId, track: action.newLog?.track, activity_id: action.newLog?.activity_id, temporal_state: 'none' };
         }
-        await supabase.from('status_logs').upsert([insertObj], { onConflict: 'unit_id,track,milestone' });
+        await supabase.from('status_logs').upsert([insertObj], { onConflict: 'unit_id,activity_id' });
         break;
 
       case 'BULK_UPDATE_STATUS':
@@ -127,19 +128,13 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           const CHUNK_SIZE = 800;
           const logsToInsert: any[] = [];
           if (action.oldLogs && action.oldLogs.length > 0) {
-             logsToInsert.push(...action.oldLogs.map(({ id, created_at, ...rest }: any) => rest));
-          }
-          if (action.milestone && action.milestone !== '__KEEP_EXISTING__') {
-             const unitsWithOldLog = new Set(action.oldLogs?.map(l => l.unit_id) || []);
-             const unitsMissing = action.unitIds?.filter(id => !unitsWithOldLog.has(id)) || [];
-             unitsMissing.forEach(id => {
-                logsToInsert.push({ unit_id: id, track: action.track, milestone: action.milestone, temporal_state: 'none' });
-             });
+             // Strip the synthesized `milestone` name (not a column); rows carry activity_id.
+             logsToInsert.push(...action.oldLogs.map(({ id, created_at, milestone, ...rest }: any) => rest));
           }
 
           if (logsToInsert.length > 0) {
             for (let i = 0; i < logsToInsert.length; i += CHUNK_SIZE) {
-              await supabase.from('status_logs').upsert(logsToInsert.slice(i, i + CHUNK_SIZE) as any, { onConflict: 'unit_id,track,milestone' });
+              await supabase.from('status_logs').upsert(logsToInsert.slice(i, i + CHUNK_SIZE) as any, { onConflict: 'unit_id,activity_id' });
             }
           }
         }
@@ -187,17 +182,17 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
       case 'UPDATE_STATUS':
         queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
           if (!old) return old;
-          const track = action.newLog ? action.newLog.track : action.oldLog?.track;
-          const milestone = action.newLog ? action.newLog.milestone : action.oldLog?.milestone;
-          const filtered = old.filter(s => !(s.unit_id === action.unitId && s.track === track && s.milestone === milestone));
+          const ref = action.newLog ?? action.oldLog;
+          const activityId = ref?.activity_id;
+          const filtered = old.filter(s => !(s.unit_id === action.unitId && s.activity_id === activityId));
           if (action.newLog) {
             return [...filtered, action.newLog];
           }
           return filtered;
         });
         if (action.newLog) {
-          const { id, created_at, ...rest } = action.newLog as any;
-          await supabase.from('status_logs').upsert([rest], { onConflict: 'unit_id,track,milestone' });
+          const { id, created_at, milestone, ...rest } = action.newLog as any;
+          await supabase.from('status_logs').upsert([rest], { onConflict: 'unit_id,activity_id' });
         }
         break;
 
@@ -218,9 +213,9 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         
         if (action.newLogs && action.newLogs.length > 0) {
           const CHUNK_SIZE = 800;
-          const logsToInsert: any[] = action.newLogs.map(({ id, created_at, ...rest }: any) => rest);
+          const logsToInsert: any[] = action.newLogs.map(({ id, created_at, milestone, ...rest }: any) => rest);
           for (let i = 0; i < logsToInsert.length; i += CHUNK_SIZE) {
-            await supabase.from('status_logs').upsert(logsToInsert.slice(i, i + CHUNK_SIZE) as any, { onConflict: 'unit_id,track,milestone' });
+            await supabase.from('status_logs').upsert(logsToInsert.slice(i, i + CHUNK_SIZE) as any, { onConflict: 'unit_id,activity_id' });
           }
         }
         break;

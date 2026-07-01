@@ -176,6 +176,8 @@ export function axisTicks(windowStart: Date, windowEnd: Date, zoom: GanttZoom): 
 // ---------------------------------------------------------------------------
 
 export interface GanttBarModel {
+  /** Stable activity id — the slot key used when writing edited dates back. */
+  activity_id: string;
   milestone: string;
   track: string;
   /** Bar color — the slot's status_color if logged, else the milestone color. */
@@ -260,6 +262,7 @@ export function buildScheduleRows({
       const end = parseDay(log.planned_end_date);
       const overdue = !!end && today > end && state !== 'completed';
       bars.push({
+        activity_id: m.id,
         milestone: m.name,
         track,
         color: log.status_color || colorByName.get(m.name) || m.color,
@@ -384,7 +387,7 @@ export function cascadeLevelToLocations({
       out.push({
         unit_id: unit.id,
         track,
-        milestone: m.name,
+        activity_id: m.id,
         status_color: prior?.status_color || m.color,
         temporal_state: prior?.temporal_state || 'planned',
         planned_start_date: start ?? prior?.planned_start_date ?? null,

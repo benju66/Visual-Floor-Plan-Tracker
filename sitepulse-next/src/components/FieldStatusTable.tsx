@@ -237,13 +237,13 @@ export default function FieldStatusTable({
 
     if (args.milestoneName === CURRENT_MILESTONE) {
       // Group selected units by their own current (bottleneck) milestone, then reuse the builder.
-      const groups = new Map<string, { milestone: { name: string; color: string; track: string }; ids: string[] }>();
+      const groups = new Map<string, { milestone: { id: string; name: string; color: string; track: string }; ids: string[] }>();
       selectedUnitIds.forEach((id) => {
         const cur = (effectiveActiveStatuses as any[]).find((s) => s.unit_id === id && s.track === trackingMode);
         const mName: string | undefined = cur?.milestone;
         if (!mName) return;
         if (!groups.has(mName)) {
-          groups.set(mName, { milestone: { name: mName, color: cur.status_color || '', track: trackingMode }, ids: [] });
+          groups.set(mName, { milestone: { id: cur.activity_id, name: mName, color: cur.status_color || '', track: trackingMode }, ids: [] });
         }
         groups.get(mName)!.ids.push(id);
       });
@@ -260,7 +260,7 @@ export default function FieldStatusTable({
         unitIds: selectedUnitIds,
         units,
         currentLogs: effectiveRawStatuses,
-        milestone: { name: m.name, color: m.color || '', track: trackingMode },
+        milestone: { id: m.id, name: m.name, color: m.color || '', track: trackingMode },
         state: args.state,
         capturedAt,
         ...dateProps,

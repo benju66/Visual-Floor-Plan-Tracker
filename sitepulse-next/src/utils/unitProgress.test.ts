@@ -69,7 +69,7 @@ describe('summarizeUnit', () => {
     const u = unit('u3', 'Common');
     // Drywall marked Not Applicable for this unit
     const index = buildApplicabilityIndex(M, [
-      { milestone_id: 'm2', unit_id: 'u3', is_applicable: false },
+      { activity_id: 'm2', unit_id: 'u3', is_applicable: false },
     ]);
     const statuses = [log('u3', 'Framing', 'completed'), log('u3', 'Paint', 'completed')];
     const s = summarizeUnit(u, statuses, M, index, TRACK);
@@ -95,7 +95,7 @@ describe('summarizeSheetProgress', () => {
   it('rolls up slots and buckets across units', () => {
     const units = [unit('u1', '2 Bed'), unit('u2', 'Studio'), unit('u3', 'Common')];
     const index = buildApplicabilityIndex(M, [
-      { milestone_id: 'm2', unit_id: 'u3', is_applicable: false },
+      { activity_id: 'm2', unit_id: 'u3', is_applicable: false },
     ]);
     const statuses = [
       log('u1', 'Framing', 'completed'),
