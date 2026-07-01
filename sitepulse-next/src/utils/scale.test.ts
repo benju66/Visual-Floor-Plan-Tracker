@@ -9,6 +9,7 @@ import {
   parseFeetInches,
   formatFeetInches,
   formatArea,
+  describeScale,
 } from './scale';
 import type { PercentPoint } from '@/types/domain';
 
@@ -186,5 +187,42 @@ describe('formatArea', () => {
 
   it('returns empty for non-finite input', () => {
     expect(formatArea(NaN)).toBe('');
+  });
+});
+
+describe('describeScale', () => {
+  it('reads "Not set" when nothing is scaled', () => {
+    expect(describeScale({ unitsPerPx: null, preset: null, source: null })).toBe('Not set');
+    expect(describeScale({ unitsPerPx: undefined, preset: undefined, source: undefined })).toBe('Not set');
+    expect(describeScale({ unitsPerPx: 0, preset: '', source: null })).toBe('Not set');
+  });
+
+  it('labels a preset as approximate', () => {
+    expect(describeScale({ unitsPerPx: 0.0139, preset: `1/4" = 1'`, source: 'preset' })).toBe(
+      `Scale: 1/4" = 1' (approx)`,
+    );
+  });
+
+  it('labels a calibrated scale with 4-decimal ft/px', () => {
+    expect(describeScale({ unitsPerPx: 0.025, preset: null, source: 'calibration' })).toBe(
+      'Calibrated: 1 px = 0.0250 ft',
+    );
+  });
+
+  it('calibration provenance wins over a stale preset label', () => {
+    expect(describeScale({ unitsPerPx: 0.025, preset: `1/4" = 1'`, source: 'calibration' })).toBe(
+      'Calibrated: 1 px = 0.0250 ft',
+    );
+  });
+
+  it('treats a bare units_per_px with no provenance as calibrated', () => {
+    expect(describeScale({ unitsPerPx: 0.05, preset: null, source: null })).toBe(
+      'Calibrated: 1 px = 0.0500 ft',
+    );
+  });
+
+  it('ignores a non-positive units_per_px on the calibration path', () => {
+    // source says calibration but the number is unusable → fall through to Not set.
+    expect(describeScale({ unitsPerPx: 0, preset: null, source: 'calibration' })).toBe('Not set');
   });
 });

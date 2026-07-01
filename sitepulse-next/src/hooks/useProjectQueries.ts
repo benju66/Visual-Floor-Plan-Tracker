@@ -5,9 +5,11 @@ import { paginateAll } from '@/utils/pagination';
 import { queryKeys } from '@/types/queryKeys';
 import type {
   Project, Sheet, Unit, Milestone, StatusLog, Profile, ProjectMember,
-  TemporalState, MilestoneOverride, ProjectContact, ProjectContactInsert
+  TemporalState, MilestoneOverride, ProjectContact, ProjectContactInsert,
+  ScaleCalibration
 } from '@/types/domain';
 import { isOpeningEdgeArray } from '@/types/domain';
+import type { Database, Json } from '@/types/database.types';
 import type { 
   UpdateUnitGeometryVars, BulkUpdateStatusVars, UpdateStatusVars 
 } from '@/types/mutations';
@@ -1098,23 +1100,78 @@ export function useUpdateSheetScopes(projectId: string) {
   });
 }
 
-export function useUpdateSheetScale(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ sheetId, scale_preset, scale_ratio }: { sheetId: string, scale_preset: string, scale_ratio: number }) => {
-      const { data, error } = await supabase.from('sheets').update({ scale_preset, scale_ratio }).eq('id', sheetId).select().single();
+/**
+ * Read a single sheet by primary key. The universal way the scale tooling reads
+ * the active drawing's scale: it works on BOTH the live map (sheet lives in the
+ * project-scoped `sheets` cache) and the workbench (sheet lives in the
+ * container-scoped `workbenchSheets` cache, and there's no `projectId` route
+ * param) — a PK read needs neither. Kept in sync optimistically + on settle by
+ * {@link useUpdateSheetScale}.
+ */
+export function useSheetById(sheetId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['sheet', sheetId ?? ''] as const,
+    queryFn: async (): Promise<Sheet | null> => {
+      if (!sheetId) return null;
+      const { data, error } = await supabase.from('sheets').select('*').eq('id', sheetId).maybeSingle();
       if (error) throw error;
       return data;
     },
-    onMutate: async ({ sheetId, scale_preset, scale_ratio }) => {
+    enabled: !!sheetId,
+  });
+}
+
+/**
+ * The scale write. One mutation for the whole scale story (Scale, Measure &
+ * Production Rates — Phase 2): the legacy `scale_preset` / `scale_ratio` (kept in
+ * sync for back-compat + the SettingsMenu dropdown) PLUS the canonical
+ * `scale_units_per_px`, `scale_unit`, and `scale_calibration` provenance. The
+ * three new fields are optional so the legacy SettingsMenu call site (preset +
+ * ratio only) still type-checks; only supplied fields are written.
+ */
+export interface UpdateSheetScaleVars {
+  sheetId: string;
+  scale_preset: string;
+  scale_ratio: number;
+  scale_units_per_px?: number | null;
+  scale_unit?: string | null;
+  scale_calibration?: ScaleCalibration | null;
+}
+
+export function useUpdateSheetScale(projectId: string) {
+  const queryClient = useQueryClient();
+  // The partial written to BOTH the DB and the two caches. Only include the new
+  // fields when the caller supplied them, so the legacy path stays untouched.
+  const buildPatch = (v: UpdateSheetScaleVars): Partial<Sheet> => {
+    const p: Partial<Sheet> = { scale_preset: v.scale_preset, scale_ratio: v.scale_ratio };
+    if (v.scale_units_per_px !== undefined) p.scale_units_per_px = v.scale_units_per_px;
+    if (v.scale_unit !== undefined) p.scale_unit = v.scale_unit;
+    if (v.scale_calibration !== undefined) p.scale_calibration = v.scale_calibration as unknown as Json;
+    return p;
+  };
+  return useMutation({
+    mutationFn: async (vars: UpdateSheetScaleVars) => {
+      const patch = buildPatch(vars) as Database['public']['Tables']['sheets']['Update'];
+      const { data, error } = await supabase.from('sheets').update(patch).eq('id', vars.sheetId).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async (vars) => {
+      const patch = buildPatch(vars);
       await queryClient.cancelQueries({ queryKey: queryKeys.sheets(projectId) });
+      await queryClient.cancelQueries({ queryKey: ['sheet', vars.sheetId] });
       queryClient.setQueriesData<Sheet[]>({ queryKey: queryKeys.sheets(projectId) }, old => {
         if (!old) return old;
-        return old.map(s => s.id === sheetId ? { ...s, scale_preset, scale_ratio } as Sheet : s);
+        return old.map(s => s.id === vars.sheetId ? { ...s, ...patch } as Sheet : s);
       });
+      queryClient.setQueryData<Sheet | null>(['sheet', vars.sheetId], old =>
+        old ? ({ ...old, ...patch } as Sheet) : old);
       return {};
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sheets(projectId) })
+    onSettled: (_data, _err, vars) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets(projectId) });
+      queryClient.invalidateQueries({ queryKey: ['sheet', vars.sheetId] });
+    }
   });
 }
 

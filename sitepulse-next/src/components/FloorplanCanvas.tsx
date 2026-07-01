@@ -37,7 +37,8 @@ import RBush from 'rbush';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
-import { useUnits, useMilestones, useUpdateWalkSequence } from '@/hooks/useProjectQueries';
+import { useUnits, useMilestones, useUpdateWalkSequence, useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
+import { unitsPerPxFromCalibration, parseFeetInches } from '@/utils/scale';
 import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
@@ -197,6 +198,12 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const milestones = allMilestones.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
 
+  // Active sheet resolved by PK so scale calibration (Phase 2b) works in BOTH the
+  // live map and the workbench (no `projectId` route param there). The write is
+  // keyed off the sheet's OWN project_id via the single scale mutation.
+  const { data: activeSheet } = useSheetById(activeSheetId || null);
+  const updateSheetScale = useUpdateSheetScale((activeSheet?.project_id as string) || '');
+
   // ── Lag Mode: re-skin bottleneck statuses with schedule-variance colors ──
   // Purely visual: only the copies passed to the canvas renderers are recolored,
   // so write paths (BulkActionDock bottlenecks, quick modals) never see lag colors.
@@ -323,6 +330,20 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const [draftPoints, setDraftPoints] = useState<Point[]>([]);
   const draftPointsRef = useRef(draftPoints);
   useEffect(() => { draftPointsRef.current = draftPoints; }, [draftPoints]);
+
+  // ── Scale calibration (Phase 2b) ──────────────────────────────────────────
+  // A transient 2-point line the user drops across a known dimension. Isolated
+  // from `draftPoints` so it never leaks into the trace path (drawing-tool-
+  // excellence guard). Once both points are placed we freeze and prompt for the
+  // real length; on submit we set the sheet's `scale_units_per_px`.
+  const [calibratePoints, setCalibratePoints] = useState<Point[]>([]);
+  const calibratePointsRef = useRef(calibratePoints);
+  useEffect(() => { calibratePointsRef.current = calibratePoints; }, [calibratePoints]);
+  const [calibratePrompt, setCalibratePrompt] = useState<{ p1: Point; p2: Point } | null>(null);
+  const calibratePromptRef = useRef(calibratePrompt);
+  useEffect(() => { calibratePromptRef.current = calibratePrompt; }, [calibratePrompt]);
+  const [calibrateInput, setCalibrateInput] = useState('');
+  const [calibrateError, setCalibrateError] = useState(false);
 
   // Opening-edge capture (AI Tracing Assist — Phase 4a). The in-progress opening tags
   // of a half-drawn trace are an ephemeral DRAW buffer co-located with `draftPoints`
@@ -572,6 +593,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // in capture mode so the next click can re-place it.
             e.stopImmediatePropagation();
             setBoxOrigin(null);
+          } else if (toolMode === 'calibrate' && (calibratePointsRef.current.length > 0 || calibratePromptRef.current)) {
+            // Back out a half-placed / awaiting-length calibration line but stay in
+            // calibrate mode so the next click starts a fresh line.
+            e.stopImmediatePropagation();
+            setCalibratePoints([]);
+            setCalibratePrompt(null);
+            setCalibrateInput('');
+            setCalibrateError(false);
           } else if (isEditingPendingRef.current) {
             // Drawing Tool Excellence — Phase 1. A freshly-traced polygon is open for
             // naming. Esc must NOT fall through to the tool backout below: switching to
@@ -758,6 +787,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   useEffect(() => {
     if (toolMode !== 'draw') { setDraftPoints([]); setDraftOpeningEdges([]); }
+    // Clear any half-placed calibration line + length prompt whenever we leave the
+    // calibrate tool, so a stale point/prompt never bleeds into another mode.
+    if (toolMode !== 'calibrate') { setCalibratePoints([]); setCalibratePrompt(null); setCalibrateInput(''); setCalibrateError(false); }
     if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
       onClearSelection();
     }
@@ -1207,6 +1239,24 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         setDraftOpeningEdges(prev => [...prev.filter(o => o.edgeIndex !== edgeIndex), { edgeIndex, type: heldType }]);
       }
       setDraftPoints([...draftPoints, { pctX, pctY }]);
+    } else if (toolMode === 'calibrate') {
+      // Drop exactly two snapped points across a known dimension. Consume the fresh
+      // snap computed by onMouseMove so the committed point matches the visual ring
+      // (same trick as the draw path). After the 2nd point, freeze and prompt.
+      if (calibratePromptRef.current) return; // already awaiting a length
+      if (effectiveSnapping && lastSnapRef.current?.snapped) {
+        pctX = lastSnapRef.current.pctX;
+        pctY = lastSnapRef.current.pctY;
+      }
+      const next = [...calibratePointsRef.current, { pctX, pctY }];
+      if (next.length >= 2) {
+        setCalibratePoints([next[0], next[1]]);
+        setCalibratePrompt({ p1: next[0], p2: next[1] });
+        setCalibrateInput('');
+        setCalibrateError(false);
+      } else {
+        setCalibratePoints(next);
+      }
     } else if (toolMode === 'capture_line') {
       // Two-click grid-axis placement (AI Tracing Assist — Phase 3c follow-up): the
       // first click drops the START node, the second drops the END node and emits.
@@ -1248,6 +1298,46 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       setDraftPoints([]);
       setDraftOpeningEdges([]);
     }
+  };
+
+  const cancelCalibrate = () => {
+    setCalibratePoints([]);
+    setCalibratePrompt(null);
+    setCalibrateInput('');
+    setCalibrateError(false);
+  };
+
+  // Turn the placed 2-point line + typed real length into `scale_units_per_px`
+  // against the base image's natural pixel size (the area math's basis). All the
+  // scale math lives in scale.ts; the caller stamps `at`.
+  const submitCalibrate = () => {
+    if (!calibratePrompt || !activeSheet) return;
+    const ft = parseFeetInches(calibrateInput);
+    if (ft === null || ft <= 0) { setCalibrateError(true); return; }
+    const upp = unitsPerPxFromCalibration(
+      calibratePrompt.p1, calibratePrompt.p2, originalWidth, originalHeight, ft,
+    );
+    if (upp === null) { setCalibrateError(true); return; }
+    updateSheetScale.mutate({
+      sheetId: activeSheet.id,
+      // Calibration is not a preset — clear the preset dropdown, keep the legacy
+      // ratio untouched (the area path stops trusting it in Phase 3).
+      scale_preset: 'custom',
+      scale_ratio: activeSheet.scale_ratio ?? 1,
+      scale_units_per_px: upp,
+      scale_unit: 'ft',
+      scale_calibration: {
+        p1: calibratePrompt.p1,
+        p2: calibratePrompt.p2,
+        length: ft,
+        unit: 'ft',
+        source: 'calibration',
+        preset: null,
+        at: new Date().toISOString(),
+      },
+    });
+    cancelCalibrate();
+    onToolModeChange('pan');
   };
 
   const handlePolygonClick = (e: any, unit: Unit) => {
@@ -1722,6 +1812,69 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         handleZoom={handleZoom}
       />
 
+      {/* Calibrate prompt (Phase 2b): after the 2-point line is placed, ask for the
+          real length. Stops native pointer events so it doesn't pan/zoom the map. */}
+      {toolMode === 'calibrate' && (
+        <div
+          className="absolute left-1/2 top-4 -translate-x-1/2 z-40 pointer-events-auto"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div
+            className="rounded-2xl border shadow-xl backdrop-blur-md px-4 py-3 w-72"
+            style={{
+              background: 'var(--glass-bg, rgba(255, 255, 255, 0.95))',
+              borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
+            }}
+          >
+            {!calibratePrompt ? (
+              <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                {calibratePoints.length === 0
+                  ? 'Click the start of a known dimension…'
+                  : 'Click the end of the dimension…'}
+              </p>
+            ) : (
+              <>
+                <div className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">Set scale from this line</div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+                  Enter its real length (e.g. <span className="font-mono">12&apos;-6&quot;</span>).
+                </p>
+                <input
+                  autoFocus
+                  value={calibrateInput}
+                  onChange={(e) => { setCalibrateInput(e.target.value); setCalibrateError(false); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); submitCalibrate(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelCalibrate(); }
+                  }}
+                  placeholder={`12'-6"`}
+                  className="w-full text-sm border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-lg px-2 py-1.5 mb-1"
+                />
+                {calibrateError && (
+                  <p className="text-[11px] text-rose-500 mb-1">Couldn&apos;t read that length — try like <span className="font-mono">12&apos;-6&quot;</span>.</p>
+                )}
+                <div className="flex gap-2 mt-1">
+                  <button
+                    type="button"
+                    onClick={submitCalibrate}
+                    disabled={updateSheetScale.isPending}
+                    className="flex-1 text-sm font-semibold rounded-lg px-3 py-1.5 bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                  >
+                    Set scale
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelCalibrate}
+                    className="text-sm font-medium rounded-lg px-3 py-1.5 text-slate-500 hover:text-slate-700 hover:bg-white/60 dark:text-slate-300 dark:hover:bg-white/10 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <ZoomIndicator
         stageScale={stageScale}
         onZoomToLevel={zoomToLevel}
@@ -1953,7 +2106,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             // inline (no debounce/await) guarantees lastSnapRef is fresh when
             // handleStageClick commits the point on the very next event.
             let snap: { pctX: number; pctY: number; snapped: boolean } | null = null;
-            if (toolMode === 'draw' && effectiveSnapping && drawW > 0 && drawH > 0) {
+            if ((toolMode === 'draw' || toolMode === 'calibrate') && effectiveSnapping && drawW > 0 && drawH > 0) {
               // Interior hint: once ≥3 points are placed, the centroid of the trace so
               // far tells the snap which wall face is the room interior — so on a thick
               // wall it hugs the inside face instead of grabbing whichever is closest.
@@ -2136,6 +2289,22 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 openingEdges={openingCaptureEnabled ? draftOpeningEdges : undefined}
                 openingArmed={!!armedOpeningType}
                 activeOpeningRGB={OPENING_TYPE_RGB[armedOpeningType ?? activeOpeningType ?? 'door']}
+              />
+            )}
+
+            {/* Calibration line (Phase 2b) — reuse the draft preview: cursor ghost +
+                snap ring until the 2nd point, then the frozen 2-point line while the
+                length prompt is open. */}
+            {toolMode === 'calibrate' && (
+              <DraftPolygon
+                draftPoints={calibratePoints}
+                pointerStore={pointerStore}
+                boxOrigin={null}
+                stageScale={stageScale}
+                layout={layout}
+                enableSnapping={effectiveSnapping && !calibratePrompt}
+                isShiftDown={isShiftDown}
+                toPixels={toPixels}
               />
             )}
 

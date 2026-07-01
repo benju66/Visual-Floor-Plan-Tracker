@@ -1,5 +1,6 @@
 import React from 'react';
 import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
+import ScaleControl from '@/components/canvas/ScaleControl';
 
 export interface ViewportControlsProps {
   resetView?: () => void;
@@ -34,6 +35,8 @@ export default function ViewportControls({ resetView, handleZoom }: ViewportCont
            <ZoomIn size={16} />
          </button>
       </div>
+      <div className="w-full h-px bg-slate-200/60 dark:bg-white/10 my-0.5" />
+      <ScaleControl />
     </div>
   );
 }

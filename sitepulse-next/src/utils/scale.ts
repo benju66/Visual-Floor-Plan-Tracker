@@ -185,3 +185,31 @@ export function formatArea(sqft: number): string {
   if (!Number.isFinite(sqft)) return '';
   return `${Math.round(sqft).toLocaleString('en-US')} sq ft`;
 }
+
+/**
+ * The fields needed to describe a drawing's scale in plain words. Mirrors the
+ * `sheets` scale columns: the canonical `units_per_px`, the legacy `preset` label,
+ * and the `scale_calibration.source` provenance (when present).
+ */
+export interface ScaleDescriptor {
+  unitsPerPx: number | null | undefined;
+  preset: string | null | undefined;
+  source: 'calibration' | 'preset' | null | undefined;
+}
+
+/**
+ * Plain-English readout of a drawing's current scale, e.g.
+ *   - `Not set`
+ *   - `Scale: 1/4" = 1' (approx)`        (architectural preset — an estimate)
+ *   - `Calibrated: 1 px = 0.0250 ft`     (drawn calibration line — trusted)
+ * Calibration provenance wins; otherwise a preset label reads "(approx)". A bare
+ * `units_per_px` with no provenance still reads as calibrated (it can only have
+ * come from a measured line). Pure/deterministic — no formatting locale, no I/O.
+ */
+export function describeScale(d: ScaleDescriptor): string {
+  const upp = typeof d.unitsPerPx === 'number' && d.unitsPerPx > 0 ? d.unitsPerPx : null;
+  if (d.source === 'calibration' && upp) return `Calibrated: 1 px = ${upp.toFixed(4)} ft`;
+  if (d.preset) return `Scale: ${d.preset} (approx)`;
+  if (upp) return `Calibrated: 1 px = ${upp.toFixed(4)} ft`;
+  return 'Not set';
+}
