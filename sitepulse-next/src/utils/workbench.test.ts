@@ -2,12 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   mergeWorkbenchSidecar,
   buildWorkbenchSidecarInsert,
-  computeLabelArea,
   normalizeConfirmName,
   matchesPurgeConfirmation,
   type WorkbenchSidecarFields,
 } from './workbench';
-import type { PercentPoint, Sheet, WorkbenchSheet } from '@/types/domain';
+import type { Sheet, WorkbenchSheet } from '@/types/domain';
 
 // Minimal fixtures — mergeWorkbenchSidecar only cares about identity/shape, not
 // the full column set, so cast partial objects rather than enumerate every field.
@@ -105,44 +104,10 @@ describe('buildWorkbenchSidecarInsert', () => {
   });
 });
 
-describe('computeLabelArea', () => {
-  // A unit square in percent space over a 100×100 image is 100×100 = 10,000 px²;
-  // at scale_ratio 1 that is 10,000 real units. Keeps the math easy to verify.
-  const square: PercentPoint[] = [
-    { pctX: 0, pctY: 0 },
-    { pctX: 1, pctY: 0 },
-    { pctX: 1, pctY: 1 },
-    { pctX: 0, pctY: 1 },
-  ];
-
-  it('returns shoelace pixel area × scale for a simple polygon', () => {
-    expect(computeLabelArea(square, 100, 100, 1)).toBe(10000);
-  });
-
-  it('applies the sheet scale_ratio multiplicatively', () => {
-    expect(computeLabelArea(square, 100, 100, 2.5)).toBe(25000);
-  });
-
-  it('is orientation-independent (clockwise === counter-clockwise)', () => {
-    const cw = [...square].reverse();
-    expect(computeLabelArea(cw, 100, 100, 1)).toBe(10000);
-  });
-
-  it('returns null for fewer than 3 points', () => {
-    expect(computeLabelArea(square.slice(0, 2), 100, 100, 1)).toBeNull();
-  });
-
-  it('returns null when scale_ratio is missing (un-scaled drawing still saves)', () => {
-    expect(computeLabelArea(square, 100, 100, null)).toBeNull();
-    expect(computeLabelArea(square, 100, 100, undefined)).toBeNull();
-    expect(computeLabelArea(square, 100, 100, 0)).toBeNull();
-  });
-
-  it('returns null when image dimensions are unknown', () => {
-    expect(computeLabelArea(square, 0, 100, 1)).toBeNull();
-    expect(computeLabelArea(square, 100, 0, 1)).toBeNull();
-  });
-});
+// NOTE (Phase 3): `computeLabelArea` was RETIRED — it multiplied a pixel area by
+// the linear `scale_ratio`, which is dimensionally wrong. Area now flows through
+// the single `computeAreaFromUnitsPerPx` (pixelArea × units_per_px²) in scale.ts;
+// its coverage (incl. the old-vs-new correctness pin) lives in scale.test.ts.
 
 describe('normalizeConfirmName', () => {
   it('trims surrounding whitespace', () => {

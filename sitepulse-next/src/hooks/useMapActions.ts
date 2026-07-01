@@ -28,6 +28,8 @@ import {
   type TraceSource,
 } from '@/utils/traceCapture';
 import { isProjectTrainingEnabled } from '@/utils/trainingGate';
+import { computeAreaFromUnitsPerPx } from '@/utils/scale';
+import { loadImageDimensions } from '@/utils/imageDimensions';
 
 export function useMapActions(project: Project | null | undefined) {
   const queryClient = useQueryClient();
@@ -215,27 +217,21 @@ export function useMapActions(project: Project | null | undefined) {
          if (pendingPolygonPoints && pendingPolygonPoints.length >= 3) {
            const sheets = queryClient.getQueryData<Sheet[]>(queryKeys.sheets(project?.id as string)) || [];
            const sheet = sheets.find(s => s.id === activeSheetId);
-           if (sheet && sheet.base_image_url) {
-             const img = new Image();
-             img.src = sheet.base_image_url;
-             await new Promise((resolve) => {
-                img.onload = resolve;
-                img.onerror = resolve; // proceed even if err
-             });
-             if (img.naturalWidth && img.naturalHeight) {
-                 let area = 0;
-                 for (let i = 0; i < pendingPolygonPoints.length; i++) {
-                    const j = (i + 1) % pendingPolygonPoints.length;
-                    const xA = pendingPolygonPoints[i].pctX * img.naturalWidth;
-                    const yA = pendingPolygonPoints[i].pctY * img.naturalHeight;
-                    const xB = pendingPolygonPoints[j].pctX * img.naturalWidth;
-                    const yB = pendingPolygonPoints[j].pctY * img.naturalHeight;
-                    area += xA * yB - xB * yA;
-                 }
-                 area = Math.abs(area) / 2;
-                 if (sheet.scale_ratio) {
-                    finalComputedArea = area * sheet.scale_ratio;
-                 }
+           if (sheet) {
+             // Measure against the base image's natural size — the SAME pixel basis
+             // calibration uses (loadImageDimensions), so the scale factor cancels
+             // cleanly and the real area is correct.
+             const dims = await loadImageDimensions(sheet.base_image_url);
+             if (dims) {
+                 // CORRECT area math (Phase 3): pixelArea × scale_units_per_px²
+                 // (replaces the dimensionally-wrong × scale_ratio). Null when the
+                 // sheet is un-scaled — the location still saves, area-less.
+                 finalComputedArea = computeAreaFromUnitsPerPx(
+                    pendingPolygonPoints,
+                    dims.width,
+                    dims.height,
+                    sheet.scale_units_per_px,
+                 );
              }
            }
          }

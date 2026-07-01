@@ -1,10 +1,22 @@
 "use client";
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Ruler } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
-import { useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
-import { ARCH_SCALE_PRESETS, presetUnitsPerPx, describeScale } from '@/utils/scale';
-import { isScaleCalibration } from '@/types/domain';
+import {
+  useSheetById,
+  useUpdateSheetScale,
+  useUnits,
+  useRecalculateSheetAreas,
+  type RecalculateAreaUpdate,
+} from '@/hooks/useProjectQueries';
+import {
+  ARCH_SCALE_PRESETS,
+  presetUnitsPerPx,
+  describeScale,
+  computeAreaFromUnitsPerPx,
+} from '@/utils/scale';
+import { isScaleCalibration, isPercentPointArray } from '@/types/domain';
+import { loadImageDimensions } from '@/utils/imageDimensions';
 
 /**
  * Scale tool (Scale, Measure & Production Rates — Phase 2). A ruler button in the
@@ -24,8 +36,13 @@ export default function ScaleControl() {
   const { data: sheet } = useSheetById(activeSheetId || null);
   const projectId = (sheet?.project_id as string) || '';
   const updateScale = useUpdateSheetScale(projectId);
+  const { data: units = [] } = useUnits(activeSheetId || '');
+  const recalc = useRecalculateSheetAreas(activeSheetId || '');
 
   const [isOpen, setIsOpen] = useState(false);
+  // Recalculate flow: 'idle' → 'confirm' (show the affected count) → write.
+  const [confirmingRecalc, setConfirmingRecalc] = useState(false);
+  const [recalcResult, setRecalcResult] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // Close on outside pointer-down / wheel — same UX as ZoomIndicator. Clicks
@@ -80,6 +97,57 @@ export default function ScaleControl() {
         at: new Date().toISOString(),
       },
     });
+  };
+
+  // Reset the Recalculate flow whenever the popover closes or the sheet changes,
+  // so a stale confirm/result can't carry over to another drawing.
+  useEffect(() => {
+    setConfirmingRecalc(false);
+    setRecalcResult(null);
+  }, [isOpen, activeSheetId]);
+
+  const hasScale = typeof sheet?.scale_units_per_px === 'number' && sheet.scale_units_per_px > 0;
+
+  // Locations on this sheet whose area we can recompute — a valid closed polygon.
+  const recalcTargets = useMemo(
+    () => units.filter(u => isPercentPointArray(u.polygon_coordinates) && u.polygon_coordinates.length >= 3),
+    [units],
+  );
+
+  // Recompute every eligible unit's area from the sheet's current scale and write
+  // them in one bulk pass. Loads the base-image natural dims ONCE (the same basis
+  // the create paths use), then applies computeAreaFromUnitsPerPx per polygon.
+  const runRecalculate = async () => {
+    if (!sheet || !hasScale) return;
+    const url = sheet.base_image_url;
+    if (!url) {
+      setRecalcResult('This drawing has no base image to measure against.');
+      setConfirmingRecalc(false);
+      return;
+    }
+    const dims = await loadImageDimensions(url);
+    if (!dims || !dims.width || !dims.height) {
+      setRecalcResult("Couldn't read the drawing's dimensions. Try again.");
+      setConfirmingRecalc(false);
+      return;
+    }
+    const updates: RecalculateAreaUpdate[] = recalcTargets.map(u => ({
+      unitId: u.id,
+      computed_area: computeAreaFromUnitsPerPx(
+        u.polygon_coordinates!,
+        dims.width,
+        dims.height,
+        sheet.scale_units_per_px,
+      ),
+    }));
+    try {
+      const n = await recalc.mutateAsync(updates);
+      setRecalcResult(`Updated the square footage on ${n} location${n === 1 ? '' : 's'}.`);
+    } catch {
+      setRecalcResult("Couldn't update areas. Check your connection and try again.");
+    } finally {
+      setConfirmingRecalc(false);
+    }
   };
 
   const disabled = !sheet;
@@ -143,6 +211,60 @@ export default function ScaleControl() {
           >
             Calibrate by drawing a line
           </button>
+
+          {/* Recalculate — refresh SF on every traced location from the current scale. */}
+          <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-white/10">
+            {recalcResult ? (
+              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 px-1">
+                {recalcResult}
+              </p>
+            ) : confirmingRecalc ? (
+              <div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 mb-2 px-1">
+                  This will update the square footage on{' '}
+                  <span className="font-bold">{recalcTargets.length}</span>{' '}
+                  location{recalcTargets.length === 1 ? '' : 's'} on this drawing. Continue?
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={runRecalculate}
+                    disabled={recalc.isPending}
+                    className="flex-1 text-sm font-semibold rounded-lg px-3 py-1.5 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
+                  >
+                    {recalc.isPending ? 'Updating…' : 'Continue'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingRecalc(false)}
+                    disabled={recalc.isPending}
+                    className="flex-1 text-sm font-semibold rounded-lg px-3 py-1.5 bg-slate-500/10 text-slate-600 dark:text-slate-300 hover:bg-slate-500/20 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingRecalc(true)}
+                  disabled={!hasScale || recalcTargets.length === 0}
+                  className="w-full text-sm font-semibold rounded-lg px-3 py-1.5 text-slate-700 dark:text-slate-200 bg-slate-500/10 hover:bg-slate-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Refresh the square footage on every traced location using the current scale"
+                >
+                  Recalculate areas on this drawing
+                </button>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 px-1">
+                  {!hasScale
+                    ? 'Set a scale first to enable this.'
+                    : recalcTargets.length === 0
+                      ? 'No traced locations to update yet.'
+                      : `Refreshes SF on ${recalcTargets.length} location${recalcTargets.length === 1 ? '' : 's'}.`}
+                </p>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

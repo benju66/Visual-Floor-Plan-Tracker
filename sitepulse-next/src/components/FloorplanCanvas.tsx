@@ -39,6 +39,7 @@ import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import { useUnits, useMilestones, useUpdateWalkSequence, useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
 import { unitsPerPxFromCalibration, parseFeetInches } from '@/utils/scale';
+import { loadImageDimensions } from '@/utils/imageDimensions';
 import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
@@ -1307,15 +1308,25 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     setCalibrateError(false);
   };
 
-  // Turn the placed 2-point line + typed real length into `scale_units_per_px`
-  // against the base image's natural pixel size (the area math's basis). All the
-  // scale math lives in scale.ts; the caller stamps `at`.
-  const submitCalibrate = () => {
+  // Turn the placed 2-point line + typed real length into `scale_units_per_px`.
+  // CRITICAL: measure against the base image's NATURAL pixel size (the converted
+  // PNG at `base_image_url`) — the exact same basis the area math uses. The
+  // on-canvas `originalWidth/originalHeight` come from the client-side pdf.js
+  // render, which is a DIFFERENT scale than the PNG, so calibrating against them
+  // made every computed area wrong by that ratio squared. Percent-space points are
+  // resolution-independent, so they map onto either image identically; only the
+  // width/height basis matters, and it must match the area path. Falls back to the
+  // on-canvas dims only when there is no base image (raster sheets, where the two
+  // bases are equal anyway). Scale math lives in scale.ts; the caller stamps `at`.
+  const submitCalibrate = async () => {
     if (!calibratePrompt || !activeSheet) return;
     const ft = parseFeetInches(calibrateInput);
     if (ft === null || ft <= 0) { setCalibrateError(true); return; }
+    const dims = await loadImageDimensions(activeSheet.base_image_url);
+    const basisW = dims?.width ?? originalWidth;
+    const basisH = dims?.height ?? originalHeight;
     const upp = unitsPerPxFromCalibration(
-      calibratePrompt.p1, calibratePrompt.p2, originalWidth, originalHeight, ft,
+      calibratePrompt.p1, calibratePrompt.p2, basisW, basisH, ft,
     );
     if (upp === null) { setCalibrateError(true); return; }
     updateSheetScale.mutate({
