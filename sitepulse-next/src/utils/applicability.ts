@@ -15,7 +15,7 @@ import { getAppliesTo } from '@/types/domain';
  */
 
 type MilestoneRuleInput = Pick<Milestone, 'id' | 'applies_to_unit_types'>;
-type OverrideInput = Pick<MilestoneOverride, 'milestone_id' | 'unit_id' | 'is_applicable'>;
+type OverrideInput = Pick<MilestoneOverride, 'activity_id' | 'unit_id' | 'is_applicable'>;
 type UnitInput = Pick<Unit, 'id' | 'unit_type'>;
 
 export interface ApplicabilityIndex {
@@ -40,7 +40,7 @@ export function buildApplicabilityIndex(
   }
   const overrideMap: Record<string, boolean> = {};
   for (const o of overrides) {
-    overrideMap[`${o.milestone_id}_${o.unit_id}`] = o.is_applicable;
+    overrideMap[`${o.activity_id}_${o.unit_id}`] = o.is_applicable;
   }
   return { rules, overrides: overrideMap };
 }

@@ -38,12 +38,27 @@ export type WorkbenchDrawing = Sheet & { workbench: WorkbenchSheet | null };
 // back as an array; narrowed off `Json` to {@link OpeningEdge}[] at the query
 // boundary via {@link isOpeningEdgeArray} (AGENTS.md §6), like polygon_coordinates.
 export type Unit = Omit<Database['public']['Tables']['units']['Row'], 'polygon_coordinates' | 'opening_edges'> & { polygon_coordinates: PercentPoint[] | null; opening_edges: OpeningEdge[] };
-export type Milestone  = Database['public']['Tables']['project_milestones']['Row'];
-export type StatusLog  = Database['public']['Tables']['status_logs']['Row'];
+// An activity (formerly "milestone"): a project's unit of tracked work, carrying a
+// STABLE id. Renaming an activity never orphans its history because status_logs /
+// status_audit_log key to activity_id, not the mutable name (Scheduling Foundation
+// Slice A, Phase 1). `Milestone` is kept as a deprecated alias while the
+// milestone→activity identifier rename is completed incrementally.
+export type Activity   = Database['public']['Tables']['activities']['Row'];
+/** @deprecated milestone→activity rename in progress — use {@link Activity}. */
+export type Milestone  = Activity;
+// A current-state status row. The DB keys it by `activity_id` (the stable id); the
+// read hooks synthesize the activity's CURRENT `milestone` NAME onto each row (joined
+// from activities) so the status pipeline keeps correlating/displaying by name and
+// behavior is unchanged. Writes carry `activity_id` (see UpdateStatusVars).
+export type StatusLog  = Database['public']['Tables']['status_logs']['Row'] & { milestone: string };
 export type Profile    = Database['public']['Tables']['profiles']['Row'];
 export type ProjectMember = Database['public']['Tables']['project_members']['Row'];
 export type StatusAuditLog = Database['public']['Tables']['status_audit_log']['Row'];
-export type MilestoneOverride = Database['public']['Tables']['milestone_applicability_overrides']['Row'];
+// Per-unit activity applicability override (formerly milestone_applicability_overrides).
+// Keyed by activity_id. `MilestoneOverride` kept as a deprecated alias during the rename.
+export type ActivityOverride = Database['public']['Tables']['activity_applicability_overrides']['Row'];
+/** @deprecated use {@link ActivityOverride}. */
+export type MilestoneOverride = ActivityOverride;
 // Look-Ahead Schedule plan (1:1 with a project). `doc` is the vendored module's
 // `ProjectBlob`, stored opaquely as JSONB — keep it `Json` here and narrow it to
 // `ProjectBlob` at the query boundary with `isProjectBlob` (src/lookahead/isProjectBlob.ts),
@@ -196,7 +211,9 @@ export type CanvasLayout = { offsetX: number; offsetY: number; drawW: number; dr
 
 // Runtime-augmented StatusLog (outOfSequence is computed in-memory, not a DB column)
 export type StatusLogAugmented = StatusLog & { outOfSequence?: BottleneckSequence[] };
-export type BottleneckSequence = { milestone: string; status_color: string; temporal_state: string };
+// `activity_id` is the stable slot key used by the bulk-status write path; `milestone`
+// is the activity's name, carried for display/back-compat.
+export type BottleneckSequence = { activity_id: string; milestone: string; status_color: string; temporal_state: string };
 
 export interface PendingChange {
   unit: Unit;
@@ -205,7 +222,10 @@ export interface PendingChange {
   /** ISO timestamp — when change was made on-device (offline-capture time) */
   capturedAt: string;
   extraProps: {
-    milestoneObj?: Pick<Milestone, 'name' | 'color' | 'track'>;
+    // `id` is the activity's stable id — the offline replay path writes it as the
+    // status_logs slot key (activity_id), so a rename between capture and sync can't
+    // orphan the queued change.
+    milestoneObj?: Pick<Milestone, 'id' | 'name' | 'color' | 'track'>;
     startDate?: string | null;
     endDate?: string | null;
     loggedDate?: string | null;

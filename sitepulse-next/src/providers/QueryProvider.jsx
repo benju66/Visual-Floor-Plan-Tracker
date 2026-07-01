@@ -50,8 +50,18 @@ export default function QueryProvider({ children }) {
             return;
           }
 
-          // INSERT or UPDATE — inject/replace the log in all caches
-          const newLog = payload.new;
+          // INSERT or UPDATE — inject/replace the log in all caches.
+          // The realtime payload is a RAW status_logs row: it keys by activity_id and has
+          // NO `milestone` name. The read hooks synthesize that name (joined from
+          // activities); mirror that here so an injected row stays shape-consistent — look
+          // the activity's current name up from any loaded milestones cache. The slot key
+          // is (unit_id, activity_id).
+          const raw = payload.new;
+          const activityName = queryClient
+            .getQueriesData({ queryKey: ['milestones'] })
+            .flatMap(([, list]) => list ?? [])
+            .find(m => m.id === raw.activity_id)?.name ?? '';
+          const newLog = { ...raw, milestone: activityName };
 
           // 1. Inject into the specific sheet's cache
           const queries = queryClient.getQueriesData({ queryKey: ['statuses'] });
@@ -59,7 +69,7 @@ export default function QueryProvider({ children }) {
             if (!oldData) return;
             queryClient.setQueryData(queryKey, (old) => {
               if (!old) return old;
-              const filtered = old.filter(s => !(s.unit_id === newLog.unit_id && s.track === newLog.track && s.milestone === newLog.milestone));
+              const filtered = old.filter(s => !(s.unit_id === newLog.unit_id && s.activity_id === newLog.activity_id));
               return [...filtered, newLog];
             });
           });
@@ -67,7 +77,7 @@ export default function QueryProvider({ children }) {
           // 2. Inject into the global dashboard cache
           queryClient.setQueriesData({ queryKey: ['all_project_statuses'] }, (old) => {
             if (!old) return old;
-            const filtered = old.filter(s => !(s.unit_id === newLog.unit_id && s.track === newLog.track && s.milestone === newLog.milestone));
+            const filtered = old.filter(s => !(s.unit_id === newLog.unit_id && s.activity_id === newLog.activity_id));
             return [...filtered, newLog];
           });
         }

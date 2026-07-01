@@ -434,7 +434,7 @@ export function useMapActions(project: Project | null | undefined) {
       try {
         const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode && s.milestone === milestone.name) || activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
         if (!oldLog) return;
-        await clearStatusMutation.mutateAsync({ unitId: unit.id, track: trackingMode, milestone: oldLog.milestone });
+        await clearStatusMutation.mutateAsync({ unitId: unit.id, track: trackingMode, activityId: oldLog.activity_id, milestone: oldLog.milestone });
         if (!isUndoRedo) {
           setUndoStack(prev => {
             const next = [...prev, { actionType: 'UPDATE_STATUS' as const, unitId: unit.id, oldLog, newLog: null }];
@@ -454,10 +454,11 @@ export function useMapActions(project: Project | null | undefined) {
     const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track && s.milestone === milestoneName) || null;
     try {
       const status_color = milestone.color || (milestone as any).status_color || '';
-      const sheetSchedule = (activeSheet?.milestone_schedules as Record<string, any>)?.[milestoneName] || {};
-      
+      const sheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[milestoneName] || {};
+
       const newLogData = {
         unit_id: unit.id,
+        activity_id: milestone.id as string,
         milestone: milestoneName,
         status_color,
         temporal_state: currentTemporalState,
@@ -490,10 +491,11 @@ export function useMapActions(project: Project | null | undefined) {
         if (!hasGaps && nextIndex !== -1) {
           const nextMilestone = trackMilestones[nextIndex];
           const nextMilestoneName = nextMilestone.name;
-          const nextSheetSchedule = (activeSheet?.milestone_schedules as Record<string, any>)?.[nextMilestoneName] || {};
-          
+          const nextSheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[nextMilestoneName] || {};
+
           const nextLogData = {
             unit_id: unit.id,
+            activity_id: nextMilestone.id,
             milestone: nextMilestoneName,
             status_color: nextMilestone.color,
             temporal_state: 'planned' as TemporalState,
@@ -543,7 +545,7 @@ export function useMapActions(project: Project | null | undefined) {
       if (extraProps.milestoneObj) {
          milestoneObj = extraProps.milestoneObj;
       } else if (existingStatus) {
-         milestoneObj = { name: existingStatus.milestone, color: existingStatus.status_color, track: trackingMode };
+         milestoneObj = { id: existingStatus.activity_id, name: existingStatus.milestone, color: existingStatus.status_color, track: trackingMode };
       } else {
          milestoneObj = milestones.find(m => m.track === trackingMode) || { name: 'Not Started', color: '#64748b', track: trackingMode };
       }
@@ -559,12 +561,19 @@ export function useMapActions(project: Project | null | undefined) {
 
   const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks = [] }: any, isUndoRedo = false) => {
     const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
-    
+    const milestonesForBulk = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project?.id as string)) || [];
+    // Resolve the applied milestone name → its stable activity_id (the slot key). Null
+    // for the '__KEEP_EXISTING__' / null sentinels — the bulk hook treats those as
+    // keep-existing / no-op respectively.
+    const bulkActivityId = (milestone && milestone !== '__KEEP_EXISTING__')
+      ? (milestonesForBulk.find(m => m.name === milestone && m.track === track)?.id ?? null)
+      : null;
+
     // Save old state for undo
     const oldLogs = activeStatuses.filter(s => unitIds.includes(s.unit_id as string) && s.track === track);
 
     try {
-      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks });
+      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, activity_id: bulkActivityId, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks });
       
       const autoAdvanceEnabled = settings.auto_advance_tracks?.[track] === true;
 
@@ -594,13 +603,14 @@ export function useMapActions(project: Project | null | undefined) {
             await bulkUpdateStatusMutation.mutateAsync({
                unitIds: groupIds,
                milestone: nextMilestone.name,
+               activity_id: nextMilestone.id,
                color: nextMilestone.color,
                temporal_state: 'planned',
                track,
                planned_start_date: null,
                planned_end_date: null
             });
-            groupIds.forEach(id => advancedLogs.push({ unit_id: id, milestone: nextMilestone.name, status_color: nextMilestone.color, temporal_state: 'planned', track }));
+            groupIds.forEach(id => advancedLogs.push({ unit_id: id, activity_id: nextMilestone.id, milestone: nextMilestone.name, status_color: nextMilestone.color, temporal_state: 'planned', track }));
           }
         }
       }
@@ -617,7 +627,7 @@ export function useMapActions(project: Project | null | undefined) {
         // the rest keep the milestone/state this bulk action applied.
         const advancedUnitIds = new Set(advancedLogs.map(l => l.unit_id));
         newLogs = [
-          ...(unitIds as string[]).filter(id => !advancedUnitIds.has(id)).map(id => ({ unit_id: id, milestone, status_color: color, temporal_state, track })),
+          ...(unitIds as string[]).filter(id => !advancedUnitIds.has(id)).map(id => ({ unit_id: id, activity_id: bulkActivityId, milestone, status_color: color, temporal_state, track })),
           ...advancedLogs
         ];
       }

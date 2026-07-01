@@ -140,7 +140,7 @@ export function useMilestones(projectId: string) {
     queryKey: queryKeys.milestones(projectId),
     queryFn: async (): Promise<Milestone[]> => {
       if (!projectId) return [];
-      const { data, error } = await supabase.from('project_milestones')
+      const { data, error } = await supabase.from('activities')
         .select('*')
         .eq('project_id', projectId)
         .order('sequence_order', { ascending: true })
@@ -306,14 +306,14 @@ export function useMilestoneOverrides(projectId: string) {
     queryKey: queryKeys.milestoneOverrides(projectId),
     queryFn: async (): Promise<MilestoneOverride[]> => {
       if (!projectId) return [];
-      // Inner-join filter scopes the fetch to this project's milestones.
+      // Inner-join filter scopes the fetch to this project's activities.
       const { data, error } = await supabase
-        .from('milestone_applicability_overrides')
-        .select('*, project_milestones!inner(project_id)')
-        .eq('project_milestones.project_id', projectId);
+        .from('activity_applicability_overrides')
+        .select('*, activities!inner(project_id)')
+        .eq('activities.project_id', projectId);
       if (error) throw error;
       // Strip the embedded join object so the cache stays a flat Row array.
-      return (data || []).map(({ project_milestones, ...row }: any) => row as MilestoneOverride);
+      return (data || []).map(({ activities, ...row }: any) => row as MilestoneOverride);
     },
     enabled: !!projectId
   });
@@ -435,10 +435,10 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
     queryKey: queryKeys.statuses(sheetId, validUnitIds),
     queryFn: async (): Promise<StatusLog[]> => {
       if (!sheetId || validUnitIds.length === 0) return [];
-      // Paginate: a single dense sheet (units × milestones) can exceed PostgREST's
+      // Paginate: a single dense sheet (units × activities) can exceed PostgREST's
       // 1000-row cap, which would otherwise truncate logs and show stale statuses.
-      // The slot-unique constraint (unit_id, track, milestone) means no dedup needed.
-      return fetchAllIn<StatusLog>('status_logs', 'unit_id', validUnitIds);
+      // The slot-unique constraint (unit_id, activity_id) means no dedup needed.
+      return fetchStatusLogsForUnits(validUnitIds);
     },
     enabled: !!sheetId && validUnitIds.length > 0,
     placeholderData: keepPreviousData
@@ -458,7 +458,8 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
 async function fetchAllIn<T>(
   table: 'status_logs' | 'units',
   column: 'unit_id' | 'sheet_id',
-  values: string[]
+  values: string[],
+  select: string = '*'
 ): Promise<T[]> {
   const ID_CHUNK = 200; // keep each .in(...) URL comfortably under the ~8KB header limit
   const out: T[] = [];
@@ -467,7 +468,7 @@ async function fetchAllIn<T>(
     const rows = await paginateAll<T>(async (from, size) => {
       const { data, error } = await supabase
         .from(table)
-        .select('*')
+        .select(select)
         .in(column, slice)
         .order('id', { ascending: true })
         .range(from, from + size - 1);
@@ -477,6 +478,22 @@ async function fetchAllIn<T>(
     out.push(...rows);
   }
   return out;
+}
+
+/**
+ * status_logs keys by `activity_id` (the stable id). The status pipeline still
+ * correlates + displays by the activity's NAME, so every read joins `activities(name)`
+ * and flattens it onto a synthesized `milestone` field — keeping `StatusLog` shape-
+ * compatible with the rest of the app while the DB stays id-keyed (Scheduling
+ * Foundation Slice A, Phase 1). Renaming an activity changes only this synthesized
+ * name on the next read; the stored history is never touched.
+ */
+type StatusRowWithActivity = Omit<StatusLog, 'milestone'> & { activities: { name: string } | null };
+async function fetchStatusLogsForUnits(unitIds: string[]): Promise<StatusLog[]> {
+  const rows = await fetchAllIn<StatusRowWithActivity>(
+    'status_logs', 'unit_id', unitIds, '*, activities(name)'
+  );
+  return rows.map(({ activities, ...r }) => ({ ...r, milestone: activities?.name ?? '' } as StatusLog));
 }
 
 export function useAllProjectUnits(sheetIds: string[]) {
@@ -496,9 +513,9 @@ export function useAllProjectStatuses(unitIds: string[]) {
     queryKey: queryKeys.allProjectStatuses(validUnitIds),
     queryFn: async (): Promise<StatusLog[]> => {
       if (validUnitIds.length === 0) return [];
-      // With the slot-unique constraint (unit_id, track, milestone), the DB guarantees
+      // With the slot-unique constraint (unit_id, activity_id), the DB guarantees
       // one row per slot, so paginated chunks never overlap. No dedup needed.
-      return fetchAllIn<StatusLog>('status_logs', 'unit_id', validUnitIds);
+      return fetchStatusLogsForUnits(validUnitIds);
     },
     enabled: validUnitIds.length > 0,
     placeholderData: keepPreviousData
@@ -656,6 +673,9 @@ export function useUpdateStatus(sheetId: string) {
 
       delete safeData.created_at;
       delete safeData.id;
+      // `milestone` is the activity NAME, carried only for the optimistic cache
+      // entry's display — the RPC keys by activity_id, so strip it before the call.
+      delete safeData.milestone;
       // client_timestamp comes from PendingChange.capturedAt (offline-capture time).
       // For immediate (online) mutations, stamp here as a fallback.
       if (!safeData.client_timestamp) {
@@ -680,13 +700,13 @@ export function useUpdateStatus(sheetId: string) {
 
       queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
-        const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track && s.milestone === newLogData.milestone));
+        const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.activity_id === newLogData.activity_id));
         return [...filtered, optimisticLog];
       });
 
       queryClient.setQueriesData<StatusLog[]>({ queryKey: ['all_project_statuses'] }, old => {
         if (!old) return old;
-        const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.track === newLogData.track && s.milestone === newLogData.milestone));
+        const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.activity_id === newLogData.activity_id));
         return [...filtered, optimisticLog];
       });
 
@@ -703,27 +723,28 @@ export function useUpdateStatus(sheetId: string) {
 export function useClearStatus(sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitId, track, milestone }: { unitId: string, track: string, milestone: string }) => {
+    mutationFn: async ({ unitId, track, activityId }: { unitId: string, track: string, activityId: string, milestone?: string }) => {
       const newLog = {
           unit_id: unitId,
           track: track,
-          milestone: milestone,
+          activity_id: activityId,
           temporal_state: 'none' as TemporalState,
           client_timestamp: new Date().toISOString()
       };
       const { error } = await supabase.rpc('upsert_status_log', { log_data: newLog });
       if (error) throw error;
     },
-    onMutate: async ({ unitId, track, milestone }) => {
+    onMutate: async ({ unitId, track, activityId, milestone }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
       await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
-      
-      const optimisticLog = { 
-        unit_id: unitId, 
-        track, 
-        milestone, 
-        temporal_state: 'none' as TemporalState, 
-        id: `temp_clear_${Date.now()}`, 
+
+      const optimisticLog = {
+        unit_id: unitId,
+        track,
+        activity_id: activityId,
+        milestone: milestone ?? '',
+        temporal_state: 'none' as TemporalState,
+        id: `temp_clear_${Date.now()}`,
         created_at: new Date().toISOString(),
         status_color: 'rgba(0,0,0,0)',
         planned_start_date: null,
@@ -734,13 +755,13 @@ export function useClearStatus(sheetId: string) {
 
       queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, old => {
         if (!old) return old;
-        const filtered = old.filter(s => !(s.unit_id === unitId && s.track === track && s.milestone === milestone));
+        const filtered = old.filter(s => !(s.unit_id === unitId && s.activity_id === activityId));
         return [...filtered, optimisticLog];
       });
-      
+
       queryClient.setQueriesData<StatusLog[]>({ queryKey: ['all_project_statuses'] }, old => {
         if (!old) return old;
-        const filtered = old.filter(s => !(s.unit_id === unitId && s.track === track && s.milestone === milestone));
+        const filtered = old.filter(s => !(s.unit_id === unitId && s.activity_id === activityId));
         return [...filtered, optimisticLog];
       });
 
@@ -757,30 +778,20 @@ export function useClearStatus(sheetId: string) {
 export function useUpdateMilestone(projectId: string, sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, oldName, newName, newColor }: { id: string, oldName: string, newName: string, newColor: string }) => {
-      const { error } = await supabase.from('project_milestones').update({ name: newName, color: newColor }).eq('id', id);
+    mutationFn: async ({ id, newName, newColor }: { id: string, oldName?: string, newName: string, newColor: string }) => {
+      const { error } = await supabase.from('activities').update({ name: newName, color: newColor }).eq('id', id);
       if (error) throw error;
 
-      if (oldName !== newName || newColor) {
-        // Scope the name-match to THIS project's units — milestones are linked
-        // by name string, and other projects may have a same-named milestone.
-        const { data: logs, error: fetchErr } = await supabase
+      // Renaming an activity no longer touches status_logs — the rows key to the
+      // stable activity_id, so history is never orphaned (the whole point of Phase 1).
+      // Only the denormalized status_color needs syncing to existing rows, scoped by
+      // activity_id (project-specific, so no cross-project name collision to guard).
+      if (newColor) {
+        const { error: colorErr } = await supabase
           .from('status_logs')
-          .select('id, units!inner(sheets!inner(project_id))')
-          .eq('milestone', oldName)
-          .eq('units.sheets.project_id', projectId);
-        if (fetchErr) throw fetchErr;
-
-        if (logs && logs.length > 0) {
-          const CHUNK_SIZE = 800;
-          const updates = oldName !== newName ? { milestone: newName, status_color: newColor } : { status_color: newColor };
-
-          for (let i = 0; i < logs.length; i += CHUNK_SIZE) {
-            const chunkIds = logs.slice(i, i + CHUNK_SIZE).map(l => l.id);
-            const { error: chunkErr } = await supabase.from('status_logs').update(updates).in('id', chunkIds);
-            if (chunkErr) throw chunkErr;
-          }
-        }
+          .update({ status_color: newColor })
+          .eq('activity_id', id);
+        if (colorErr) throw colorErr;
       }
     },
     onSuccess: () => {
@@ -798,14 +809,14 @@ export function useSetMilestoneApplicability(projectId: string) {
       const { data: { session } } = await supabase.auth.getSession();
       // Idempotent slot upsert — safe for offline mutation replay.
       const { data, error } = await supabase
-        .from('milestone_applicability_overrides')
+        .from('activity_applicability_overrides')
         .upsert({
-          milestone_id: milestoneId,
+          activity_id: milestoneId,
           unit_id: unitId,
           is_applicable: isApplicable,
           created_by: session?.user?.id || null,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'milestone_id,unit_id' })
+        }, { onConflict: 'activity_id,unit_id' })
         .select()
         .single();
       if (error) throw error;
@@ -815,10 +826,10 @@ export function useSetMilestoneApplicability(projectId: string) {
       await queryClient.cancelQueries({ queryKey: queryKeys.milestoneOverrides(projectId) });
       queryClient.setQueriesData<MilestoneOverride[]>({ queryKey: queryKeys.milestoneOverrides(projectId) }, old => {
         if (!old) return old;
-        const filtered = old.filter(o => !(o.milestone_id === milestoneId && o.unit_id === unitId));
+        const filtered = old.filter(o => !(o.activity_id === milestoneId && o.unit_id === unitId));
         const optimistic = {
           id: `temp_${Date.now()}`,
-          milestone_id: milestoneId,
+          activity_id: milestoneId,
           unit_id: unitId,
           is_applicable: isApplicable,
           created_by: null,
@@ -841,7 +852,7 @@ export function useBulkSetApplicability(projectId: string) {
       const { data: { session } } = await supabase.auth.getSession();
       const now = new Date().toISOString();
       const rows = unitIds.map(unitId => ({
-        milestone_id: milestoneId,
+        activity_id: milestoneId,
         unit_id: unitId,
         is_applicable: isApplicable,
         created_by: session?.user?.id || null,
@@ -850,8 +861,8 @@ export function useBulkSetApplicability(projectId: string) {
       const CHUNK_SIZE = 800;
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
         const { error } = await supabase
-          .from('milestone_applicability_overrides')
-          .upsert(rows.slice(i, i + CHUNK_SIZE), { onConflict: 'milestone_id,unit_id' });
+          .from('activity_applicability_overrides')
+          .upsert(rows.slice(i, i + CHUNK_SIZE), { onConflict: 'activity_id,unit_id' });
         if (error) throw error;
       }
     },
@@ -860,11 +871,11 @@ export function useBulkSetApplicability(projectId: string) {
       queryClient.setQueriesData<MilestoneOverride[]>({ queryKey: queryKeys.milestoneOverrides(projectId) }, old => {
         if (!old) return old;
         const unitSet = new Set(unitIds);
-        const filtered = old.filter(o => !(o.milestone_id === milestoneId && unitSet.has(o.unit_id)));
+        const filtered = old.filter(o => !(o.activity_id === milestoneId && unitSet.has(o.unit_id)));
         const now = new Date().toISOString();
         const optimistic = unitIds.map((unitId, idx) => ({
           id: `temp_${Date.now()}_${idx}`,
-          milestone_id: milestoneId,
+          activity_id: milestoneId,
           unit_id: unitId,
           is_applicable: isApplicable,
           created_by: null,
@@ -885,7 +896,7 @@ export function useUpdateMilestoneRules(projectId: string) {
   return useMutation({
     mutationFn: async ({ id, applies_to_unit_types }: { id: string, applies_to_unit_types: string[] | null }) => {
       const { data, error } = await supabase
-        .from('project_milestones')
+        .from('activities')
         .update({ applies_to_unit_types })
         .eq('id', id)
         .select()
@@ -909,13 +920,18 @@ export function useUpdateMilestoneRules(projectId: string) {
 export function useBulkUpdateStatus(sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks }: BulkUpdateStatusVars) => {
+    mutationFn: async ({ unitIds, milestone, activity_id, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks }: BulkUpdateStatusVars) => {
       const CHUNK_SIZE = 800;
-      
+
+      // '__KEEP_EXISTING__' updates the temporal_state of each unit's existing slot; a
+      // real bulk-apply carries the resolved activity_id (the stable slot key). A null
+      // milestone/activity_id with no keep sentinel is a no-op (matches prior behavior).
+      const keepExisting = milestone === '__KEEP_EXISTING__';
+
       for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
         const chunkIds = unitIds.slice(i, i + CHUNK_SIZE);
-        
-        if (milestone === '__KEEP_EXISTING__') {
+
+        if (keepExisting) {
           if (temporal_state !== '__KEEP_EXISTING__') {
             const newLogs: any[] = [];
 
@@ -925,7 +941,7 @@ export function useBulkUpdateStatus(sheetId: string) {
                 if (b) {
                   newLogs.push({
                      unit_id: id,
-                     milestone: b.milestone,
+                     activity_id: b.activity_id,
                      status_color: b.status_color || '',
                      temporal_state,
                      track,
@@ -940,23 +956,23 @@ export function useBulkUpdateStatus(sheetId: string) {
                 .select('*')
                 .in('unit_id', chunkIds)
                 .eq('track', track);
-              
+
               if (logError) throw logError;
-              
+
               const latestStatusMap: Record<string, StatusLog> = {};
               latestLogs.forEach(log => {
-                const key = `${log.unit_id}_${log.track}_${log.milestone}`;
+                const key = `${log.unit_id}_${log.activity_id}`;
                 if (!latestStatusMap[key] || new Date(log.created_at || 0) >= new Date(latestStatusMap[key].created_at || 0)) {
-                  latestStatusMap[key] = log;
+                  latestStatusMap[key] = log as unknown as StatusLog;
                 }
               });
-              
+
               for (const id of chunkIds) {
                 const existingArray = Object.values(latestStatusMap).filter(s => s.unit_id === id);
                 for (const existing of existingArray) {
                     newLogs.push({
                        unit_id: id,
-                       milestone: existing.milestone,
+                       activity_id: existing.activity_id,
                        status_color: existing.status_color,
                        temporal_state,
                        track,
@@ -979,18 +995,18 @@ export function useBulkUpdateStatus(sheetId: string) {
                 copy.client_timestamp = clientTimestamp;
                 return copy;
               });
-              const { error: upsertError } = await supabase.from('status_logs').upsert(safeNewLogs, { onConflict: 'unit_id,track,milestone' });
+              const { error: upsertError } = await supabase.from('status_logs').upsert(safeNewLogs, { onConflict: 'unit_id,activity_id' });
               if (upsertError) throw upsertError;
             }
           }
         } else {
-          if (milestone !== null && temporal_state !== '__KEEP_EXISTING__') {
+          if (activity_id && temporal_state !== '__KEEP_EXISTING__') {
             const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
             const clientTimestamp = new Date().toISOString();
             const newLogs = chunkIds.map(id => {
               const baseLog = {
                 unit_id: id,
-                milestone,
+                activity_id: activity_id as string,
                 status_color: color,
                 temporal_state,
                 track,
@@ -1003,14 +1019,14 @@ export function useBulkUpdateStatus(sheetId: string) {
               if (baseLog.logged_date === null) baseLog.logged_date = today;
               return baseLog;
             });
-            
-            const { error: upsertError } = await supabase.from('status_logs').upsert(newLogs as any, { onConflict: 'unit_id,track,milestone' });
+
+            const { error: upsertError } = await supabase.from('status_logs').upsert(newLogs as any, { onConflict: 'unit_id,activity_id' });
             if (upsertError) throw upsertError;
           }
         }
       }
     },
-    onMutate: async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
+    onMutate: async ({ unitIds, milestone, activity_id, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
       await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
       
@@ -1033,17 +1049,18 @@ export function useBulkUpdateStatus(sheetId: string) {
           });
         }
         
-        const filtered = old.filter(s => !(unitIds.includes(s.unit_id as string) && s.track === track && s.milestone === milestone));
-        
-        if (milestone === null || temporal_state === '__KEEP_EXISTING__') {
+        const filtered = old.filter(s => !(unitIds.includes(s.unit_id as string) && s.activity_id === activity_id));
+
+        if (milestone === null || activity_id == null || temporal_state === '__KEEP_EXISTING__') {
           return filtered;
         }
-        
+
         const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
         const now = new Date().toISOString();
         const optimisticLogs = unitIds.map(id => ({
           id: `temp_${id}_${Date.now()}`,
           unit_id: id,
+          activity_id,
           milestone,
           status_color: color,
           temporal_state: temporal_state as TemporalState,
@@ -1083,6 +1100,8 @@ export function useBulkInsertStatusLogs(sheetId: string) {
         }
         delete copy.created_at;
         delete copy.id;
+        // `milestone` is the synthesized display name, not a status_logs column.
+        delete copy.milestone;
         copy.client_timestamp = clientTimestamp;
         return copy;
       });
@@ -1090,19 +1109,19 @@ export function useBulkInsertStatusLogs(sheetId: string) {
       const CHUNK_SIZE = 800;
       for (let i = 0; i < safeLogs.length; i += CHUNK_SIZE) {
         const chunk = safeLogs.slice(i, i + CHUNK_SIZE);
-        const { error } = await supabase.from('status_logs').upsert(chunk, { onConflict: 'unit_id,track,milestone' });
+        const { error } = await supabase.from('status_logs').upsert(chunk, { onConflict: 'unit_id,activity_id' });
         if (error) throw error;
       }
     },
     onMutate: async (logsArray) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
       await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
-      
+
       const updateCache = (old: StatusLog[] | undefined) => {
         if (!old) return old;
-        
-        const keysToRemove = new Set(logsArray.map(l => `${l.unit_id}_${l.track}_${l.milestone}`));
-        const filtered = old.filter(s => !keysToRemove.has(`${s.unit_id}_${s.track}_${s.milestone}`));
+
+        const keysToRemove = new Set(logsArray.map(l => `${l.unit_id}_${l.activity_id}`));
+        const filtered = old.filter(s => !keysToRemove.has(`${s.unit_id}_${s.activity_id}`));
         
         const optimisticLogs = logsArray.map((l, idx) => ({
           ...l,
@@ -1222,16 +1241,16 @@ export function useUpdateSheetScale(projectId: string) {
 export function useUpdateSheetSchedule(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ sheetId, milestone_schedules }: { sheetId: string, milestone_schedules: any }) => {
-      const { data, error } = await supabase.from('sheets').update({ milestone_schedules }).eq('id', sheetId).select().single();
+    mutationFn: async ({ sheetId, activity_schedules }: { sheetId: string, activity_schedules: any }) => {
+      const { data, error } = await supabase.from('sheets').update({ activity_schedules }).eq('id', sheetId).select().single();
       if (error) throw error;
       return data;
     },
-    onMutate: async ({ sheetId, milestone_schedules }) => {
+    onMutate: async ({ sheetId, activity_schedules }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.sheets(projectId) });
       queryClient.setQueriesData<Sheet[]>({ queryKey: queryKeys.sheets(projectId) }, old => {
         if (!old) return old;
-        return old.map(s => s.id === sheetId ? { ...s, milestone_schedules } as Sheet : s);
+        return old.map(s => s.id === sheetId ? { ...s, activity_schedules } as Sheet : s);
       });
       return {};
     },
@@ -1245,7 +1264,7 @@ export function useReorderMilestones(projectId: string) {
     mutationFn: async (updatedMilestones: Milestone[]) => {
       const CHUNK_SIZE = 800;
       for (const m of updatedMilestones) {
-        const { error } = await supabase.from('project_milestones')
+        const { error } = await supabase.from('activities')
           .update({ sequence_order: m.sequence_order })
           .eq('id', m.id);
         if (error) throw error;

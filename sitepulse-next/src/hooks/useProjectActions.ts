@@ -44,7 +44,7 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       const trackMs = milestones.filter(m => m.track === track);
       const maxOrder = trackMs.reduce((max, m) => Math.max(max, m.sequence_order || 0), -1);
       
-      const { data, error } = await supabase.from('project_milestones').insert([{ project_id: project.id, name: rawName, color, track, sequence_order: maxOrder + 1 }]).select();
+      const { data, error } = await supabase.from('activities').insert([{ project_id: project.id, name: rawName, color, track, sequence_order: maxOrder + 1 }]).select();
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: queryKeys.milestones(project.id) });
     } catch (err: any) {
@@ -62,30 +62,12 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
 
   const handleDeleteMilestone = async (id: string) => {
     try {
-      const { data: milestoneData, error: fetchErr } = await supabase.from('project_milestones').select('name').eq('id', id).single();
-      if (fetchErr) throw fetchErr;
-
-      if (milestoneData?.name) {
-        // Scope the name-match to THIS project's units — milestones are linked
-        // by name string, and other projects may have a same-named milestone.
-        const { data: logs, error: fetchErr } = await supabase
-          .from('status_logs')
-          .select('id, units!inner(sheets!inner(project_id))')
-          .eq('milestone', milestoneData.name)
-          .eq('units.sheets.project_id', project?.id || projectId);
-        if (fetchErr) throw fetchErr;
-
-        const logIds = (logs || []).map(l => l.id);
-        const CHUNK_SIZE = 800;
-        for (let i = 0; i < logIds.length; i += CHUNK_SIZE) {
-          const { error: logErr } = await supabase.from('status_logs').delete().in('id', logIds.slice(i, i + CHUNK_SIZE));
-          if (logErr) throw logErr;
-        }
-      }
-
-      const { error } = await supabase.from('project_milestones').delete().eq('id', id);
+      // Deleting the activity cascades to its current-state status_logs rows via the
+      // status_logs.activity_id FK (ON DELETE CASCADE) — no manual name-matched cleanup
+      // needed anymore. History in status_audit_log is preserved (ON DELETE SET NULL).
+      const { error } = await supabase.from('activities').delete().eq('id', id);
       if (error) throw error;
-      
+
       queryClient.invalidateQueries({ queryKey: queryKeys.milestones(project?.id || projectId) });
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
     } catch (err: any) {

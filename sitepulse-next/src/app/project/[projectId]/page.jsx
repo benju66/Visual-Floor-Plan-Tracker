@@ -517,7 +517,7 @@ function App() {
               onChooseStatus={(unit, onSelect) => setMilestoneMenu({ mode: 'unit', unit, onSelect })}
               onApplyPendingChanges={async (changesArray) => {
                  for (const c of changesArray) {
-                    await commitUnitMilestone(c.unit, c.extraProps?.milestoneObj || { name: c.log?.milestone, color: c.log?.status_color, track: trackingMode }, c.state, false, { ...c.extraProps, client_timestamp: c.capturedAt });
+                    await commitUnitMilestone(c.unit, c.extraProps?.milestoneObj || { id: c.log?.activity_id, name: c.log?.milestone, color: c.log?.status_color, track: trackingMode }, c.state, false, { ...c.extraProps, client_timestamp: c.capturedAt });
                  }
               }}
               sheets={sheets}
@@ -714,7 +714,7 @@ function App() {
         onCommit={(unitId, type, val, extraProps = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
-             extraProps.milestoneObj = { name: bottleneck.milestone, color: bottleneck.status_color, track: trackingMode };
+             extraProps.milestoneObj = { id: bottleneck.activity_id, name: bottleneck.milestone, color: bottleneck.status_color, track: trackingMode };
           }
           handleQuickUpdate(unitId, type, val, extraProps);
         }}

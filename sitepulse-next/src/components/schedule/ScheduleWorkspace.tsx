@@ -111,7 +111,7 @@ export default function ScheduleWorkspace({
   const dateWindow = useMemo(() => {
     const ds: (string | null)[] = [];
     for (const r of rows) for (const b of r.bars) ds.push(b.plannedStart, b.plannedEnd);
-    const sched = (activeSheet?.milestone_schedules as Record<string, { start_date?: string | null; end_date?: string | null }> | null) || {};
+    const sched = (activeSheet?.activity_schedules as Record<string, { start_date?: string | null; end_date?: string | null }> | null) || {};
     for (const k in sched) ds.push(sched[k]?.start_date ?? null, sched[k]?.end_date ?? null);
     return windowBounds(ds, today);
   }, [rows, activeSheet, today]);
@@ -130,6 +130,7 @@ export default function ScheduleWorkspace({
     updateStatusMutation.mutate({
       unit_id: unitId,
       track: bar.track,
+      activity_id: bar.activity_id,
       milestone: bar.milestone,
       status_color: bar.color,
       temporal_state: bar.temporalState,

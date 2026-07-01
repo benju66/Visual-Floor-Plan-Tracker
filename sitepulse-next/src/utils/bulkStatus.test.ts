@@ -10,7 +10,7 @@ function log(p: Partial<StatusLog>): StatusLog {
 }
 
 const UNITS = [unit('1'), unit('2'), unit('3')];
-const CARPET = { name: 'Carpet', color: '#10b981', track: 'Production' };
+const CARPET = { id: 'act-carpet', name: 'Carpet', color: '#10b981', track: 'Production' };
 const CAP = '2026-06-15T12:00:00.000Z';
 
 describe('buildBulkStatusChanges', () => {

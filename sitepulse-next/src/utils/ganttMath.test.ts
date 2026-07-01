@@ -38,6 +38,7 @@ const mkMs = (name: string, sequence_order: number, color = '#111'): Milestone =
   name,
   color,
   track: 'Construction',
+  type: 'task',
   applies_to_unit_types: null,
   created_at: null,
 });
@@ -176,7 +177,7 @@ describe('clampEndAfterStart', () => {
 
 describe('checkDependencies', () => {
   const bar = (milestone: string, sequenceOrder: number, plannedStart: string | null, plannedEnd: string | null) => ({
-    milestone, track: 'Construction', color: '#000', temporalState: 'planned',
+    activity_id: `m_${milestone}`, milestone, track: 'Construction', color: '#000', temporalState: 'planned',
     plannedStart, plannedEnd, loggedDate: null, overdue: false, sequenceOrder,
   });
   it('flags a later milestone that starts before an earlier one ends', () => {
@@ -210,12 +211,12 @@ describe('cascadeLevelToLocations', () => {
     // Drywall: u1, u2 (new) + u3 (undated, so eligible) -> 3.
     expect(writes).toHaveLength(4);
 
-    const framing = writes.filter(w => w.milestone === 'Framing');
+    const framing = writes.filter(w => w.activity_id === 'm_Framing');
     expect(framing.map(w => w.unit_id)).toEqual(['u2']);
     expect(framing[0].planned_start_date).toBe('2026-07-01');
     expect(framing[0].temporal_state).toBe('planned'); // fresh slot
 
-    const u3Drywall = writes.find(w => w.milestone === 'Drywall' && w.unit_id === 'u3');
+    const u3Drywall = writes.find(w => w.activity_id === 'm_Drywall' && w.unit_id === 'u3');
     expect(u3Drywall?.temporal_state).toBe('ongoing'); // progress preserved
     expect(u3Drywall?.logged_date).toBe('2026-06-05');
     expect(u3Drywall?.planned_start_date).toBe('2026-07-11'); // level dates applied
@@ -226,7 +227,7 @@ describe('cascadeLevelToLocations', () => {
     const writes = cascadeLevelToLocations({ levelSchedule, units, milestones, track: 'Construction', existing, applicabilityIndex: index, overrideExisting: true });
     // Framing now includes u1 + u2 (u3 still N/A); Drywall u1+u2+u3 -> 5.
     expect(writes).toHaveLength(5);
-    const u1Framing = writes.find(w => w.milestone === 'Framing' && w.unit_id === 'u1');
+    const u1Framing = writes.find(w => w.activity_id === 'm_Framing' && w.unit_id === 'u1');
     expect(u1Framing?.planned_start_date).toBe('2026-07-01'); // overwritten
     expect(u1Framing?.temporal_state).toBe('planned'); // prior state preserved
   });
