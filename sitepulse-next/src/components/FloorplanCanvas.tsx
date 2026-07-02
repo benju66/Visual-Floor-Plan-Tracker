@@ -30,7 +30,8 @@ import { distToSegment, getCentroid, getSnappedCoordinate, isFinitePolygon, mixA
 import { isSelfIntersecting } from '@/utils/polygonValidity';
 import { pushSnapshot, undo as undoEditHistory, redo as redoEditHistory, seedEditHistory, emptyEditHistory, type EditHistory } from '@/utils/editHistory';
 import { tagVectorsWithGrid } from '@/utils/gridAwareSnap';
-import { computeUnitVariance, varianceFill } from '@/utils/progressAnalytics';
+import { computeUnitVariance, varianceFill, orderedTrackActivities } from '@/utils/progressAnalytics';
+import { unitMakeReady, makeReadyFill, slotKey } from '@/utils/activityReadiness';
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
@@ -39,6 +40,7 @@ import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import { useUnits, useActivities, useUpdateWalkSequence, useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
+import { useActivityDependencies } from '@/hooks/useActivityDependencies';
 import { unitsPerPxFromCalibration, parseFeetInches } from '@/utils/scale';
 import { FRACTION_LABELS, type FractionDenominator } from '@/utils/measure';
 import { loadImageDimensions } from '@/utils/imageDimensions';
@@ -46,7 +48,7 @@ import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point, Gridline, OpeningEdge, OpeningType } from '@/types/domain';
-import { applicableActivities } from '@/utils/applicability';
+import { applicableActivities, isActivityApplicable } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
@@ -199,6 +201,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const { data: allActivities = [] } = useActivities(projectId);
   const activities = allActivities.filter(m => m.track === trackingMode);
+  // FS dependency edges (Scheduling Analytics Phase 4) — read-only make-ready coloring.
+  const { data: dependencies = [] } = useActivityDependencies(projectId);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
 
   // Active sheet resolved by PK so scale calibration (Phase 2b) works in BOTH the
@@ -211,11 +215,44 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // Purely visual: only the copies passed to the canvas renderers are recolored,
   // so write paths (BulkActionDock bottlenecks, quick modals) never see lag colors.
   const lagMode = !!mapSettings?.colorByVariance;
+  // Make-Ready Mode (Scheduling Analytics Phase 4): recolor by dependency readiness
+  // instead of activity color. Mutually exclusive with Lag Mode (the toolbar clears
+  // the other when one turns on; guard here too so a stale-both state prefers Lag).
+  const makeReadyMode = !lagMode && !!mapSettings?.colorByMakeReady;
   // Stable for the component's lifetime — matches how the dashboard modules and
   // history modal source "today", and keeps the memo dep array honest.
   const today = useMemo(() => new Date(), []);
   const displayStatuses = useMemo(() => {
-    if (!lagMode) return activeStatuses;
+    if (!lagMode && !makeReadyMode) return activeStatuses;
+    const unitById = new Map(units.map(u => [u.id, u]));
+
+    if (makeReadyMode) {
+      // Completed slots + applicable slots for the active track (N/A slots respected —
+      // AGENTS.md §3). Both are plain slot-key sets keyed `${unitId}_${activityId}`.
+      const orderedActs = orderedTrackActivities(allActivities, trackingMode);
+      const completed = new Set<string>();
+      for (const log of rawStatuses) {
+        if (log.track === trackingMode && log.unit_id && log.activity_id && log.temporal_state === 'completed') {
+          completed.add(slotKey(log.unit_id, log.activity_id));
+        }
+      }
+      const hasIndex = !!applicabilityIndex;
+      const applicable = new Set<string>();
+      if (hasIndex) {
+        for (const u of units) for (const a of orderedActs) {
+          if (isActivityApplicable(a, u, applicabilityIndex)) applicable.add(slotKey(u.id, a.id));
+        }
+      }
+      return activeStatuses.map(s => {
+        const unit = unitById.get(s.unit_id as string);
+        if (!unit) return s;
+        const appActs = hasIndex ? applicableActivities(orderedActs, unit, applicabilityIndex) : orderedActs;
+        const info = unitMakeReady(unit.id, appActs, dependencies, completed, hasIndex ? applicable : undefined);
+        return { ...s, status_color: makeReadyFill(info) };
+      });
+    }
+
+    // Lag Mode: schedule-variance recolor.
     const logsByUnit = new Map<string, StatusLog[]>();
     for (const log of rawStatuses) {
       if (log.track !== trackingMode || !log.unit_id) continue;
@@ -223,7 +260,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       if (arr) arr.push(log);
       else logsByUnit.set(log.unit_id, [log]);
     }
-    const unitById = new Map(units.map(u => [u.id, u]));
     return activeStatuses.map(s => {
       // Variance skips activities that are N/A for this unit, matching the bottleneck.
       const unit = unitById.get(s.unit_id as string);
@@ -236,7 +272,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // `activities` is derived from allActivities+trackingMode (both in deps); listing
   // the derived array would change identity every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lagMode, activeStatuses, rawStatuses, allActivities, trackingMode, today, units, applicabilityIndex]);
+  }, [lagMode, makeReadyMode, activeStatuses, rawStatuses, allActivities, trackingMode, today, units, applicabilityIndex, dependencies]);
   // Synchronous main-thread snapping engine. The hook returns raw JSON vectors;
   // we instantiate the RBush spatial index here in a deferred effect (never in the
   // Query cache — see AGENTS.md §5). getSnappedCoordinate() is then called inline,
@@ -2374,7 +2410,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   unit={unit}
                   isRouteDropTarget={routeDropTarget === unit.id || (toolMode === 'route' && routeSubMode === 'add' && hoveredUnit === unit.id && !pendingRoute.includes(unit.id))}
                   activeStatuses={displayStatuses}
-                  lagMode={lagMode}
+                  lagMode={lagMode || makeReadyMode}
                   legendFilter={legendFilter}
                   isSelected={selectedUnitIds?.includes(unit.id)}
                   isHovered={hoveredUnit === unit.id}
@@ -2583,6 +2619,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               activities={activities}
               activeStatuses={activeStatuses}
               lagMode={lagMode}
+              makeReadyMode={makeReadyMode}
               isSelected={isLegendSelected}
               onSelect={() => setIsLegendSelected(true)}
               onUpdate={(payload: any) => {

@@ -34,6 +34,9 @@ export interface MapSettings {
   sidebarWidth?: number;
   /** Lag Mode: color unit polygons by schedule variance instead of activity color. */
   colorByVariance?: boolean;
+  /** Make-Ready Mode: color unit polygons by dependency readiness (ready / blocked /
+   *  complete) instead of activity color. Mutually exclusive with Lag Mode. */
+  colorByMakeReady?: boolean;
   /** Magnifier loupe on/off. Session-only — deliberately NOT restored across
    *  reloads (see persist `merge` below): a persisted-on loupe silently suspends
    *  snapping every session, which reads as "the snap tool is broken". */
@@ -93,7 +96,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, showMagnifier: false, magnifierZoom: 3, showMiniMap: false, miniMapScale: 1, scheduleActivitiesWidth: 360, schedulePlanWidth: 380, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, colorByMakeReady: false, showMagnifier: false, magnifierZoom: 3, showMiniMap: false, miniMapScale: 1, scheduleActivitiesWidth: 360, schedulePlanWidth: 380, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),

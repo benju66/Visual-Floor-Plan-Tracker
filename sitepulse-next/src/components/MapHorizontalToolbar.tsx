@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Search, Map } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Search, Map, Workflow } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
 
@@ -226,7 +226,7 @@ export default function MapHorizontalToolbar({
 
       <button
         type="button"
-        onClick={() => onUpdateMapSettings?.({ ...mapSettings, colorByVariance: !mapSettings?.colorByVariance })}
+        onClick={() => onUpdateMapSettings?.({ ...mapSettings, colorByVariance: !mapSettings?.colorByVariance, colorByMakeReady: false })}
         className={`p-2 rounded-full flex items-center justify-center transition-all ${
           mapSettings?.colorByVariance
             ? 'bg-amber-500 text-white shadow-sm scale-110'
@@ -235,6 +235,19 @@ export default function MapHorizontalToolbar({
         title={mapSettings?.colorByVariance ? 'Lag Mode on — coloring by schedule variance' : 'Lag Mode — color by schedule variance'}
       >
         <Gauge size={18} />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onUpdateMapSettings?.({ ...mapSettings, colorByMakeReady: !mapSettings?.colorByMakeReady, colorByVariance: false })}
+        className={`p-2 rounded-full flex items-center justify-center transition-all ${
+          mapSettings?.colorByMakeReady
+            ? 'bg-green-500 text-white shadow-sm scale-110'
+            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+        }`}
+        title={mapSettings?.colorByMakeReady ? 'Make-Ready on — coloring by what’s ready vs. blocked' : 'Make-Ready — color by what’s ready to work vs. blocked'}
+      >
+        <Workflow size={18} />
       </button>
 
       <button

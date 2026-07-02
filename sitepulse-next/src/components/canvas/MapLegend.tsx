@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useEffect } from 'react';
 import { Group, Rect, Text, Transformer, Circle, Path } from 'react-konva';
 import { ICON_PATHS } from '@/utils/constants';
 import { VARIANCE_LEGEND } from '@/utils/progressAnalytics';
+import { MAKE_READY_LEGEND } from '@/utils/activityReadiness';
 import type { Unit, StatusLog, Activity, TemporalState, CanvasLayout } from '@/types/domain';
 
 export interface MapLegendProps {
@@ -16,6 +17,8 @@ export interface MapLegendProps {
   activeStatuses: StatusLog[];
   /** Lag Mode: show the fixed schedule-variance scale instead of activity colors. */
   lagMode?: boolean;
+  /** Make-Ready Mode: show the fixed ready/blocked/complete scale. */
+  makeReadyMode?: boolean;
   isVisible: boolean;
   onUpdate?: (updates: { pctX?: number; pctY?: number; scaleX?: number; scaleY?: number; rotation?: number }) => void;
   isSelected?: boolean;
@@ -33,6 +36,7 @@ export default function MapLegend({
   activities,
   activeStatuses,
   lagMode,
+  makeReadyMode,
   isVisible,
   onUpdate,
   isSelected,
@@ -81,11 +85,13 @@ export default function MapLegend({
     return [...new Set(states)];
   }, [isVisible, activeStatuses, units]);
 
-  // Lag Mode renders a fixed variance scale; activity colors are not on the map.
-  const legendSwatches: { name: string; color: string }[] = lagMode
-    ? VARIANCE_LEGEND.map(v => ({ name: v.label, color: v.color }))
-    : activeActivities.map(m => ({ name: m.name as string, color: m.color as string }));
-  const swatchTitle = lagMode ? 'Schedule Lag' : 'Activities';
+  // Lag / Make-Ready modes render a fixed scale; activity colors are not on the map.
+  const legendSwatches: { name: string; color: string }[] = makeReadyMode
+    ? MAKE_READY_LEGEND.map(v => ({ name: v.label, color: v.color }))
+    : lagMode
+      ? VARIANCE_LEGEND.map(v => ({ name: v.label, color: v.color }))
+      : activeActivities.map(m => ({ name: m.name as string, color: m.color as string }));
+  const swatchTitle = makeReadyMode ? 'Make-Ready' : lagMode ? 'Schedule Lag' : 'Activities';
 
   if (!isVisible || (legendSwatches.length === 0 && activeTemporalStates.length === 0)) return null;
 

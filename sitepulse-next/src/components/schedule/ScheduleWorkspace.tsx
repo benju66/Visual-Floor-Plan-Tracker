@@ -1,12 +1,15 @@
 "use client";
 import React, { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Layers, GanttChartSquare, CalendarRange, Flag, Map as MapIcon, FileUp, ListPlus } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Layers, GanttChartSquare, CalendarRange, Flag, Map as MapIcon, FileUp, ListPlus, Workflow } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useManageStore } from '@/store/useManageStore';
+import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import ResizableDivider from './ResizableDivider';
-import { useAllProjectUnits, useAllProjectStatuses, useUpdateStatus } from '@/hooks/useProjectQueries';
+import { useAllProjectUnits, useAllProjectStatuses, useUpdateStatus, useBulkInsertStatusLogs } from '@/hooks/useProjectQueries';
+import { useActivityDependencies } from '@/hooks/useActivityDependencies';
 import ActivityManagerPanel from './ActivityManagerPanel';
 import ScheduleSetupWizard from './ScheduleSetupWizard';
 import SchedulePlanPanel from './SchedulePlanPanel';
@@ -26,6 +29,8 @@ import {
   varianceLabel,
 } from '@/utils/progressAnalytics';
 import { applicableActivities, EMPTY_APPLICABILITY_INDEX, type ApplicabilityIndex } from '@/utils/applicability';
+import { unitMakeReady, makeReadyLabel, slotKey } from '@/utils/activityReadiness';
+import { rippleForward, buildRippleWrites, type RippleDelta, type PlannedWindow } from '@/utils/dateRipple';
 import GanttTimeline, { type RowMeta } from './GanttTimeline';
 import CascadePanel from './CascadePanel';
 import MspImportPanel from './MspImportPanel';
@@ -123,6 +128,17 @@ export default function ScheduleWorkspace({
   const effStatuses = scope === 'all' ? allStatuses : rawStatuses;
 
   const updateStatusMutation = useUpdateStatus(activeSheetId);
+  const bulkInsert = useBulkInsertStatusLogs(activeSheetId);
+  const queryClient = useQueryClient();
+  const setToast = useUIStore((s) => s.setToast);
+  const { data: dependencies = [] } = useActivityDependencies(projectId);
+
+  // Date-ripple (Phase 4): pending downstream shifts awaiting the count-confirm.
+  const [ripple, setRipple] = useState<{ unitId: string; unitLabel: string; track: string; deltas: RippleDelta[] } | null>(null);
+  const [rippleBusy, setRippleBusy] = useState(false);
+
+  const nameById = useMemo(() => new Map(activities.map((a) => [a.id, a.name])), [activities]);
+  const colorByActivityId = useMemo(() => new Map(activities.map((a) => [a.id, a.color])), [activities]);
 
   // --- Rows (pure geometry) ---
   const rows = useMemo(
@@ -130,7 +146,7 @@ export default function ScheduleWorkspace({
     [effUnits, effStatuses, activities, trackingMode, today, applicabilityIndex]
   );
 
-  // --- Per-row behind-schedule color (from progressAnalytics) ---
+  // --- Per-row behind-schedule color (progressAnalytics) + make-ready blocked flag ---
   const rowMeta = useMemo(() => {
     const trackMs = orderedTrackActivities(activities, trackingMode);
     const byUnit = new Map<string, StatusLog[]>();
@@ -140,14 +156,32 @@ export default function ScheduleWorkspace({
       if (arr) arr.push(s);
       else byUnit.set(s.unit_id, [s]);
     }
+    // Make-ready inputs: completed + applicable slot-key sets (N/A respected, §3).
+    const completed = new Set<string>();
+    for (const s of effStatuses) {
+      if (s.track === trackingMode && s.unit_id && s.activity_id && s.temporal_state === 'completed') {
+        completed.add(slotKey(s.unit_id, s.activity_id));
+      }
+    }
+    const applicable = new Set<string>();
+    for (const u of effUnits) for (const a of trackMs) {
+      if (applicableActivities([a], u, applicabilityIndex).length > 0) applicable.add(slotKey(u.id, a.id));
+    }
     const map: Record<string, RowMeta> = {};
     for (const u of effUnits) {
       const appMs = applicableActivities(trackMs, u, applicabilityIndex);
       const info = computeUnitVariance(byUnit.get(u.id) || [], appMs, today);
-      map[u.id] = { color: varianceFill(info), label: varianceLabel(info), kind: info.kind };
+      const mr = unitMakeReady(u.id, appMs, dependencies, completed, applicable);
+      map[u.id] = {
+        color: varianceFill(info),
+        label: varianceLabel(info),
+        kind: info.kind,
+        blocked: mr.kind === 'blocked',
+        blockedLabel: mr.kind === 'blocked' ? makeReadyLabel(mr, nameById) : undefined,
+      };
     }
     return map;
-  }, [effUnits, effStatuses, activities, trackingMode, today, applicabilityIndex]);
+  }, [effUnits, effStatuses, activities, trackingMode, today, applicabilityIndex, dependencies, nameById]);
 
   // --- Visible date window ---
   const activeSheet = useMemo(() => sheets.find((s) => s.id === activeSheetId), [sheets, activeSheetId]);
@@ -181,6 +215,47 @@ export default function ScheduleWorkspace({
       planned_end_date: clamped.end,
       logged_date: bar.loggedDate,
     });
+
+    // Date-ripple: if this activity's new finish pushes any downstream activity's
+    // planned start past the FS+lag limit (on THIS location), offer to shift them.
+    // rippleForward is push-only, so a same-day or earlier edit returns nothing.
+    if (!clamped.end) return;
+    const plannedDates = new Map<string, PlannedWindow>();
+    for (const s of effStatuses) {
+      if (s.unit_id !== unitId || s.track !== bar.track || !s.activity_id) continue;
+      plannedDates.set(s.activity_id, { start: s.planned_start_date, end: s.planned_end_date });
+    }
+    const deltas = rippleForward(dependencies, plannedDates, bar.activity_id, clamped.end);
+    if (deltas.length === 0) return;
+    const unitLabel = effUnits.find((u) => u.id === unitId)?.unit_number || 'this location';
+    setRipple({ unitId, unitLabel, track: bar.track, deltas });
+  };
+
+  const applyRipple = async () => {
+    if (!ripple) return;
+    setRippleBusy(true);
+    try {
+      const writes = buildRippleWrites({
+        unitId: ripple.unitId,
+        track: ripple.track,
+        deltas: ripple.deltas,
+        existing: effStatuses,
+        colorByActivityId,
+      });
+      await bulkInsert.mutateAsync(writes as unknown as StatusLog[]);
+      // The unit may live on another sheet (all-levels scope) — refresh every
+      // per-sheet status cache, not just the active one the hook invalidates.
+      queryClient.invalidateQueries({ queryKey: ['statuses'] });
+      setToast({
+        message: `Shifted ${writes.length} downstream date${writes.length === 1 ? '' : 's'} on ${ripple.unitLabel}.`,
+        type: 'success',
+      });
+      setRipple(null);
+    } catch (err) {
+      setToast({ message: (err as Error)?.message || 'Could not shift downstream dates.', type: 'error' });
+    } finally {
+      setRippleBusy(false);
+    }
   };
 
   const scopedLocationCount = scope === 'all' ? allUnits.length : units.length;
@@ -375,6 +450,48 @@ export default function ScheduleWorkspace({
         applicabilityIndex={applicabilityIndex}
         projectId={projectId}
       />
+
+      {/* Date-ripple confirmation (Phase 4) — count-confirm before the bulk write */}
+      {ripple && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" role="presentation" onClick={() => !rippleBusy && setRipple(null)}>
+          <div className="w-full max-w-md rounded-2xl border p-6 shadow-2xl glass-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1">
+              <Workflow size={18} className="text-sky-500" />
+              <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">Shift downstream dates?</h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              That change pushes {ripple.deltas.length} dependent {ripple.deltas.length === 1 ? 'activity' : 'activities'} on <b>{ripple.unitLabel}</b>. Their planned dates move to keep the sequence valid.
+            </p>
+            <ul className="max-h-56 overflow-auto rounded-lg border border-slate-200 dark:border-white/10 divide-y divide-slate-100 dark:divide-white/5 mb-4">
+              {ripple.deltas.map((d) => (
+                <li key={d.activityId} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">{nameById.get(d.activityId) || 'Activity'}</span>
+                  <span className="text-slate-500 shrink-0">{d.start} → {d.end} <span className="text-amber-600 dark:text-amber-400">(+{d.shiftedDays}d)</span></span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={rippleBusy}
+                onClick={applyRipple}
+                className="rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3.5 disabled:opacity-60"
+              >
+                {rippleBusy ? 'Shifting…' : `Shift ${ripple.deltas.length} date${ripple.deltas.length === 1 ? '' : 's'}`}
+              </button>
+              <button
+                type="button"
+                disabled={rippleBusy}
+                onClick={() => setRipple(null)}
+                className="rounded-md border border-slate-300 dark:border-slate-600 text-xs font-semibold py-1.5 px-3 disabled:opacity-60"
+              >
+                Skip
+              </button>
+              <span className="text-[11px] text-slate-400 ml-auto">The predecessor edit is already saved.</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reopenable "add activities" (appends from dictionary/playbook) */}
       {setupOpen && (

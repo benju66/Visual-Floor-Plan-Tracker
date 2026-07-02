@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from 'react';
+import { Lock } from 'lucide-react';
 import AnchoredMenu from '@/components/manage/AnchoredMenu';
 import GanttBar from './GanttBar';
 import {
@@ -16,6 +17,10 @@ export interface RowMeta {
   color: string;
   label: string;
   kind: string;
+  /** Make-ready (Phase 4): the location's bottleneck waits on an incomplete predecessor. */
+  blocked?: boolean;
+  /** Tooltip for the blocked indicator (e.g. "Drywall blocked on Framing"). */
+  blockedLabel?: string;
 }
 
 interface GanttTimelineProps {
@@ -162,6 +167,11 @@ export default function GanttTimeline({
                     title={meta?.label || ''}
                   />
                   <span className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{r.unitNumber}</span>
+                  {meta?.blocked && (
+                    <span className="shrink-0 inline-flex" title={meta.blockedLabel || 'Blocked — waiting on a predecessor'}>
+                      <Lock size={11} className="text-red-500" />
+                    </span>
+                  )}
                   {levelByUnitId && (
                     <span className="ml-auto truncate text-[10px] text-slate-400 max-w-[64px]">{levelByUnitId[r.unitId]}</span>
                   )}
