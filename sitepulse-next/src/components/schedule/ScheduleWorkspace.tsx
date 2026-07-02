@@ -4,6 +4,8 @@ import { useParams } from 'next/navigation';
 import { Layers, GanttChartSquare, CalendarRange, Flag, Map as MapIcon, FileUp } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useManageStore } from '@/store/useManageStore';
+import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
+import ResizableDivider from './ResizableDivider';
 import { useAllProjectUnits, useAllProjectStatuses, useUpdateStatus } from '@/hooks/useProjectQueries';
 import ActivityManagerPanel from './ActivityManagerPanel';
 import ScheduleSetupWizard from './ScheduleSetupWizard';
@@ -91,6 +93,18 @@ export default function ScheduleWorkspace({
   const [wizardDismissed, setWizardDismissed] = useState(false);
   const [hoverUnitId, setHoverUnitId] = useState<string | null>(null);
   const pxPerDay = ZOOM_PX_PER_DAY[zoom];
+
+  // Resizable panel widths (VS Code-style), persisted in settings. Read hydration-safe.
+  // The divider reports cumulative movement from drag start; because these handlers
+  // capture the width at drag start, newWidth = startWidth + delta stays correct as the
+  // store updates mid-drag. Each move commits the clamped width (persisted for next time).
+  const setMapSettings = useSettingsStore((s) => s.setMapSettings);
+  const activitiesWidth = useHydratedStore((s) => s.mapSettings.scheduleActivitiesWidth ?? 360, 360);
+  const planWidth = useHydratedStore((s) => s.mapSettings.schedulePlanWidth ?? 380, 380);
+  const clampPanel = (w: number) => Math.max(260, Math.min(720, Math.round(w)));
+  const resizeActivities = (delta: number) => setMapSettings({ scheduleActivitiesWidth: clampPanel(activitiesWidth + delta) });
+  // The plan panel is on the RIGHT (divider on its left), so moving right shrinks it.
+  const resizePlan = (delta: number) => setMapSettings({ schedulePlanWidth: clampPanel(planWidth - delta) });
 
   // UTC-noon of the local calendar day — matches ganttMath / progressAnalytics parsing.
   const today = useMemo(() => {
@@ -273,19 +287,24 @@ export default function ScheduleWorkspace({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 flex items-stretch gap-3">
+      <div className="flex-1 min-h-0 flex items-stretch">
         {activitiesOpen && (
-          <ActivityManagerPanel
-            projectId={projectId}
-            milestones={milestones}
-            settings={settings}
-            onUpdateSettings={onUpdateSettings}
-            onAddMilestone={onAddMilestone}
-            onUpdateMilestone={onUpdateMilestone}
-            onDeleteMilestone={onDeleteMilestone}
-            initialTrack={trackingMode}
-            onClose={() => setActivitiesOpen(false)}
-          />
+          <>
+            <div style={{ width: activitiesWidth }} className="shrink-0 min-h-0 flex">
+              <ActivityManagerPanel
+                projectId={projectId}
+                milestones={milestones}
+                settings={settings}
+                onUpdateSettings={onUpdateSettings}
+                onAddMilestone={onAddMilestone}
+                onUpdateMilestone={onUpdateMilestone}
+                onDeleteMilestone={onDeleteMilestone}
+                initialTrack={trackingMode}
+                onClose={() => setActivitiesOpen(false)}
+              />
+            </div>
+            <ResizableDivider ariaLabel="Resize activities panel" onResize={resizeActivities} />
+          </>
         )}
 
         {milestones.length === 0 && !wizardDismissed ? (
@@ -308,12 +327,17 @@ export default function ScheduleWorkspace({
         )}
 
         {planOpen && (
-          <SchedulePlanPanel
-            sheet={activeSheet}
-            units={units}
-            highlightUnitId={hoverUnitId}
-            onClose={() => setPlanOpen(false)}
-          />
+          <>
+            <ResizableDivider ariaLabel="Resize floor-plan panel" onResize={resizePlan} />
+            <div style={{ width: planWidth }} className="shrink-0 min-h-0 flex">
+              <SchedulePlanPanel
+                sheet={activeSheet}
+                units={units}
+                highlightUnitId={hoverUnitId}
+                onClose={() => setPlanOpen(false)}
+              />
+            </div>
+          </>
         )}
       </div>
 

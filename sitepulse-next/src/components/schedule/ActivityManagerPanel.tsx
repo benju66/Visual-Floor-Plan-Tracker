@@ -399,7 +399,7 @@ export default function ActivityManagerPanel({
   };
 
   return (
-    <aside className="w-[360px] shrink-0 flex flex-col min-h-0 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 shadow-sm">
+    <aside className="w-full h-full flex flex-col min-h-0 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 shadow-sm">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200 dark:border-white/10">
         <div className="flex items-center gap-2">
           <Flag size={15} className="text-sky-500" />
