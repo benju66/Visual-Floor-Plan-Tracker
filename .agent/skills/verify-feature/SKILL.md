@@ -14,12 +14,13 @@ Compare the original Implementation Plan against the actual file system, indepen
 Flag all discrepancies.
 
 **Step 2: Cross-Surface Verification — prove it works**
-This project has **no unit/e2e test framework** (no Jest/Vitest/Playwright). Verification is type-checking, linting, a production build, and live browser checks. Run from `sitepulse-next/` and report the exact commands and their output:
+Verification is type-checking, the Vitest suite, a production build, and live browser checks (there is still **no E2E framework** — browser checks are manual). Run from `sitepulse-next/` and report the exact commands and their output:
 * `npm run typecheck` — `tsc --noEmit`. This is the primary gate. **Zero new type errors.** No file may merge to `main` still carrying `// @ts-nocheck`.
-* `npm run lint` — ESLint.
+* `npm run test` — the Vitest suite (co-located `*.test.ts`; globals are OFF — import `{ describe, it, expect }` from `'vitest'`). All tests must pass, and new behavior needs a new/extended test (see the `write-tests` skill).
 * `npm run build` — must compile cleanly (catches App Router / server-component / bundling errors).
+* **Lint is NOT a gate** — the repo carries ~1850 pre-existing lint problems. Only confirm the files you touched add no new errors; never chase the whole-repo count.
 * If you changed the **backend** (`sitepulse-backend/`), confirm `uvicorn main:app` starts and the affected endpoint responds; watch for startup `lifespan` validation failures.
-* If you changed **UI/canvas/UX**, launch `npm run dev` (http://localhost:3000) and visually verify: Konva map interactions (draw/snap/pan/zoom), the field table ↔ map sync, and — for mobile work — the `MobileSwipeDeck` gesture/swipe flow and `SyncIndicator` state.
+* If you changed **UI/canvas/UX**, launch `npm run dev:3010` (http://localhost:3010 — NOT the default 3000; a dev server is often already running there) and visually verify: Konva map interactions (draw/snap/pan/zoom), the field table ↔ map sync, and — for mobile work — the `MobileSwipeDeck` gesture/swipe flow and `SyncIndicator` state.
 * If you changed **sync logic**, verify the offline path: apply changes offline, confirm they persist to IndexedDB (project-scoped key `sitepulse-pending-changes-${projectId}`), reload, and confirm they replay without duplicate `status_logs` rows.
 
 **Step 3: Documentation Sync**
