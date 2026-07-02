@@ -7,11 +7,11 @@ import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 import { useUIStore } from '@/store/useUIStore';
-import type { Milestone, Sheet, ProjectContact } from '@/types/domain';
+import type { Activity, Sheet, ProjectContact } from '@/types/domain';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
 // NOTE (Scheduling Foundation Slice A, Phase 3a): the activity manager that
-// lived here (the "Milestones" tab — scopes of work, auto-advance, add/edit/
+// lived here (the "Activities" tab — scopes of work, auto-advance, add/edit/
 // reorder/applies-to) MOVED to the Schedule view's ActivityManagerPanel
 // (src/components/schedule/ActivityManagerPanel.tsx) so activity management
 // has ONE home. Settings keeps only the sheet-scoped config: which scopes
@@ -19,7 +19,7 @@ import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSet
 
 // ---- Project Contacts manager ----------------------------------------------
 // A shared, project-level contact directory (Company, name, title, mobile,
-// email), grouped by company. Mirrors the Milestones manager: list + add/edit/
+// email), grouped by company. Mirrors the Activities manager: list + add/edit/
 // delete, role-gated. Self-contained (its own hooks/state) so the query only
 // runs when the Contacts tab is opened and the big SettingsMenu stays lean.
 // Writes are also enforced by RLS (owner/admin/pm) — `canEdit` just hides the
@@ -384,7 +384,7 @@ interface SettingsMenuProps {
   onAttachOriginal: (file: File) => void;
   /** Used only to derive the scopes-of-work list for level assignments —
    *  activity management itself lives in the Schedule view (Phase 3a). */
-  milestones?: Milestone[];
+  activities?: Activity[];
   mapSettings?: MapSettings;
   onUpdateMapSettings: (settings: MapSettings) => void;
   sheets?: Sheet[];
@@ -399,7 +399,7 @@ export default function SettingsMenu({
   colorMode,
   setColorMode,
   onAttachOriginal,
-  milestones = [],
+  activities = [],
   mapSettings,
   onUpdateMapSettings,
   sheets = [],
@@ -427,7 +427,7 @@ export default function SettingsMenu({
     loadProfile();
   }, [session]);
 
-  const uniqueScopes = [...new Set(milestones.map(m => m.track))];
+  const uniqueScopes = [...new Set(activities.map(m => m.track))];
   if (uniqueScopes.length === 0) uniqueScopes.push('Production');
 
   const [newUnitTypeAdd, setNewUnitTypeAdd] = useState('');

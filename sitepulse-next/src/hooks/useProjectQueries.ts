@@ -4,8 +4,8 @@ import { extractVectorsService } from '@/services/api';
 import { paginateAll } from '@/utils/pagination';
 import { queryKeys } from '@/types/queryKeys';
 import type {
-  Project, Sheet, Unit, Milestone, StatusLog, Profile, ProjectMember,
-  TemporalState, MilestoneOverride, ProjectContact, ProjectContactInsert,
+  Project, Sheet, Unit, Activity, StatusLog, Profile, ProjectMember,
+  TemporalState, ActivityOverride, ProjectContact, ProjectContactInsert,
   ScaleCalibration
 } from '@/types/domain';
 import { isOpeningEdgeArray } from '@/types/domain';
@@ -107,12 +107,14 @@ export function useUnitHistory(unitId: string) {
       if (!unitId) return [];
       // Re-pointed to status_audit_log: the append-only audit table preserves
       // full state-change history, unlike status_logs which is now slot-unique.
+      // The audit table snapshots the activity name in its `milestone` DB column
+      // (data layer — not renamed); map it onto the domain `activityName` field.
       const { data, error } = await supabase.from('status_audit_log')
         .select('*')
         .eq('unit_id', unitId)
         .order('changed_at', { ascending: false });
       if (error) throw error;
-      return data as unknown as StatusLog[];
+      return (data ?? []).map(r => ({ ...r, activityName: r.milestone })) as unknown as StatusLog[];
     },
     enabled: !!unitId
   });
@@ -135,10 +137,10 @@ export function useSheets(projectId: string) {
   });
 }
 
-export function useMilestones(projectId: string) {
+export function useActivities(projectId: string) {
   return useQuery({
-    queryKey: queryKeys.milestones(projectId),
-    queryFn: async (): Promise<Milestone[]> => {
+    queryKey: queryKeys.activities(projectId),
+    queryFn: async (): Promise<Activity[]> => {
       if (!projectId) return [];
       const { data, error } = await supabase.from('activities')
         .select('*')
@@ -156,7 +158,7 @@ export function useMilestones(projectId: string) {
 // A shared project-level contact directory (one row per person, grouped by
 // company). Managed in the Settings menu; READ = any member, WRITE = privileged
 // roles (enforced by RLS — see 20260623_project_contacts.sql). Mutations mirror
-// the milestone-hook conventions: optimistic cache update + invalidate.
+// the activity-hook conventions: optimistic cache update + invalidate.
 
 // The editable fields a Settings form provides. id / project_id / created_by /
 // timestamps are set by the hook or the DB, never by the caller.
@@ -301,10 +303,10 @@ export function useImportProjectContacts(projectId: string) {
   });
 }
 
-export function useMilestoneOverrides(projectId: string) {
+export function useActivityOverrides(projectId: string) {
   return useQuery({
-    queryKey: queryKeys.milestoneOverrides(projectId),
-    queryFn: async (): Promise<MilestoneOverride[]> => {
+    queryKey: queryKeys.activityOverrides(projectId),
+    queryFn: async (): Promise<ActivityOverride[]> => {
       if (!projectId) return [];
       // Inner-join filter scopes the fetch to this project's activities.
       const { data, error } = await supabase
@@ -313,7 +315,7 @@ export function useMilestoneOverrides(projectId: string) {
         .eq('activities.project_id', projectId);
       if (error) throw error;
       // Strip the embedded join object so the cache stays a flat Row array.
-      return (data || []).map(({ activities, ...row }: any) => row as MilestoneOverride);
+      return (data || []).map(({ activities, ...row }: any) => row as ActivityOverride);
     },
     enabled: !!projectId
   });
@@ -452,7 +454,7 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
  * The id list is sliced into chunks (so the `.in(...)` URL stays well under header
  * limits), and each chunk is paged with `.range()` under a stable `.order('id')`
  * until exhausted. Without this, the all-levels views silently truncate once a
- * project exceeds 1000 status rows — completed milestones beyond the cap read back
+ * project exceeds 1000 status rows — completed activities beyond the cap read back
  * as "not started" (see paginateAll). Used only for the cross-sheet aggregations.
  */
 async function fetchAllIn<T>(
@@ -483,17 +485,17 @@ async function fetchAllIn<T>(
 /**
  * status_logs keys by `activity_id` (the stable id). The status pipeline still
  * correlates + displays by the activity's NAME, so every read joins `activities(name)`
- * and flattens it onto a synthesized `milestone` field — keeping `StatusLog` shape-
+ * and flattens it onto a synthesized `activityName` field — keeping `StatusLog` shape-
  * compatible with the rest of the app while the DB stays id-keyed (Scheduling
  * Foundation Slice A, Phase 1). Renaming an activity changes only this synthesized
  * name on the next read; the stored history is never touched.
  */
-type StatusRowWithActivity = Omit<StatusLog, 'milestone'> & { activities: { name: string } | null };
+type StatusRowWithActivity = Omit<StatusLog, 'activityName'> & { activities: { name: string } | null };
 async function fetchStatusLogsForUnits(unitIds: string[]): Promise<StatusLog[]> {
   const rows = await fetchAllIn<StatusRowWithActivity>(
     'status_logs', 'unit_id', unitIds, '*, activities(name)'
   );
-  return rows.map(({ activities, ...r }) => ({ ...r, milestone: activities?.name ?? '' } as StatusLog));
+  return rows.map(({ activities, ...r }) => ({ ...r, activityName: activities?.name ?? '' } as StatusLog));
 }
 
 export function useAllProjectUnits(sheetIds: string[]) {
@@ -673,8 +675,11 @@ export function useUpdateStatus(sheetId: string) {
 
       delete safeData.created_at;
       delete safeData.id;
-      // `milestone` is the activity NAME, carried only for the optimistic cache
+      // `activityName` is the activity NAME, carried only for the optimistic cache
       // entry's display — the RPC keys by activity_id, so strip it before the call.
+      // (`milestone` is stripped too: pendingChanges captured before the
+      // milestone→activity rename can replay with the legacy key.)
+      delete safeData.activityName;
       delete safeData.milestone;
       // client_timestamp comes from PendingChange.capturedAt (offline-capture time).
       // For immediate (online) mutations, stamp here as a fallback.
@@ -723,7 +728,7 @@ export function useUpdateStatus(sheetId: string) {
 export function useClearStatus(sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitId, track, activityId }: { unitId: string, track: string, activityId: string, milestone?: string }) => {
+    mutationFn: async ({ unitId, track, activityId }: { unitId: string, track: string, activityId: string, activityName?: string }) => {
       const newLog = {
           unit_id: unitId,
           track: track,
@@ -734,7 +739,7 @@ export function useClearStatus(sheetId: string) {
       const { error } = await supabase.rpc('upsert_status_log', { log_data: newLog });
       if (error) throw error;
     },
-    onMutate: async ({ unitId, track, activityId, milestone }) => {
+    onMutate: async ({ unitId, track, activityId, activityName }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
       await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
 
@@ -742,7 +747,7 @@ export function useClearStatus(sheetId: string) {
         unit_id: unitId,
         track,
         activity_id: activityId,
-        milestone: milestone ?? '',
+        activityName: activityName ?? '',
         temporal_state: 'none' as TemporalState,
         id: `temp_clear_${Date.now()}`,
         created_at: new Date().toISOString(),
@@ -775,7 +780,7 @@ export function useClearStatus(sheetId: string) {
   });
 }
 
-export function useUpdateMilestone(projectId: string, sheetId: string) {
+export function useUpdateActivity(projectId: string, sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, newName, newColor }: { id: string, oldName?: string, newName: string, newColor: string }) => {
@@ -795,23 +800,23 @@ export function useUpdateMilestone(projectId: string, sheetId: string) {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.milestones(projectId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) });
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
       queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
     }
   });
 }
 
-export function useSetMilestoneApplicability(projectId: string) {
+export function useSetActivityApplicability(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ milestoneId, unitId, isApplicable }: { milestoneId: string, unitId: string, isApplicable: boolean }) => {
+    mutationFn: async ({ activityId, unitId, isApplicable }: { activityId: string, unitId: string, isApplicable: boolean }) => {
       const { data: { session } } = await supabase.auth.getSession();
       // Idempotent slot upsert — safe for offline mutation replay.
       const { data, error } = await supabase
         .from('activity_applicability_overrides')
         .upsert({
-          activity_id: milestoneId,
+          activity_id: activityId,
           unit_id: unitId,
           is_applicable: isApplicable,
           created_by: session?.user?.id || null,
@@ -820,39 +825,39 @@ export function useSetMilestoneApplicability(projectId: string) {
         .select()
         .single();
       if (error) throw error;
-      return data as MilestoneOverride;
+      return data as ActivityOverride;
     },
-    onMutate: async ({ milestoneId, unitId, isApplicable }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.milestoneOverrides(projectId) });
-      queryClient.setQueriesData<MilestoneOverride[]>({ queryKey: queryKeys.milestoneOverrides(projectId) }, old => {
+    onMutate: async ({ activityId, unitId, isApplicable }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.activityOverrides(projectId) });
+      queryClient.setQueriesData<ActivityOverride[]>({ queryKey: queryKeys.activityOverrides(projectId) }, old => {
         if (!old) return old;
-        const filtered = old.filter(o => !(o.activity_id === milestoneId && o.unit_id === unitId));
+        const filtered = old.filter(o => !(o.activity_id === activityId && o.unit_id === unitId));
         const optimistic = {
           id: `temp_${Date.now()}`,
-          activity_id: milestoneId,
+          activity_id: activityId,
           unit_id: unitId,
           is_applicable: isApplicable,
           created_by: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        } as MilestoneOverride;
+        } as ActivityOverride;
         return [...filtered, optimistic];
       });
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestoneOverrides(projectId) })
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activityOverrides(projectId) })
   });
 }
 
 export function useBulkSetApplicability(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ milestoneId, unitIds, isApplicable }: { milestoneId: string, unitIds: string[], isApplicable: boolean }) => {
+    mutationFn: async ({ activityId, unitIds, isApplicable }: { activityId: string, unitIds: string[], isApplicable: boolean }) => {
       const { data: { session } } = await supabase.auth.getSession();
       const now = new Date().toISOString();
       const rows = unitIds.map(unitId => ({
-        activity_id: milestoneId,
+        activity_id: activityId,
         unit_id: unitId,
         is_applicable: isApplicable,
         created_by: session?.user?.id || null,
@@ -866,32 +871,32 @@ export function useBulkSetApplicability(projectId: string) {
         if (error) throw error;
       }
     },
-    onMutate: async ({ milestoneId, unitIds, isApplicable }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.milestoneOverrides(projectId) });
-      queryClient.setQueriesData<MilestoneOverride[]>({ queryKey: queryKeys.milestoneOverrides(projectId) }, old => {
+    onMutate: async ({ activityId, unitIds, isApplicable }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.activityOverrides(projectId) });
+      queryClient.setQueriesData<ActivityOverride[]>({ queryKey: queryKeys.activityOverrides(projectId) }, old => {
         if (!old) return old;
         const unitSet = new Set(unitIds);
-        const filtered = old.filter(o => !(o.activity_id === milestoneId && unitSet.has(o.unit_id)));
+        const filtered = old.filter(o => !(o.activity_id === activityId && unitSet.has(o.unit_id)));
         const now = new Date().toISOString();
         const optimistic = unitIds.map((unitId, idx) => ({
           id: `temp_${Date.now()}_${idx}`,
-          activity_id: milestoneId,
+          activity_id: activityId,
           unit_id: unitId,
           is_applicable: isApplicable,
           created_by: null,
           created_at: now,
           updated_at: now
-        } as MilestoneOverride));
+        } as ActivityOverride));
         return [...filtered, ...optimistic];
       });
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestoneOverrides(projectId) })
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activityOverrides(projectId) })
   });
 }
 
-export function useUpdateMilestoneRules(projectId: string) {
+export function useUpdateActivityRules(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, applies_to_unit_types }: { id: string, applies_to_unit_types: string[] | null }) => {
@@ -902,31 +907,31 @@ export function useUpdateMilestoneRules(projectId: string) {
         .select()
         .single();
       if (error) throw error;
-      return data as Milestone;
+      return data as Activity;
     },
     onMutate: async ({ id, applies_to_unit_types }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.milestones(projectId) });
-      queryClient.setQueriesData<Milestone[]>({ queryKey: queryKeys.milestones(projectId) }, old => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.activities(projectId) });
+      queryClient.setQueriesData<Activity[]>({ queryKey: queryKeys.activities(projectId) }, old => {
         if (!old) return old;
-        return old.map(m => m.id === id ? { ...m, applies_to_unit_types } as Milestone : m);
+        return old.map(a => a.id === id ? { ...a, applies_to_unit_types } as Activity : a);
       });
       return {};
     },
     onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestones(projectId) })
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
   });
 }
 
 export function useBulkUpdateStatus(sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ unitIds, milestone, activity_id, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks }: BulkUpdateStatusVars) => {
+    mutationFn: async ({ unitIds, activityName, activity_id, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks }: BulkUpdateStatusVars) => {
       const CHUNK_SIZE = 800;
 
       // '__KEEP_EXISTING__' updates the temporal_state of each unit's existing slot; a
       // real bulk-apply carries the resolved activity_id (the stable slot key). A null
-      // milestone/activity_id with no keep sentinel is a no-op (matches prior behavior).
-      const keepExisting = milestone === '__KEEP_EXISTING__';
+      // activityName/activity_id with no keep sentinel is a no-op (matches prior behavior).
+      const keepExisting = activityName === '__KEEP_EXISTING__';
 
       for (let i = 0; i < unitIds.length; i += CHUNK_SIZE) {
         const chunkIds = unitIds.slice(i, i + CHUNK_SIZE);
@@ -1026,14 +1031,14 @@ export function useBulkUpdateStatus(sheetId: string) {
         }
       }
     },
-    onMutate: async ({ unitIds, milestone, activity_id, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
+    onMutate: async ({ unitIds, activityName, activity_id, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
       await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
       await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
-      
+
       const updateCache = (old: StatusLog[] | undefined) => {
         if (!old) return old;
-        
-        if (milestone === '__KEEP_EXISTING__') {
+
+        if (activityName === '__KEEP_EXISTING__') {
           if (temporal_state === '__KEEP_EXISTING__') return old;
           return old.map(s => {
             if (unitIds.includes(s.unit_id as string) && s.track === track) {
@@ -1051,7 +1056,7 @@ export function useBulkUpdateStatus(sheetId: string) {
         
         const filtered = old.filter(s => !(unitIds.includes(s.unit_id as string) && s.activity_id === activity_id));
 
-        if (milestone === null || activity_id == null || temporal_state === '__KEEP_EXISTING__') {
+        if (activityName === null || activity_id == null || temporal_state === '__KEEP_EXISTING__') {
           return filtered;
         }
 
@@ -1061,7 +1066,7 @@ export function useBulkUpdateStatus(sheetId: string) {
           id: `temp_${id}_${Date.now()}`,
           unit_id: id,
           activity_id,
-          milestone,
+          activityName,
           status_color: color,
           temporal_state: temporal_state as TemporalState,
           track,
@@ -1100,7 +1105,9 @@ export function useBulkInsertStatusLogs(sheetId: string) {
         }
         delete copy.created_at;
         delete copy.id;
-        // `milestone` is the synthesized display name, not a status_logs column.
+        // `activityName` is the synthesized display name, not a status_logs column.
+        // (`milestone` too — the legacy pre-rename key, defensively stripped.)
+        delete copy.activityName;
         delete copy.milestone;
         copy.client_timestamp = clientTimestamp;
         return copy;
@@ -1261,7 +1268,7 @@ export function useUpdateSheetSchedule(projectId: string) {
 // One-shot bulk activity creation for the Schedule view's first-run wizard
 // (Scheduling Foundation Slice A, Phase 3a: "start from your dictionary").
 // A single INSERT with explicit sequence_order values — the per-row
-// handleAddMilestone path reads max(sequence_order) from the cache, which
+// handleAddActivity path reads max(sequence_order) from the cache, which
 // doesn't refresh between calls in a loop, so seeding N activities that way
 // would collide their ordering. Online-first (schedule authoring).
 export interface NewActivityRow {
@@ -1283,34 +1290,34 @@ export function useCreateActivitiesBulk(projectId: string) {
         .insert(rows.map(r => ({ ...r, project_id: projectId })));
       if (error) throw error;
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestones(projectId) })
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
   });
 }
 
-export function useReorderMilestones(projectId: string) {
+export function useReorderActivities(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (updatedMilestones: Milestone[]) => {
+    mutationFn: async (updatedActivities: Activity[]) => {
       const CHUNK_SIZE = 800;
-      for (const m of updatedMilestones) {
+      for (const a of updatedActivities) {
         const { error } = await supabase.from('activities')
-          .update({ sequence_order: m.sequence_order })
-          .eq('id', m.id);
+          .update({ sequence_order: a.sequence_order })
+          .eq('id', a.id);
         if (error) throw error;
       }
     },
-    onMutate: async (updatedMilestones) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.milestones(projectId) });
-      queryClient.setQueriesData<Milestone[]>({ queryKey: queryKeys.milestones(projectId) }, old => {
+    onMutate: async (updatedActivities) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.activities(projectId) });
+      queryClient.setQueriesData<Activity[]>({ queryKey: queryKeys.activities(projectId) }, old => {
         if (!old) return old;
         const updatesMap: Record<string, number | null> = {};
-        updatedMilestones.forEach(um => updatesMap[um.id] = um.sequence_order);
-        
-        return old.map(m => {
-          if (updatesMap[m.id] !== undefined) {
-            return { ...m, sequence_order: updatesMap[m.id] };
+        updatedActivities.forEach(ua => updatesMap[ua.id] = ua.sequence_order);
+
+        return old.map(a => {
+          if (updatesMap[a.id] !== undefined) {
+            return { ...a, sequence_order: updatesMap[a.id] };
           }
-          return m;
+          return a;
         }).sort((a, b) => {
           const aOrder = typeof a.sequence_order === 'number' ? a.sequence_order : Infinity;
           const bOrder = typeof b.sequence_order === 'number' ? b.sequence_order : Infinity;
@@ -1321,7 +1328,7 @@ export function useReorderMilestones(projectId: string) {
         });
       });
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestones(projectId) })
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
   });
 }
 
@@ -1435,10 +1442,12 @@ export function useStatusHistory(unitIds: string[]) {
   const validUnitIds = unitIds?.filter(id => !String(id).startsWith('temp_')) || [];
   return useQuery({
     queryKey: queryKeys.statusHistory(...validUnitIds),
-    queryFn: async (): Promise<Pick<StatusLog, 'unit_id' | 'milestone' | 'track' | 'logged_date'>[]> => {
+    queryFn: async (): Promise<Pick<StatusLog, 'unit_id' | 'activityName' | 'track' | 'logged_date'>[]> => {
       if (validUnitIds.length === 0) return [];
       // Re-pointed to status_audit_log: the audit table has the full append-only
-      // history of completed milestones, used by the dashboard timeline chart.
+      // history of completed activities, used by the dashboard timeline chart.
+      // The audit table's `milestone` DB column (the name snapshot — data layer,
+      // not renamed) is mapped onto the domain `activityName` field.
       const { data, error } = await supabase
         .from('status_audit_log')
         .select('unit_id, milestone, track, logged_date, client_timestamp, user_id')
@@ -1447,7 +1456,7 @@ export function useStatusHistory(unitIds: string[]) {
         .not('logged_date', 'is', null)
         .order('logged_date', { ascending: true });
       if (error) throw error;
-      return data as unknown as Pick<StatusLog, 'unit_id' | 'milestone' | 'track' | 'logged_date'>[];
+      return (data ?? []).map(({ milestone, ...r }) => ({ ...r, activityName: milestone })) as unknown as Pick<StatusLog, 'unit_id' | 'activityName' | 'track' | 'logged_date'>[];
     },
     enabled: validUnitIds.length > 0,
     staleTime: 1000 * 60 * 5,

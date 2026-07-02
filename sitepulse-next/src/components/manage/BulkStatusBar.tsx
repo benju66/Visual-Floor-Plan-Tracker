@@ -1,15 +1,15 @@
 "use client";
 import React, { useState, useRef } from 'react';
 import { CheckCheck, X, CalendarDays, ListChecks, UserPlus, UserX, Trash2 } from 'lucide-react';
-import type { Milestone, TemporalState } from '@/types/domain';
+import type { Activity, TemporalState } from '@/types/domain';
 import AnchoredMenu, { MenuItem } from './AnchoredMenu';
 import { memberOptions, type MemberLike } from './assignee';
 
-/** Sentinel: apply to each unit's own current (bottleneck) milestone. */
-export const CURRENT_MILESTONE = '__CURRENT__';
+/** Sentinel: apply to each unit's own current (bottleneck) activity. */
+export const CURRENT_ACTIVITY = '__CURRENT__';
 
 export interface BulkApplyArgs {
-  milestoneName: string;
+  activityName: string;
   state: TemporalState;
   startDate: string | null;
   endDate: string | null;
@@ -19,7 +19,7 @@ export interface BulkApplyArgs {
 interface BulkStatusBarProps {
   selectedCount: number;
   matchingCount: number;
-  milestones: Milestone[];
+  activities: Activity[];
   onApply: (args: BulkApplyArgs) => void;
   onSelectAllMatching: () => void;
   onClear: () => void;
@@ -33,7 +33,7 @@ interface BulkStatusBarProps {
 export default function BulkStatusBar({
   selectedCount,
   matchingCount,
-  milestones,
+  activities,
   onApply,
   onSelectAllMatching,
   onClear,
@@ -41,7 +41,7 @@ export default function BulkStatusBar({
   onBulkAssign,
   onBulkDelete,
 }: BulkStatusBarProps) {
-  const [milestoneName, setMilestoneName] = useState('');
+  const [activityName, setActivityName] = useState('');
   const [state, setState] = useState<TemporalState>('completed');
   const [showDates, setShowDates] = useState(false);
   const [startDate, setStartDate] = useState('');
@@ -55,12 +55,12 @@ export default function BulkStatusBar({
 
   if (selectedCount < 1) return null;
 
-  const canApply = milestoneName !== '';
+  const canApply = activityName !== '';
 
   const handleApply = () => {
     if (!canApply) return;
     onApply({
-      milestoneName,
+      activityName,
       state,
       startDate: startDate || null,
       endDate: endDate || null,
@@ -95,14 +95,14 @@ export default function BulkStatusBar({
         </div>
 
         <select
-          value={milestoneName}
-          onChange={(e) => setMilestoneName(e.target.value)}
+          value={activityName}
+          onChange={(e) => setActivityName(e.target.value)}
           className="bg-white/60 dark:bg-black/25 border border-slate-300/80 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-sky-500/40 min-w-[170px]"
         >
-          <option value="" disabled>Choose milestone…</option>
-          <option value={CURRENT_MILESTONE}>Current milestone (each)</option>
-          <optgroup label="Set a specific milestone">
-            {milestones.map((m) => (
+          <option value="" disabled>Choose activity…</option>
+          <option value={CURRENT_ACTIVITY}>Current activity (each)</option>
+          <optgroup label="Set a specific activity">
+            {activities.map((m) => (
               <option key={m.id} value={m.name}>{m.name}</option>
             ))}
           </optgroup>

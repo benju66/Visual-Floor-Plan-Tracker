@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Milestone, StatusLog, Unit } from '@/types/domain';
+import type { Activity, StatusLog, Unit } from '@/types/domain';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import {
   addDays,
@@ -31,7 +31,7 @@ const mkUnit = (
   sheet_id: 'sheet1',
 });
 
-const mkMs = (name: string, sequence_order: number, color = '#111'): Milestone => ({
+const mkMs = (name: string, sequence_order: number, color = '#111'): Activity => ({
   id: `m_${name}`,
   project_id: 'p1',
   sequence_order,
@@ -46,12 +46,12 @@ const mkMs = (name: string, sequence_order: number, color = '#111'): Milestone =
 
 type LogPick = Pick<
   StatusLog,
-  'unit_id' | 'track' | 'milestone' | 'temporal_state' | 'planned_start_date' | 'planned_end_date' | 'logged_date' | 'status_color'
+  'unit_id' | 'track' | 'activityName' | 'temporal_state' | 'planned_start_date' | 'planned_end_date' | 'logged_date' | 'status_color'
 >;
-const mkLog = (o: Partial<LogPick> & { unit_id: string; milestone: string }): LogPick => ({
+const mkLog = (o: Partial<LogPick> & { unit_id: string; activityName: string }): LogPick => ({
   unit_id: o.unit_id,
   track: o.track ?? 'Construction',
-  milestone: o.milestone,
+  activityName: o.activityName,
   temporal_state: o.temporal_state ?? 'none',
   planned_start_date: o.planned_start_date ?? null,
   planned_end_date: o.planned_end_date ?? null,
@@ -135,35 +135,35 @@ describe('axisTicks', () => {
 });
 
 describe('buildScheduleRows', () => {
-  const milestones = [mkMs('Framing', 0, '#f00'), mkMs('Drywall', 1, '#0f0'), mkMs('Paint', 2, '#00f')];
+  const activities = [mkMs('Framing', 0, '#f00'), mkMs('Drywall', 1, '#0f0'), mkMs('Paint', 2, '#00f')];
   const units = [mkUnit('u1'), mkUnit('u2')];
 
   it('builds one row per unit (order preserved), bars only for dated applicable slots', () => {
     const statuses = [
-      mkLog({ unit_id: 'u1', milestone: 'Framing', temporal_state: 'completed', planned_start_date: '2026-06-01', planned_end_date: '2026-06-10', status_color: '#abc' }),
-      mkLog({ unit_id: 'u1', milestone: 'Drywall', temporal_state: 'ongoing', planned_end_date: '2026-06-12', status_color: '' }),
-      mkLog({ unit_id: 'u1', milestone: 'Paint', temporal_state: 'none' }), // no dates -> no bar
+      mkLog({ unit_id: 'u1', activityName: 'Framing', temporal_state: 'completed', planned_start_date: '2026-06-01', planned_end_date: '2026-06-10', status_color: '#abc' }),
+      mkLog({ unit_id: 'u1', activityName: 'Drywall', temporal_state: 'ongoing', planned_end_date: '2026-06-12', status_color: '' }),
+      mkLog({ unit_id: 'u1', activityName: 'Paint', temporal_state: 'none' }), // no dates -> no bar
     ];
-    const params: BuildScheduleRowsParams = { units, statuses, milestones, track: 'Construction', today: TODAY };
+    const params: BuildScheduleRowsParams = { units, statuses, activities, track: 'Construction', today: TODAY };
     const rows = buildScheduleRows(params);
 
     expect(rows.map(r => r.unitId)).toEqual(['u1', 'u2']);
     expect(rows[1].bars).toHaveLength(0); // u2 has no logs
 
     const u1 = rows[0];
-    expect(u1.bars.map(b => b.milestone)).toEqual(['Framing', 'Drywall']); // Paint dropped (no dates)
+    expect(u1.bars.map(b => b.activityName)).toEqual(['Framing', 'Drywall']); // Paint dropped (no dates)
     expect(u1.bars[0].color).toBe('#abc'); // uses the slot's status_color
-    expect(u1.bars[1].color).toBe('#0f0'); // empty status_color -> milestone color
+    expect(u1.bars[1].color).toBe('#0f0'); // empty status_color -> activity color
     expect(u1.bars[0].overdue).toBe(false); // completed
     expect(u1.bars[1].overdue).toBe(true); // ongoing, end 06-12 < today 06-15
   });
 
-  it('excludes N/A (inapplicable) milestones even when they carry dates', () => {
+  it('excludes N/A (inapplicable) activities even when they carry dates', () => {
     const statuses = [
-      mkLog({ unit_id: 'u1', milestone: 'Paint', temporal_state: 'planned', planned_start_date: '2026-06-20', planned_end_date: '2026-06-25' }),
+      mkLog({ unit_id: 'u1', activityName: 'Paint', temporal_state: 'planned', planned_start_date: '2026-06-20', planned_end_date: '2026-06-25' }),
     ];
     const index: ApplicabilityIndex = { rules: {}, overrides: { 'm_Paint_u1': false } };
-    const rows = buildScheduleRows({ units: [mkUnit('u1')], statuses, milestones, track: 'Construction', today: TODAY, applicabilityIndex: index });
+    const rows = buildScheduleRows({ units: [mkUnit('u1')], statuses, activities, track: 'Construction', today: TODAY, applicabilityIndex: index });
     expect(rows[0].bars).toHaveLength(0);
   });
 });
@@ -177,22 +177,22 @@ describe('clampEndAfterStart', () => {
 });
 
 describe('checkDependencies', () => {
-  const bar = (milestone: string, sequenceOrder: number, plannedStart: string | null, plannedEnd: string | null) => ({
-    activity_id: `m_${milestone}`, milestone, track: 'Construction', color: '#000', temporalState: 'planned',
+  const bar = (activityName: string, sequenceOrder: number, plannedStart: string | null, plannedEnd: string | null) => ({
+    activity_id: `m_${activityName}`, activityName, track: 'Construction', color: '#000', temporalState: 'planned',
     plannedStart, plannedEnd, loggedDate: null, overdue: false, sequenceOrder,
   });
-  it('flags a later milestone that starts before an earlier one ends', () => {
+  it('flags a later activity that starts before an earlier one ends', () => {
     const issues = checkDependencies([bar('Framing', 0, '2026-06-01', '2026-06-10'), bar('Drywall', 1, '2026-06-08', '2026-06-15')]);
-    expect(issues).toEqual([{ milestone: 'Drywall', predecessor: 'Framing' }]);
+    expect(issues).toEqual([{ activityName: 'Drywall', predecessor: 'Framing' }]);
   });
-  it('passes when each milestone starts on/after the prior end', () => {
+  it('passes when each activity starts on/after the prior end', () => {
     const issues = checkDependencies([bar('Framing', 0, '2026-06-01', '2026-06-10'), bar('Drywall', 1, '2026-06-11', '2026-06-15')]);
     expect(issues).toHaveLength(0);
   });
 });
 
 describe('cascadeLevelToLocations', () => {
-  const milestones = [mkMs('Framing', 0, '#f00'), mkMs('Drywall', 1, '#0f0')];
+  const activities = [mkMs('Framing', 0, '#f00'), mkMs('Drywall', 1, '#0f0')];
   const levelSchedule = {
     Framing: { start_date: '2026-07-01', end_date: '2026-07-10' },
     Drywall: { start_date: '2026-07-11', end_date: '2026-07-20' },
@@ -200,14 +200,14 @@ describe('cascadeLevelToLocations', () => {
   const units = [mkUnit('u1'), mkUnit('u2'), mkUnit('u3')];
   // u1 already has its own Framing dates; u3's Drywall is in progress but undated.
   const existing = [
-    mkLog({ unit_id: 'u1', milestone: 'Framing', temporal_state: 'planned', planned_start_date: '2026-06-01', planned_end_date: '2026-06-05' }),
-    mkLog({ unit_id: 'u3', milestone: 'Drywall', temporal_state: 'ongoing', logged_date: '2026-06-05', status_color: '#zzz' }),
+    mkLog({ unit_id: 'u1', activityName: 'Framing', temporal_state: 'planned', planned_start_date: '2026-06-01', planned_end_date: '2026-06-05' }),
+    mkLog({ unit_id: 'u3', activityName: 'Drywall', temporal_state: 'ongoing', logged_date: '2026-06-05', status_color: '#zzz' }),
   ];
   // Framing is N/A for u3.
   const index: ApplicabilityIndex = { rules: {}, overrides: { 'm_Framing_u3': false } };
 
   it('non-destructive: skips units with their own dates and N/A slots; preserves progress', () => {
-    const writes = cascadeLevelToLocations({ levelSchedule, units, milestones, track: 'Construction', existing, applicabilityIndex: index });
+    const writes = cascadeLevelToLocations({ levelSchedule, units, activities, track: 'Construction', existing, applicabilityIndex: index });
     // Framing: u1 skipped (own dates), u3 skipped (N/A) -> only u2.
     // Drywall: u1, u2 (new) + u3 (undated, so eligible) -> 3.
     expect(writes).toHaveLength(4);
@@ -225,7 +225,7 @@ describe('cascadeLevelToLocations', () => {
   });
 
   it('overrideExisting replaces a unit\'s own dates too', () => {
-    const writes = cascadeLevelToLocations({ levelSchedule, units, milestones, track: 'Construction', existing, applicabilityIndex: index, overrideExisting: true });
+    const writes = cascadeLevelToLocations({ levelSchedule, units, activities, track: 'Construction', existing, applicabilityIndex: index, overrideExisting: true });
     // Framing now includes u1 + u2 (u3 still N/A); Drywall u1+u2+u3 -> 5.
     expect(writes).toHaveLength(5);
     const u1Framing = writes.find(w => w.activity_id === 'm_Framing' && w.unit_id === 'u1');

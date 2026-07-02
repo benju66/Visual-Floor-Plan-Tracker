@@ -4,15 +4,15 @@ import { useParams } from 'next/navigation';
 import { ArrowLeft, Crosshair, Pencil, Trash2, History, Ban, RotateCcw, User, Footprints } from 'lucide-react';
 import { getTemporalStateStyle } from '@/components/ui/FieldStatusAtoms';
 import DatesInline from '@/components/ui/DatesInline';
-import { isMilestoneApplicable, type ApplicabilityIndex } from '@/utils/applicability';
+import { isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
 import { summarizeUnit } from '@/utils/unitProgress';
 import { formatArea } from '@/utils/scale';
 import { useUnitHistory, useProjectMembers } from '@/hooks/useProjectQueries';
-import type { Milestone, StatusLog, TemporalState, Unit } from '@/types/domain';
+import type { Activity, StatusLog, TemporalState, Unit } from '@/types/domain';
 
 export interface UnitInspectorProps {
   unit: Unit;
-  milestones: Milestone[];
+  activities: Activity[];
   trackingMode: string;
   activeStatuses: StatusLog[];
   applicabilityIndex: ApplicabilityIndex;
@@ -21,9 +21,9 @@ export interface UnitInspectorProps {
   onLocateUnit?: (unitId: string) => void;
   onRenameUnitInitiate: (id: string) => void;
   onDeleteUnit: (id: string) => void;
-  /** Immediate commit — same path the map quick-edit uses (commitUnitMilestone). */
-  onCommitStatus: (unit: Unit, milestone: Milestone, state: TemporalState, extraProps?: Record<string, unknown>) => void;
-  onToggleApplicability: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState) => void;
+  /** Immediate commit — same path the map quick-edit uses (commitUnitActivity). */
+  onCommitStatus: (unit: Unit, activity: Activity, state: TemporalState, extraProps?: Record<string, unknown>) => void;
+  onToggleApplicability: (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState) => void;
   onOpenHistory: (unitId: string) => void;
 }
 
@@ -46,7 +46,7 @@ const initialsOf = (name: string): string =>
 
 function UnitInspector({
   unit,
-  milestones,
+  activities,
   trackingMode,
   activeStatuses,
   applicabilityIndex,
@@ -64,30 +64,30 @@ function UnitInspector({
   const { data: members = [] } = useProjectMembers(projectId);
   const { data: history = [] } = useUnitHistory(unit.id);
 
-  const trackMilestones = useMemo(
+  const trackActivities = useMemo(
     () =>
-      milestones
+      activities
         .filter(m => m.track === trackingMode)
         .sort((a, b) => (a.sequence_order || 0) - (b.sequence_order || 0)),
-    [milestones, trackingMode],
+    [activities, trackingMode],
   );
 
   const { applicable, notApplicable } = useMemo(() => {
-    const a: Milestone[] = [];
-    const na: Milestone[] = [];
-    for (const m of trackMilestones) {
-      (isMilestoneApplicable(m, unit, applicabilityIndex) ? a : na).push(m);
+    const a: Activity[] = [];
+    const na: Activity[] = [];
+    for (const m of trackActivities) {
+      (isActivityApplicable(m, unit, applicabilityIndex) ? a : na).push(m);
     }
     return { applicable: a, notApplicable: na };
-  }, [trackMilestones, unit, applicabilityIndex]);
+  }, [trackActivities, unit, applicabilityIndex]);
 
   const summary = useMemo(
-    () => summarizeUnit(unit, activeStatuses, trackMilestones, applicabilityIndex, trackingMode),
-    [unit, activeStatuses, trackMilestones, applicabilityIndex, trackingMode],
+    () => summarizeUnit(unit, activeStatuses, trackActivities, applicabilityIndex, trackingMode),
+    [unit, activeStatuses, trackActivities, applicabilityIndex, trackingMode],
   );
 
-  const logFor = (milestoneName: string): StatusLog | undefined =>
-    activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode && s.milestone === milestoneName);
+  const logFor = (activityName: string): StatusLog | undefined =>
+    activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode && s.activityName === activityName);
 
   const assigneeName =
     members.find(m => m.user_id === unit.assigned_to)?.profiles?.display_name?.trim() || '';
@@ -182,7 +182,7 @@ function UnitInspector({
             Progress
           </span>
           <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 tabular-nums">
-            {summary.totalCount === 0 ? 'No milestones apply' : `${summary.doneCount} of ${summary.totalCount} complete`}
+            {summary.totalCount === 0 ? 'No activities apply' : `${summary.doneCount} of ${summary.totalCount} complete`}
           </span>
         </div>
         <div className="h-2 rounded-full bg-slate-200/70 dark:bg-white/10 overflow-hidden">
@@ -193,22 +193,22 @@ function UnitInspector({
       {/* Scrollable body: checklist + N/A + activity */}
       <div className="overflow-y-auto flex-1 -mr-1 pr-1 min-h-0">
         <h4 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
-          Milestones
+          Activities
         </h4>
 
         {applicable.length === 0 && notApplicable.length === 0 && (
-          <p className="text-xs text-slate-500 italic">No milestones defined for this track.</p>
+          <p className="text-xs text-slate-500 italic">No activities defined for this track.</p>
         )}
 
         <div className="flex flex-col gap-1.5">
-          {applicable.map(milestone => {
-            const log = logFor(milestone.name);
+          {applicable.map(activity => {
+            const log = logFor(activity.name);
             const baseLog: StatusLog =
               log ||
               ({
                 unit_id: unit.id,
-                milestone: milestone.name,
-                status_color: milestone.color,
+                activityName: activity.name,
+                status_color: activity.color,
                 track: trackingMode,
                 temporal_state: 'none',
                 planned_start_date: null,
@@ -219,20 +219,20 @@ function UnitInspector({
 
             return (
               <div
-                key={milestone.id}
+                key={activity.id}
                 className="rounded-lg border border-slate-200/70 dark:border-white/10 bg-white/40 dark:bg-black/15 p-2"
               >
                 <div className="flex items-center gap-2">
                   <span
                     className="w-2.5 h-2.5 rounded-sm shrink-0 ring-1 ring-black/5"
-                    style={{ background: milestone.color }}
+                    style={{ background: activity.color }}
                   />
-                  <span className="flex-1 truncate text-[13px] font-medium text-slate-700 dark:text-slate-200" title={milestone.name}>
-                    {milestone.name}
+                  <span className="flex-1 truncate text-[13px] font-medium text-slate-700 dark:text-slate-200" title={activity.name}>
+                    {activity.name}
                   </span>
                   <select
                     value={state}
-                    onChange={e => onCommitStatus(unit, milestone, e.target.value as TemporalState)}
+                    onChange={e => onCommitStatus(unit, activity, e.target.value as TemporalState)}
                     disabled={isSaving}
                     className={`rounded-md border px-2 py-1 text-[10px] font-bold uppercase tracking-wide shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer disabled:opacity-50 ${getTemporalStateStyle(state)}`}
                   >
@@ -243,7 +243,7 @@ function UnitInspector({
                   </select>
                   <button
                     type="button"
-                    onClick={() => onToggleApplicability(unit, milestone, false, state)}
+                    onClick={() => onToggleApplicability(unit, activity, false, state)}
                     disabled={isSaving}
                     className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors disabled:opacity-50"
                     title="Mark Not Applicable for this location"
@@ -256,7 +256,7 @@ function UnitInspector({
                   <DatesInline
                     unit={unit}
                     baseLog={baseLog}
-                    onLocalUpdate={(u, bl, s, extra) => onCommitStatus(u, milestone, s, extra)}
+                    onLocalUpdate={(u, bl, s, extra) => onCommitStatus(u, activity, s, extra)}
                     isApplying={isSaving}
                   />
                 )}
@@ -271,18 +271,18 @@ function UnitInspector({
               Not applicable ({notApplicable.length})
             </h4>
             <div className="flex flex-col gap-1">
-              {notApplicable.map(milestone => (
+              {notApplicable.map(activity => (
                 <div
-                  key={milestone.id}
+                  key={activity.id}
                   className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50/60 dark:bg-white/5 opacity-70"
                 >
                   <Ban size={12} className="text-slate-400 shrink-0" />
-                  <span className="flex-1 truncate text-xs text-slate-500 dark:text-slate-400 line-through" title={milestone.name}>
-                    {milestone.name}
+                  <span className="flex-1 truncate text-xs text-slate-500 dark:text-slate-400 line-through" title={activity.name}>
+                    {activity.name}
                   </span>
                   <button
                     type="button"
-                    onClick={() => onToggleApplicability(unit, milestone, true)}
+                    onClick={() => onToggleApplicability(unit, activity, true)}
                     disabled={isSaving}
                     className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-md transition-colors disabled:opacity-50"
                     title="Restore — mark applicable for this location"
@@ -320,7 +320,7 @@ function UnitInspector({
                   <span className="font-mono text-slate-400 dark:text-slate-500 min-w-[46px]">
                     {shortDate((h as StatusLog & { changed_at?: string }).changed_at ?? h.created_at)}
                   </span>
-                  <span className="truncate flex-1">{h.milestone}</span>
+                  <span className="truncate flex-1">{h.activityName}</span>
                   <span className={`inline-flex items-center gap-1 ${getTemporalStateStyle((h.temporal_state as TemporalState) || 'none')} rounded px-1.5 py-0.5 text-[9px] font-bold uppercase`}>
                     {h.temporal_state}
                   </span>

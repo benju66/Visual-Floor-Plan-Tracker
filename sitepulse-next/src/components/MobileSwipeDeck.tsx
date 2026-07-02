@@ -8,7 +8,7 @@ import PendingReviewDrawer from './PendingReviewDrawer';
 import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 import SyncIndicator from '@/components/ui/SyncIndicator';
 import { useUIStore } from '@/store/useUIStore';
-import type { Unit, StatusLog, Milestone, Sheet, PendingChangesMap, PendingChange, TemporalState, StatusLogAugmented } from '@/types/domain';
+import type { Unit, StatusLog, Activity, Sheet, PendingChangesMap, PendingChange, TemporalState, StatusLogAugmented } from '@/types/domain';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 
 interface MobileSwipeDeckProps {
@@ -19,13 +19,13 @@ interface MobileSwipeDeckProps {
   setPendingTimelineChanges: React.Dispatch<React.SetStateAction<Record<string, PendingChange>>>;
   handleLocalUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps?: any) => void;
   handleTimelineUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps?: any) => void;
-  handleRemovePendingItem: (unitId: string, milestoneName?: string | null) => boolean;
+  handleRemovePendingItem: (unitId: string, activityName?: string | null) => boolean;
   handleDiscardAll: () => void;
   handleApplyAll: () => Promise<{ succeeded: number; failed: number }>;
   pendingCount: number;
-  currentMilestones: Milestone[];
+  currentActivities: Activity[];
   rawStatuses: StatusLog[];
-  onChooseStatus?: (unitId: string, milestoneName: string, state: string, track: string) => void;
+  onChooseStatus?: (unitId: string, activityName: string, state: string, track: string) => void;
   savingUnitId?: string | null;
   isApplying: boolean;
   hasRehydrated: boolean;
@@ -40,7 +40,7 @@ interface MobileSwipeDeckProps {
   activeSheetId: string;
   setActiveSheetId: (id: string) => void;
   applicabilityIndex?: ApplicabilityIndex;
-  onToggleApplicability?: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
+  onToggleApplicability?: (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
 }
 
 type HistoryEntry = {
@@ -62,7 +62,7 @@ export default function MobileSwipeDeck({
   handleDiscardAll,
   handleApplyAll,
   pendingCount,
-  currentMilestones,
+  currentActivities,
   rawStatuses,
   onChooseStatus,
   isApplying,
@@ -160,7 +160,7 @@ export default function MobileSwipeDeck({
         if (k.startsWith(`${action.unitId}_`)) delete next[k];
       });
       action.previousTimelinePayloads.forEach(p => {
-        const mName = p.extraProps?.milestoneObj?.name || p.log?.milestone;
+        const mName = p.extraProps?.activityObj?.name || p.log?.activityName;
         next[`${action.unitId}_${mName}`] = p;
       });
       return next;
@@ -209,7 +209,7 @@ export default function MobileSwipeDeck({
         if (k.startsWith(`${action.unitId}_`)) delete next[k];
       });
       action.previousTimelinePayloads.forEach(p => {
-        const mName = p.extraProps?.milestoneObj?.name || p.log?.milestone;
+        const mName = p.extraProps?.activityObj?.name || p.log?.activityName;
         next[`${action.unitId}_${mName}`] = p;
       });
       return next;
@@ -238,8 +238,8 @@ export default function MobileSwipeDeck({
     });
   };
 
-  const handleDrawerItemRemove = (unitId: string, milestoneName: string | null) => {
-    const hasRemaining = handleRemovePendingItem(unitId, milestoneName);
+  const handleDrawerItemRemove = (unitId: string, activityName: string | null) => {
+    const hasRemaining = handleRemovePendingItem(unitId, activityName);
     if (!hasRemaining) {
       setSwipedHistory((prev) => prev.filter((h) => h.unitId !== unitId));
       setSkippedToBack((prev) => prev.filter((id) => id !== unitId));
@@ -430,7 +430,7 @@ export default function MobileSwipeDeck({
             const unitPending = pendingChanges[unit.id];
             const hasExistingPending = !!unitPending;
             const currentState = unitPending?.state
-              || pendingTimelineChanges[`${unit.id}_${log?.milestone}`]?.state
+              || pendingTimelineChanges[`${unit.id}_${log?.activityName}`]?.state
               || log?.temporal_state || 'none';
 
             let swipeRightLabel = '✓';
@@ -445,26 +445,26 @@ export default function MobileSwipeDeck({
                 key={unit.id}
                 unit={unit}
                 log={
-                  (pendingTimelineChanges[`${unit.id}_${log?.milestone}`]
+                  (pendingTimelineChanges[`${unit.id}_${log?.activityName}`]
                     ? {
                         ...log,
-                        temporal_state: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].state,
-                        milestone: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].extraProps?.milestoneObj?.name || log?.milestone,
-                        status_color: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].extraProps?.milestoneObj?.color || log?.status_color,
-                        outOfSequence: pendingTimelineChanges[`${unit.id}_${log?.milestone}`].extraProps?.outOfSequence ?? (log as any)?.outOfSequence,
+                        temporal_state: pendingTimelineChanges[`${unit.id}_${log?.activityName}`].state,
+                        activityName: pendingTimelineChanges[`${unit.id}_${log?.activityName}`].extraProps?.activityObj?.name || log?.activityName,
+                        status_color: pendingTimelineChanges[`${unit.id}_${log?.activityName}`].extraProps?.activityObj?.color || log?.status_color,
+                        outOfSequence: pendingTimelineChanges[`${unit.id}_${log?.activityName}`].extraProps?.outOfSequence ?? (log as any)?.outOfSequence,
                       }
                     : pendingChanges[unit.id]
                     ? {
                         ...log,
                         temporal_state: pendingChanges[unit.id].state,
-                        milestone: pendingChanges[unit.id].extraProps?.milestoneObj?.name || log?.milestone,
-                        status_color: pendingChanges[unit.id].extraProps?.milestoneObj?.color || log?.status_color,
+                        activityName: pendingChanges[unit.id].extraProps?.activityObj?.name || log?.activityName,
+                        status_color: pendingChanges[unit.id].extraProps?.activityObj?.color || log?.status_color,
                         outOfSequence: pendingChanges[unit.id].extraProps?.outOfSequence ?? (log as any)?.outOfSequence,
                       }
                     : log) as StatusLogAugmented | null
                 }
                 rawStatuses={rawStatuses}
-                milestones={currentMilestones}
+                activities={currentActivities}
                 isTop={isTop}
                 depth={depth}
                 pendingChanges={pendingChanges}
@@ -495,7 +495,7 @@ export default function MobileSwipeDeck({
                   setCardRedoStack([]);
                   setActionDirection('none');
                 }}
-                onChooseStatus={() => onChooseStatus?.(unit.id, log?.milestone || '', log?.temporal_state || '', '')}
+                onChooseStatus={() => onChooseStatus?.(unit.id, log?.activityName || '', log?.temporal_state || '', '')}
                 onStageUpdate={handleLocalUpdate}
                 onTimelineUpdate={handleTimelineUpdate}
                 applicabilityIndex={applicabilityIndex}
@@ -579,7 +579,7 @@ export default function MobileSwipeDeck({
               handleDrawerItemRemove={handleDrawerItemRemove}
               handleStageUpdate={handleTimelineUpdate}
               isApplying={isApplying}
-              currentMilestones={currentMilestones}
+              currentActivities={currentActivities}
             />
           </>
         )}

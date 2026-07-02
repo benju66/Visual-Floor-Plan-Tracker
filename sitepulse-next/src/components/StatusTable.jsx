@@ -6,7 +6,7 @@ import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegment
 import StatusTrigger from '@/components/ui/StatusTrigger';
 import RowActionsMenu from './manage/RowActionsMenu';
 import AssigneeCell from './manage/AssigneeCell';
-import { isMilestoneApplicable } from '@/utils/applicability';
+import { isActivityApplicable } from '@/utils/applicability';
 
 /**
  * StatusTable — the desktop data table presenter (isDesktop).
@@ -49,7 +49,7 @@ export default function StatusTable({
   handleApplyAll,
   handleTimelineUpdate,
   rawStatuses,
-  currentMilestones,
+  currentActivities,
   pendingTimelineChanges,
   trackingMode,
   applicabilityIndex,
@@ -67,10 +67,10 @@ export default function StatusTable({
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState(new Set());
 
-  // Clear expansions when milestones change (e.g., track changes)
+  // Clear expansions when activities change (e.g., track changes)
   React.useEffect(() => {
     setExpandedUnitIds(new Set());
-  }, [currentMilestones]);
+  }, [currentActivities]);
 
   // Measure the sticky header so an expanded location's row can pin flush
   // *underneath* it (top: headerH), not behind it. Measured (not hardcoded) so
@@ -91,7 +91,7 @@ export default function StatusTable({
     const map = new Map();
     if (rawStatuses) {
       rawStatuses.forEach(log => {
-        map.set(`${log.unit_id}_${log.milestone}`, log);
+        map.set(`${log.unit_id}_${log.activityName}`, log);
       });
     }
     return map;
@@ -193,7 +193,7 @@ export default function StatusTable({
               onClick={() => handleSort('status')}
               className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[200px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
             >
-              Milestone &amp; Status {renderSortIcon('status')}
+              Activity &amp; Status {renderSortIcon('status')}
             </th>
             <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
               Planned Start
@@ -215,19 +215,19 @@ export default function StatusTable({
         {visible.map(({ unit, log }, index) => {
             const pending = pendingChanges[unit.id];
             const dLog = pending ? { ...log, temporal_state: pending.state } : log;
-            // The location's active/current milestone is shown inline in this row (it is skipped
+            // The location's active/current activity is shown inline in this row (it is skipped
             // in the expanded child list below), so its N/A toggle has to live here too — otherwise
-            // the current task is the one milestone that can never be marked Not Applicable from
-            // the table. Resolve the milestone object so onToggleApplicability gets its id.
-            const activeMilestone = log?.milestone
-              ? currentMilestones?.find((m) => m.name === log.milestone)
+            // the current task is the one activity that can never be marked Not Applicable from
+            // the table. Resolve the activity object so onToggleApplicability gets its id.
+            const activeActivity = log?.activityName
+              ? currentActivities?.find((m) => m.name === log.activityName)
               : null;
             const isExpanded = expandedUnitIds.has(unit.id);
             const isSelected = selectedUnitIds.includes(unit.id);
 
             return (
               // Each location is its own <tbody> so an expanded row's sticky pin is
-              // bounded to *its* milestone group — it releases the moment the group
+              // bounded to *its* activity group — it releases the moment the group
               // scrolls past, and the next location takes over.
               <tbody key={unit.id}>
               <tr
@@ -295,14 +295,14 @@ export default function StatusTable({
                     savingUnitId={savingUnitId}
                     large={false}
                     statusTrailing={
-                      onToggleApplicability && activeMilestone ? (
+                      onToggleApplicability && activeActivity ? (
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activeMilestone, false, dLog?.temporal_state); }}
+                          onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activeActivity, false, dLog?.temporal_state); }}
                           disabled={savingUnitId === unit.id || isApplying}
                           className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                          title="Mark current milestone Not Applicable for this location"
-                          aria-label={`Mark ${log.milestone} not applicable for this location`}
+                          title="Mark current activity Not Applicable for this location"
+                          aria-label={`Mark ${log.activityName} not applicable for this location`}
                         >
                           <Ban size={14} />
                         </button>
@@ -406,18 +406,18 @@ export default function StatusTable({
                   />
                 </td>
               </tr>
-              {expandedUnitIds.has(unit.id) && currentMilestones?.map(milestone => {
-                if (milestone.name === log?.milestone) return null;
+              {expandedUnitIds.has(unit.id) && currentActivities?.map(activity => {
+                if (activity.name === log?.activityName) return null;
 
-                const notApplicable = applicabilityIndex && !isMilestoneApplicable(milestone, unit, applicabilityIndex);
+                const notApplicable = applicabilityIndex && !isActivityApplicable(activity, unit, applicabilityIndex);
                 if (notApplicable) {
                   return (
-                    <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 opacity-60">
+                    <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 opacity-60">
                       <td className="px-5 py-2"></td>
                       <td className="px-5 py-2 text-sm font-medium text-slate-500 dark:text-slate-400 align-middle pl-10">
                         <div className="flex items-center gap-2 italic">
                           <span className="text-slate-400 font-bold">↳</span>
-                          {milestone.name}
+                          {activity.name}
                         </div>
                       </td>
                       <td className="px-5 py-2"></td>
@@ -429,11 +429,11 @@ export default function StatusTable({
                           {onToggleApplicability && (
                             <button
                               type="button"
-                              onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, milestone, true); }}
+                              onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activity, true); }}
                               disabled={savingUnitId === unit.id || isApplying}
                               className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                              title="Restore — mark this milestone applicable for this location"
-                              aria-label={`Restore ${milestone.name} for this location`}
+                              title="Restore — mark this activity applicable for this location"
+                              aria-label={`Restore ${activity.name} for this location`}
                             >
                               <RotateCcw size={14} />
                             </button>
@@ -448,23 +448,23 @@ export default function StatusTable({
                   );
                 }
 
-                const childLog = logMap.get(`${unit.id}_${milestone.name}`) || {
+                const childLog = logMap.get(`${unit.id}_${activity.name}`) || {
                   unit_id: unit.id,
-                  milestone: milestone.name,
-                  status_color: milestone.color,
+                  activityName: activity.name,
+                  status_color: activity.color,
                   track: trackingMode,
                   temporal_state: 'none'
                 };
-                const childPending = pendingTimelineChanges[`${unit.id}_${milestone.name}`];
+                const childPending = pendingTimelineChanges[`${unit.id}_${activity.name}`];
                 const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
 
                 return (
-                  <tr key={`${unit.id}_${milestone.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
+                  <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
                     <td className="px-5 py-2"></td>
                     <td className="px-5 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 align-middle pl-10">
                       <div className="flex items-center gap-2">
                         <span className="text-slate-400 font-bold">↳</span>
-                        {milestone.name}
+                        {activity.name}
                       </div>
                     </td>
                     <td className="px-5 py-2"></td>
@@ -472,20 +472,20 @@ export default function StatusTable({
                       <div className="flex items-center gap-2">
                         <StatusSegments
                           value={dChildLog.temporal_state || 'none'}
-                          onChange={(s) => handleTimelineUpdate(unit, childLog, s, { milestoneObj: milestone })}
+                          onChange={(s) => handleTimelineUpdate(unit, childLog, s, { activityObj: activity })}
                           disabled={savingUnitId === unit.id || isApplying}
                           pending={!!(childPending?.state && childPending.state !== childLog.temporal_state)}
-                          ariaLabel={`Status for ${milestone.name}`}
+                          ariaLabel={`Status for ${activity.name}`}
                           size="sm"
                         />
                         {onToggleApplicability && (
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, milestone, false, dChildLog.temporal_state); }}
+                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activity, false, dChildLog.temporal_state); }}
                             disabled={savingUnitId === unit.id || isApplying}
                             className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
                             title="Mark Not Applicable for this location"
-                            aria-label={`Mark ${milestone.name} not applicable for this location`}
+                            aria-label={`Mark ${activity.name} not applicable for this location`}
                           >
                             <Ban size={14} />
                           </button>
@@ -505,7 +505,7 @@ export default function StatusTable({
                             handleTimelineUpdate(unit, childLog, childPending?.state || childLog.temporal_state || 'none', {
                               startDate: e.target.value,
                               endDate: childLog.planned_end_date,
-                              milestoneObj: milestone
+                              activityObj: activity
                             })
                           }
                           disabled={isApplying}
@@ -532,7 +532,7 @@ export default function StatusTable({
                             handleTimelineUpdate(unit, childLog, childPending?.state || childLog.temporal_state || 'none', {
                               startDate: childLog.planned_start_date,
                               endDate: e.target.value,
-                              milestoneObj: milestone
+                              activityObj: activity
                             })
                           }
                           disabled={isApplying}
@@ -561,7 +561,7 @@ export default function StatusTable({
                               startDate: childLog.planned_start_date,
                               endDate: childLog.planned_end_date,
                               loggedDate: e.target.value,
-                              milestoneObj: milestone
+                              activityObj: activity
                             })
                           }
                           disabled={isApplying}

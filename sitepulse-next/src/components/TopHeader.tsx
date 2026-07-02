@@ -14,7 +14,7 @@ export interface TopHeaderProps {
   setActiveSheetId: (id: string) => void;
   setIsModalOpen: (o: boolean) => void;
   setIsProjectMenuOpen: (o: boolean) => void;
-  setMilestoneMenu: (m: { mode: string }) => void;
+  setActivityMenu: (m: { mode: string }) => void;
   trackingMode: string;
   setTrackingMode: (m: string) => void;
   viewMode: string;
@@ -32,7 +32,7 @@ export interface TopHeaderProps {
 function TopHeader({
   project, sheets, activeSheetId, setActiveSheetId,
   setIsModalOpen, setIsProjectMenuOpen,
-  setMilestoneMenu, trackingMode, setTrackingMode,
+  setActivityMenu, trackingMode, setTrackingMode,
   viewMode, setViewMode, setToolMode,
   activeSheet, exportToPDF, setIsSettingsOpen,
   triggerUndo, triggerRedo, undoStack, redoStack
@@ -107,13 +107,13 @@ function TopHeader({
       {/* 2. RIGHT SIDE: Tools, Scopes, and Settings */}
       <div className={`flex items-center gap-2 overflow-x-auto pb-1 xl:pb-0 ${hideScrollbar}`}>
 
-        {/* Milestones Button */}
+        {/* Activities Button */}
         <button
           type="button"
-          onClick={() => setMilestoneMenu({ mode: 'filter' })}
+          onClick={() => setActivityMenu({ mode: 'filter' })}
           className="hide-in-swipe-view flex-shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
         >
-          Milestones (Ctrl+K)
+          Activities (Ctrl+K)
         </button>
 
         {/* Scope Tabs - Flex None to prevent squishing */}

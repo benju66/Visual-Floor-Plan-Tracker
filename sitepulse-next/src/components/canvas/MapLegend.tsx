@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useEffect } from 'react';
 import { Group, Rect, Text, Transformer, Circle, Path } from 'react-konva';
 import { ICON_PATHS } from '@/utils/constants';
 import { VARIANCE_LEGEND } from '@/utils/progressAnalytics';
-import type { Unit, StatusLog, Milestone, TemporalState, CanvasLayout } from '@/types/domain';
+import type { Unit, StatusLog, Activity, TemporalState, CanvasLayout } from '@/types/domain';
 
 export interface MapLegendProps {
   pctX?: number;
@@ -12,9 +12,9 @@ export interface MapLegendProps {
   rotation?: number;
   layout: CanvasLayout;
   units: Unit[];
-  milestones: Milestone[];
+  activities: Activity[];
   activeStatuses: StatusLog[];
-  /** Lag Mode: show the fixed schedule-variance scale instead of milestone colors. */
+  /** Lag Mode: show the fixed schedule-variance scale instead of activity colors. */
   lagMode?: boolean;
   isVisible: boolean;
   onUpdate?: (updates: { pctX?: number; pctY?: number; scaleX?: number; scaleY?: number; rotation?: number }) => void;
@@ -30,7 +30,7 @@ export default function MapLegend({
   rotation = 0,
   layout,
   units,
-  milestones,
+  activities,
   activeStatuses,
   lagMode,
   isVisible,
@@ -48,7 +48,7 @@ export default function MapLegend({
     }
   }, [isSelected]);
 
-  const activeMilestones = useMemo(() => {
+  const activeActivities = useMemo(() => {
     if (!isVisible) return [];
     
     // Find units that have active statuses in planned, ongoing, completed
@@ -57,21 +57,21 @@ export default function MapLegend({
       units.some(u => u.id === s.unit_id)
     );
 
-    // Get unique milestone names
-    const uniqueMilestoneNames = [...new Set(matchingStatuses.map(s => s.milestone))];
+    // Get unique activity names
+    const uniqueActivityNames = [...new Set(matchingStatuses.map(s => s.activityName))];
     
-    // Map names to milestone objects from the 'milestones' array to get color
-    const legendItems = uniqueMilestoneNames.map(name => {
-      const milestone = milestones.find(m => m.name === name);
-      const log = matchingStatuses.find(s => s.milestone === name); // fallback for color
+    // Map names to activity objects from the 'activities' array to get color
+    const legendItems = uniqueActivityNames.map(name => {
+      const activity = activities.find(m => m.name === name);
+      const log = matchingStatuses.find(s => s.activityName === name); // fallback for color
       return {
         name,
-        color: milestone?.color || (milestone as any)?.status_color || log?.status_color || '#cccccc'
+        color: activity?.color || (activity as any)?.status_color || log?.status_color || '#cccccc'
       };
     });
 
     return legendItems;
-  }, [isVisible, activeStatuses, units, milestones]);
+  }, [isVisible, activeStatuses, units, activities]);
 
   const activeTemporalStates = useMemo(() => {
     if (!isVisible) return [];
@@ -81,11 +81,11 @@ export default function MapLegend({
     return [...new Set(states)];
   }, [isVisible, activeStatuses, units]);
 
-  // Lag Mode renders a fixed variance scale; milestone colors are not on the map.
+  // Lag Mode renders a fixed variance scale; activity colors are not on the map.
   const legendSwatches: { name: string; color: string }[] = lagMode
     ? VARIANCE_LEGEND.map(v => ({ name: v.label, color: v.color }))
-    : activeMilestones.map(m => ({ name: m.name as string, color: m.color as string }));
-  const swatchTitle = lagMode ? 'Schedule Lag' : 'Milestones';
+    : activeActivities.map(m => ({ name: m.name as string, color: m.color as string }));
+  const swatchTitle = lagMode ? 'Schedule Lag' : 'Activities';
 
   if (!isVisible || (legendSwatches.length === 0 && activeTemporalStates.length === 0)) return null;
 
@@ -94,9 +94,9 @@ export default function MapLegend({
   const legendWidth = 200;
   const titleHeight = 30;
 
-  const milestonesHeight = legendSwatches.length > 0 ? titleHeight + (legendSwatches.length * itemHeight) : 0;
+  const activitiesHeight = legendSwatches.length > 0 ? titleHeight + (legendSwatches.length * itemHeight) : 0;
   const statusesHeight = activeTemporalStates.length > 0 ? titleHeight + (activeTemporalStates.length * itemHeight) : 0;
-  const totalItemsHeight = milestonesHeight + statusesHeight + (legendSwatches.length > 0 && activeTemporalStates.length > 0 ? padding : 0);
+  const totalItemsHeight = activitiesHeight + statusesHeight + (legendSwatches.length > 0 && activeTemporalStates.length > 0 ? padding : 0);
   
   const legendHeight = padding * 2 + totalItemsHeight;
 
@@ -197,7 +197,7 @@ export default function MapLegend({
         })}
 
         {activeTemporalStates.length > 0 && (
-          <Group y={padding + milestonesHeight + (legendSwatches.length > 0 ? padding : 0)} listening={false}>
+          <Group y={padding + activitiesHeight + (legendSwatches.length > 0 ? padding : 0)} listening={false}>
             <Text
               x={padding}
               y={0}

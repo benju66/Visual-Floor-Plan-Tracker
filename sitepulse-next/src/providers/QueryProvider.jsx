@@ -52,16 +52,16 @@ export default function QueryProvider({ children }) {
 
           // INSERT or UPDATE — inject/replace the log in all caches.
           // The realtime payload is a RAW status_logs row: it keys by activity_id and has
-          // NO `milestone` name. The read hooks synthesize that name (joined from
+          // NO activity name. The read hooks synthesize that name (joined from
           // activities); mirror that here so an injected row stays shape-consistent — look
-          // the activity's current name up from any loaded milestones cache. The slot key
+          // the activity's current name up from any loaded activities cache. The slot key
           // is (unit_id, activity_id).
           const raw = payload.new;
           const activityName = queryClient
-            .getQueriesData({ queryKey: ['milestones'] })
+            .getQueriesData({ queryKey: ['activities'] })
             .flatMap(([, list]) => list ?? [])
-            .find(m => m.id === raw.activity_id)?.name ?? '';
-          const newLog = { ...raw, milestone: activityName };
+            .find(a => a.id === raw.activity_id)?.name ?? '';
+          const newLog = { ...raw, activityName };
 
           // 1. Inject into the specific sheet's cache
           const queries = queryClient.getQueriesData({ queryKey: ['statuses'] });
@@ -92,8 +92,12 @@ export default function QueryProvider({ children }) {
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ 
+      persistOptions={{
         persister,
+        // Cache-shape version. Bumped for the milestone→activity rename: rows
+        // persisted before it carry the old synthesized `milestone` field, so a
+        // mismatched buster discards that cache once and refetches clean.
+        buster: 'activity-rename-v1',
         dehydrateOptions: {
           shouldDehydrateMutation: (mutation) => {
             return defaultShouldDehydrateMutation(mutation) || mutation.state.isPaused;

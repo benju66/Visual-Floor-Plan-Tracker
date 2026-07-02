@@ -7,7 +7,7 @@
 // `project_id`. One SitePulse project ⇄ one `lookahead_plans` row (UNIQUE(project_id)).
 //
 // Isolation (AGENTS.md guardrails): this touches ONLY the new `lookahead_plans`
-// table — never status_logs / units / sheets / project_milestones. The plan blob
+// table — never status_logs / units / sheets / activities. The plan blob
 // is opaque to Postgres (a `doc jsonb` column); RLS on the table governs access.
 
 import { supabase } from "@/supabaseClient";

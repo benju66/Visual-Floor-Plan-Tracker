@@ -25,19 +25,19 @@ import {
   type TargetUnit,
 } from '@/utils/scheduleReconcile';
 import type { ApplicabilityIndex } from '@/utils/applicability';
-import type { Sheet, Milestone, StatusLog, Unit, ActivityDictionaryEntry, ActivityType } from '@/types/domain';
+import type { Sheet, Activity, StatusLog, Unit, ActivityDictionaryEntry, ActivityType } from '@/types/domain';
 
 interface MspImportPanelProps {
   open: boolean;
   onClose: () => void;
   sheets: Sheet[];
-  /** The project's activities (page.jsx still names them milestones). */
-  milestones: Milestone[];
+  /** The project's activities (page.jsx still names them activities). */
+  activities: Activity[];
   applicabilityIndex: ApplicabilityIndex;
   activeSheetId: string;
   /** Add a missing activity inline (dictionary-backed), so an unmatched task can be
    *  mapped without leaving the importer. Same handler the Activities panel uses. */
-  onAddMilestone?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
+  onAddActivity?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
 }
 
 /** Per-imported-task reconciliation state (the human-adjustable mapping). */
@@ -66,10 +66,10 @@ export default function MspImportPanel({
   open,
   onClose,
   sheets,
-  milestones,
+  activities,
   applicabilityIndex,
   activeSheetId,
-  onAddMilestone,
+  onAddActivity,
 }: MspImportPanelProps) {
   const setToast = useUIStore((s) => s.setToast);
   const queryClient = useQueryClient();
@@ -86,13 +86,13 @@ export default function MspImportPanel({
   const [addTrack, setAddTrack] = useState('');
   const existingTracks = useMemo(() => {
     const managed = activeScopeNames(managedScopes);
-    const rest = [...new Set(milestones.map((m) => m.track))].filter((t) => t && !managed.includes(t));
+    const rest = [...new Set(activities.map((m) => m.track))].filter((t) => t && !managed.includes(t));
     return [...managed, ...rest];
-  }, [managedScopes, milestones]);
+  }, [managedScopes, activities]);
 
   const handleAddActivity = async () => {
     const trimmed = addName.trim();
-    if (!trimmed || !onAddMilestone) return;
+    if (!trimmed || !onAddActivity) return;
     const picked =
       addEntry && addEntry.name.trim().toLowerCase() === trimmed.toLowerCase()
         ? addEntry
@@ -101,7 +101,7 @@ export default function MspImportPanel({
       ? { kind: 'entry', dictionaryId: picked.id, name: picked.name, track: picked.track, type: picked.type as ActivityType }
       : { kind: 'pending', name: trimmed, track: null };
     const fields = await activityPickToFields(result, (vars) => proposePendingActivity.mutateAsync(vars));
-    onAddMilestone(fields.name, '#3b82f6', addTrack.trim() || existingTracks[0] || 'Production', fields.dictionary_id);
+    onAddActivity(fields.name, '#3b82f6', addTrack.trim() || existingTracks[0] || 'Production', fields.dictionary_id);
     setAddName('');
     setAddEntry(null);
   };
@@ -122,10 +122,10 @@ export default function MspImportPanel({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const activityById = useMemo(() => new Map(milestones.map((m) => [m.id, m])), [milestones]);
+  const activityById = useMemo(() => new Map(activities.map((m) => [m.id, m])), [activities]);
   const activityOptions = useMemo(
-    () => [...milestones].sort((a, b) => (a.track || '').localeCompare(b.track || '') || (a.sequence_order ?? 0) - (b.sequence_order ?? 0)),
-    [milestones]
+    () => [...activities].sort((a, b) => (a.track || '').localeCompare(b.track || '') || (a.sequence_order ?? 0) - (b.sequence_order ?? 0)),
+    [activities]
   );
 
   const leaves: MspTask[] = useMemo(
@@ -163,7 +163,7 @@ export default function MspImportPanel({
       return;
     }
     const importable = leafTasks(result.tasks);
-    const matches = matchTasksToActivities(importable, milestones, dictionary);
+    const matches = matchTasksToActivities(importable, activities, dictionary);
     const matchByUid = new Map(matches.map((m) => [m.taskUid, m]));
     const next: Record<string, RowState> = {};
     for (const t of importable) {
@@ -329,7 +329,7 @@ export default function MspImportPanel({
         {parse?.ok && (
           <div className="flex-1 min-h-0 overflow-auto mt-3 -mx-1 px-1">
             {/* Inline "add a missing activity" — map an unmatched task without leaving */}
-            {onAddMilestone && (
+            {onAddActivity && (
               <div className="mb-3 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 p-2">
                 {!showAddActivity ? (
                   <button type="button" onClick={() => setShowAddActivity(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-600 dark:text-sky-300 hover:underline">

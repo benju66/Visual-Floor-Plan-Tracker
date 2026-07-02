@@ -51,8 +51,8 @@ export interface MapState {
   quickStatusUnitId: string | null;
   setQuickStatusUnitId: (val: Updater<string | null>) => void;
 
-  quickMilestoneUnitId: string | null;
-  setQuickMilestoneUnitId: (val: Updater<string | null>) => void;
+  quickActivityUnitId: string | null;
+  setQuickActivityUnitId: (val: Updater<string | null>) => void;
 
   pendingPolygonPoints: PercentPoint[] | null;
   setPendingPolygonPoints: (val: Updater<PercentPoint[] | null>) => void;
@@ -111,8 +111,8 @@ export const useMapStore = create<MapState>()(
       quickStatusUnitId: null,
       setQuickStatusUnitId: (val) => set((state) => ({ quickStatusUnitId: typeof val === 'function' ? val(state.quickStatusUnitId) : val })),
 
-      quickMilestoneUnitId: null,
-      setQuickMilestoneUnitId: (val) => set((state) => ({ quickMilestoneUnitId: typeof val === 'function' ? val(state.quickMilestoneUnitId) : val })),
+      quickActivityUnitId: null,
+      setQuickActivityUnitId: (val) => set((state) => ({ quickActivityUnitId: typeof val === 'function' ? val(state.quickActivityUnitId) : val })),
 
       pendingPolygonPoints: null,
       setPendingPolygonPoints: (val) => set((state) => ({ pendingPolygonPoints: typeof val === 'function' ? val(state.pendingPolygonPoints) : val })),

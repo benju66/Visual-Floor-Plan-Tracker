@@ -1,8 +1,8 @@
-import type { Milestone, MilestoneSchedules, StatusLog, StatusLogInsert, Unit } from '@/types/domain';
-import { dayDiff, orderedTrackMilestones, parseDay } from '@/utils/progressAnalytics';
+import type { Activity, ActivitySchedules, StatusLog, StatusLogInsert, Unit } from '@/types/domain';
+import { dayDiff, orderedTrackActivities, parseDay } from '@/utils/progressAnalytics';
 import {
-  applicableMilestones,
-  isMilestoneApplicable,
+  applicableActivities,
+  isActivityApplicable,
   EMPTY_APPLICABILITY_INDEX,
   type ApplicabilityIndex,
 } from '@/utils/applicability';
@@ -172,15 +172,15 @@ export function axisTicks(windowStart: Date, windowEnd: Date, zoom: GanttZoom): 
 }
 
 // ---------------------------------------------------------------------------
-// Row model (one row per location; milestone bars inline)
+// Row model (one row per location; activity bars inline)
 // ---------------------------------------------------------------------------
 
 export interface GanttBarModel {
   /** Stable activity id — the slot key used when writing edited dates back. */
   activity_id: string;
-  milestone: string;
+  activityName: string;
   track: string;
-  /** Bar color — the slot's status_color if logged, else the milestone color. */
+  /** Bar color — the slot's status_color if logged, else the activity color. */
   color: string;
   temporalState: string;
   plannedStart: string | null;
@@ -204,7 +204,7 @@ type StatusLike = Pick<
   StatusLog,
   | 'unit_id'
   | 'track'
-  | 'milestone'
+  | 'activityName'
   | 'temporal_state'
   | 'planned_start_date'
   | 'planned_end_date'
@@ -214,9 +214,9 @@ type StatusLike = Pick<
 
 export interface BuildScheduleRowsParams {
   units: UnitLike[];
-  /** Raw current-state logs (one row per unit×track×milestone). */
+  /** Raw current-state logs (one row per unit×track×activity). */
   statuses: StatusLike[];
-  milestones: Milestone[];
+  activities: Activity[];
   track: string;
   today: Date;
   /** N/A (inapplicable) slots are excluded from bars. Defaults to all-applicable. */
@@ -225,36 +225,36 @@ export interface BuildScheduleRowsParams {
 
 /**
  * One row per unit (input order preserved). Each row carries a bar for every
- * APPLICABLE milestone that has at least one date (planned start/end or logged) —
- * milestones with no dates contribute no bar. N/A slots never produce a bar.
+ * APPLICABLE activity that has at least one date (planned start/end or logged) —
+ * activities with no dates contribute no bar. N/A slots never produce a bar.
  */
 export function buildScheduleRows({
   units,
   statuses,
-  milestones,
+  activities,
   track,
   today,
   applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
 }: BuildScheduleRowsParams): GanttRowModel[] {
-  const trackMilestones = orderedTrackMilestones(milestones, track);
+  const trackActivities = orderedTrackActivities(activities, track);
   const seqByName = new Map<string, number>();
-  trackMilestones.forEach((m, i) => seqByName.set(m.name, m.sequence_order ?? i));
+  trackActivities.forEach((a, i) => seqByName.set(a.name, a.sequence_order ?? i));
 
-  // Index logs by unit+milestone for this track.
+  // Index logs by unit+activity for this track.
   const logByKey = new Map<string, StatusLike>();
   for (const s of statuses) {
     if (s.track !== track || !s.unit_id) continue;
-    logByKey.set(`${s.unit_id}_${s.milestone}`, s);
+    logByKey.set(`${s.unit_id}_${s.activityName}`, s);
   }
 
   const colorByName = new Map<string, string>();
-  for (const m of trackMilestones) colorByName.set(m.name, m.color);
+  for (const a of trackActivities) colorByName.set(a.name, a.color);
 
   return units.map((unit) => {
-    const appMs = applicableMilestones(trackMilestones, unit, applicabilityIndex);
+    const appActs = applicableActivities(trackActivities, unit, applicabilityIndex);
     const bars: GanttBarModel[] = [];
-    for (const m of appMs) {
-      const log = logByKey.get(`${unit.id}_${m.name}`);
+    for (const a of appActs) {
+      const log = logByKey.get(`${unit.id}_${a.name}`);
       if (!log) continue;
       const hasDates = !!(log.planned_start_date || log.planned_end_date || log.logged_date);
       if (!hasDates) continue;
@@ -262,16 +262,16 @@ export function buildScheduleRows({
       const end = parseDay(log.planned_end_date);
       const overdue = !!end && today > end && state !== 'completed';
       bars.push({
-        activity_id: m.id,
-        milestone: m.name,
+        activity_id: a.id,
+        activityName: a.name,
         track,
-        color: log.status_color || colorByName.get(m.name) || m.color,
+        color: log.status_color || colorByName.get(a.name) || a.color,
         temporalState: state,
         plannedStart: log.planned_start_date ?? null,
         plannedEnd: log.planned_end_date ?? null,
         loggedDate: log.logged_date ?? null,
         overdue,
-        sequenceOrder: seqByName.get(m.name) ?? 0,
+        sequenceOrder: seqByName.get(a.name) ?? 0,
       });
     }
     return {
@@ -300,31 +300,31 @@ export function clampEndAfterStart(
 }
 
 export interface DependencyIssue {
-  milestone: string;
-  /** The earlier milestone whose planned end this bar starts before. */
+  activityName: string;
+  /** The earlier activity whose planned end this bar starts before. */
   predecessor: string;
 }
 
 /**
- * Dependency check across a single row's bars: a later milestone (by sequence
+ * Dependency check across a single row's bars: a later activity (by sequence
  * order) should not start before the latest planned end of any earlier
- * milestone. Returns one issue per violating bar (seeds 3b drag guards;
+ * activity. Returns one issue per violating bar (seeds 3b drag guards;
  * informational in 3a). Bars without both endpoints are skipped.
  */
 export function checkDependencies(bars: GanttBarModel[]): DependencyIssue[] {
   const ordered = [...bars].sort((a, b) => a.sequenceOrder - b.sequenceOrder);
   const issues: DependencyIssue[] = [];
   let maxEnd: Date | null = null;
-  let maxEndMilestone: string | null = null;
+  let maxEndActivity: string | null = null;
   for (const bar of ordered) {
     const start = parseDay(bar.plannedStart);
-    if (start && maxEnd && start < maxEnd && maxEndMilestone) {
-      issues.push({ milestone: bar.milestone, predecessor: maxEndMilestone });
+    if (start && maxEnd && start < maxEnd && maxEndActivity) {
+      issues.push({ activityName: bar.activityName, predecessor: maxEndActivity });
     }
     const end = parseDay(bar.plannedEnd);
     if (end && (!maxEnd || end > maxEnd)) {
       maxEnd = end;
-      maxEndMilestone = bar.milestone;
+      maxEndActivity = bar.activityName;
     }
   }
   return issues;
@@ -335,10 +335,10 @@ export function checkDependencies(bars: GanttBarModel[]): DependencyIssue[] {
 // ---------------------------------------------------------------------------
 
 export interface CascadeParams {
-  /** sheets.milestone_schedules — per-milestone-name level default dates. */
-  levelSchedule: MilestoneSchedules;
+  /** sheets.activity_schedules — per-activity-name level default dates. */
+  levelSchedule: ActivitySchedules;
   units: Pick<Unit, 'id' | 'unit_type'>[];
-  milestones: Milestone[];
+  activities: Activity[];
   track: string;
   /** Existing current-state logs (any track; filtered internally). */
   existing: StatusLike[];
@@ -348,47 +348,47 @@ export interface CascadeParams {
 }
 
 /**
- * Compute the status_logs upserts to flow a level's milestone dates down to its
+ * Compute the status_logs upserts to flow a level's activity dates down to its
  * locations. Non-destructive by default: a unit that already has a planned date
- * for a milestone keeps it (unless `overrideExisting`). N/A slots are skipped.
+ * for an activity keeps it (unless `overrideExisting`). N/A slots are skipped.
  * Existing temporal_state / logged_date / status_color are preserved so a
  * cascade never resets a unit's progress — it only sets the planned window.
  */
 export function cascadeLevelToLocations({
   levelSchedule,
   units,
-  milestones,
+  activities,
   track,
   existing,
   overrideExisting = false,
   applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
 }: CascadeParams): StatusLogInsert[] {
-  const trackMilestones = orderedTrackMilestones(milestones, track);
+  const trackActivities = orderedTrackActivities(activities, track);
   const existingByKey = new Map<string, StatusLike>();
   for (const s of existing) {
     if (s.track !== track || !s.unit_id) continue;
-    existingByKey.set(`${s.unit_id}_${s.milestone}`, s);
+    existingByKey.set(`${s.unit_id}_${s.activityName}`, s);
   }
 
   const out: StatusLogInsert[] = [];
-  for (const m of trackMilestones) {
-    const entry = levelSchedule[m.name];
+  for (const a of trackActivities) {
+    const entry = levelSchedule[a.name];
     if (!entry) continue;
     const start = entry.start_date ?? null;
     const end = entry.end_date ?? null;
     if (!start && !end) continue;
 
     for (const unit of units) {
-      if (!isMilestoneApplicable(m, unit, applicabilityIndex)) continue;
-      const prior = existingByKey.get(`${unit.id}_${m.name}`);
+      if (!isActivityApplicable(a, unit, applicabilityIndex)) continue;
+      const prior = existingByKey.get(`${unit.id}_${a.name}`);
       const hasOwnDates = !!(prior?.planned_start_date || prior?.planned_end_date);
       if (hasOwnDates && !overrideExisting) continue;
 
       out.push({
         unit_id: unit.id,
         track,
-        activity_id: m.id,
-        status_color: prior?.status_color || m.color,
+        activity_id: a.id,
+        status_color: prior?.status_color || a.color,
         temporal_state: prior?.temporal_state || 'planned',
         planned_start_date: start ?? prior?.planned_start_date ?? null,
         planned_end_date: end ?? prior?.planned_end_date ?? null,

@@ -5,9 +5,9 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import {
   useCreateUnit, useUpdateUnitGeometry, useUpdateUnitFields,
-  useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateMilestone, useBulkUpdateStatus
+  useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateActivity, useBulkUpdateStatus
 } from '@/hooks/useProjectQueries';
-import type { Project, Unit, PercentPoint, StatusLog, Milestone, TemporalState, Sheet, MilestoneOverride } from '@/types/domain';
+import type { Project, Unit, PercentPoint, StatusLog, Activity, TemporalState, Sheet, ActivityOverride } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
 import { buildApplicabilityIndex, hasSequenceGaps, nextApplicableIndex } from '@/utils/applicability';
 import { useProposePendingSubtype, useSubtypes } from '@/hooks/useSubtypes';
@@ -48,8 +48,8 @@ export function useMapActions(project: Project | null | undefined) {
   const setMapLabelSuggestion = useMapStore(s => s.setMapLabelSuggestion);
   const quickStatusUnitId = useMapStore(s => s.quickStatusUnitId);
   const setQuickStatusUnitId = useMapStore(s => s.setQuickStatusUnitId);
-  const quickMilestoneUnitId = useMapStore(s => s.quickMilestoneUnitId);
-  const setQuickMilestoneUnitId = useMapStore(s => s.setQuickMilestoneUnitId);
+  const quickActivityUnitId = useMapStore(s => s.quickActivityUnitId);
+  const setQuickActivityUnitId = useMapStore(s => s.setQuickActivityUnitId);
   const clearSelectedUnits = useMapStore(s => s.clearSelectedUnits);
 
   const newUnitName = useUIStore(s => s.newUnitName);
@@ -75,7 +75,7 @@ export function useMapActions(project: Project | null | undefined) {
   const deleteUnitMutation = useDeleteUnit(activeSheetId);
   const updateStatusMutation = useUpdateStatus(activeSheetId);
   const clearStatusMutation = useClearStatus(activeSheetId);
-  const updateMilestoneMutation = useUpdateMilestone(project?.id as string, activeSheetId);
+  const updateActivityMutation = useUpdateActivity(project?.id as string, activeSheetId);
   const bulkUpdateStatusMutation = useBulkUpdateStatus(activeSheetId);
   const proposePendingMutation = useProposePendingSubtype();
   // Resolve a taxonomy pick into the unit's role/sub-type/unit_type columns,
@@ -404,11 +404,11 @@ export function useMapActions(project: Project | null | undefined) {
     }
   };
 
-  const commitUnitMilestone = async (
-    unit: Unit, 
-    milestone: Partial<Milestone> & { isClearAction?: boolean }, 
-    currentTemporalState: TemporalState = 'none', 
-    isUndoRedo = false, 
+  const commitUnitActivity = async (
+    unit: Unit,
+    activity: Partial<Activity> & { isClearAction?: boolean },
+    currentTemporalState: TemporalState = 'none',
+    isUndoRedo = false,
     extraProps: any = {}
   ) => {
     setSavingUnitId(unit.id);
@@ -426,15 +426,15 @@ export function useMapActions(project: Project | null | undefined) {
             .flatMap(([, d]) => d ?? [])
             .filter(s => s.unit_id === unit.id),
         ];
-    const milestones = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project?.id as string)) || [];
+    const activities = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
     const sheets = queryClient.getQueryData<Sheet[]>(queryKeys.sheets(project?.id as string)) || [];
     const activeSheet = sheets.find(s => s.id === activeSheetId);
-    
-    if (milestone.isClearAction) {
+
+    if (activity.isClearAction) {
       try {
-        const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode && s.milestone === milestone.name) || activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
+        const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode && s.activityName === activity.name) || activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
         if (!oldLog) return;
-        await clearStatusMutation.mutateAsync({ unitId: unit.id, track: trackingMode, activityId: oldLog.activity_id, milestone: oldLog.milestone });
+        await clearStatusMutation.mutateAsync({ unitId: unit.id, track: trackingMode, activityId: oldLog.activity_id, activityName: oldLog.activityName });
         if (!isUndoRedo) {
           setUndoStack(prev => {
             const next = [...prev, { actionType: 'UPDATE_STATUS' as const, unitId: unit.id, oldLog, newLog: null }];
@@ -450,19 +450,19 @@ export function useMapActions(project: Project | null | undefined) {
       return;
     }
 
-    const milestoneName = milestone.name as string;
-    const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === milestone.track && s.milestone === milestoneName) || null;
+    const activityName = activity.name as string;
+    const oldStatus = activeStatuses.find(s => s.unit_id === unit.id && s.track === activity.track && s.activityName === activityName) || null;
     try {
-      const status_color = milestone.color || (milestone as any).status_color || '';
-      const sheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[milestoneName] || {};
+      const status_color = activity.color || (activity as any).status_color || '';
+      const sheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[activityName] || {};
 
       const newLogData = {
         unit_id: unit.id,
-        activity_id: milestone.id as string,
-        milestone: milestoneName,
+        activity_id: activity.id as string,
+        activityName,
         status_color,
         temporal_state: currentTemporalState,
-        track: milestone.track as string,
+        track: activity.track as string,
         planned_start_date: extraProps.startDate || sheetSchedule.start_date || null,
         planned_end_date: extraProps.endDate || sheetSchedule.end_date || null,
         logged_date: extraProps.loggedDate !== undefined ? (extraProps.loggedDate || null) : (currentTemporalState === 'completed' ? new Date().toISOString().split('T')[0] : null),
@@ -472,34 +472,34 @@ export function useMapActions(project: Project | null | undefined) {
       };
       const newLog = await updateStatusMutation.mutateAsync(newLogData);
       
-      const autoAdvanceEnabled = settings.auto_advance_tracks?.[milestone.track as string] === true;
+      const autoAdvanceEnabled = settings.auto_advance_tracks?.[activity.track as string] === true;
       if (currentTemporalState === 'completed' && autoAdvanceEnabled && !isUndoRedo) {
-        const overrides = queryClient.getQueryData<MilestoneOverride[]>(queryKeys.milestoneOverrides(project?.id as string)) || [];
-        const applicabilityIndex = buildApplicabilityIndex(milestones, overrides);
-        const trackMilestones = milestones.filter(m => m.track === milestone.track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
-        const currentIndex = trackMilestones.findIndex(m => m.name === newLogData.milestone);
+        const overrides = queryClient.getQueryData<ActivityOverride[]>(queryKeys.activityOverrides(project?.id as string)) || [];
+        const applicabilityIndex = buildApplicabilityIndex(activities, overrides);
+        const trackActivities = activities.filter(a => a.track === activity.track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
+        const currentIndex = trackActivities.findIndex(a => a.name === newLogData.activityName);
 
         // Defensive Auto-Advance: Only advance if the backlog track sequence is
-        // flawless. Milestones not applicable to this unit are not gaps.
+        // flawless. Activities not applicable to this unit are not gaps.
         const hasGaps = currentIndex > 0 && hasSequenceGaps(
-          trackMilestones, unit, currentIndex, applicabilityIndex,
-          (name) => activeStatuses.find(s => s.unit_id === unit.id && s.milestone === name)
+          trackActivities, unit, currentIndex, applicabilityIndex,
+          (name) => activeStatuses.find(s => s.unit_id === unit.id && s.activityName === name)
         );
 
-        // Walk PAST inapplicable milestones — never land auto-advance on an N/A slot
-        const nextIndex = currentIndex === -1 ? -1 : nextApplicableIndex(trackMilestones, unit, currentIndex, applicabilityIndex);
+        // Walk PAST inapplicable activities — never land auto-advance on an N/A slot
+        const nextIndex = currentIndex === -1 ? -1 : nextApplicableIndex(trackActivities, unit, currentIndex, applicabilityIndex);
         if (!hasGaps && nextIndex !== -1) {
-          const nextMilestone = trackMilestones[nextIndex];
-          const nextMilestoneName = nextMilestone.name;
-          const nextSheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[nextMilestoneName] || {};
+          const nextActivity = trackActivities[nextIndex];
+          const nextActivityName = nextActivity.name;
+          const nextSheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[nextActivityName] || {};
 
           const nextLogData = {
             unit_id: unit.id,
-            activity_id: nextMilestone.id,
-            milestone: nextMilestoneName,
-            status_color: nextMilestone.color,
+            activity_id: nextActivity.id,
+            activityName: nextActivityName,
+            status_color: nextActivity.color,
             temporal_state: 'planned' as TemporalState,
-            track: nextMilestone.track,
+            track: nextActivity.track,
             planned_start_date: nextSheetSchedule.start_date || null,
             planned_end_date: nextSheetSchedule.end_date || null
           };
@@ -521,10 +521,10 @@ export function useMapActions(project: Project | null | undefined) {
     }
   };
 
-  const handleQuickUpdate = (unitId: string, type: 'status' | 'milestone', value: string, extraProps: any = {}) => {
+  const handleQuickUpdate = (unitId: string, type: 'status' | 'activity', value: string, extraProps: any = {}) => {
     const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
     const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
-    const milestones = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project?.id as string)) || [];
+    const activities = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
     const unit = units.find(u => u.id === unitId);
     if (!unit) return;
 
@@ -532,102 +532,102 @@ export function useMapActions(project: Project | null | undefined) {
 
     if (type === 'status') {
       if (value === 'none') {
-        const milestone = { 
-          isClearAction: true, 
+        const activity = {
+          isClearAction: true,
           track: trackingMode,
-          name: extraProps.milestoneObj?.name || existingStatus?.milestone 
+          name: extraProps.activityObj?.name || existingStatus?.activityName
         };
-        commitUnitMilestone(unit, milestone);
+        commitUnitActivity(unit, activity);
         return;
       }
-      
-      let milestoneObj: Partial<Milestone>;
-      if (extraProps.milestoneObj) {
-         milestoneObj = extraProps.milestoneObj;
+
+      let activityObj: Partial<Activity>;
+      if (extraProps.activityObj) {
+         activityObj = extraProps.activityObj;
       } else if (existingStatus) {
-         milestoneObj = { id: existingStatus.activity_id, name: existingStatus.milestone, color: existingStatus.status_color, track: trackingMode };
+         activityObj = { id: existingStatus.activity_id, name: existingStatus.activityName, color: existingStatus.status_color, track: trackingMode };
       } else {
-         milestoneObj = milestones.find(m => m.track === trackingMode) || { name: 'Not Started', color: '#64748b', track: trackingMode };
+         activityObj = activities.find(a => a.track === trackingMode) || { name: 'Not Started', color: '#64748b', track: trackingMode };
       }
-      commitUnitMilestone(unit, milestoneObj, value as TemporalState, false, extraProps);
-    } else if (type === 'milestone') {
-      const selectedMilestone = milestones.find(m => m.name === value && m.track === trackingMode);
-      if (!selectedMilestone) return;
+      commitUnitActivity(unit, activityObj, value as TemporalState, false, extraProps);
+    } else if (type === 'activity') {
+      const selectedActivity = activities.find(a => a.name === value && a.track === trackingMode);
+      if (!selectedActivity) return;
 
       const temporalState = extraProps.temporal_state ? extraProps.temporal_state : (existingStatus ? existingStatus.temporal_state : 'completed');
-      commitUnitMilestone(unit, selectedMilestone, temporalState as TemporalState, false, extraProps);
+      commitUnitActivity(unit, selectedActivity, temporalState as TemporalState, false, extraProps);
     }
   };
 
-  const handleApplyBulkStatus = async ({ unitIds, milestone, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks = [] }: any, isUndoRedo = false) => {
+  const handleApplyBulkStatus = async ({ unitIds, activityName, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks = [] }: any, isUndoRedo = false) => {
     const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
-    const milestonesForBulk = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project?.id as string)) || [];
-    // Resolve the applied milestone name → its stable activity_id (the slot key). Null
+    const activitiesForBulk = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
+    // Resolve the applied activity name → its stable activity_id (the slot key). Null
     // for the '__KEEP_EXISTING__' / null sentinels — the bulk hook treats those as
     // keep-existing / no-op respectively.
-    const bulkActivityId = (milestone && milestone !== '__KEEP_EXISTING__')
-      ? (milestonesForBulk.find(m => m.name === milestone && m.track === track)?.id ?? null)
+    const bulkActivityId = (activityName && activityName !== '__KEEP_EXISTING__')
+      ? (activitiesForBulk.find(a => a.name === activityName && a.track === track)?.id ?? null)
       : null;
 
     // Save old state for undo
     const oldLogs = activeStatuses.filter(s => unitIds.includes(s.unit_id as string) && s.track === track);
 
     try {
-      await bulkUpdateStatusMutation.mutateAsync({ unitIds, milestone, activity_id: bulkActivityId, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks });
-      
+      await bulkUpdateStatusMutation.mutateAsync({ unitIds, activityName, activity_id: bulkActivityId, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks });
+
       const autoAdvanceEnabled = settings.auto_advance_tracks?.[track] === true;
 
-      // Auto-advance: each unit walks to ITS next applicable milestone, so a
-      // milestone that is N/A for some units never receives a 'planned' stamp.
+      // Auto-advance: each unit walks to ITS next applicable activity, so an
+      // activity that is N/A for some units never receives a 'planned' stamp.
       const advancedLogs: any[] = [];
-      if (temporal_state === 'completed' && autoAdvanceEnabled && milestone !== '__KEEP_EXISTING__' && milestone !== null && !isUndoRedo) {
-        const milestones = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project?.id as string)) || [];
-        const overrides = queryClient.getQueryData<MilestoneOverride[]>(queryKeys.milestoneOverrides(project?.id as string)) || [];
+      if (temporal_state === 'completed' && autoAdvanceEnabled && activityName !== '__KEEP_EXISTING__' && activityName !== null && !isUndoRedo) {
+        const activities = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
+        const overrides = queryClient.getQueryData<ActivityOverride[]>(queryKeys.activityOverrides(project?.id as string)) || [];
         const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
-        const applicabilityIndex = buildApplicabilityIndex(milestones, overrides);
-        const trackMilestones = milestones.filter(m => m.track === track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
-        const currentIndex = trackMilestones.findIndex(m => m.name === milestone);
+        const applicabilityIndex = buildApplicabilityIndex(activities, overrides);
+        const trackActivities = activities.filter(a => a.track === track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
+        const currentIndex = trackActivities.findIndex(a => a.name === activityName);
 
         if (currentIndex !== -1) {
           const targetGroups: Record<number, string[]> = {};
           for (const id of unitIds as string[]) {
             const unit = units.find(u => u.id === id);
             if (!unit) continue;
-            const nextIndex = nextApplicableIndex(trackMilestones, unit, currentIndex, applicabilityIndex);
+            const nextIndex = nextApplicableIndex(trackActivities, unit, currentIndex, applicabilityIndex);
             if (nextIndex === -1) continue;
             (targetGroups[nextIndex] ||= []).push(id);
           }
 
           for (const [idxStr, groupIds] of Object.entries(targetGroups)) {
-            const nextMilestone = trackMilestones[Number(idxStr)];
+            const nextActivity = trackActivities[Number(idxStr)];
             await bulkUpdateStatusMutation.mutateAsync({
                unitIds: groupIds,
-               milestone: nextMilestone.name,
-               activity_id: nextMilestone.id,
-               color: nextMilestone.color,
+               activityName: nextActivity.name,
+               activity_id: nextActivity.id,
+               color: nextActivity.color,
                temporal_state: 'planned',
                track,
                planned_start_date: null,
                planned_end_date: null
             });
-            groupIds.forEach(id => advancedLogs.push({ unit_id: id, activity_id: nextMilestone.id, milestone: nextMilestone.name, status_color: nextMilestone.color, temporal_state: 'planned', track }));
+            groupIds.forEach(id => advancedLogs.push({ unit_id: id, activity_id: nextActivity.id, activityName: nextActivity.name, status_color: nextActivity.color, temporal_state: 'planned', track }));
           }
         }
       }
 
       let newLogs: any[] = [];
-      if (milestone === '__KEEP_EXISTING__') {
+      if (activityName === '__KEEP_EXISTING__') {
         if (temporal_state !== '__KEEP_EXISTING__') {
           newLogs = oldLogs.map(s => ({ ...s, temporal_state }));
         } else {
           newLogs = oldLogs;
         }
-      } else if (milestone !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
+      } else if (activityName !== null && temporal_state !== 'none' && temporal_state !== '__KEEP_EXISTING__') {
         // Units that advanced are represented by their new 'planned' slot;
-        // the rest keep the milestone/state this bulk action applied.
+        // the rest keep the activity/state this bulk action applied.
         const advancedUnitIds = new Set(advancedLogs.map(l => l.unit_id));
         newLogs = [
-          ...(unitIds as string[]).filter(id => !advancedUnitIds.has(id)).map(id => ({ unit_id: id, activity_id: bulkActivityId, milestone, status_color: color, temporal_state, track })),
+          ...(unitIds as string[]).filter(id => !advancedUnitIds.has(id)).map(id => ({ unit_id: id, activity_id: bulkActivityId, activityName, status_color: color, temporal_state, track })),
           ...advancedLogs
         ];
       }
@@ -660,7 +660,7 @@ export function useMapActions(project: Project | null | undefined) {
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,
-    quickMilestoneUnitId, setQuickMilestoneUnitId,
+    quickActivityUnitId, setQuickActivityUnitId,
     pendingPolygonPoints, setPendingPolygonPoints,
     toast, setToast,
     handlePolygonComplete,
@@ -673,10 +673,10 @@ export function useMapActions(project: Project | null | undefined) {
     handleDeleteUnit,
     handleDeleteUnits,
     handleUpdateUnitIconOffset,
-    commitUnitMilestone,
+    commitUnitActivity,
     handleQuickUpdate,
     handleApplyBulkStatus,
     isPendingBulk: bulkUpdateStatusMutation.isPending,
-    updateMilestoneMutation
+    updateActivityMutation
   };
 }

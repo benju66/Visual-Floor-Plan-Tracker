@@ -268,7 +268,7 @@ export interface CreateWorkbenchLabelInput {
  * `useUIStore` + status writes the workbench must never trigger).
  *
  * It sets the same fields the live trace does — `unit_type` = the chosen sub-type
- * name (kept for milestone-applicability back-compat, AGENTS.md §4), the canonical
+ * name (kept for activity-applicability back-compat, AGENTS.md §4), the canonical
  * `top_level_role`, `subtype_id`, and `computed_area` — so a workbench label is
  * shaped identically to a live one, just hanging off a `kind='workbench'` sheet.
  *

@@ -10,19 +10,19 @@
 // `cascadeLevelToLocations` in `ganttMath.ts` (non-destructive by default,
 // N/A slots skipped, prior progress fields preserved).
 
-import type { ActivityDictionaryEntry, Milestone, StatusLog, StatusLogInsert, Unit } from '@/types/domain';
+import type { ActivityDictionaryEntry, Activity, StatusLog, StatusLogInsert, Unit } from '@/types/domain';
 import { resolveActivityByName } from '@/utils/activityDictionary';
 import { addDays, toDayString } from '@/utils/ganttMath';
 import { dayDiff, parseDay } from '@/utils/progressAnalytics';
 import {
-  isMilestoneApplicable,
+  isActivityApplicable,
   EMPTY_APPLICABILITY_INDEX,
   type ApplicabilityIndex,
 } from '@/utils/applicability';
 import type { MspTask } from '@/utils/mspImport';
 
 /** The activity fields reconciliation needs (a project `activities` row subset). */
-export type ReconcileActivity = Pick<Milestone, 'id' | 'name' | 'track' | 'color' | 'dictionary_id'>;
+export type ReconcileActivity = Pick<Activity, 'id' | 'name' | 'track' | 'color' | 'dictionary_id'>;
 
 type StatusLike = Pick<
   StatusLog,
@@ -295,7 +295,7 @@ export function buildImportWrites(
 
     const applicable: TargetUnit[] = [];
     for (const u of units) {
-      if (isMilestoneApplicable(activity, u, applicabilityIndex)) applicable.push(u);
+      if (isActivityApplicable(activity, u, applicabilityIndex)) applicable.push(u);
       else skippedNotApplicable++;
     }
 

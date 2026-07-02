@@ -1,7 +1,7 @@
 "use client";
 import React from 'react';
 import { Search, X, ArrowUp, ArrowDown, ListChecks, Layers } from 'lucide-react';
-import type { Milestone } from '@/types/domain';
+import type { Activity } from '@/types/domain';
 import type { Updater } from '@/types/utils';
 import type { ManageScope } from '@/store/useManageStore';
 import {
@@ -22,7 +22,7 @@ interface ManageToolbarProps {
   filters: ManageFilters;
   setFilters: (val: Updater<ManageFilters>) => void;
   projectUnitTypes: string[];
-  milestones: Milestone[];
+  activities: Activity[];
   totalCount: number;
   matchingCount: number;
   selectedCount: number;
@@ -46,7 +46,7 @@ export default function ManageToolbar({
   filters,
   setFilters,
   projectUnitTypes,
-  milestones,
+  activities,
   totalCount,
   matchingCount,
   selectedCount,
@@ -65,13 +65,13 @@ export default function ManageToolbar({
     }));
 
   const typeValue = filters.types[0] ?? '';
-  const milestoneValue = filters.milestones[0] ?? '';
+  const activityValue = filters.activities[0] ?? '';
   const activeCount = activeFilterCount(filters);
   const isFiltered = matchingCount !== totalCount;
 
   return (
     <div className="hidden md:flex flex-col gap-2.5 mb-3">
-      {/* Row 1 — scope, search, type, milestone, count, route controls */}
+      {/* Row 1 — scope, search, type, activity, count, route controls */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm shrink-0">
           <button
@@ -131,12 +131,12 @@ export default function ManageToolbar({
         </select>
 
         <select
-          value={milestoneValue}
-          onChange={(e) => setFilters((f) => ({ ...f, milestones: e.target.value ? [e.target.value] : [] }))}
+          value={activityValue}
+          onChange={(e) => setFilters((f) => ({ ...f, activities: e.target.value ? [e.target.value] : [] }))}
           className="appearance-none py-1.5 pl-3 pr-7 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/70 dark:bg-black/20 text-xs font-bold shadow-sm cursor-pointer text-slate-700 dark:text-slate-200"
         >
-          <option value="">All milestones</option>
-          {milestones.map((m) => (
+          <option value="">All activities</option>
+          {activities.map((m) => (
             <option key={m.id} value={m.name}>{m.name}</option>
           ))}
         </select>

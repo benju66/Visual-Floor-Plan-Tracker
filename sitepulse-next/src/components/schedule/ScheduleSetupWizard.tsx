@@ -10,7 +10,7 @@ import { activitiesForProjectType, PENDING_ACTIVITY_NAME } from '@/utils/activit
 import { applyPlaybook, playbooksForProjectType } from '@/utils/playbooks';
 import ScopeCombobox from './ScopeCombobox';
 import { useUIStore } from '@/store/useUIStore';
-import type { ProjectType, PlaybookWithItems, Milestone } from '@/types/domain';
+import type { ProjectType, PlaybookWithItems, Activity } from '@/types/domain';
 
 // Rotating default colors for seeded activities (all editable afterwards).
 export const SEED_COLORS = [
@@ -27,7 +27,7 @@ interface ScheduleSetupWizardProps {
   asModal?: boolean;
   onClose?: () => void;
   /** The project's current activities — used (in modal mode) to append + skip duplicates. */
-  existingActivities?: Milestone[];
+  existingActivities?: Activity[];
 }
 
 type WizardMode = 'playbook' | 'pick';

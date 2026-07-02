@@ -20,22 +20,22 @@ import {
   type GanttBarModel,
 } from '@/utils/ganttMath';
 import {
-  orderedTrackMilestones,
+  orderedTrackActivities,
   computeUnitVariance,
   varianceFill,
   varianceLabel,
 } from '@/utils/progressAnalytics';
-import { applicableMilestones, EMPTY_APPLICABILITY_INDEX, type ApplicabilityIndex } from '@/utils/applicability';
+import { applicableActivities, EMPTY_APPLICABILITY_INDEX, type ApplicabilityIndex } from '@/utils/applicability';
 import GanttTimeline, { type RowMeta } from './GanttTimeline';
 import CascadePanel from './CascadePanel';
 import MspImportPanel from './MspImportPanel';
-import type { Sheet, Unit, Milestone, StatusLog } from '@/types/domain';
+import type { Sheet, Unit, Activity, StatusLog } from '@/types/domain';
 
 interface ScheduleWorkspaceProps {
   /** Active-level units + raw per-slot statuses (from page.jsx). */
   units: Unit[];
   rawStatuses: StatusLog[];
-  milestones: Milestone[];
+  activities: Activity[];
   applicabilityIndex?: ApplicabilityIndex;
   sheets: Sheet[];
   activeSheetId: string;
@@ -43,9 +43,9 @@ interface ScheduleWorkspaceProps {
    *  handlers + persisted settings, reused (not forked) from page.jsx. */
   settings: AppSettings;
   onUpdateSettings: (settings: AppSettings) => void;
-  onAddMilestone?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
-  onUpdateMilestone?: (id: string, oldName: string, newName: string, newColor: string) => void;
-  onDeleteMilestone?: (id: string) => void;
+  onAddActivity?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
+  onUpdateActivity?: (id: string, oldName: string, newName: string, newColor: string) => void;
+  onDeleteActivity?: (id: string) => void;
 }
 
 const ZOOMS: { key: GanttZoom; label: string }[] = [
@@ -68,15 +68,15 @@ const ZOOMS: { key: GanttZoom; label: string }[] = [
 export default function ScheduleWorkspace({
   units,
   rawStatuses,
-  milestones,
+  activities,
   applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
   sheets,
   activeSheetId,
   settings,
   onUpdateSettings,
-  onAddMilestone,
-  onUpdateMilestone,
-  onDeleteMilestone,
+  onAddActivity,
+  onUpdateActivity,
+  onDeleteActivity,
 }: ScheduleWorkspaceProps) {
   const params = useParams();
   const projectId = params?.projectId as string;
@@ -126,13 +126,13 @@ export default function ScheduleWorkspace({
 
   // --- Rows (pure geometry) ---
   const rows = useMemo(
-    () => buildScheduleRows({ units: effUnits, statuses: effStatuses, milestones, track: trackingMode, today, applicabilityIndex }),
-    [effUnits, effStatuses, milestones, trackingMode, today, applicabilityIndex]
+    () => buildScheduleRows({ units: effUnits, statuses: effStatuses, activities, track: trackingMode, today, applicabilityIndex }),
+    [effUnits, effStatuses, activities, trackingMode, today, applicabilityIndex]
   );
 
   // --- Per-row behind-schedule color (from progressAnalytics) ---
   const rowMeta = useMemo(() => {
-    const trackMs = orderedTrackMilestones(milestones, trackingMode);
+    const trackMs = orderedTrackActivities(activities, trackingMode);
     const byUnit = new Map<string, StatusLog[]>();
     for (const s of effStatuses) {
       if (s.track !== trackingMode || !s.unit_id) continue;
@@ -142,12 +142,12 @@ export default function ScheduleWorkspace({
     }
     const map: Record<string, RowMeta> = {};
     for (const u of effUnits) {
-      const appMs = applicableMilestones(trackMs, u, applicabilityIndex);
+      const appMs = applicableActivities(trackMs, u, applicabilityIndex);
       const info = computeUnitVariance(byUnit.get(u.id) || [], appMs, today);
       map[u.id] = { color: varianceFill(info), label: varianceLabel(info), kind: info.kind };
     }
     return map;
-  }, [effUnits, effStatuses, milestones, trackingMode, today, applicabilityIndex]);
+  }, [effUnits, effStatuses, activities, trackingMode, today, applicabilityIndex]);
 
   // --- Visible date window ---
   const activeSheet = useMemo(() => sheets.find((s) => s.id === activeSheetId), [sheets, activeSheetId]);
@@ -174,7 +174,7 @@ export default function ScheduleWorkspace({
       unit_id: unitId,
       track: bar.track,
       activity_id: bar.activity_id,
-      milestone: bar.milestone,
+      activityName: bar.activityName,
       status_color: bar.color,
       temporal_state: bar.temporalState,
       planned_start_date: clamped.start,
@@ -234,7 +234,7 @@ export default function ScheduleWorkspace({
         </button>
 
         {/* Add activities from the dictionary / a playbook, any time (append) */}
-        {milestones.length > 0 && (
+        {activities.length > 0 && (
           <button
             type="button"
             onClick={() => setSetupOpen(true)}
@@ -306,12 +306,12 @@ export default function ScheduleWorkspace({
             <div style={{ width: activitiesWidth }} className="shrink-0 min-h-0 flex">
               <ActivityManagerPanel
                 projectId={projectId}
-                milestones={milestones}
+                activities={activities}
                 settings={settings}
                 onUpdateSettings={onUpdateSettings}
-                onAddMilestone={onAddMilestone}
-                onUpdateMilestone={onUpdateMilestone}
-                onDeleteMilestone={onDeleteMilestone}
+                onAddActivity={onAddActivity}
+                onUpdateActivity={onUpdateActivity}
+                onDeleteActivity={onDeleteActivity}
                 initialTrack={trackingMode}
                 onClose={() => setActivitiesOpen(false)}
               />
@@ -320,7 +320,7 @@ export default function ScheduleWorkspace({
           </>
         )}
 
-        {milestones.length === 0 && !wizardDismissed ? (
+        {activities.length === 0 && !wizardDismissed ? (
           <ScheduleSetupWizard
             projectId={projectId}
             onStartBlank={() => { setWizardDismissed(true); setActivitiesOpen(true); }}
@@ -358,17 +358,17 @@ export default function ScheduleWorkspace({
         open={importOpen}
         onClose={() => setImportOpen(false)}
         sheets={sheets}
-        milestones={milestones}
+        activities={activities}
         applicabilityIndex={applicabilityIndex}
         activeSheetId={activeSheetId}
-        onAddMilestone={onAddMilestone}
+        onAddActivity={onAddActivity}
       />
 
       <CascadePanel
         open={cascadeOpen}
         onClose={() => setCascadeOpen(false)}
         sheet={activeSheet}
-        milestones={milestones}
+        activities={activities}
         track={trackingMode}
         units={units}
         existing={rawStatuses}
@@ -382,7 +382,7 @@ export default function ScheduleWorkspace({
           projectId={projectId}
           asModal
           onClose={() => setSetupOpen(false)}
-          existingActivities={milestones}
+          existingActivities={activities}
           onStartBlank={() => setSetupOpen(false)}
         />
       )}

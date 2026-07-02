@@ -41,24 +41,19 @@ export type Unit = Omit<Database['public']['Tables']['units']['Row'], 'polygon_c
 // An activity (formerly "milestone"): a project's unit of tracked work, carrying a
 // STABLE id. Renaming an activity never orphans its history because status_logs /
 // status_audit_log key to activity_id, not the mutable name (Scheduling Foundation
-// Slice A, Phase 1). `Milestone` is kept as a deprecated alias while the
-// milestone→activity identifier rename is completed incrementally.
+// Slice A, Phase 1).
 export type Activity   = Database['public']['Tables']['activities']['Row'];
-/** @deprecated milestone→activity rename in progress — use {@link Activity}. */
-export type Milestone  = Activity;
 // A current-state status row. The DB keys it by `activity_id` (the stable id); the
-// read hooks synthesize the activity's CURRENT `milestone` NAME onto each row (joined
-// from activities) so the status pipeline keeps correlating/displaying by name and
-// behavior is unchanged. Writes carry `activity_id` (see UpdateStatusVars).
-export type StatusLog  = Database['public']['Tables']['status_logs']['Row'] & { milestone: string };
+// read hooks synthesize the activity's CURRENT NAME onto each row as `activityName`
+// (joined from activities) so the status pipeline keeps correlating/displaying by
+// name and behavior is unchanged. Writes carry `activity_id` (see UpdateStatusVars).
+export type StatusLog  = Database['public']['Tables']['status_logs']['Row'] & { activityName: string };
 export type Profile    = Database['public']['Tables']['profiles']['Row'];
 export type ProjectMember = Database['public']['Tables']['project_members']['Row'];
 export type StatusAuditLog = Database['public']['Tables']['status_audit_log']['Row'];
 // Per-unit activity applicability override (formerly milestone_applicability_overrides).
-// Keyed by activity_id. `MilestoneOverride` kept as a deprecated alias during the rename.
+// Keyed by activity_id.
 export type ActivityOverride = Database['public']['Tables']['activity_applicability_overrides']['Row'];
-/** @deprecated use {@link ActivityOverride}. */
-export type MilestoneOverride = ActivityOverride;
 // A light Finish-to-Start dependency edge between two of a project's activities
 // (Scheduling Foundation Slice A, Phase 3b): "successor starts after predecessor
 // finishes, +lag_days". COARSE by design — `type` is always 'FS'; no critical-path
@@ -259,8 +254,8 @@ export type ScaleCalibration = {
   at: string;
 };
 export type LegendPosition = { pctX: number; pctY: number; scaleX: number; scaleY: number; rotation: number; isVisible: boolean };
-export type MilestoneScheduleEntry = { start_date?: string | null; end_date?: string | null };
-export type MilestoneSchedules = Record<string, MilestoneScheduleEntry>;
+export type ActivityScheduleEntry = { start_date?: string | null; end_date?: string | null };
+export type ActivitySchedules = Record<string, ActivityScheduleEntry>;
 
 export type UnitWithStatus = Unit & { status_logs?: StatusLog[] };
 
@@ -269,9 +264,9 @@ export type CanvasLayout = { offsetX: number; offsetY: number; drawW: number; dr
 
 // Runtime-augmented StatusLog (outOfSequence is computed in-memory, not a DB column)
 export type StatusLogAugmented = StatusLog & { outOfSequence?: BottleneckSequence[] };
-// `activity_id` is the stable slot key used by the bulk-status write path; `milestone`
-// is the activity's name, carried for display/back-compat.
-export type BottleneckSequence = { activity_id: string; milestone: string; status_color: string; temporal_state: string };
+// `activity_id` is the stable slot key used by the bulk-status write path; `activityName`
+// is the activity's name, carried for display.
+export type BottleneckSequence = { activity_id: string; activityName: string; status_color: string; temporal_state: string };
 
 export interface PendingChange {
   unit: Unit;
@@ -282,8 +277,9 @@ export interface PendingChange {
   extraProps: {
     // `id` is the activity's stable id — the offline replay path writes it as the
     // status_logs slot key (activity_id), so a rename between capture and sync can't
-    // orphan the queued change.
-    milestoneObj?: Pick<Milestone, 'id' | 'name' | 'color' | 'track'>;
+    // orphan the queued change. (Persisted to IDB — rehydration maps the legacy
+    // `milestoneObj` key onto this field; see pendingChangesStore.)
+    activityObj?: Pick<Activity, 'id' | 'name' | 'color' | 'track'>;
     startDate?: string | null;
     endDate?: string | null;
     loggedDate?: string | null;
@@ -430,11 +426,11 @@ export function isProjectTypeArray(val: unknown): val is ProjectType[] {
 }
 
 /**
- * Narrows a milestone's `applies_to_unit_types` JSONB to a string array.
+ * Narrows an activity's `applies_to_unit_types` JSONB to a string array.
  * Returns null for null/empty/malformed values — meaning "applies to all unit types".
  */
-export function getAppliesTo(milestone: Pick<Milestone, 'applies_to_unit_types'>): string[] | null {
-  const val = milestone.applies_to_unit_types;
+export function getAppliesTo(activity: Pick<Activity, 'applies_to_unit_types'>): string[] | null {
+  const val = activity.applies_to_unit_types;
   if (!Array.isArray(val) || val.length === 0) return null;
   const strings = val.filter((t): t is string => typeof t === 'string');
   return strings.length > 0 ? strings : null;

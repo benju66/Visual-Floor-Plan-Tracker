@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronRight, AlertTriangle } from 'lucide-react';
 import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
-import type { Unit, StatusLog, PendingChange, TemporalState, Milestone } from '@/types/domain';
+import type { Unit, StatusLog, PendingChange, TemporalState, Activity } from '@/types/domain';
 
 const getBadgeStyle = (state: TemporalState) => {
   switch (state) {
@@ -36,10 +36,10 @@ interface PendingReviewDrawerProps {
   onClose: () => void;
   handleApplyAll: () => Promise<{ succeeded: number; failed: number }>;
   handleLocalDiscardAll: () => void;
-  handleDrawerItemRemove: (unitId: string, milestoneName: string | null) => void;
+  handleDrawerItemRemove: (unitId: string, activityName: string | null) => void;
   handleStageUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps: any, isTimeline: boolean) => void;
   isApplying: boolean;
-  currentMilestones: Milestone[];
+  currentActivities: Activity[];
 }
 
 export default function PendingReviewDrawer({
@@ -51,7 +51,7 @@ export default function PendingReviewDrawer({
   handleDrawerItemRemove,
   handleStageUpdate,
   isApplying,
-  currentMilestones,
+  currentActivities,
 }: PendingReviewDrawerProps) {
   const [activePickerKey, setActivePickerKey] = useState<string | null>(null);
   const [applyResult, setApplyResult] = useState<{ succeeded: number; failed: number } | null>(null);
@@ -59,7 +59,7 @@ export default function PendingReviewDrawer({
   const pendingMap = new Map<string, any>();
 
   Object.entries(pendingChanges).forEach(([unitId, change]) => {
-    const mName = change.extraProps?.milestoneObj?.name || change.log?.milestone || 'Primary';
+    const mName = change.extraProps?.activityObj?.name || change.log?.activityName || 'Primary';
     const key = `${unitId}_${mName}`;
     pendingMap.set(key, {
       key,
@@ -67,8 +67,8 @@ export default function PendingReviewDrawer({
       unitNumber: change.unit.unit_number,
       unit: change.unit,
       log: change.log,
-      milestoneName: mName,
-      milestoneColor: change.extraProps?.milestoneObj?.color || change.log?.status_color || '#94a3b8',
+      activityName: mName,
+      activityColor: change.extraProps?.activityObj?.color || change.log?.status_color || '#94a3b8',
       state: change.state,
       isTimeline: false,
       hasConflict: false,
@@ -76,7 +76,7 @@ export default function PendingReviewDrawer({
   });
 
   Object.entries(pendingTimelineChanges).forEach(([timelineKey, change]) => {
-    const mName = change.extraProps?.milestoneObj?.name || change.log?.milestone;
+    const mName = change.extraProps?.activityObj?.name || change.log?.activityName;
     const key = `${change.unit.id}_${mName}`;
     const existing = pendingMap.get(key);
     
@@ -86,11 +86,11 @@ export default function PendingReviewDrawer({
       unitNumber: change.unit.unit_number,
       unit: change.unit,
       log: change.log,
-      milestoneName: mName,
-      milestoneColor: change.extraProps?.milestoneObj?.color || change.log?.status_color || '#94a3b8',
+      activityName: mName,
+      activityColor: change.extraProps?.activityObj?.color || change.log?.status_color || '#94a3b8',
       state: change.state,
       isTimeline: true,
-      milestoneObj: change.extraProps?.milestoneObj,
+      activityObj: change.extraProps?.activityObj,
       hasConflict: !!existing,
     });
   });
@@ -146,8 +146,8 @@ export default function PendingReviewDrawer({
           return (
             <div key={item.key} className="mb-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
               <div className="flex items-center px-4 py-3 gap-3">
-                {/* Milestone Color Swatch */}
-                <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: item.milestoneColor }} />
+                {/* Activity Color Swatch */}
+                <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: item.activityColor }} />
                 
                 {/* Unit Info */}
                 <div className="flex flex-col flex-1 min-w-0">
@@ -155,7 +155,7 @@ export default function PendingReviewDrawer({
                     Unit {item.unitNumber}
                   </span>
                   <span className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 truncate">
-                    {item.milestoneName}
+                    {item.activityName}
                     {item.hasConflict && (
                       <span title="Timeline update overrides main card update">
                         <AlertTriangle size={12} className="text-amber-500" />
@@ -178,7 +178,7 @@ export default function PendingReviewDrawer({
                 {/* Remove Icon */}
                 <button
                   type="button"
-                  onClick={() => handleDrawerItemRemove(item.unitId, item.isTimeline ? item.milestoneName : null)}
+                  onClick={() => handleDrawerItemRemove(item.unitId, item.isTimeline ? item.activityName : null)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors"
                 >
                   <X size={16} />
@@ -203,7 +203,7 @@ export default function PendingReviewDrawer({
                             key={s}
                             type="button"
                             onClick={() => {
-                              handleStageUpdate(item.unit, item.log, s, item.isTimeline ? { milestoneObj: item.milestoneObj } : {}, item.isTimeline);
+                              handleStageUpdate(item.unit, item.log, s, item.isTimeline ? { activityObj: item.activityObj } : {}, item.isTimeline);
                               setActivePickerKey(null);
                             }}
                             className={`w-full min-h-[44px] flex items-center gap-3 px-4 rounded-xl font-black uppercase tracking-wider text-sm transition-all duration-150 active:scale-[0.98] shadow-sm ${sb.wrapper}`}

@@ -1,6 +1,38 @@
 import { get, set, del } from 'idb-keyval';
 import type { PendingChangesMap } from '@/types/domain';
 
+/**
+ * Back-compat for the milestone→activity rename: a queue persisted BEFORE the
+ * rename carries `extraProps.milestoneObj` and `log.milestone`. Map those onto
+ * the renamed fields (`activityObj` / `activityName`) on rehydrate so queued
+ * offline work captured pre-rename still replays correctly. New-format entries
+ * pass through untouched.
+ */
+function normalizeLegacyChanges(changes: PendingChangesMap): PendingChangesMap {
+  const out: PendingChangesMap = {};
+  for (const [key, change] of Object.entries(changes)) {
+    const extraProps = change.extraProps as Record<string, unknown> | undefined;
+    const legacyObj = extraProps && (extraProps as any).milestoneObj;
+    const log = change.log as Record<string, unknown> | null;
+    const legacyName = log && (log as any).milestone;
+    if (!legacyObj && legacyName === undefined) {
+      out[key] = change;
+      continue;
+    }
+    out[key] = {
+      ...change,
+      log: log
+        ? ({ ...log, activityName: (log as any).activityName ?? legacyName } as typeof change.log)
+        : change.log,
+      extraProps: {
+        ...extraProps,
+        activityObj: (extraProps as any)?.activityObj ?? legacyObj,
+      } as typeof change.extraProps,
+    };
+  }
+  return out;
+}
+
 // Keys are scoped to projectId to prevent cross-project contamination.
 // Each project's pending changes are stored independently in IndexedDB.
 const pendingKey = (projectId: string) => `sitepulse-pending-changes-${projectId}`;
@@ -41,7 +73,7 @@ export async function persistPendingTimelineChanges(projectId: string, changes: 
  */
 export async function loadPendingChanges(projectId: string): Promise<PendingChangesMap> {
   try {
-    return (await get<PendingChangesMap>(pendingKey(projectId))) || {};
+    return normalizeLegacyChanges((await get<PendingChangesMap>(pendingKey(projectId))) || {});
   } catch {
     return {};
   }
@@ -49,7 +81,7 @@ export async function loadPendingChanges(projectId: string): Promise<PendingChan
 
 export async function loadPendingTimelineChanges(projectId: string): Promise<PendingChangesMap> {
   try {
-    return (await get<PendingChangesMap>(timelineKey(projectId))) || {};
+    return normalizeLegacyChanges((await get<PendingChangesMap>(timelineKey(projectId))) || {});
   } catch {
     return {};
   }

@@ -31,7 +31,7 @@ export interface ContextActionDockProps {
   handleFlip?: (direction: 'horizontal' | 'vertical') => void;
   handleRotatePolygon?: (direction: 'left' | 'right') => void;
   onDeleteUnit?: (ids: string | string[] | null) => void;
-  onOpenMilestoneModal?: (id: string | null) => void;
+  onOpenActivityModal?: (id: string | null) => void;
   onOpenStatusModal?: (id: string | null) => void;
   onOpenHistoryModal?: (id: string | null) => void;
   isLegendSelected?: boolean;
@@ -48,7 +48,7 @@ export default function ContextActionDock({
   handleFlip,
   handleRotatePolygon,
   onDeleteUnit,
-  onOpenMilestoneModal,
+  onOpenActivityModal,
   onOpenStatusModal,
   onOpenHistoryModal,
   isLegendSelected,
@@ -106,7 +106,7 @@ export default function ContextActionDock({
       {/* Status/edit actions render only when their handler is supplied. The live
           map passes every handler (unchanged behavior); the Location Labeling
           Workbench passes none of them, so a selected label exposes only geometry
-          actions (flip/rotate) — never a status/milestone/history control. */}
+          actions (flip/rotate) — never a status/activity/history control. */}
       {isSingle && (
         <>
           <ActionButton
@@ -159,11 +159,11 @@ export default function ContextActionDock({
       />
       {isSingle && (
         <>
-          {onOpenMilestoneModal && (
+          {onOpenActivityModal && (
             <ActionButton
               icon={Flag}
-              label="Set Milestone"
-              onClick={() => onOpenMilestoneModal(targetId)}
+              label="Set Activity"
+              onClick={() => onOpenActivityModal(targetId)}
               colorClass="amber"
             />
           )}

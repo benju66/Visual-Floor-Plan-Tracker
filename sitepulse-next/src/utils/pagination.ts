@@ -4,7 +4,7 @@
  * Supabase's PostgREST API returns at most a fixed number of rows per request
  * (1000 by default). A single unbounded `.select().in(...)` therefore silently
  * truncates once a table grows past that cap — in the all-levels views this made
- * completed milestones on the dropped rows read back as "not started".
+ * completed activities on the dropped rows read back as "not started".
  *
  * `fetchPage(from, size)` must return the slice `[from, from + size)` under a
  * STABLE order (the caller adds `.order('id')`). It stops once a page comes back

@@ -1,11 +1,11 @@
 import React, { startTransition } from 'react';
 
-export default function QuickMilestoneModal({ isOpen, onClose, unitId, currentMilestoneId, milestones, onCommit }) {
-  const [selectedMilestoneId, setSelectedMilestoneId] = React.useState(currentMilestoneId);
+export default function QuickActivityModal({ isOpen, onClose, unitId, currentActivityId, activities, onCommit }) {
+  const [selectedActivityId, setSelectedActivityId] = React.useState(currentActivityId);
 
   React.useEffect(() => {
-    setSelectedMilestoneId(currentMilestoneId);
-  }, [currentMilestoneId, isOpen]);
+    setSelectedActivityId(currentActivityId);
+  }, [currentActivityId, isOpen]);
 
   if (!isOpen) return null;
 
@@ -18,21 +18,21 @@ export default function QuickMilestoneModal({ isOpen, onClose, unitId, currentMi
           borderRadius: '1.5rem',
         }}
       >
-        <h3 className="text-xl font-bold mb-4 text-slate-800 dark:text-slate-100">Select Milestone</h3>
+        <h3 className="text-xl font-bold mb-4 text-slate-800 dark:text-slate-100">Select Activity</h3>
         <div className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-          {milestones.length === 0 ? (
-             <div className="text-sm text-slate-500 italic p-4 text-center">No milestones available in this track.</div>
-          ) : milestones.map((milestone) => (
+          {activities.length === 0 ? (
+             <div className="text-sm text-slate-500 italic p-4 text-center">No activities available in this track.</div>
+          ) : activities.map((activity) => (
             <button
-              key={milestone.id}
-              onClick={() => setSelectedMilestoneId(milestone.name)}
-              className={`p-4 rounded-xl font-bold border-2 transition-all flex items-center gap-4 text-left ${selectedMilestoneId === milestone.name ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+              key={activity.id}
+              onClick={() => setSelectedActivityId(activity.name)}
+              className={`p-4 rounded-xl font-bold border-2 transition-all flex items-center gap-4 text-left ${selectedActivityId === activity.name ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
             >
               <div 
                 className="w-5 h-5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm" 
-                style={{ backgroundColor: milestone.color || milestone.status_color }} 
+                style={{ backgroundColor: activity.color || activity.status_color }} 
               />
-              <span className="flex-1 text-slate-800 dark:text-slate-200 text-lg">{milestone.name}</span>
+              <span className="flex-1 text-slate-800 dark:text-slate-200 text-lg">{activity.name}</span>
             </button>
           ))}
         </div>
@@ -46,7 +46,7 @@ export default function QuickMilestoneModal({ isOpen, onClose, unitId, currentMi
           <button
             onClick={() => { 
               startTransition(() => {
-                onCommit(unitId, 'milestone', selectedMilestoneId); 
+                onCommit(unitId, 'activity', selectedActivityId); 
               });
               onClose(); 
             }}

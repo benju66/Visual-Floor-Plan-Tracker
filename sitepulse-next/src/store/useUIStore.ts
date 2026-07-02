@@ -31,8 +31,8 @@ export interface UIState {
   confirmModal: ConfirmModal | null;
   setConfirmModal: (val: Updater<ConfirmModal | null>) => void;
 
-  milestoneMenu: string | null;
-  setMilestoneMenu: (val: Updater<string | null>) => void;
+  activityMenu: string | null;
+  setActivityMenu: (val: Updater<string | null>) => void;
 
   unitNamingOpen: boolean;
   setUnitNamingOpen: (val: Updater<boolean>) => void;
@@ -74,8 +74,8 @@ export const useUIStore = create<UIState>()(
       confirmModal: null,
       setConfirmModal: (val) => set((state) => ({ confirmModal: typeof val === 'function' ? val(state.confirmModal) : val })),
 
-      milestoneMenu: null,
-      setMilestoneMenu: (val) => set((state) => ({ milestoneMenu: typeof val === 'function' ? val(state.milestoneMenu) : val })),
+      activityMenu: null,
+      setActivityMenu: (val) => set((state) => ({ activityMenu: typeof val === 'function' ? val(state.activityMenu) : val })),
 
       unitNamingOpen: false,
       setUnitNamingOpen: (val) => set((state) => ({ unitNamingOpen: typeof val === 'function' ? val(state.unitNamingOpen) : val })),

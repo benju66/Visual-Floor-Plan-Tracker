@@ -110,7 +110,7 @@ export function useApplyPlaybook(projectId: string) {
       return { created: rows.length, edges: edgeRows.length };
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.milestones(projectId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.activityDependencies(projectId) });
     },
   });

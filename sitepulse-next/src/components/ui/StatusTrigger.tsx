@@ -1,13 +1,13 @@
 "use client";
 import React from 'react';
 import { StatusSegments } from './FieldStatusAtoms';
-import type { Unit, StatusLog, PendingChange, TemporalState, Milestone } from '@/types/domain';
+import type { Unit, StatusLog, PendingChange, TemporalState, Activity } from '@/types/domain';
 
 export interface StatusTriggerProps {
   unit: Unit;
   baseLog: StatusLog | null;
   pendingChange?: PendingChange;
-  onChooseStatus?: (unit: Unit, onSelect: (m: Partial<Milestone>) => void) => void;
+  onChooseStatus?: (unit: Unit, onSelect: (m: Partial<Activity>) => void) => void;
   onLocalUpdate: (unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps?: Record<string, any>) => void;
   isApplying?: boolean;
   savingUnitId?: string | null;
@@ -18,7 +18,7 @@ export interface StatusTriggerProps {
 
 /**
  * Pure presentational component — no Zustand imports.
- * Renders the milestone picker button + temporal state select for a unit row.
+ * Renders the activity picker button + temporal state select for a unit row.
  */
 export default function StatusTrigger({
   unit,
@@ -32,7 +32,7 @@ export default function StatusTrigger({
   statusTrailing,
 }: StatusTriggerProps) {
   const log = pendingChange ? { ...baseLog, temporal_state: pendingChange.state } : baseLog;
-  const currentMilestone = pendingChange?.extraProps?.milestoneObj?.name || log?.milestone || '';
+  const currentActivity = pendingChange?.extraProps?.activityObj?.name || log?.activityName || '';
 
   return (
     <div className="flex flex-col gap-2 w-full">
@@ -41,20 +41,20 @@ export default function StatusTrigger({
         onClick={(e) => {
           e.stopPropagation();
           onChooseStatus?.(unit, (m) =>
-            onLocalUpdate(unit, baseLog, pendingChange?.state || (log?.temporal_state as TemporalState) || 'completed', { milestoneObj: m })
+            onLocalUpdate(unit, baseLog, pendingChange?.state || (log?.temporal_state as TemporalState) || 'completed', { activityObj: m })
           );
         }}
         disabled={savingUnitId === unit.id || isApplying}
         className={`w-full text-left rounded-xl border ${
-          pendingChange?.extraProps?.milestoneObj
+          pendingChange?.extraProps?.activityObj
             ? 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-500/20'
             : 'border-slate-200/80 dark:border-white/10'
         } bg-white/40 dark:bg-black/15 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm transition hover:bg-white/70 dark:hover:bg-black/25 disabled:opacity-50 ${large ? 'py-3 text-base' : ''}`}
       >
-        {currentMilestone || 'Choose status…'}
+        {currentActivity || 'Choose status…'}
       </button>
 
-      {currentMilestone && (
+      {currentActivity && (
         <div className="flex items-center gap-2">
           <StatusSegments
             value={(log?.temporal_state as TemporalState) || 'none'}
@@ -62,7 +62,7 @@ export default function StatusTrigger({
             disabled={savingUnitId === unit.id || isApplying}
             pending={!!pendingChange && pendingChange.state !== baseLog?.temporal_state}
             size={large ? 'lg' : 'sm'}
-            ariaLabel={`Status for ${currentMilestone}`}
+            ariaLabel={`Status for ${currentActivity}`}
           />
           {statusTrailing}
         </div>

@@ -6,7 +6,7 @@ import FieldStatusTable from '@/components/FieldStatusTable';
 import ScheduleWorkspace from '@/components/schedule/ScheduleWorkspace';
 import LookaheadWorkspace from '@/lookahead/LookaheadWorkspace';
 import BulkActionDock from '@/components/BulkActionDock';
-import MilestoneCommandMenu from '@/components/MilestoneCommandMenu';
+import ActivityCommandMenu from '@/components/ActivityCommandMenu';
 import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import ProjectDashboard from '@/components/ProjectDashboard';
@@ -15,9 +15,9 @@ import { supabase } from '@/supabaseClient';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
-import { useProject, useSheets, useMilestones, useUnits, useStatuses, useCurrentUserRole, useSnappingVectors, useMilestoneOverrides, useSetMilestoneApplicability, useBulkSetApplicability } from '@/hooks/useProjectQueries';
+import { useProject, useSheets, useActivities, useUnits, useStatuses, useCurrentUserRole, useSnappingVectors, useActivityOverrides, useSetActivityApplicability, useBulkSetApplicability } from '@/hooks/useProjectQueries';
 import { useSubtypes } from '@/hooks/useSubtypes';
-import { buildApplicabilityIndex, isMilestoneApplicable } from '@/utils/applicability';
+import { buildApplicabilityIndex, isActivityApplicable } from '@/utils/applicability';
 import { deriveBottleneckStatuses } from '@/utils/bottleneck';
 import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
@@ -32,7 +32,7 @@ import MapHorizontalToolbar from '@/components/MapHorizontalToolbar';
 import AddLevelModal from '@/components/AddLevelModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import QuickStatusModal from '@/components/QuickStatusModal';
-import QuickMilestoneModal from '@/components/QuickMilestoneModal';
+import QuickActivityModal from '@/components/QuickActivityModal';
 import { exportToPDFService, uploadFloorplanService, attachOriginalService } from '@/services/api';
 import { prefetchOriginalPdfs } from '@/utils/pdfSource';
 
@@ -59,8 +59,8 @@ function App() {
   
   const temporalFilters = useSettingsStore(s => s.temporalFilters);
   const setTemporalFilters = useSettingsStore(s => s.setTemporalFilters);
-  const filterMilestone = useSettingsStore(s => s.filterMilestone);
-  const setFilterMilestone = useSettingsStore(s => s.setFilterMilestone);
+  const filterActivity = useSettingsStore(s => s.filterActivity);
+  const setFilterActivity = useSettingsStore(s => s.setFilterActivity);
   
   const settings = useHydratedStore(s => s.settings, { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' });
 
@@ -157,28 +157,28 @@ function App() {
   }, [roleLoaded, currentUserRole, projectId, queryClient]);
 
   const { data: sheets = [], isSuccess: isSheetsLoaded } = useSheets(projectId);
-  const { data: milestones = [] } = useMilestones(projectId);
+  const { data: activities = [] } = useActivities(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
-  const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), milestones);
+  const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), activities);
   const { isFetching: isSnappingLoading } = useSnappingVectors(activeSheetId);
-  const { data: milestoneOverrides = [] } = useMilestoneOverrides(projectId);
+  const { data: activityOverrides = [] } = useActivityOverrides(projectId);
   const { data: subtypes = [] } = useSubtypes();
 
-  // Single source of truth for "does milestone M apply to unit U" —
+  // Single source of truth for "does activity M apply to unit U" —
   // unit-type rules + per-unit overrides resolved via src/utils/applicability.ts
   const applicabilityIndex = useMemo(
-    () => buildApplicabilityIndex(milestones, milestoneOverrides),
-    [milestones, milestoneOverrides]
+    () => buildApplicabilityIndex(activities, activityOverrides),
+    [activities, activityOverrides]
   );
 
-  const setApplicabilityMutation = useSetMilestoneApplicability(projectId);
+  const setApplicabilityMutation = useSetActivityApplicability(projectId);
   const bulkApplicabilityMutation = useBulkSetApplicability(projectId);
 
   // Bottleneck/current-status derivation lives in src/utils/bottleneck.ts so the Map,
   // the level-scoped List, and the all-levels List all compute "current work" identically.
   const mapDisplayStatuses = useMemo(
-    () => deriveBottleneckStatuses({ units, statuses: activeStatuses, milestones, trackingMode, applicabilityIndex }),
-    [units, activeStatuses, milestones, trackingMode, applicabilityIndex]
+    () => deriveBottleneckStatuses({ units, statuses: activeStatuses, activities, trackingMode, applicabilityIndex }),
+    [units, activeStatuses, activities, trackingMode, applicabilityIndex]
   );
 
   // Auto-select first available sheet to prevent invalid UI mounting or empty cache fallbacks
@@ -222,7 +222,7 @@ function App() {
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,
-    quickMilestoneUnitId, setQuickMilestoneUnitId,
+    quickActivityUnitId, setQuickActivityUnitId,
     pendingPolygonPoints, setPendingPolygonPoints,
     toast, setToast,
     handlePolygonComplete,
@@ -235,7 +235,7 @@ function App() {
     handleDeleteUnit,
     handleDeleteUnits,
     handleUpdateUnitIconOffset,
-    commitUnitMilestone,
+    commitUnitActivity,
     handleQuickUpdate,
     handleApplyBulkStatus,
     isPendingBulk
@@ -252,9 +252,9 @@ function App() {
     handleRenameSheet,
     handleDeleteSheet,
     handleReorderSheets,
-    handleAddMilestone,
-    handleUpdateMilestone,
-    handleDeleteMilestone
+    handleAddActivity,
+    handleUpdateActivity,
+    handleDeleteActivity
   } = useProjectActions(project, sheets, projectId);
 
   const isSettingsOpen = useUIStore(s => s.isSettingsOpen);
@@ -262,8 +262,8 @@ function App() {
   const isProjectMenuOpen = useUIStore(s => s.isProjectMenuOpen);
   const setIsProjectMenuOpen = useUIStore(s => s.setIsProjectMenuOpen);
   const listRefs = useRef({});
-  const milestoneMenu = useUIStore(s => s.milestoneMenu);
-  const setMilestoneMenu = useUIStore(s => s.setMilestoneMenu);
+  const activityMenu = useUIStore(s => s.activityMenu);
+  const setActivityMenu = useUIStore(s => s.setActivityMenu);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
@@ -282,7 +282,7 @@ function App() {
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selectedUnitIds, toolMode, confirmModal, isModalOpen, isSettingsOpen, isProjectMenuOpen, quickStatusUnitId, historyModalUnitId, unitNamingOpen, quickMilestoneUnitId]);
+  }, [selectedUnitIds, toolMode, confirmModal, isModalOpen, isSettingsOpen, isProjectMenuOpen, quickStatusUnitId, historyModalUnitId, unitNamingOpen, quickActivityUnitId]);
 
   useEffect(() => {
     if (toast) {
@@ -313,7 +313,7 @@ function App() {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        setMilestoneMenu({ mode: 'filter' });
+        setActivityMenu({ mode: 'filter' });
       }
     };
     document.addEventListener('keydown', onKey);
@@ -330,11 +330,11 @@ function App() {
 
   // Per-unit N/A toggle. Marking a slot N/A when it already has recorded
   // status asks for confirmation — history is kept but leaves all progress math.
-  const handleToggleApplicability = (unit, milestone, isApplicable, currentState) => {
-    const commit = () => setApplicabilityMutation.mutate({ milestoneId: milestone.id, unitId: unit.id, isApplicable });
+  const handleToggleApplicability = (unit, activity, isApplicable, currentState) => {
+    const commit = () => setApplicabilityMutation.mutate({ activityId: activity.id, unitId: unit.id, isApplicable });
     if (!isApplicable && currentState && currentState !== 'none') {
       setConfirmModal({
-        message: `"${milestone.name}" already has recorded status for ${unit.unit_number}. Mark it Not Applicable anyway? Existing history is kept but excluded from progress.`,
+        message: `"${activity.name}" already has recorded status for ${unit.unit_number}. Mark it Not Applicable anyway? Existing history is kept but excluded from progress.`,
         onConfirm: () => { commit(); setConfirmModal(null); }
       });
     } else {
@@ -342,8 +342,8 @@ function App() {
     }
   };
 
-  const handleBulkApplicability = (milestoneId, unitIds, isApplicable) => {
-    bulkApplicabilityMutation.mutate({ milestoneId, unitIds, isApplicable }, {
+  const handleBulkApplicability = (activityId, unitIds, isApplicable) => {
+    bulkApplicabilityMutation.mutate({ activityId, unitIds, isApplicable }, {
       onSuccess: () => showToast(`${unitIds.length} location(s) updated.`, 'success'),
       onError: (err) => showToast('Error updating applicability: ' + err.message, 'error')
     });
@@ -369,7 +369,7 @@ function App() {
         return {
           unit_id: u.id,
           unit_number: u.unit_number,
-          status: stat ? stat.milestone : 'Not Started',
+          status: stat ? stat.activityName : 'Not Started',
           color: color,
           temporal_state: stat ? tState : 'completed',
           points: u.polygon_coordinates
@@ -392,14 +392,14 @@ function App() {
         units.some(u => u.id === s.unit_id)
       );
 
-      const uniqueMilestoneNames = [...new Set(matchingStatuses.map(s => s.milestone))];
-      
-      const active_milestones = uniqueMilestoneNames.map(name => {
-        const milestoneDef = milestones.find(m => m.name === name);
-        const log = matchingStatuses.find(s => s.milestone === name);
+      const uniqueActivityNames = [...new Set(matchingStatuses.map(s => s.activityName))];
+
+      const activeLegendActivities = uniqueActivityNames.map(name => {
+        const activityDef = activities.find(a => a.name === name);
+        const log = matchingStatuses.find(s => s.activityName === name);
         return {
           name: name,
-          color: milestoneDef?.color || milestoneDef?.status_color || log?.status_color || '#cccccc'
+          color: activityDef?.color || activityDef?.status_color || log?.status_color || '#cccccc'
         };
       });
 
@@ -409,7 +409,11 @@ function App() {
         pctX: legendPosition.pctX,
         pctY: legendPosition.pctY,
         scaleX: legendPosition.scaleX,
-        active_milestones: active_milestones,
+        active_activities: activeLegendActivities,
+        // Legacy wire key, sent alongside for one deploy cycle: the backend
+        // prefers `active_activities` but an older backend build only reads
+        // this. Drop once the renamed backend is confirmed live on Render.
+        active_milestones: activeLegendActivities,
         active_temporal_states: activeTemporalStates
       };
     }
@@ -439,17 +443,17 @@ function App() {
 
 
 
-  const handleMilestoneMenuSelect = (m) => {
-    if (milestoneMenu?.mode === 'filter') {
-      setFilterMilestone(m.name);
-    } else if (milestoneMenu?.mode === 'unit') {
-      if (milestoneMenu.onSelect) {
-        milestoneMenu.onSelect(m);
+  const handleActivityMenuSelect = (m) => {
+    if (activityMenu?.mode === 'filter') {
+      setFilterActivity(m.name);
+    } else if (activityMenu?.mode === 'unit') {
+      if (activityMenu.onSelect) {
+        activityMenu.onSelect(m);
       } else {
-        void commitUnitMilestone(milestoneMenu.unit, m);
+        void commitUnitActivity(activityMenu.unit, m);
       }
     }
-    setMilestoneMenu(null);
+    setActivityMenu(null);
   };
 
 
@@ -480,7 +484,7 @@ function App() {
         setActiveSheetId={setActiveSheetId}
         setIsModalOpen={setIsModalOpen}
         setIsProjectMenuOpen={setIsProjectMenuOpen}
-        setMilestoneMenu={setMilestoneMenu}
+        setActivityMenu={setActivityMenu}
         trackingMode={trackingMode}
         setTrackingMode={setTrackingMode}
         viewMode={viewMode}
@@ -501,7 +505,7 @@ function App() {
             <ProjectDashboard
               units={units}
               activeStatuses={activeStatuses}
-              milestones={milestones}
+              activities={activities}
               trackingMode={trackingMode}
               sheets={sheets}
               activeSheet={activeSheet}
@@ -514,10 +518,10 @@ function App() {
               activeStatuses={mapDisplayStatuses}
               rawStatuses={activeStatuses}
               savingUnitId={savingUnitId}
-              onChooseStatus={(unit, onSelect) => setMilestoneMenu({ mode: 'unit', unit, onSelect })}
+              onChooseStatus={(unit, onSelect) => setActivityMenu({ mode: 'unit', unit, onSelect })}
               onApplyPendingChanges={async (changesArray) => {
                  for (const c of changesArray) {
-                    await commitUnitMilestone(c.unit, c.extraProps?.milestoneObj || { id: c.log?.activity_id, name: c.log?.milestone, color: c.log?.status_color, track: trackingMode }, c.state, false, { ...c.extraProps, client_timestamp: c.capturedAt });
+                    await commitUnitActivity(c.unit, c.extraProps?.activityObj || { id: c.log?.activity_id, name: c.log?.activityName, color: c.log?.status_color, track: trackingMode }, c.state, false, { ...c.extraProps, client_timestamp: c.capturedAt });
                  }
               }}
               sheets={sheets}
@@ -535,15 +539,15 @@ function App() {
             <ScheduleWorkspace
               units={units}
               rawStatuses={activeStatuses}
-              milestones={milestones}
+              activities={activities}
               applicabilityIndex={applicabilityIndex}
               sheets={sheets}
               activeSheetId={activeSheetId}
               settings={settings}
               onUpdateSettings={setSettings}
-              onAddMilestone={handleAddMilestone}
-              onUpdateMilestone={handleUpdateMilestone}
-              onDeleteMilestone={handleDeleteMilestone}
+              onAddActivity={handleAddActivity}
+              onUpdateActivity={handleUpdateActivity}
+              onDeleteActivity={handleDeleteActivity}
             />
           </div>
         ) : viewMode === 'lookahead' ? (
@@ -588,7 +592,7 @@ function App() {
                   onPendingPolygonComplete={handlePolygonComplete}
                   showTooltip={settings.showTooltips}
                   onOpenStatusModal={(id) => setQuickStatusUnitId(id)}
-                  onOpenMilestoneModal={(id) => setQuickMilestoneUnitId(id)}
+                  onOpenActivityModal={(id) => setQuickActivityUnitId(id)}
                   applicabilityIndex={applicabilityIndex}
                 />
                 </>
@@ -636,9 +640,9 @@ function App() {
               style={{ '--sidebar-width': `${sidebarWidth}px` }}
             >
               <MapSidebar
-              milestones={milestones}
-              filterMilestone={filterMilestone}
-              setFilterMilestone={setFilterMilestone}
+              activities={activities}
+              filterActivity={filterActivity}
+              setFilterActivity={setFilterActivity}
               temporalFilters={temporalFilters}
               setTemporalFilters={setTemporalFilters}
               activeSheet={activeSheet}
@@ -648,7 +652,7 @@ function App() {
               onRenameUnitInitiate={handleRenameUnitInitiate}
               onDeleteUnit={handleDeleteUnit}
               onLocateUnit={(unitId) => floorplanRef.current?.zoomToFit(unitId)}
-              onCommitStatus={(unit, milestone, state, extraProps) => commitUnitMilestone(unit, milestone, state, false, extraProps)}
+              onCommitStatus={(unit, activity, state, extraProps) => commitUnitActivity(unit, activity, state, false, extraProps)}
               onToggleApplicability={handleToggleApplicability}
               onOpenHistory={setHistoryModalUnitId}
             />
@@ -657,21 +661,21 @@ function App() {
         )}
       </div>
 
-      <MilestoneCommandMenu
-        open={milestoneMenu !== null}
-        onOpenChange={(open) => !open && setMilestoneMenu(null)}
+      <ActivityCommandMenu
+        open={activityMenu !== null}
+        onOpenChange={(open) => !open && setActivityMenu(null)}
         title={
-          milestoneMenu?.mode === 'unit'
-            ? `Status — Location ${milestoneMenu.unit.unit_number}`
-            : 'Filter & search milestones'
+          activityMenu?.mode === 'unit'
+            ? `Status — Location ${activityMenu.unit.unit_number}`
+            : 'Filter & search activities'
         }
         description={
-          milestoneMenu?.mode === 'filter'
+          activityMenu?.mode === 'filter'
             ? 'Pick one to filter the map and field list. Use Ctrl+K anytime.'
             : 'Search and press Enter to save this location’s status.'
         }
-        milestones={milestones.filter(m => m.track === trackingMode)}
-        onSelect={handleMilestoneMenuSelect}
+        activities={activities.filter(m => m.track === trackingMode)}
+        onSelect={handleActivityMenuSelect}
       />
 
       {/* Map-only: the List/Schedule views use their own controls instead. */}
@@ -679,7 +683,7 @@ function App() {
         <BulkActionDock
           selectedUnitIds={selectedUnitIds}
           onClearSelection={clearSelectedUnits}
-          milestones={milestones}
+          activities={activities}
           onApplyBulkStatus={(params) => {
             const bottlenecks = selectedUnitIds.map(id => mapDisplayStatuses.find(s => s.unit_id === id && s.track === trackingMode)).filter(Boolean);
             handleApplyBulkStatus({ ...params, bottlenecks });
@@ -719,22 +723,22 @@ function App() {
         onCommit={(unitId, type, val, extraProps = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
-             extraProps.milestoneObj = { id: bottleneck.activity_id, name: bottleneck.milestone, color: bottleneck.status_color, track: trackingMode };
+             extraProps.activityObj = { id: bottleneck.activity_id, name: bottleneck.activityName, color: bottleneck.status_color, track: trackingMode };
           }
           handleQuickUpdate(unitId, type, val, extraProps);
         }}
       />
 
-      <QuickMilestoneModal
-        isOpen={!!quickMilestoneUnitId}
-        onClose={() => setQuickMilestoneUnitId(null)}
-        unitId={quickMilestoneUnitId}
-        currentMilestoneId={
-          quickMilestoneUnitId
-            ? (mapDisplayStatuses.find(s => s.unit_id === quickMilestoneUnitId && s.track === trackingMode)?.milestone || null)
+      <QuickActivityModal
+        isOpen={!!quickActivityUnitId}
+        onClose={() => setQuickActivityUnitId(null)}
+        unitId={quickActivityUnitId}
+        currentActivityId={
+          quickActivityUnitId
+            ? (mapDisplayStatuses.find(s => s.unit_id === quickActivityUnitId && s.track === trackingMode)?.activityName || null)
             : null
         }
-        milestones={milestones.filter(m => m.track === trackingMode)}
+        activities={activities.filter(m => m.track === trackingMode)}
         onCommit={(unitId, type, val, extraProps = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
@@ -750,7 +754,7 @@ function App() {
         unitId={historyModalUnitId}
         unitNumber={targetHistoryUnit?.unit_number}
         unitType={targetHistoryUnit?.unit_type}
-        milestones={milestones}
+        activities={activities}
         trackingMode={trackingMode}
         currentStatuses={activeStatuses}
         applicabilityIndex={applicabilityIndex}
@@ -783,7 +787,7 @@ function App() {
         colorMode={colorMode}
         setColorMode={setColorMode}
         onAttachOriginal={handleAttachOriginal}
-        milestones={milestones}
+        activities={activities}
         mapSettings={mapSettings}
         onUpdateMapSettings={setMapSettings}
         sheets={sheets}

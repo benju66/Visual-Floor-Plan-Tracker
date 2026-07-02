@@ -4,7 +4,7 @@ import { Flag, Plus, Trash2, Pencil, GripVertical, X, CornerDownRight, Link2, Bo
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useProject, useCurrentUserRole, useReorderMilestones, useUpdateMilestoneRules } from '@/hooks/useProjectQueries';
+import { useProject, useCurrentUserRole, useReorderActivities, useUpdateActivityRules } from '@/hooks/useProjectQueries';
 import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
 import { useActivityScopes } from '@/hooks/useActivityScopes';
 import { activeScopeNames } from '@/utils/activityScopes';
@@ -16,11 +16,11 @@ import ActivityDictionaryField from '@/components/ActivityDictionaryField';
 import ScopeCombobox from './ScopeCombobox';
 import { useUIStore } from '@/store/useUIStore';
 import { getAppliesTo } from '@/types/domain';
-import type { Milestone, ActivityDependency, ActivityDictionaryEntry, ActivityType, ProjectType } from '@/types/domain';
+import type { Activity, ActivityDependency, ActivityDictionaryEntry, ActivityType, ProjectType } from '@/types/domain';
 import type { AppSettings } from '@/store/useSettingsStore';
 
 interface SortableActivityItemProps {
-  m: Milestone;
+  m: Activity;
   canEdit: boolean;
   editingId: string | null;
   editName: string;
@@ -35,17 +35,17 @@ interface SortableActivityItemProps {
   setEditLagDays: (v: string) => void;
   projectUnitTypes: string[];
   /** Same-track activities eligible as a predecessor (self + cycles excluded). */
-  predecessorOptions: Milestone[];
+  predecessorOptions: Activity[];
   dependency: ActivityDependency | null;
   dependencyText: string | null;
-  onBeginEdit: (m: Milestone) => void;
-  onSave: (m: Milestone) => void;
-  onDelete: (m: Milestone) => void;
+  onBeginEdit: (m: Activity) => void;
+  onSave: (m: Activity) => void;
+  onDelete: (m: Activity) => void;
 }
 
 /**
  * One activity row in the Schedule view's manager (moved here from the Settings
- * "Milestones" tab in Phase 3a — Settings no longer owns activity management).
+ * "Activities" tab in Phase 3a — Settings no longer owns activity management).
  * Collapsed: color dot, name, applies-to count, dictionary Linked/Review badge,
  * and the FS-dependency chip. Editing: name/color, applies-to chips, and the
  * Phase 3b predecessor picker + lag (coarse FS-only — no CPM).
@@ -195,12 +195,12 @@ function SortableActivityItem({
 export interface ActivityManagerPanelProps {
   projectId: string;
   /** The full project activity list (all tracks). */
-  milestones: Milestone[];
+  activities: Activity[];
   settings: AppSettings;
   onUpdateSettings: (settings: AppSettings) => void;
-  onAddMilestone?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
-  onUpdateMilestone?: (id: string, oldName: string, newName: string, newColor: string) => void;
-  onDeleteMilestone?: (id: string) => void;
+  onAddActivity?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
+  onUpdateActivity?: (id: string, oldName: string, newName: string, newColor: string) => void;
+  onDeleteActivity?: (id: string) => void;
   /** Seed the active scope tab (usually the map's trackingMode). */
   initialTrack?: string;
   onClose: () => void;
@@ -209,20 +209,20 @@ export interface ActivityManagerPanelProps {
 /**
  * The activity-management home (Scheduling Foundation Slice A, Phase 3a). This
  * panel — scopes of work, auto-advance, the dictionary-backed add row, and the
- * drag-sortable activity list — MOVED here from the Settings "Milestones" tab so
+ * drag-sortable activity list — MOVED here from the Settings "Activities" tab so
  * the Schedule view is the single place a project's activities are built and
- * sequenced. It reuses the existing hooks (useReorderMilestones,
- * useUpdateMilestoneRules, useProjectActions handlers via props) — no forks.
+ * sequenced. It reuses the existing hooks (useReorderActivities,
+ * useUpdateActivityRules, useProjectActions handlers via props) — no forks.
  * Writes are RLS-enforced (owner/admin/pm); `canEdit` only hides the controls.
  */
 export default function ActivityManagerPanel({
   projectId,
-  milestones,
+  activities,
   settings,
   onUpdateSettings,
-  onAddMilestone,
-  onUpdateMilestone,
-  onDeleteMilestone,
+  onAddActivity,
+  onUpdateActivity,
+  onDeleteActivity,
   initialTrack,
   onClose,
 }: ActivityManagerPanelProps) {
@@ -268,7 +268,7 @@ export default function ActivityManagerPanel({
     );
   };
 
-  const baseScopes = [...new Set(milestones.map(m => m.track))];
+  const baseScopes = [...new Set(activities.map(m => m.track))];
   if (baseScopes.length === 0) baseScopes.push('Production');
 
   const [activeTrack, setActiveTrack] = useState(
@@ -319,8 +319,8 @@ export default function ActivityManagerPanel({
   const [editPredecessorId, setEditPredecessorId] = useState('');
   const [editLagDays, setEditLagDays] = useState('0');
 
-  const reorderMilestonesMutation = useReorderMilestones(projectId);
-  const updateMilestoneRulesMutation = useUpdateMilestoneRules(projectId);
+  const reorderActivitiesMutation = useReorderActivities(projectId);
+  const updateActivityRulesMutation = useUpdateActivityRules(projectId);
   const { data: dependencies = [] } = useActivityDependencies(projectId);
   const setPredecessorMutation = useSetActivityPredecessor(projectId);
 
@@ -331,11 +331,11 @@ export default function ActivityManagerPanel({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const currentScopeActivities = milestones
+  const currentScopeActivities = activities
     .filter(m => m.track === activeTrack)
     .sort((a, b) => (a.sequence_order || 0) - (b.sequence_order || 0));
 
-  const nameById = useMemo(() => new Map(milestones.map(m => [m.id, m.name])), [milestones]);
+  const nameById = useMemo(() => new Map(activities.map(m => [m.id, m.name])), [activities]);
 
   // Add an activity from the governed dictionary: link it if the typed name matches an
   // entry by name OR alias (or one was picked from the dropdown); otherwise propose it as
@@ -353,7 +353,7 @@ export default function ActivityManagerPanel({
       : { kind: 'pending', name: trimmed, track: null };
     const fields = await activityPickToFields(result, vars => proposePendingActivity.mutateAsync(vars));
     // The activity keeps the scope tab the user is on; the dictionary track is only a hint.
-    onAddMilestone?.(fields.name, newActivityColor, activeTrack, fields.dictionary_id);
+    onAddActivity?.(fields.name, newActivityColor, activeTrack, fields.dictionary_id);
     setNewActivityName('');
     setSelectedDictEntry(null);
   };
@@ -365,11 +365,11 @@ export default function ActivityManagerPanel({
       const newIndex = currentScopeActivities.findIndex(m => m.id === over.id);
       const newArray = arrayMove(currentScopeActivities, oldIndex, newIndex);
       const updates = newArray.map((m, index) => ({ ...m, sequence_order: index }));
-      reorderMilestonesMutation.mutate(updates);
+      reorderActivitiesMutation.mutate(updates);
     }
   };
 
-  const beginEdit = (m: Milestone) => {
+  const beginEdit = (m: Activity) => {
     setEditingId(m.id);
     setEditName(m.name);
     setEditColor(m.color);
@@ -379,11 +379,11 @@ export default function ActivityManagerPanel({
     setEditLagDays(String(edge?.lag_days ?? 0));
   };
 
-  const saveEdit = (m: Milestone) => {
-    onUpdateMilestone?.(m.id, m.name, editName, editColor);
+  const saveEdit = (m: Activity) => {
+    onUpdateActivity?.(m.id, m.name, editName, editColor);
     const savedRule = getAppliesTo(m);
     if (JSON.stringify(editAppliesTo) !== JSON.stringify(savedRule)) {
-      updateMilestoneRulesMutation.mutate({ id: m.id, applies_to_unit_types: editAppliesTo });
+      updateActivityRulesMutation.mutate({ id: m.id, applies_to_unit_types: editAppliesTo });
     }
     const edge = predecessorEdgeFor(dependencies, m.id);
     const prevPred = edge?.predecessor_activity_id ?? '';
@@ -399,11 +399,11 @@ export default function ActivityManagerPanel({
     setEditingId(null);
   };
 
-  const confirmDelete = (m: Milestone) => {
+  const confirmDelete = (m: Activity) => {
     setConfirmModal({
       message: `Delete “${m.name}”? Its current status entries on locations are removed too (the audit history is kept).`,
       // ConfirmModal leaves closing to the callback — clear it before deleting.
-      onConfirm: () => { setConfirmModal(null); onDeleteMilestone?.(m.id); },
+      onConfirm: () => { setConfirmModal(null); onDeleteActivity?.(m.id); },
     });
   };
 
@@ -564,7 +564,7 @@ export default function ActivityManagerPanel({
       </div>
 
       {/* Save this project's activities as a reusable playbook (Phase 5 authoring) */}
-      {canEdit && milestones.length > 0 && (
+      {canEdit && activities.length > 0 && (
         <div className="border-t border-slate-200 dark:border-white/10 p-3">
           {!showSaveForm ? (
             <button

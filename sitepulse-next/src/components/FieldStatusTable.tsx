@@ -7,18 +7,18 @@ import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useManageStore } from '@/store/useManageStore';
 import { useFieldData } from '@/hooks/useFieldData';
-import { useMilestones, useAllProjectUnits, useAllProjectStatuses, useUpdateUnitFields, useProjectMembers, useProject } from '@/hooks/useProjectQueries';
+import { useActivities, useAllProjectUnits, useAllProjectStatuses, useUpdateUnitFields, useProjectMembers, useProject } from '@/hooks/useProjectQueries';
 import { useSubtypes, useProposePendingSubtype } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult } from '@/utils/subtypes';
 import WalkSequenceModal from './WalkSequenceModal';
 import dynamic from 'next/dynamic';
 import ManageToolbar from './manage/ManageToolbar';
-import BulkStatusBar, { CURRENT_MILESTONE, type BulkApplyArgs } from './manage/BulkStatusBar';
+import BulkStatusBar, { CURRENT_ACTIVITY, type BulkApplyArgs } from './manage/BulkStatusBar';
 import RenameLocationModal from './manage/RenameLocationModal';
-import { filterLocations, pivotRowsToMilestone, type LocationRow } from '@/utils/locationFilters';
+import { filterLocations, pivotRowsToActivity, type LocationRow } from '@/utils/locationFilters';
 import { buildBulkStatusChanges } from '@/utils/bulkStatus';
 import { deriveBottleneckStatuses } from '@/utils/bottleneck';
-import type { Sheet, Unit, Milestone, TemporalState, PendingChangesMap, StatusLog, ProjectType } from '@/types/domain';
+import type { Sheet, Unit, Activity, TemporalState, PendingChangesMap, StatusLog, ProjectType } from '@/types/domain';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 
 const MobileSwipeDeck = dynamic(() => import('./MobileSwipeDeck'), {
@@ -39,13 +39,13 @@ interface FieldStatusTableProps {
   activeStatuses?: any[];
   rawStatuses?: any[];
   savingUnitId?: string | null;
-  onChooseStatus?: (unitId: string, milestoneName: string, state: string, track: string) => void;
+  onChooseStatus?: (unitId: string, activityName: string, state: string, track: string) => void;
   onApplyPendingChanges?: (changes: import('@/types/domain').PendingChange[]) => Promise<void>;
   sheets?: Sheet[];
   activeSheetId: string;
   setActiveSheetId: (id: string) => void;
   applicabilityIndex?: ApplicabilityIndex;
-  onToggleApplicability?: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
+  onToggleApplicability?: (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
   onLocateUnit?: (unitId: string) => void;
   onDeleteUnit?: (unitId: string) => void;
   onDeleteUnits?: (ids: string[]) => void;
@@ -73,7 +73,7 @@ export default function FieldStatusTable({
   const clearSelectedUnits = useMapStore((s) => s.clearSelectedUnits);
   const trackingMode = useMapStore((s) => s.trackingMode);
   const setHistoryModalUnitId = useUIStore((s) => s.setHistoryModalUnitId);
-  const statusFilter = useSettingsStore((s) => s.filterMilestone);
+  const statusFilter = useSettingsStore((s) => s.filterActivity);
   const filters = useManageStore((s) => s.filters);
   const setFilters = useManageStore((s) => s.setFilters);
   const scope = useManageStore((s) => s.scope);
@@ -96,7 +96,7 @@ export default function FieldStatusTable({
 
   // --- All-levels scope: fetch cross-sheet data and derive each unit's current status ---
   const sheetIds = useMemo(() => sheets.map((s) => s.id), [sheets]);
-  const { data: allMilestones = [] } = useMilestones(projectId);
+  const { data: allActivities = [] } = useActivities(projectId);
   const { data: allUnits = [] } = useAllProjectUnits(scope === 'all' ? sheetIds : []);
   const allUnitIds = useMemo(() => allUnits.map((u) => u.id), [allUnits]);
   const { data: allStatuses = [] } = useAllProjectStatuses(scope === 'all' ? allUnitIds : []);
@@ -104,9 +104,9 @@ export default function FieldStatusTable({
   const allBottleneck = useMemo(
     () =>
       scope === 'all'
-        ? deriveBottleneckStatuses({ units: allUnits, statuses: allStatuses, milestones: allMilestones, trackingMode, applicabilityIndex })
+        ? deriveBottleneckStatuses({ units: allUnits, statuses: allStatuses, activities: allActivities, trackingMode, applicabilityIndex })
         : [],
-    [scope, allUnits, allStatuses, allMilestones, trackingMode, applicabilityIndex]
+    [scope, allUnits, allStatuses, allActivities, trackingMode, applicabilityIndex]
   );
 
   // Level scope uses the props from page.jsx (active sheet); all-levels uses the cross-sheet data.
@@ -127,7 +127,7 @@ export default function FieldStatusTable({
     units,
     projectUnitTypes,
     hasRehydrated,
-    currentMilestones,
+    currentActivities,
     ranked,
     visible,
     sortColumn,
@@ -148,32 +148,32 @@ export default function FieldStatusTable({
     handleApplyAll,
   } = useFieldData({ activeStatuses: effectiveActiveStatuses, onApplyPendingChanges, unitsOverride });
 
-  // --- Milestone focus (pivot) ---
-  // Picking a milestone in the toolbar no longer hides rows by their *current* (bottleneck)
-  // milestone. Instead the table pivots EVERY applicable location to that one milestone's status
-  // — answering "where does everyone stand on <milestone>?". Each row's `log` is swapped to the
-  // chosen milestone's current-state row (or a synthetic "not started" log when none exists yet),
+  // --- Activity focus (pivot) ---
+  // Picking an activity in the toolbar no longer hides rows by their *current* (bottleneck)
+  // activity. Instead the table pivots EVERY applicable location to that one activity's status
+  // — answering "where does everyone stand on <activity>?". Each row's `log` is swapped to the
+  // chosen activity's current-state row (or a synthetic "not started" log when none exists yet),
   // so the inline status control, date cells, the N/A toggle, and the edit/commit path all follow
-  // automatically. Locations for which the milestone is Not Applicable are dropped — it isn't part
-  // of their scope. The state-facet chips then apply to the chosen milestone, not the bottleneck.
-  const focusedMilestone = useMemo(
-    () => (filters.milestones[0] ? currentMilestones.find((m) => m.name === filters.milestones[0]) ?? null : null),
-    [filters.milestones, currentMilestones]
+  // automatically. Locations for which the activity is Not Applicable are dropped — it isn't part
+  // of their scope. The state-facet chips then apply to the chosen activity, not the bottleneck.
+  const focusedActivity = useMemo(
+    () => (filters.activities[0] ? currentActivities.find((m) => m.name === filters.activities[0]) ?? null : null),
+    [filters.activities, currentActivities]
   );
 
-  // unit_id → that unit's existing current-state row for the focused milestone, on the active track.
+  // unit_id → that unit's existing current-state row for the focused activity, on the active track.
   const focusedLogByUnit = useMemo(() => {
-    if (!focusedMilestone) return null;
+    if (!focusedActivity) return null;
     const map = new Map<string, StatusLog>();
     for (const log of effectiveRawStatuses as StatusLog[]) {
-      if (log.milestone === focusedMilestone.name && log.track === trackingMode) map.set(log.unit_id as string, log);
+      if (log.activityName === focusedActivity.name && log.track === trackingMode) map.set(log.unit_id as string, log);
     }
     return map;
-  }, [focusedMilestone, effectiveRawStatuses, trackingMode]);
+  }, [focusedActivity, effectiveRawStatuses, trackingMode]);
 
   // --- Manage workspace: layer the rich filters over the base (sorted) list ---
   // Build from `ranked` (the full sorted list), NOT `visible` — `visible` has the Map view's
-  // milestone filter and the mobile type filter already applied, which would silently narrow
+  // activity filter and the mobile type filter already applied, which would silently narrow
   // this desktop table (and, in focus mode, drop the completed locations we want to show). The
   // manage toolbar owns the desktop filters, so they are applied below via `filterLocations`.
   const baseRows: LocationRow[] = useMemo(
@@ -187,17 +187,17 @@ export default function FieldStatusTable({
   );
   const rows: LocationRow[] = useMemo(
     () =>
-      focusedMilestone
-        ? pivotRowsToMilestone(baseRows, focusedMilestone, focusedLogByUnit!, trackingMode, applicabilityIndex)
+      focusedActivity
+        ? pivotRowsToActivity(baseRows, focusedActivity, focusedLogByUnit!, trackingMode, applicabilityIndex)
         : baseRows,
-    [baseRows, focusedMilestone, focusedLogByUnit, trackingMode, applicabilityIndex]
+    [baseRows, focusedActivity, focusedLogByUnit, trackingMode, applicabilityIndex]
   );
 
-  // In focus mode every remapped row already carries the chosen milestone, so the milestone facet
+  // In focus mode every remapped row already carries the chosen activity, so the activity facet
   // in `filterLocations` is a no-op — drop it so it can't re-filter the pivot. Other facets stand.
   const manageFilters = useMemo(
-    () => (focusedMilestone ? { ...filters, milestones: [] } : filters),
-    [focusedMilestone, filters]
+    () => (focusedActivity ? { ...filters, activities: [] } : filters),
+    [focusedActivity, filters]
   );
   const manageVisible = useMemo(() => filterLocations(rows, manageFilters), [rows, manageFilters]);
 
@@ -235,32 +235,32 @@ export default function FieldStatusTable({
     };
     let changes: PendingChangesMap = {};
 
-    if (args.milestoneName === CURRENT_MILESTONE) {
-      // Group selected units by their own current (bottleneck) milestone, then reuse the builder.
-      const groups = new Map<string, { milestone: { id: string; name: string; color: string; track: string }; ids: string[] }>();
+    if (args.activityName === CURRENT_ACTIVITY) {
+      // Group selected units by their own current (bottleneck) activity, then reuse the builder.
+      const groups = new Map<string, { activity: { id: string; name: string; color: string; track: string }; ids: string[] }>();
       selectedUnitIds.forEach((id) => {
         const cur = (effectiveActiveStatuses as any[]).find((s) => s.unit_id === id && s.track === trackingMode);
-        const mName: string | undefined = cur?.milestone;
-        if (!mName) return;
-        if (!groups.has(mName)) {
-          groups.set(mName, { milestone: { id: cur.activity_id, name: mName, color: cur.status_color || '', track: trackingMode }, ids: [] });
+        const aName: string | undefined = cur?.activityName;
+        if (!aName) return;
+        if (!groups.has(aName)) {
+          groups.set(aName, { activity: { id: cur.activity_id, name: aName, color: cur.status_color || '', track: trackingMode }, ids: [] });
         }
-        groups.get(mName)!.ids.push(id);
+        groups.get(aName)!.ids.push(id);
       });
-      groups.forEach(({ milestone, ids }) => {
+      groups.forEach(({ activity, ids }) => {
         Object.assign(
           changes,
-          buildBulkStatusChanges({ unitIds: ids, units, currentLogs: effectiveRawStatuses, milestone, state: args.state, capturedAt, ...dateProps })
+          buildBulkStatusChanges({ unitIds: ids, units, currentLogs: effectiveRawStatuses, activity, state: args.state, capturedAt, ...dateProps })
         );
       });
     } else {
-      const m = currentMilestones.find((mm) => mm.name === args.milestoneName);
+      const m = currentActivities.find((mm) => mm.name === args.activityName);
       if (!m) return;
       changes = buildBulkStatusChanges({
         unitIds: selectedUnitIds,
         units,
         currentLogs: effectiveRawStatuses,
-        milestone: { id: m.id, name: m.name, color: m.color || '', track: trackingMode },
+        activity: { id: m.id, name: m.name, color: m.color || '', track: trackingMode },
         state: args.state,
         capturedAt,
         ...dateProps,
@@ -318,7 +318,7 @@ export default function FieldStatusTable({
           filters={filters}
           setFilters={setFilters}
           projectUnitTypes={projectUnitTypes}
-          milestones={currentMilestones}
+          activities={currentActivities}
           totalCount={rows.length}
           matchingCount={manageVisible.length}
           selectedCount={selectedUnitIds.length}
@@ -348,7 +348,7 @@ export default function FieldStatusTable({
           pendingCount={pendingCount}
           onChooseStatus={onChooseStatus}
           savingUnitId={savingUnitId}
-          currentMilestones={currentMilestones}
+          currentActivities={currentActivities}
           rawStatuses={rawStatuses}
           isApplying={isApplying}
           hasRehydrated={hasRehydrated}
@@ -383,7 +383,7 @@ export default function FieldStatusTable({
             handleSort={handleSort}
             handleTimelineUpdate={handleTimelineUpdate}
             rawStatuses={effectiveRawStatuses}
-            currentMilestones={currentMilestones}
+            currentActivities={currentActivities}
             pendingTimelineChanges={pendingTimelineChanges}
             trackingMode={trackingMode}
             applicabilityIndex={applicabilityIndex}
@@ -410,7 +410,7 @@ export default function FieldStatusTable({
       )}
       {!isDesktop && statusFilter && visible.length === 0 && (
         <p className="mt-4 text-center text-sm text-slate-500">
-          No locations match this milestone filter.
+          No locations match this activity filter.
         </p>
       )}
 
@@ -419,7 +419,7 @@ export default function FieldStatusTable({
         <BulkStatusBar
           selectedCount={selectedUnitIds.length}
           matchingCount={manageVisible.length}
-          milestones={currentMilestones}
+          activities={currentActivities}
           onApply={handleBulkApply}
           onSelectAllMatching={() => setSelectedUnitIds(manageVisible.map((r) => r.unit.id))}
           onClear={clearSelectedUnits}

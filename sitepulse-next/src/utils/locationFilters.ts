@@ -1,5 +1,5 @@
-import type { Unit, StatusLog, TemporalState, Milestone } from '@/types/domain';
-import { isMilestoneApplicable, type ApplicabilityIndex } from '@/utils/applicability';
+import type { Unit, StatusLog, TemporalState, Activity } from '@/types/domain';
+import { isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
 
 /**
  * Pure filtering + selection logic for the Locations & Status management workspace.
@@ -20,8 +20,8 @@ export interface ManageFilters {
   query: string;
   /** unit_type whitelist. Empty = all types. */
   types: string[];
-  /** Current-milestone name whitelist. Empty = all milestones. */
-  milestones: string[];
+  /** Current-activity name whitelist. Empty = all activities. */
+  activities: string[];
   /** Temporal-state facet whitelist. Empty = all states. */
   states: StateFacet[];
   /** assigned_to id whitelist; use UNASSIGNED for "no assignee". Empty = all. */
@@ -40,7 +40,7 @@ export interface LocationRow {
 
 /** A fresh, mutation-safe empty filter set (do not share a single reference across stores). */
 export function emptyFilters(): ManageFilters {
-  return { query: '', types: [], milestones: [], states: [], assignees: [], behindSchedule: false };
+  return { query: '', types: [], activities: [], states: [], assignees: [], behindSchedule: false };
 }
 
 /** True when the filter set imposes no constraints (every row passes). */
@@ -48,7 +48,7 @@ export function isEmptyFilters(f: ManageFilters): boolean {
   return (
     f.query.trim() === '' &&
     f.types.length === 0 &&
-    f.milestones.length === 0 &&
+    f.activities.length === 0 &&
     f.states.length === 0 &&
     f.assignees.length === 0 &&
     !f.behindSchedule
@@ -66,7 +66,7 @@ export function activeFilterCount(f: ManageFilters): number {
   let n = 0;
   if (f.query.trim() !== '') n++;
   if (f.types.length) n++;
-  if (f.milestones.length) n++;
+  if (f.activities.length) n++;
   if (f.states.length) n++;
   if (f.assignees.length) n++;
   if (f.behindSchedule) n++;
@@ -84,7 +84,7 @@ export function matchesFilters(row: LocationRow, f: ManageFilters): boolean {
 
   if (f.types.length && !f.types.includes(unit.unit_type ?? '')) return false;
 
-  if (f.milestones.length && !f.milestones.includes(log?.milestone ?? '')) return false;
+  if (f.activities.length && !f.activities.includes(log?.activityName ?? '')) return false;
 
   if (f.states.length && !f.states.includes(rowStateFacet(row))) return false;
 
@@ -110,31 +110,31 @@ export function selectAllMatchingIds(rows: LocationRow[], f: ManageFilters): str
 }
 
 /**
- * Pivot a base row list onto a single milestone ("focus mode").
+ * Pivot a base row list onto a single activity ("focus mode").
  *
- * Instead of hiding rows whose *current* (bottleneck) milestone differs, every applicable
- * location is rebound to the chosen milestone's current-state log — or a synthetic "not started"
+ * Instead of hiding rows whose *current* (bottleneck) activity differs, every applicable
+ * location is rebound to the chosen activity's current-state log — or a synthetic "not started"
  * log when that location has no row for it yet — so the table answers "where does everyone stand
- * on <milestone>?". Locations for which the milestone is Not Applicable are dropped (it isn't part
+ * on <activity>?". Locations for which the activity is Not Applicable are dropped (it isn't part
  * of their scope). `isBehind` is preserved from the bottleneck row: it stays a per-location signal.
  *
  * The synthetic log carries the four fields the inline status control + commit path read
- * (`unit_id`, `milestone`, `status_color`, `track`) so editing a not-started cell creates the row.
+ * (`unit_id`, `activityName`, `status_color`, `track`) so editing a not-started cell creates the row.
  */
-export function pivotRowsToMilestone(
+export function pivotRowsToActivity(
   rows: LocationRow[],
-  milestone: Pick<Milestone, 'id' | 'name' | 'color'>,
+  activity: Pick<Activity, 'id' | 'name' | 'color'>,
   logByUnit: Map<string, StatusLog>,
   track: string,
   applicabilityIndex?: ApplicabilityIndex | null
 ): LocationRow[] {
   const out: LocationRow[] = [];
   for (const r of rows) {
-    if (applicabilityIndex && !isMilestoneApplicable(milestone, r.unit, applicabilityIndex)) continue;
+    if (applicabilityIndex && !isActivityApplicable(activity, r.unit, applicabilityIndex)) continue;
     const log = (logByUnit.get(r.unit.id) ?? {
       unit_id: r.unit.id,
-      milestone: milestone.name,
-      status_color: milestone.color ?? '',
+      activityName: activity.name,
+      status_color: activity.color ?? '',
       track,
       temporal_state: 'none',
     }) as unknown as LocationRow['log'];

@@ -10,7 +10,7 @@ export interface CanvasContextMenuProps {
   handleFlip: (dir: 'horizontal' | 'vertical') => void;
   handleRotatePolygon?: (dir: 'left' | 'right', id: string) => void;
   onDeleteUnit?: (id: string) => void;
-  onOpenMilestoneModal?: (id: string) => void;
+  onOpenActivityModal?: (id: string) => void;
   onOpenStatusModal?: (id: string) => void;
   onOpenHistoryModal?: (id: string) => void;
 }
@@ -24,7 +24,7 @@ export default function CanvasContextMenu({
   handleFlip,
   handleRotatePolygon,
   onDeleteUnit,
-  onOpenMilestoneModal,
+  onOpenActivityModal,
   onOpenStatusModal,
   onOpenHistoryModal
 }: CanvasContextMenuProps) {
@@ -44,7 +44,7 @@ export default function CanvasContextMenu({
       {/* Each action renders only when its handler is supplied. The live map passes
           every handler (unchanged behavior); the Location Labeling Workbench passes
           none of the status/edit handlers, so the tracer's right-click menu surfaces
-          only the geometry actions — never a status/milestone/history control. */}
+          only the geometry actions — never a status/activity/history control. */}
       {onRenameUnit && (
         <button type="button" onClick={() => { onRenameUnit(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
           <Pencil size={16} className="text-sky-500" /> Rename Location
@@ -67,9 +67,9 @@ export default function CanvasContextMenu({
       <button type="button" onClick={() => { handleRotatePolygon?.('right', contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
         <RotateCw size={16} className="text-emerald-500" /> Rotate 90° Right
       </button>
-      {onOpenMilestoneModal && (
-        <button type="button" onClick={() => { onOpenMilestoneModal(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
-          <Flag size={16} className="text-amber-500" /> Change Milestone
+      {onOpenActivityModal && (
+        <button type="button" onClick={() => { onOpenActivityModal(contextMenu.unitId); setContextMenu(null); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors text-left">
+          <Flag size={16} className="text-amber-500" /> Change Activity
         </button>
       )}
       {onOpenStatusModal && (

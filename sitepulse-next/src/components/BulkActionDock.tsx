@@ -1,30 +1,30 @@
 import React, { useState } from 'react';
 import { X, Check } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
-import type { Milestone, StatusLog, TemporalState } from '@/types/domain';
+import type { Activity, StatusLog, TemporalState } from '@/types/domain';
 
 type BulkDockState = TemporalState | '__KEEP_EXISTING__' | '__MARK_NA__' | '__MARK_APPLICABLE__';
 
 export interface BulkActionDockProps {
   selectedUnitIds: string[] | null;
   onClearSelection: () => void;
-  milestones: Milestone[];
+  activities: Activity[];
   currentStatuses?: StatusLog[];
   onApplyBulkStatus: (payload: any) => void;
-  onApplyBulkApplicability?: (milestoneId: string, unitIds: string[], isApplicable: boolean) => void;
+  onApplyBulkApplicability?: (activityId: string, unitIds: string[], isApplicable: boolean) => void;
   isPending: boolean;
 }
 
 export default function BulkActionDock({
   selectedUnitIds,
   onClearSelection,
-  milestones,
+  activities,
   currentStatuses,
   onApplyBulkStatus,
   onApplyBulkApplicability,
   isPending
 }: BulkActionDockProps) {
-  const [selectedMilestone, setSelectedMilestone] = useState<string>('__KEEP_EXISTING__');
+  const [selectedActivity, setSelectedActivity] = useState<string>('__KEEP_EXISTING__');
   const [selectedState, setSelectedState] = useState<BulkDockState>('__KEEP_EXISTING__');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -33,18 +33,18 @@ export default function BulkActionDock({
   if (!selectedUnitIds || selectedUnitIds.length < 2) return null;
 
   const isApplicabilityAction = selectedState === '__MARK_NA__' || selectedState === '__MARK_APPLICABLE__';
-  // Applicability targets a specific milestone, not a status sentinel
-  const hasConcreteMilestone = selectedMilestone !== '__KEEP_EXISTING__' && selectedMilestone !== '__CLEAR__';
+  // Applicability targets a specific activity, not a status sentinel
+  const hasConcreteActivity = selectedActivity !== '__KEEP_EXISTING__' && selectedActivity !== '__CLEAR__';
 
   const handleApply = () => {
-    if (selectedMilestone === '__KEEP_EXISTING__' && selectedState === '__KEEP_EXISTING__') return;
+    if (selectedActivity === '__KEEP_EXISTING__' && selectedState === '__KEEP_EXISTING__') return;
 
     if (isApplicabilityAction) {
-      if (!hasConcreteMilestone) return;
-      const m = milestones.find(m => m.name === selectedMilestone && m.track === trackingMode);
+      if (!hasConcreteActivity) return;
+      const m = activities.find(m => m.name === selectedActivity && m.track === trackingMode);
       if (!m) return;
       onApplyBulkApplicability?.(m.id, selectedUnitIds, selectedState === '__MARK_APPLICABLE__');
-      setSelectedMilestone('__KEEP_EXISTING__');
+      setSelectedActivity('__KEEP_EXISTING__');
       setSelectedState('__KEEP_EXISTING__');
       setStartDate('');
       setEndDate('');
@@ -52,20 +52,20 @@ export default function BulkActionDock({
     }
 
     // Support "Clear all statuses" which wipes the records
-    let targetMilestone: string | null = selectedMilestone;
+    let targetActivity: string | null = selectedActivity;
     let targetColor: string | null = null;
 
-    if (selectedMilestone === '__CLEAR__') {
-      targetMilestone = null;
-    } else if (selectedMilestone !== '__KEEP_EXISTING__') {
-      const m = milestones.find(m => m.name === selectedMilestone);
-      targetMilestone = m?.name || null;
+    if (selectedActivity === '__CLEAR__') {
+      targetActivity = null;
+    } else if (selectedActivity !== '__KEEP_EXISTING__') {
+      const m = activities.find(m => m.name === selectedActivity);
+      targetActivity = m?.name || null;
       targetColor = m?.color || (m as any)?.status_color || null;
     }
 
     onApplyBulkStatus({
       unitIds: selectedUnitIds,
-      milestone: targetMilestone,
+      activityName: targetActivity,
       color: targetColor,
       temporal_state: selectedState,
       track: trackingMode,
@@ -74,7 +74,7 @@ export default function BulkActionDock({
     });
     
     // Clear selection after a successful application
-    setSelectedMilestone('__KEEP_EXISTING__');
+    setSelectedActivity('__KEEP_EXISTING__');
     setSelectedState('__KEEP_EXISTING__');
     setStartDate('');
     setEndDate('');
@@ -98,9 +98,9 @@ export default function BulkActionDock({
 
       <div className="flex items-center gap-2">
         <select
-          value={selectedMilestone}
+          value={selectedActivity}
           onChange={(e) => {
-            setSelectedMilestone(e.target.value);
+            setSelectedActivity(e.target.value);
             if (e.target.value !== '__KEEP_EXISTING__' && e.target.value !== '__CLEAR__' && selectedState === '__KEEP_EXISTING__') {
               setSelectedState('completed');
             }
@@ -108,10 +108,10 @@ export default function BulkActionDock({
           disabled={isPending}
           className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 min-w-[140px]"
         >
-          <option value="__KEEP_EXISTING__">Keep Existing Milestones</option>
+          <option value="__KEEP_EXISTING__">Keep Existing Activities</option>
           <option value="__CLEAR__">Clear Status (Remove)</option>
-          <optgroup label={`${trackingMode === 'production' ? 'Production' : 'Inspection'} Milestones`}>
-            {milestones.filter(m => m.track === trackingMode).map(m => (
+          <optgroup label={`${trackingMode === 'production' ? 'Production' : 'Inspection'} Activities`}>
+            {activities.filter(m => m.track === trackingMode).map(m => (
               <option key={m.id} value={m.name}>{m.name}</option>
             ))}
           </optgroup>
@@ -120,8 +120,8 @@ export default function BulkActionDock({
         <select
           value={selectedState}
           onChange={(e) => setSelectedState(e.target.value as BulkDockState)}
-          disabled={isPending || selectedMilestone === '__CLEAR__'}
-          className={`bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 ${selectedMilestone === '__CLEAR__' ? 'opacity-50' : ''}`}
+          disabled={isPending || selectedActivity === '__CLEAR__'}
+          className={`bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-800 dark:text-slate-100 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/40 ${selectedActivity === '__CLEAR__' ? 'opacity-50' : ''}`}
         >
           <option value="__KEEP_EXISTING__">No Change</option>
           <option value="planned">Planned</option>
@@ -129,8 +129,8 @@ export default function BulkActionDock({
           <option value="completed">Completed</option>
           {onApplyBulkApplicability && (
             <optgroup label="Applicability">
-              <option value="__MARK_NA__" disabled={!hasConcreteMilestone}>Mark N/A</option>
-              <option value="__MARK_APPLICABLE__" disabled={!hasConcreteMilestone}>Mark Applicable</option>
+              <option value="__MARK_NA__" disabled={!hasConcreteActivity}>Mark N/A</option>
+              <option value="__MARK_APPLICABLE__" disabled={!hasConcreteActivity}>Mark Applicable</option>
             </optgroup>
           )}
         </select>
@@ -138,11 +138,11 @@ export default function BulkActionDock({
         <div className="flex flex-col ml-2 gap-1 text-xs">
            <div className="flex items-center gap-1">
              <span className="text-slate-500 font-semibold w-8">Start:</span>
-             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} disabled={isPending || selectedMilestone === '__CLEAR__' || isApplicabilityAction} className="bg-white/50 dark:bg-black/20 border border-slate-300 dark:border-slate-600 rounded px-1 min-w-[100px] outline-none" />
+             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} disabled={isPending || selectedActivity === '__CLEAR__' || isApplicabilityAction} className="bg-white/50 dark:bg-black/20 border border-slate-300 dark:border-slate-600 rounded px-1 min-w-[100px] outline-none" />
            </div>
            <div className="flex items-center gap-1">
              <span className="text-slate-500 font-semibold w-8">End:</span>
-             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} disabled={isPending || selectedMilestone === '__CLEAR__' || isApplicabilityAction} className="bg-white/50 dark:bg-black/20 border border-slate-300 dark:border-slate-600 rounded px-1 min-w-[100px] outline-none" />
+             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} disabled={isPending || selectedActivity === '__CLEAR__' || isApplicabilityAction} className="bg-white/50 dark:bg-black/20 border border-slate-300 dark:border-slate-600 rounded px-1 min-w-[100px] outline-none" />
            </div>
         </div>
       </div>
@@ -151,7 +151,7 @@ export default function BulkActionDock({
         <button
           type="button"
           onClick={handleApply}
-          disabled={isPending || (selectedMilestone === '__KEEP_EXISTING__' && selectedState === '__KEEP_EXISTING__')}
+          disabled={isPending || (selectedActivity === '__KEEP_EXISTING__' && selectedState === '__KEEP_EXISTING__')}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-50"
         >
           {isPending ? (

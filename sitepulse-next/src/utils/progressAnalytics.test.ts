@@ -9,11 +9,11 @@ import {
   VARIANCE_COLORS,
 } from './progressAnalytics';
 import { buildApplicabilityIndex } from './applicability';
-import type { Milestone, StatusLog } from '@/types/domain';
+import type { Activity, StatusLog } from '@/types/domain';
 
 const TODAY = parseDay('2026-06-12') as Date;
 
-function ms(name: string, order: number, track = 'Production'): Milestone {
+function ms(name: string, order: number, track = 'Production'): Activity {
   return {
     id: `ms-${name}`,
     project_id: 'p1',
@@ -22,14 +22,14 @@ function ms(name: string, order: number, track = 'Production'): Milestone {
     track,
     sequence_order: order,
     created_at: '2026-01-01T00:00:00Z',
-  } as Milestone;
+  } as Activity;
 }
 
 function log(partial: Partial<StatusLog>): StatusLog {
   return {
     id: `log-${Math.abs(JSON.stringify(partial).split('').reduce((a, c) => a + c.charCodeAt(0), 0))}`,
     unit_id: 'u1',
-    milestone: 'Framing',
+    activityName: 'Framing',
     status_color: '#123456',
     temporal_state: 'none',
     track: 'Production',
@@ -42,7 +42,7 @@ function log(partial: Partial<StatusLog>): StatusLog {
   } as StatusLog;
 }
 
-const MILESTONES = [ms('Framing', 1), ms('Drywall', 2), ms('Paint', 3)];
+const ACTIVITIES = [ms('Framing', 1), ms('Drywall', 2), ms('Paint', 3)];
 
 describe('parseDay / dayDiff', () => {
   it('parses date-only strings at UTC noon', () => {
@@ -59,68 +59,68 @@ describe('parseDay / dayDiff', () => {
 });
 
 describe('computeUnitVariance', () => {
-  it('reports complete when all milestones are completed', () => {
-    const logs = MILESTONES.map(m => log({ milestone: m.name, temporal_state: 'completed' }));
-    const info = computeUnitVariance(logs, MILESTONES, TODAY);
+  it('reports complete when all activities are completed', () => {
+    const logs = ACTIVITIES.map(m => log({ activityName: m.name, temporal_state: 'completed' }));
+    const info = computeUnitVariance(logs, ACTIVITIES, TODAY);
     expect(info.kind).toBe('complete');
     expect(info.bottleneck).toBeNull();
   });
 
-  it('picks the earliest incomplete milestone as bottleneck', () => {
+  it('picks the earliest incomplete activity as bottleneck', () => {
     const logs = [
-      log({ milestone: 'Framing', temporal_state: 'completed' }),
-      log({ milestone: 'Paint', temporal_state: 'completed' }), // out of sequence
+      log({ activityName: 'Framing', temporal_state: 'completed' }),
+      log({ activityName: 'Paint', temporal_state: 'completed' }), // out of sequence
     ];
-    const info = computeUnitVariance(logs, MILESTONES, TODAY);
+    const info = computeUnitVariance(logs, ACTIVITIES, TODAY);
     expect(info.bottleneck).toBe('Drywall');
   });
 
   it('is behind when the bottleneck planned finish has passed', () => {
     const logs = [
-      log({ milestone: 'Framing', temporal_state: 'completed' }),
-      log({ milestone: 'Drywall', temporal_state: 'ongoing', planned_end_date: '2026-06-04' }),
+      log({ activityName: 'Framing', temporal_state: 'completed' }),
+      log({ activityName: 'Drywall', temporal_state: 'ongoing', planned_end_date: '2026-06-04' }),
     ];
-    const info = computeUnitVariance(logs, MILESTONES, TODAY);
+    const info = computeUnitVariance(logs, ACTIVITIES, TODAY);
     expect(info.kind).toBe('behind');
     expect(info.days).toBe(8);
   });
 
   it('is ahead when the bottleneck is not due to start yet', () => {
     const logs = [
-      log({ milestone: 'Framing', temporal_state: 'completed' }),
-      log({ milestone: 'Drywall', temporal_state: 'none', planned_start_date: '2026-06-20', planned_end_date: '2026-06-28' }),
+      log({ activityName: 'Framing', temporal_state: 'completed' }),
+      log({ activityName: 'Drywall', temporal_state: 'none', planned_start_date: '2026-06-20', planned_end_date: '2026-06-28' }),
     ];
-    const info = computeUnitVariance(logs, MILESTONES, TODAY);
+    const info = computeUnitVariance(logs, ACTIVITIES, TODAY);
     expect(info.kind).toBe('ahead');
     expect(info.days).toBe(8);
   });
 
   it('is on pace inside the planned window', () => {
     const logs = [
-      log({ milestone: 'Framing', temporal_state: 'ongoing', planned_start_date: '2026-06-08', planned_end_date: '2026-06-20' }),
+      log({ activityName: 'Framing', temporal_state: 'ongoing', planned_start_date: '2026-06-08', planned_end_date: '2026-06-20' }),
     ];
-    expect(computeUnitVariance(logs, MILESTONES, TODAY).kind).toBe('onpace');
+    expect(computeUnitVariance(logs, ACTIVITIES, TODAY).kind).toBe('onpace');
   });
 
   it('falls back to idle time when the bottleneck has no plan dates', () => {
     const logs = [
-      log({ milestone: 'Framing', temporal_state: 'completed', client_timestamp: '2026-05-29T10:00:00Z' }),
+      log({ activityName: 'Framing', temporal_state: 'completed', client_timestamp: '2026-05-29T10:00:00Z' }),
     ];
-    const info = computeUnitVariance(logs, MILESTONES, TODAY);
+    const info = computeUnitVariance(logs, ACTIVITIES, TODAY);
     expect(info.kind).toBe('noplan');
     expect(info.bottleneck).toBe('Drywall');
     expect(info.idleDays).toBe(14);
   });
 
   it('is notstarted when nothing is logged and nothing is scheduled', () => {
-    expect(computeUnitVariance([], MILESTONES, TODAY).kind).toBe('notstarted');
+    expect(computeUnitVariance([], ACTIVITIES, TODAY).kind).toBe('notstarted');
   });
 
   it('flags overdue-to-start: no work yet but planned finish passed', () => {
     const logs = [
-      log({ milestone: 'Framing', temporal_state: 'none', planned_start_date: '2026-05-01', planned_end_date: '2026-05-20' }),
+      log({ activityName: 'Framing', temporal_state: 'none', planned_start_date: '2026-05-01', planned_end_date: '2026-05-20' }),
     ];
-    const info = computeUnitVariance(logs, MILESTONES, TODAY);
+    const info = computeUnitVariance(logs, ACTIVITIES, TODAY);
     expect(info.kind).toBe('behind');
     expect(info.days).toBe(23);
   });
@@ -149,13 +149,13 @@ describe('summarizeGroup', () => {
     const out: StatusLog[] = [];
     // u1..u3 fully complete; u4 ongoing+behind; u5 stalled noplan; u6 untouched
     for (const id of ['u1', 'u2', 'u3']) {
-      for (const m of MILESTONES) {
-        out.push(log({ unit_id: id, milestone: m.name, temporal_state: 'completed', client_timestamp: '2026-06-10T08:00:00Z' }));
+      for (const m of ACTIVITIES) {
+        out.push(log({ unit_id: id, activityName: m.name, temporal_state: 'completed', client_timestamp: '2026-06-10T08:00:00Z' }));
       }
     }
-    out.push(log({ unit_id: 'u4', milestone: 'Framing', temporal_state: 'completed', client_timestamp: '2026-06-11T08:00:00Z' }));
-    out.push(log({ unit_id: 'u4', milestone: 'Drywall', temporal_state: 'ongoing', planned_end_date: '2026-06-01', client_timestamp: '2026-06-11T08:00:00Z' }));
-    out.push(log({ unit_id: 'u5', milestone: 'Framing', temporal_state: 'ongoing', client_timestamp: '2026-05-01T08:00:00Z' }));
+    out.push(log({ unit_id: 'u4', activityName: 'Framing', temporal_state: 'completed', client_timestamp: '2026-06-11T08:00:00Z' }));
+    out.push(log({ unit_id: 'u4', activityName: 'Drywall', temporal_state: 'ongoing', planned_end_date: '2026-06-01', client_timestamp: '2026-06-11T08:00:00Z' }));
+    out.push(log({ unit_id: 'u5', activityName: 'Framing', temporal_state: 'ongoing', client_timestamp: '2026-05-01T08:00:00Z' }));
     return out;
   }
 
@@ -168,7 +168,7 @@ describe('summarizeGroup', () => {
 
   it('counts slots, completion %, and stalled units', () => {
     const r = summarizeGroup({
-      units, statuses: buildStatuses(), milestones: MILESTONES,
+      units, statuses: buildStatuses(), activities: ACTIVITIES,
       track: 'Production', history, today: TODAY,
     });
     expect(r.totalSlots).toBe(18);
@@ -179,7 +179,7 @@ describe('summarizeGroup', () => {
 
   it('computes pace and weekly buckets from history', () => {
     const r = summarizeGroup({
-      units, statuses: buildStatuses(), milestones: MILESTONES,
+      units, statuses: buildStatuses(), activities: ACTIVITIES,
       track: 'Production', history, today: TODAY,
     });
     expect(r.paceThisWeek).toBe(2); // both u1 events within 7 days
@@ -188,12 +188,12 @@ describe('summarizeGroup', () => {
 
   it('suppresses forecast for small samples', () => {
     const r = summarizeGroup({
-      units: [{ id: 'u1', unit_type: 'Apartment' }], statuses: buildStatuses(), milestones: MILESTONES,
+      units: [{ id: 'u1', unit_type: 'Apartment' }], statuses: buildStatuses(), activities: ACTIVITIES,
       track: 'Production', history, today: TODAY,
     });
     expect(r.forecastSuppressed).toBe('complete'); // u1 alone is fully complete
     const r2 = summarizeGroup({
-      units: [{ id: 'u4', unit_type: 'Apartment' }, { id: 'u5', unit_type: 'Apartment' }], statuses: buildStatuses(), milestones: MILESTONES,
+      units: [{ id: 'u4', unit_type: 'Apartment' }, { id: 'u5', unit_type: 'Apartment' }], statuses: buildStatuses(), activities: ACTIVITIES,
       track: 'Production', history: [], today: TODAY,
     });
     expect(r2.forecastSuppressed).toBe('small-sample');
@@ -202,7 +202,7 @@ describe('summarizeGroup', () => {
 
   it('suppresses forecast when there is no pace', () => {
     const r = summarizeGroup({
-      units, statuses: buildStatuses(), milestones: MILESTONES,
+      units, statuses: buildStatuses(), activities: ACTIVITIES,
       track: 'Production', history: [], today: TODAY,
     });
     expect(r.forecastSuppressed).toBe('no-pace');
@@ -220,7 +220,7 @@ describe('summarizeGroup', () => {
       '2026-04-27', '2026-04-28',
     ].map(d => ({ unit_id: 'u1', logged_date: d }));
     const r = summarizeGroup({
-      units, statuses: buildStatuses(), milestones: MILESTONES,
+      units, statuses: buildStatuses(), activities: ACTIVITIES,
       track: 'Production', history: steadyHistory, today: TODAY,
     });
     expect(r.forecastSuppressed).toBeNull();
@@ -230,7 +230,7 @@ describe('summarizeGroup', () => {
   it('reports planned-by-today percentage on the same denominator as completion', () => {
     const statuses = buildStatuses();
     const r = summarizeGroup({
-      units, statuses, milestones: MILESTONES,
+      units, statuses, activities: ACTIVITIES,
       track: 'Production', history, today: TODAY,
     });
     // only u4 Drywall has a planned_end (past) → 1 of 18 slots — same denominator
@@ -243,12 +243,12 @@ describe('summarizeGroup', () => {
   it('reports full coverage when every slot is dated', () => {
     const statuses: StatusLog[] = [];
     for (const u of units) {
-      for (const m of MILESTONES) {
-        statuses.push(log({ unit_id: u.id, milestone: m.name, temporal_state: 'planned', planned_end_date: '2026-06-30' }));
+      for (const m of ACTIVITIES) {
+        statuses.push(log({ unit_id: u.id, activityName: m.name, temporal_state: 'planned', planned_end_date: '2026-06-30' }));
       }
     }
     const r = summarizeGroup({
-      units, statuses, milestones: MILESTONES,
+      units, statuses, activities: ACTIVITIES,
       track: 'Production', history: [], today: TODAY,
     });
     expect(r.plannedCoverage).toBe(1);
@@ -256,40 +256,40 @@ describe('summarizeGroup', () => {
   });
 });
 
-describe('summarizeGroup / computeUnitVariance — milestone applicability (N/A)', () => {
+describe('summarizeGroup / computeUnitVariance — activity applicability (N/A)', () => {
   // Drywall applies only to Apartments, so it is N/A for the Corridor.
-  const ruleMilestones: Milestone[] = MILESTONES.map(m =>
-    m.name === 'Drywall' ? ({ ...m, applies_to_unit_types: ['Apartment'] } as Milestone) : m
+  const ruleActivities: Activity[] = ACTIVITIES.map(m =>
+    m.name === 'Drywall' ? ({ ...m, applies_to_unit_types: ['Apartment'] } as Activity) : m
   );
   const naUnits = [
     { id: 'c1', unit_type: 'Corridor' },
     { id: 'a1', unit_type: 'Apartment' },
   ];
-  const index = buildApplicabilityIndex(ruleMilestones, []);
+  const index = buildApplicabilityIndex(ruleActivities, []);
 
   it('drops N/A slots from the denominator', () => {
     const r = summarizeGroup({
-      units: naUnits, statuses: [], milestones: ruleMilestones,
+      units: naUnits, statuses: [], activities: ruleActivities,
       track: 'Production', history: [], today: TODAY, applicabilityIndex: index,
     });
     // Corridor: Framing + Paint = 2 applicable; Apartment: 3 → 5 slots, not 6
     expect(r.totalSlots).toBe(5);
   });
 
-  it('does not count completions on N/A milestones', () => {
+  it('does not count completions on N/A activities', () => {
     // A stale completed log on the now-N/A Drywall slot for the Corridor must not count.
-    const statuses = [log({ unit_id: 'c1', milestone: 'Drywall', temporal_state: 'completed' })];
+    const statuses = [log({ unit_id: 'c1', activityName: 'Drywall', temporal_state: 'completed' })];
     const r = summarizeGroup({
-      units: [naUnits[0]], statuses, milestones: ruleMilestones,
+      units: [naUnits[0]], statuses, activities: ruleActivities,
       track: 'Production', history: [], today: TODAY, applicabilityIndex: index,
     });
     expect(r.totalSlots).toBe(2);     // Framing + Paint only
     expect(r.completedSlots).toBe(0); // Drywall completion excluded
   });
 
-  it('skips the N/A milestone in the bottleneck (caller passes applicable list)', () => {
-    const statuses = [log({ unit_id: 'c1', milestone: 'Framing', temporal_state: 'completed' })];
-    const applicable = [MILESTONES[0], MILESTONES[2]]; // Framing, Paint (Drywall N/A)
+  it('skips the N/A activity in the bottleneck (caller passes applicable list)', () => {
+    const statuses = [log({ unit_id: 'c1', activityName: 'Framing', temporal_state: 'completed' })];
+    const applicable = [ACTIVITIES[0], ACTIVITIES[2]]; // Framing, Paint (Drywall N/A)
     const info = computeUnitVariance(statuses, applicable, TODAY);
     expect(info.bottleneck).toBe('Paint'); // not Drywall
   });

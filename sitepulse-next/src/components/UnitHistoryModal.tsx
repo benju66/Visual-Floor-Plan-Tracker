@@ -6,13 +6,13 @@ import {
   computeUnitVariance,
   varianceFill,
   varianceLabel,
-  orderedTrackMilestones,
+  orderedTrackActivities,
   parseDay,
   dayDiff,
 } from '@/utils/progressAnalytics';
-import { applicableMilestones } from '@/utils/applicability';
+import { applicableActivities } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
-import type { Milestone, StatusLog } from '@/types/domain';
+import type { Activity, StatusLog } from '@/types/domain';
 
 /** Audit rows come back through useUnitHistory typed as StatusLog but carry changed_at. */
 type AuditRow = StatusLog & { changed_at?: string | null; user_id?: string | null };
@@ -22,23 +22,23 @@ interface UnitHistoryModalProps {
   onClose: () => void;
   unitId: string | null;
   unitNumber?: string | null;
-  milestones?: Milestone[];
+  activities?: Activity[];
   trackingMode?: string;
   /** Current-state logs (status_logs) for the active sheet — supplies planned windows. */
   currentStatuses?: StatusLog[];
-  /** Unit type + applicability index drop N/A milestones from the journey. */
+  /** Unit type + applicability index drop N/A activities from the journey. */
   unitType?: string | null;
   applicabilityIndex?: ApplicabilityIndex;
 }
 
 interface JourneyRow {
-  milestone: Milestone;
+  activity: Activity;
   plannedStart: Date | null;
   plannedEnd: Date | null;
   actualStart: Date | null;
   actualEnd: Date | null; // null while ongoing
   state: string;          // current temporal state ('none' if no log)
-  idleFrom: Date | null;  // gap between previous milestone finishing and this one starting
+  idleFrom: Date | null;  // gap between previous activity finishing and this one starting
   idleTo: Date | null;
 }
 
@@ -60,7 +60,7 @@ export default function UnitHistoryModal({
   onClose,
   unitId,
   unitNumber,
-  milestones = [],
+  activities = [],
   trackingMode = '',
   currentStatuses = [],
   unitType = null,
@@ -77,7 +77,7 @@ export default function UnitHistoryModal({
       const prevLog = (rawLogs as AuditRow[])[index + 1];
       if (prevLog &&
           log.temporal_state === prevLog.temporal_state &&
-          log.milestone === prevLog.milestone &&
+          log.activityName === prevLog.activityName &&
           log.track === prevLog.track &&
           log.planned_start_date === prevLog.planned_start_date &&
           log.planned_end_date === prevLog.planned_end_date &&
@@ -89,20 +89,20 @@ export default function UnitHistoryModal({
     return deduped;
   }, [rawLogs]);
 
-  // --- Journey tab: one swimlane per applicable milestone in sequence order ---
+  // --- Journey tab: one swimlane per applicable activity in sequence order ---
   const today = useMemo(() => new Date(), []);
-  const trackMilestones = useMemo(() => {
-    const ordered = orderedTrackMilestones(milestones, trackingMode);
+  const trackActivities = useMemo(() => {
+    const ordered = orderedTrackActivities(activities, trackingMode);
     if (!unitId || !applicabilityIndex) return ordered;
-    return applicableMilestones(ordered, { id: unitId, unit_type: unitType }, applicabilityIndex);
-  }, [milestones, trackingMode, unitId, unitType, applicabilityIndex]);
+    return applicableActivities(ordered, { id: unitId, unit_type: unitType }, applicabilityIndex);
+  }, [activities, trackingMode, unitId, unitType, applicabilityIndex]);
   const unitCurrentLogs = useMemo(
     () => currentStatuses.filter(s => s.unit_id === unitId && s.track === trackingMode),
     [currentStatuses, unitId, trackingMode]
   );
   const variance = useMemo(
-    () => computeUnitVariance(unitCurrentLogs, trackMilestones, today),
-    [unitCurrentLogs, trackMilestones, today]
+    () => computeUnitVariance(unitCurrentLogs, trackActivities, today),
+    [unitCurrentLogs, trackActivities, today]
   );
 
   const journey = useMemo(() => {
@@ -113,9 +113,9 @@ export default function UnitHistoryModal({
     const rows: JourneyRow[] = [];
     let prevEnd: Date | null = null;
 
-    for (const m of trackMilestones) {
-      const current = unitCurrentLogs.find(s => s.milestone === m.name);
-      const events = audit.filter(l => l.milestone === m.name);
+    for (const m of trackActivities) {
+      const current = unitCurrentLogs.find(s => s.activityName === m.name);
+      const events = audit.filter(l => l.activityName === m.name);
       const state = current?.temporal_state || 'none';
 
       const firstOngoing = events.find(e => e.temporal_state === 'ongoing');
@@ -143,7 +143,7 @@ export default function UnitHistoryModal({
       }
 
       rows.push({
-        milestone: m,
+        activity: m,
         plannedStart: parseDay(current?.planned_start_date),
         plannedEnd: parseDay(current?.planned_end_date),
         actualStart,
@@ -188,7 +188,7 @@ export default function UnitHistoryModal({
 
     const hasAnyDates = rows.some(r => r.plannedStart || r.plannedEnd || r.actualStart);
     return { rows, pct, ticks, todayPct: pct(today), hasAnyDates };
-  }, [rawLogs, trackingMode, trackMilestones, unitCurrentLogs, today]);
+  }, [rawLogs, trackingMode, trackActivities, unitCurrentLogs, today]);
 
   if (!isOpen) return null;
 
@@ -253,10 +253,10 @@ export default function UnitHistoryModal({
               <span>Loading history...</span>
             </div>
           ) : tab === 'journey' ? (
-            trackMilestones.length === 0 ? (
+            trackActivities.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 text-slate-500">
                 <HelpCircle size={32} className="opacity-50 mb-3" />
-                <p>No milestones configured for this track.</p>
+                <p>No activities configured for this track.</p>
               </div>
             ) : (
               <div className="select-none">
@@ -294,9 +294,9 @@ export default function UnitHistoryModal({
                     const idleDays = r.idleFrom && r.idleTo ? dayDiff(r.idleFrom, r.idleTo) : 0;
                     const isOpen = r.state === 'ongoing';
                     return (
-                      <div key={r.milestone.id} className={`flex items-center h-12 ${idx % 2 === 1 ? 'bg-slate-900/[0.03] dark:bg-white/[0.03]' : ''}`}>
+                      <div key={r.activity.id} className={`flex items-center h-12 ${idx % 2 === 1 ? 'bg-slate-900/[0.03] dark:bg-white/[0.03]' : ''}`}>
                         <div className="w-[150px] shrink-0 pr-3 text-right">
-                          <div className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 truncate">{r.milestone.name}</div>
+                          <div className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 truncate">{r.activity.name}</div>
                           <div className="text-[9px] tracking-widest text-slate-400 font-medium">
                             {r.state === 'none' ? 'NOT STARTED' : r.state.toUpperCase()}
                             {isOpen && dur !== null && ` · ${dur}D IN${plannedDur ? ` / ${plannedDur}D PLANNED` : ''}`}
@@ -336,12 +336,12 @@ export default function UnitHistoryModal({
                               style={{
                                 left: `${journey.pct(r.actualStart)}%`,
                                 width: `${Math.max(0.8, journey.pct(r.actualEnd) - journey.pct(r.actualStart))}%`,
-                                backgroundColor: r.milestone.color || '#64748b',
+                                backgroundColor: r.activity.color || '#64748b',
                                 backgroundImage: isOpen
                                   ? 'repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 5px, transparent 5px 10px)'
                                   : undefined,
                               }}
-                              title={`${r.milestone.name}: ${fmt(r.actualStart)}${r.actualEnd ? ` – ${isOpen ? 'today' : fmt(r.actualEnd)}` : ''}`}
+                              title={`${r.activity.name}: ${fmt(r.actualStart)}${r.actualEnd ? ` – ${isOpen ? 'today' : fmt(r.actualEnd)}` : ''}`}
                             >
                               {dur !== null && dur >= 2 && (
                                 <span className="text-[9px] font-bold text-white pl-1.5 drop-shadow whitespace-nowrap">
@@ -380,7 +380,7 @@ export default function UnitHistoryModal({
               <table className="w-full text-left text-sm whitespace-nowrap">
                 <thead className="bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                   <tr>
-                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Milestone</th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Activity</th>
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Status</th>
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Planned Start</th>
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Planned Finish</th>
@@ -397,7 +397,7 @@ export default function UnitHistoryModal({
                       <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                         <td className="px-4 py-3 font-medium flex items-center gap-2 text-slate-800 dark:text-slate-200">
                           <span className="w-3 h-3 rounded-full shadow-sm shrink-0" style={{ backgroundColor: log.status_color || '#cbd5e1' }} />
-                          {log.milestone || 'Unknown'} {log.track && <span className="text-[10px] text-slate-400 font-normal">({log.track})</span>}
+                          {log.activityName || 'Unknown'} {log.track && <span className="text-[10px] text-slate-400 font-normal">({log.track})</span>}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider

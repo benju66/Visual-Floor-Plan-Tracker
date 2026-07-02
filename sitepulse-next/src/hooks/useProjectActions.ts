@@ -4,8 +4,8 @@ import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { uploadFloorplanService, attachOriginalService, deleteSheetStorageService } from '@/services/api';
-import { useUpdateMilestone, useReorderSheets } from '@/hooks/useProjectQueries';
-import type { Project, Sheet, Milestone } from '@/types/domain';
+import { useUpdateActivity, useReorderSheets } from '@/hooks/useProjectQueries';
+import type { Project, Sheet, Activity } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
 import { invalidatePdfBytes } from '@/utils/pdfByteCache';
 
@@ -27,7 +27,7 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
   const setToast = useUIStore(s => s.setToast);
 
   const settings = useSettingsStore(s => s.settings) || {};
-  const updateMilestoneMutation = useUpdateMilestone(project?.id as string, activeSheetId);
+  const updateActivityMutation = useUpdateActivity(project?.id as string, activeSheetId);
   const reorderSheetsMutation = useReorderSheets(project?.id || projectId);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning') => {
@@ -36,33 +36,33 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleAddMilestone = async (name: string, color: string, track: string, dictionaryId?: string | null) => {
+  const handleAddActivity = async (name: string, color: string, track: string, dictionaryId?: string | null) => {
     const rawName = name?.trim();
     if (!rawName || !project || !project.id) return;
     try {
-      const milestones = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project.id)) || [];
-      const trackMs = milestones.filter(m => m.track === track);
-      const maxOrder = trackMs.reduce((max, m) => Math.max(max, m.sequence_order || 0), -1);
+      const activities = queryClient.getQueryData<Activity[]>(queryKeys.activities(project.id)) || [];
+      const trackActs = activities.filter(a => a.track === track);
+      const maxOrder = trackActs.reduce((max, a) => Math.max(max, a.sequence_order || 0), -1);
 
       // dictionary_id links this project activity to the global governed activity
       // dictionary (Scheduling Foundation Slice A, Phase 2); null = unlinked (review queue).
       const { data, error } = await supabase.from('activities').insert([{ project_id: project.id, name: rawName, color, track, sequence_order: maxOrder + 1, dictionary_id: dictionaryId ?? null }]).select();
       if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: queryKeys.milestones(project.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activities(project.id) });
     } catch (err: any) {
-      showToast('Failed to add milestone: ' + err.message, 'error');
+      showToast('Failed to add activity: ' + err.message, 'error');
     }
   };
 
-  const handleUpdateMilestone = async (id: string, oldName: string, newName: string, newColor: string) => {
+  const handleUpdateActivity = async (id: string, oldName: string, newName: string, newColor: string) => {
     try {
-      await updateMilestoneMutation.mutateAsync({ id, oldName, newName, newColor });
+      await updateActivityMutation.mutateAsync({ id, oldName, newName, newColor });
     } catch (err: any) {
-      showToast('Failed to update milestone: ' + err.message, 'error');
+      showToast('Failed to update activity: ' + err.message, 'error');
     }
   };
 
-  const handleDeleteMilestone = async (id: string) => {
+  const handleDeleteActivity = async (id: string) => {
     try {
       // Deleting the activity cascades to its current-state status_logs rows via the
       // status_logs.activity_id FK (ON DELETE CASCADE) — no manual name-matched cleanup
@@ -70,13 +70,13 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       const { error } = await supabase.from('activities').delete().eq('id', id);
       if (error) throw error;
 
-      queryClient.invalidateQueries({ queryKey: queryKeys.milestones(project?.id || projectId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activities(project?.id || projectId) });
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
       // FS dependency edges cascade-delete with the activity (Phase 3b) — refresh
       // the cached graph so a surviving successor's chip doesn't go stale.
       queryClient.invalidateQueries({ queryKey: queryKeys.activityDependencies(project?.id || projectId) });
     } catch (err: any) {
-      showToast('Failed to delete milestone: ' + err.message, 'error');
+      showToast('Failed to delete activity: ' + err.message, 'error');
     }
   };
 
@@ -252,8 +252,8 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
     handleRenameSheet,
     handleDeleteSheet,
     handleReorderSheets,
-    handleAddMilestone,
-    handleUpdateMilestone,
-    handleDeleteMilestone
+    handleAddActivity,
+    handleUpdateActivity,
+    handleDeleteActivity
   };
 }

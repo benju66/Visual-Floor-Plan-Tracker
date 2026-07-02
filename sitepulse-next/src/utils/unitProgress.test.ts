@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import type { Milestone, StatusLog, Unit } from '@/types/domain';
+import type { Activity, StatusLog, Unit } from '@/types/domain';
 import { buildApplicabilityIndex } from './applicability';
 import {
   summarizeUnit,
   summarizeSheetProgress,
-  countUnitsByCurrentMilestone,
+  countUnitsByCurrentActivity,
 } from './unitProgress';
 
 const TRACK = 'Production';
 
-function milestone(id: string, name: string, appliesTo: string[] | null = null): Milestone {
+function activity(id: string, name: string, appliesTo: string[] | null = null): Activity {
   return {
     id,
     name,
@@ -19,18 +19,18 @@ function milestone(id: string, name: string, appliesTo: string[] | null = null):
     project_id: 'p1',
     applies_to_unit_types: appliesTo,
     created_at: null,
-  } as Milestone;
+  } as Activity;
 }
 
 function unit(id: string, unit_type: string | null): Unit {
   return { id, unit_type, sheet_id: 'sheet1' } as Unit;
 }
 
-function log(unitId: string, milestoneName: string, state: string): StatusLog {
+function log(unitId: string, activityName: string, state: string): StatusLog {
   return {
-    id: `${unitId}_${milestoneName}`,
+    id: `${unitId}_${activityName}`,
     unit_id: unitId,
-    milestone: milestoneName,
+    activityName: activityName,
     status_color: 'rgba(0,0,0,0.5)',
     temporal_state: state,
     track: TRACK,
@@ -42,30 +42,30 @@ function log(unitId: string, milestoneName: string, state: string): StatusLog {
   } as StatusLog;
 }
 
-const M = [milestone('m1', 'Framing'), milestone('m2', 'Drywall'), milestone('m3', 'Paint')];
+const M = [activity('m1', 'Framing'), activity('m2', 'Drywall'), activity('m3', 'Paint')];
 const EMPTY_INDEX = buildApplicabilityIndex(M, []);
 
 describe('summarizeUnit', () => {
-  it('counts completed applicable milestones and reports the bottleneck stage', () => {
+  it('counts completed applicable activities and reports the bottleneck stage', () => {
     const u = unit('u1', '2 Bed');
     const statuses = [log('u1', 'Framing', 'completed'), log('u1', 'Drywall', 'ongoing')];
     const s = summarizeUnit(u, statuses, M, EMPTY_INDEX, TRACK);
     expect(s.totalCount).toBe(3);
     expect(s.doneCount).toBe(1);
-    expect(s.currentMilestone).toBe('Drywall');
+    expect(s.currentActivityName).toBe('Drywall');
     expect(s.stage).toBe('ongoing');
   });
 
-  it("reports stage 'done' when every applicable milestone is completed", () => {
+  it("reports stage 'done' when every applicable activity is completed", () => {
     const u = unit('u2', 'Studio');
     const statuses = M.map(m => log('u2', m.name, 'completed'));
     const s = summarizeUnit(u, statuses, M, EMPTY_INDEX, TRACK);
     expect(s.doneCount).toBe(3);
     expect(s.stage).toBe('done');
-    expect(s.currentMilestone).toBeNull();
+    expect(s.currentActivityName).toBeNull();
   });
 
-  it('excludes N/A milestones (per-unit override) from the denominator', () => {
+  it('excludes N/A activities (per-unit override) from the denominator', () => {
     const u = unit('u3', 'Common');
     // Drywall marked Not Applicable for this unit
     const index = buildApplicabilityIndex(M, [
@@ -79,15 +79,15 @@ describe('summarizeUnit', () => {
   });
 
   it('respects unit-type rules but fails open for untyped units', () => {
-    const rules = [milestone('m1', 'Framing', ['2 Bed'])]; // applies only to 2 Bed
+    const rules = [activity('m1', 'Framing', ['2 Bed'])]; // applies only to 2 Bed
     const index = buildApplicabilityIndex(rules, []);
     expect(summarizeUnit(unit('a', 'Studio'), [], rules, index, TRACK).totalCount).toBe(0);
     expect(summarizeUnit(unit('b', null), [], rules, index, TRACK).totalCount).toBe(1);
   });
 
-  it('returns an empty summary when no milestones apply', () => {
+  it('returns an empty summary when no activities apply', () => {
     const s = summarizeUnit(unit('z', '2 Bed'), [], [], EMPTY_INDEX, TRACK);
-    expect(s).toEqual({ unitId: 'z', totalCount: 0, doneCount: 0, currentMilestone: null, stage: 'none' });
+    expect(s).toEqual({ unitId: 'z', totalCount: 0, doneCount: 0, currentActivityName: null, stage: 'none' });
   });
 });
 
@@ -119,15 +119,15 @@ describe('summarizeSheetProgress', () => {
   });
 });
 
-describe('countUnitsByCurrentMilestone', () => {
-  it('tallies units by their bottleneck milestone', () => {
+describe('countUnitsByCurrentActivity', () => {
+  it('tallies units by their bottleneck activity', () => {
     const units = [unit('u1', '2 Bed'), unit('u2', '2 Bed'), unit('u3', 'Studio')];
     const statuses = [
       log('u1', 'Framing', 'completed'), // bottleneck Drywall
       log('u2', 'Framing', 'ongoing'), // bottleneck Framing
       ...M.map(m => log('u3', m.name, 'completed')), // done -> no bottleneck
     ];
-    const counts = countUnitsByCurrentMilestone(units, statuses, M, EMPTY_INDEX, TRACK);
+    const counts = countUnitsByCurrentActivity(units, statuses, M, EMPTY_INDEX, TRACK);
     expect(counts).toEqual({ Drywall: 1, Framing: 1 });
   });
 });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { computeUnitVariance, varianceFill, varianceLabel } from '@/utils/progressAnalytics';
-import { isMilestoneApplicable, applicableMilestones } from '@/utils/applicability';
+import { isActivityApplicable, applicableActivities } from '@/utils/applicability';
 
 export default function HoverHistoryTooltip({
   hoveredUnit,
@@ -8,7 +8,7 @@ export default function HoverHistoryTooltip({
   units,
   rawStatuses,
   trackingMode,
-  milestones,
+  activities,
   dimensions,
   toolMode,
   contextMenu,
@@ -74,9 +74,9 @@ export default function HoverHistoryTooltip({
 
   const u = units.find(x => x.id === activeUnit);
   const unitRawLogs = rawStatuses?.filter(s => s.unit_id === activeUnit && s.track === trackingMode) || [];
-  // Bottleneck/variance skips milestones that are N/A for this unit.
-  const unitMilestones = u && applicabilityIndex ? applicableMilestones(milestones, u, applicabilityIndex) : milestones;
-  const variance = computeUnitVariance(unitRawLogs, unitMilestones, new Date());
+  // Bottleneck/variance skips activities that are N/A for this unit.
+  const unitActivities = u && applicabilityIndex ? applicableActivities(activities, u, applicabilityIndex) : activities;
+  const variance = computeUnitVariance(unitRawLogs, unitActivities, new Date());
 
   // Base positioning
   let top = activePos.y + 20;
@@ -132,11 +132,11 @@ export default function HoverHistoryTooltip({
       </div>
 
       <div className="flex flex-col gap-2.5 max-h-[250px] overflow-y-auto overscroll-contain pr-2 custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-        {milestones.length === 0 ? (
-           <div className="text-xs italic opacity-50">No milestones configured for this track.</div>
+        {activities.length === 0 ? (
+           <div className="text-xs italic opacity-50">No activities configured for this track.</div>
         ) : (
-           milestones.map(m => {
-              const notApplicable = u && applicabilityIndex && !isMilestoneApplicable(m, u, applicabilityIndex);
+           activities.map(m => {
+              const notApplicable = u && applicabilityIndex && !isActivityApplicable(m, u, applicabilityIndex);
               if (notApplicable) {
                 return (
                    <div key={m.id} className="flex items-center justify-between gap-4 text-xs opacity-40 italic">
@@ -151,7 +151,7 @@ export default function HoverHistoryTooltip({
                 );
               }
 
-              const log = unitRawLogs.find(s => s.milestone === m.name);
+              const log = unitRawLogs.find(s => s.activityName === m.name);
               const state = log ? log.temporal_state : 'none';
 
               let stateColor = 'text-slate-400';

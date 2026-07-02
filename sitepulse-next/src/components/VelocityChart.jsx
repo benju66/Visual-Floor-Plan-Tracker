@@ -57,7 +57,7 @@ export default function VelocityChart({ chartData }) {
   if (!chartData || chartData.length === 0) {
     return (
       <div className="h-48 flex items-center justify-center text-slate-400 dark:text-slate-500 text-sm italic">
-        No completions logged yet — mark milestones as <strong className="mx-1 font-semibold not-italic text-emerald-500">Completed</strong> to see trends.
+        No completions logged yet — mark activities as <strong className="mx-1 font-semibold not-italic text-emerald-500">Completed</strong> to see trends.
       </div>
     );
   }

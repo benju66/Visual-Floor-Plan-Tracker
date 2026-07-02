@@ -307,7 +307,7 @@ const LEGACY_UNIT_TYPE_MAP: Record<string, LegacyUnitTypeMapping> = {
  * `null`/`undefined` inputs fall back to `other` / `Other (pending)` — never
  * throws, so the backfill is total over whatever strings exist in the data.
  *
- * `unit_type` itself is NOT dropped by the migration (milestone applicability
+ * `unit_type` itself is NOT dropped by the migration (activity applicability
  * still keys on it — see AGENTS.md §2); this only derives the additive
  * `top_level_role` + `subtype_id`.
  */

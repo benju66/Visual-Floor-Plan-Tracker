@@ -9,7 +9,7 @@ import {
   matchesFilters,
   filterLocations,
   selectAllMatchingIds,
-  pivotRowsToMilestone,
+  pivotRowsToActivity,
   UNASSIGNED,
   type LocationRow,
   type ManageFilters,
@@ -19,16 +19,16 @@ function unit(p: Partial<Unit> & { id: string }): Unit {
   return { unit_number: '', unit_type: null, assigned_to: null, ...p } as unknown as Unit;
 }
 function log(p: Partial<StatusLog>): StatusLog {
-  return { milestone: '', temporal_state: 'none', ...p } as unknown as StatusLog;
+  return { activityName: '', temporal_state: 'none', ...p } as unknown as StatusLog;
 }
 function row(u: Partial<Unit> & { id: string }, l: Partial<StatusLog> | null = null, isBehind?: boolean): LocationRow {
   return { unit: unit(u), log: l ? log(l) : null, isBehind };
 }
 
 const ROWS: LocationRow[] = [
-  row({ id: '1', unit_number: '204', unit_type: 'Apartment', assigned_to: 'jane' }, { milestone: 'Carpet', temporal_state: 'ongoing' }),
-  row({ id: '2', unit_number: '205', unit_type: 'Apartment', assigned_to: null }, { milestone: 'Drywall', temporal_state: 'planned' }, true),
-  row({ id: '3', unit_number: 'Lobby', unit_type: 'Common', assigned_to: 'alex' }, { milestone: 'Final', temporal_state: 'completed' }),
+  row({ id: '1', unit_number: '204', unit_type: 'Apartment', assigned_to: 'jane' }, { activityName: 'Carpet', temporal_state: 'ongoing' }),
+  row({ id: '2', unit_number: '205', unit_type: 'Apartment', assigned_to: null }, { activityName: 'Drywall', temporal_state: 'planned' }, true),
+  row({ id: '3', unit_number: 'Lobby', unit_type: 'Common', assigned_to: 'alex' }, { activityName: 'Final', temporal_state: 'completed' }),
   row({ id: '4', unit_number: 'Stair B', unit_type: 'BOH', assigned_to: null }, null),
 ];
 
@@ -71,10 +71,10 @@ describe('matchesFilters — single facets', () => {
     expect(matchesFilters(ROWS[0], withFilter({ types: ['Apartment'] }))).toBe(true);
     expect(matchesFilters(ROWS[2], withFilter({ types: ['Apartment'] }))).toBe(false);
   });
-  it('milestones facet', () => {
-    expect(matchesFilters(ROWS[0], withFilter({ milestones: ['Carpet'] }))).toBe(true);
-    expect(matchesFilters(ROWS[1], withFilter({ milestones: ['Carpet'] }))).toBe(false);
-    expect(matchesFilters(ROWS[3], withFilter({ milestones: ['Carpet'] }))).toBe(false); // no log
+  it('activities facet', () => {
+    expect(matchesFilters(ROWS[0], withFilter({ activities: ['Carpet'] }))).toBe(true);
+    expect(matchesFilters(ROWS[1], withFilter({ activities: ['Carpet'] }))).toBe(false);
+    expect(matchesFilters(ROWS[3], withFilter({ activities: ['Carpet'] }))).toBe(false); // no log
   });
   it('states facet incl not_started', () => {
     expect(matchesFilters(ROWS[0], withFilter({ states: ['ongoing'] }))).toBe(true);
@@ -115,32 +115,32 @@ describe('filterLocations / selectAllMatchingIds', () => {
   });
 });
 
-describe('pivotRowsToMilestone — milestone focus / "where does everyone stand on X?"', () => {
+describe('pivotRowsToActivity — activity focus / "where does everyone stand on X?"', () => {
   const DRYWALL = { id: 'm-dry', name: 'Drywall', color: '#abc123' };
 
-  // Three locations, each currently bottlenecked at a *different* milestone.
+  // Three locations, each currently bottlenecked at a *different* activity.
   const PIVOT_ROWS: LocationRow[] = [
-    row({ id: '1', unit_number: '204', unit_type: 'Apartment' }, { milestone: 'Carpet', temporal_state: 'ongoing' }, true),
-    row({ id: '2', unit_number: '205', unit_type: 'Apartment' }, { milestone: 'Final', temporal_state: 'completed' }),
+    row({ id: '1', unit_number: '204', unit_type: 'Apartment' }, { activityName: 'Carpet', temporal_state: 'ongoing' }, true),
+    row({ id: '2', unit_number: '205', unit_type: 'Apartment' }, { activityName: 'Final', temporal_state: 'completed' }),
     row({ id: '3', unit_number: 'Lobby', unit_type: 'Common' }, null),
   ];
 
-  it('rebinds every location to the chosen milestone current-state log (no rows hidden by bottleneck)', () => {
+  it('rebinds every location to the chosen activity current-state log (no rows hidden by bottleneck)', () => {
     const byUnit = new Map<string, StatusLog>([
-      ['1', log({ unit_id: '1', milestone: 'Drywall', temporal_state: 'completed' })],
-      ['2', log({ unit_id: '2', milestone: 'Drywall', temporal_state: 'planned' })],
+      ['1', log({ unit_id: '1', activityName: 'Drywall', temporal_state: 'completed' })],
+      ['2', log({ unit_id: '2', activityName: 'Drywall', temporal_state: 'planned' })],
     ]);
-    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, byUnit, 'production');
+    const out = pivotRowsToActivity(PIVOT_ROWS, DRYWALL, byUnit, 'production');
     expect(out.map((r) => r.unit.id)).toEqual(['1', '2', '3']);
-    expect(out.map((r) => r.log?.milestone)).toEqual(['Drywall', 'Drywall', 'Drywall']);
+    expect(out.map((r) => r.log?.activityName)).toEqual(['Drywall', 'Drywall', 'Drywall']);
     expect(out.map((r) => r.log?.temporal_state)).toEqual(['completed', 'planned', 'none']);
   });
 
-  it('synthesizes a not-started log carrying the milestone meta when a location has no row yet', () => {
-    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production');
+  it('synthesizes a not-started log carrying the activity meta when a location has no row yet', () => {
+    const out = pivotRowsToActivity(PIVOT_ROWS, DRYWALL, new Map(), 'production');
     expect(out.find((r) => r.unit.id === '3')!.log).toMatchObject({
       unit_id: '3',
-      milestone: 'Drywall',
+      activityName: 'Drywall',
       status_color: '#abc123',
       track: 'production',
       temporal_state: 'none',
@@ -148,25 +148,25 @@ describe('pivotRowsToMilestone — milestone focus / "where does everyone stand 
   });
 
   it('preserves the per-location behind-schedule flag from the bottleneck row', () => {
-    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production');
+    const out = pivotRowsToActivity(PIVOT_ROWS, DRYWALL, new Map(), 'production');
     expect(out.find((r) => r.unit.id === '1')!.isBehind).toBe(true);
     expect(out.find((r) => r.unit.id === '2')!.isBehind).toBeFalsy();
   });
 
-  it('drops locations for which the milestone is Not Applicable (per-unit override)', () => {
+  it('drops locations for which the activity is Not Applicable (per-unit override)', () => {
     const index: ApplicabilityIndex = { rules: {}, overrides: { 'm-dry_3': false } };
-    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production', index);
+    const out = pivotRowsToActivity(PIVOT_ROWS, DRYWALL, new Map(), 'production', index);
     expect(out.map((r) => r.unit.id)).toEqual(['1', '2']); // Lobby dropped
   });
 
-  it('honours type rules — a milestone scoped to Apartment excludes Common locations', () => {
+  it('honours type rules — an activity scoped to Apartment excludes Common locations', () => {
     const index: ApplicabilityIndex = { rules: { 'm-dry': ['Apartment'] }, overrides: {} };
-    const out = pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production', index);
+    const out = pivotRowsToActivity(PIVOT_ROWS, DRYWALL, new Map(), 'production', index);
     expect(out.map((r) => r.unit.id)).toEqual(['1', '2']); // Common 'Lobby' excluded
   });
 
   it('keeps every location when no applicability index is supplied', () => {
-    expect(pivotRowsToMilestone(PIVOT_ROWS, DRYWALL, new Map(), 'production', null)).toHaveLength(3);
+    expect(pivotRowsToActivity(PIVOT_ROWS, DRYWALL, new Map(), 'production', null)).toHaveLength(3);
   });
 });
 

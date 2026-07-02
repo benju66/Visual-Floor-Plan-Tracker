@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useMapStore } from '@/store/useMapStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { useProject, useUnits, useMilestones } from '@/hooks/useProjectQueries';
+import { useProject, useUnits, useActivities } from '@/hooks/useProjectQueries';
 import {
   persistPendingChanges,
   persistPendingTimelineChanges,
@@ -24,7 +24,7 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
   // --- Store subscriptions (read-only) ---
   const activeSheetId = useMapStore((s) => s.activeSheetId);
   const trackingMode = useMapStore((s) => s.trackingMode);
-  const statusFilter = useSettingsStore((s) => s.filterMilestone);
+  const statusFilter = useSettingsStore((s) => s.filterActivity);
 
   // --- Data queries ---
   const params = useParams();
@@ -38,16 +38,16 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     'Commercial Space',
     'Other',
   ];
-  const { data: allMilestones = [] } = useMilestones(projectId);
+  const { data: allActivities = [] } = useActivities(projectId);
   const { data: fetchedUnits = [] } = useUnits(activeSheetId);
   const units = unitsOverride ?? fetchedUnits;
 
-  const currentMilestones = useMemo(
+  const currentActivities = useMemo(
     () =>
-      allMilestones
-        .filter((m) => m.track === trackingMode)
+      allActivities
+        .filter((a) => a.track === trackingMode)
         .sort((a, b) => (a.sequence_order || 0) - (b.sequence_order || 0)),
-    [allMilestones, trackingMode]
+    [allActivities, trackingMode]
   );
 
   // --- Local UI state ---
@@ -143,8 +143,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
 
   const handleTimelineUpdate = (unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
     const now = new Date().toISOString();
-    const milestoneName = extraProps?.milestoneObj?.name || baseLog?.milestone;
-    const key = `${unit.id}_${milestoneName}`;
+    const activityName = extraProps?.activityObj?.name || baseLog?.activityName;
+    const key = `${unit.id}_${activityName}`;
     setPendingTimelineChanges((prev) => {
       const existing = prev[key];
       return {
@@ -160,17 +160,17 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     });
   };
 
-  const handleRemovePendingItem = (unitId: string, milestoneName?: string | null): boolean => {
-    if (milestoneName) {
+  const handleRemovePendingItem = (unitId: string, activityName?: string | null): boolean => {
+    if (activityName) {
       const hasPrimary = pendingChanges[unitId] !== undefined;
       const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
-        (k) => k.startsWith(`${unitId}_`) && k !== `${unitId}_${milestoneName}`
+        (k) => k.startsWith(`${unitId}_`) && k !== `${unitId}_${activityName}`
       );
       const hasRemaining = hasPrimary || remainingTimelineKeys.length > 0;
 
       setPendingTimelineChanges((prev) => {
         const next = { ...prev };
-        delete next[`${unitId}_${milestoneName}`];
+        delete next[`${unitId}_${activityName}`];
         return next;
       });
 
@@ -200,12 +200,12 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
   const pendingCount = useMemo(() => {
     const dedupedChanges = new Set<string>();
     Object.values(pendingChanges).forEach(c => {
-      const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone || 'Primary';
-      dedupedChanges.add(`${c.unit.id}_${mName}`);
+      const aName = c.extraProps?.activityObj?.name || c.log?.activityName || 'Primary';
+      dedupedChanges.add(`${c.unit.id}_${aName}`);
     });
     Object.values(pendingTimelineChanges).forEach(c => {
-      const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone || 'Primary';
-      dedupedChanges.add(`${c.unit.id}_${mName}`);
+      const aName = c.extraProps?.activityObj?.name || c.log?.activityName || 'Primary';
+      dedupedChanges.add(`${c.unit.id}_${aName}`);
     });
     return dedupedChanges.size;
   }, [pendingChanges, pendingTimelineChanges]);
@@ -218,8 +218,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     
     const dedupedMap = new Map<string, PendingChange>();
     changesArray.forEach(c => {
-       const mName = c.extraProps?.milestoneObj?.name || c.log?.milestone || 'Primary';
-       dedupedMap.set(`${c.unit.id}_${mName}`, c);
+       const aName = c.extraProps?.activityObj?.name || c.log?.activityName || 'Primary';
+       dedupedMap.set(`${c.unit.id}_${aName}`, c);
     });
     
     const finalChanges = Array.from(dedupedMap.values());
@@ -244,8 +244,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
           // Per-item dequeue: immediately remove the synced item from the live snapshots
           // and checkpoint to IDB. If the browser crashes after this point, only unsynced
           // items will remain in IDB on rehydration.
-          const mName = change.extraProps?.milestoneObj?.name || change.log?.milestone;
-          const key = `${change.unit.id}_${mName}`;
+          const aName = change.extraProps?.activityObj?.name || change.log?.activityName;
+          const key = `${change.unit.id}_${aName}`;
           delete livePending[change.unit.id];
           delete liveTimeline[key];
           await persistCurrentQueue(projectId, livePending, liveTimeline);
@@ -306,8 +306,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
             });
           }
         } else if (sortColumn === 'status') {
-          const ma = a.log?.milestone || '';
-          const mb = b.log?.milestone || '';
+          const ma = a.log?.activityName || '';
+          const mb = b.log?.activityName || '';
           cmp = ma.localeCompare(mb);
           if (cmp === 0) {
             const sa = a.log?.temporal_state || '';
@@ -346,7 +346,7 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
   const visible = useMemo(() => {
     let filtered = ranked;
     if (statusFilter) {
-      filtered = filtered.filter((row) => row.log?.milestone === statusFilter);
+      filtered = filtered.filter((row) => row.log?.activityName === statusFilter);
     }
     if (typeFilter !== 'All') {
       filtered = filtered.filter((row) => row.unit.unit_type === typeFilter);
@@ -358,7 +358,7 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     units,
     projectUnitTypes,
     hasRehydrated,
-    currentMilestones,
+    currentActivities,
     ranked,
     visible,
     sortColumn,

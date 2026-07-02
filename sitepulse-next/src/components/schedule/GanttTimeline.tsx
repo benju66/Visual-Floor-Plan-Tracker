@@ -53,7 +53,7 @@ function DateEditor({
     'w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-xs';
   return (
     <div className="p-3">
-      <div className="text-xs font-bold mb-2 text-slate-800 dark:text-slate-100 truncate">{bar.milestone}</div>
+      <div className="text-xs font-bold mb-2 text-slate-800 dark:text-slate-100 truncate">{bar.activityName}</div>
       <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5">Planned start</label>
       <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={inputCls} />
       <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-0.5 mt-2">Planned end</label>
@@ -80,7 +80,7 @@ function DateEditor({
 
 /**
  * The Gantt grid: a sticky location column on the left, a scrollable time axis
- * on the right, one row per location with milestone bars, full-height gridlines
+ * on the right, one row per location with activity bars, full-height gridlines
  * and a "today" line. Behind-schedule coloring comes from `rowMeta` (computed
  * upstream via progressAnalytics — never recomputed here).
  */
@@ -197,7 +197,7 @@ export default function GanttTimeline({
                   if (!rect) return null;
                   return (
                     <GanttBar
-                      key={b.milestone}
+                      key={b.activityName}
                       bar={b}
                       x={rect.x}
                       width={rect.width}
@@ -215,7 +215,7 @@ export default function GanttTimeline({
       <AnchoredMenu open={!!editing} anchorRect={editing?.rect ?? null} onClose={() => setEditing(null)} width={248}>
         {editing && (
           <DateEditor
-            key={`${editing.unitId}_${editing.bar.milestone}`}
+            key={`${editing.unitId}_${editing.bar.activityName}`}
             bar={editing.bar}
             onSave={(start, end) => {
               onEditDates(editing.unitId, editing.bar, start, end);

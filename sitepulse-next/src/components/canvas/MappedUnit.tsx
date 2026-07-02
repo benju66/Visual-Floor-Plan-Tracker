@@ -120,7 +120,7 @@ export const MappedUnitComponent = ({
   const tState = activeStatus?.temporal_state || 'completed';
   const fillColor = activeStatus ? activeStatus.status_color : 'rgba(0,0,0,0)';
   const matchesLegend =
-    !legendFilter || (activeStatus && activeStatus.milestone === legendFilter);
+    !legendFilter || (activeStatus && activeStatus.activityName === legendFilter);
   const dim = legendFilter && !matchesLegend;
   
   const highlight = (isSelected || isHovered) && toolMode !== 'route';
@@ -516,7 +516,7 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
   if (prevUnit.icon_offset_x !== nextUnit.icon_offset_x) return false;
   if (prevUnit.icon_offset_y !== nextUnit.icon_offset_y) return false;
 
-  // Cache find() once — reused for status_color, temporal_state, and milestone checks.
+  // Cache find() once — reused for status_color, temporal_state, and activity checks.
   // Avoids 6 repeated O(n) scans per comparator invocation per unit.
   const prevStatus = prevProps.activeStatuses.find(s => s.unit_id === prevProps.unit.id);
   const nextStatus = nextProps.activeStatuses.find(s => s.unit_id === nextProps.unit.id);
@@ -549,6 +549,6 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
     prevProps.layout.offsetX === nextProps.layout.offsetX &&
     prevProps.layout.offsetY === nextProps.layout.offsetY &&
     prevStatus?.temporal_state === nextStatus?.temporal_state &&
-    prevStatus?.milestone === nextStatus?.milestone
+    prevStatus?.activityName === nextStatus?.activityName
   );
 });

@@ -12,14 +12,14 @@ interface GanttBarProps {
 }
 
 /**
- * A single milestone bar on a location's timeline row. Read-only in Phase 3a
+ * A single activity bar on a location's timeline row. Read-only in Phase 3a
  * (no drag) — clicking opens the shared date editor. Overdue slots (past their
  * own planned end, not completed) get a red ring.
  */
 export default function GanttBar({ bar, x, width, rowHeight, onOpen }: GanttBarProps) {
   const barH = 18;
   const title =
-    `${bar.milestone}: ${bar.plannedStart ?? '—'} → ${bar.plannedEnd ?? '—'} · ${bar.temporalState}` +
+    `${bar.activityName}: ${bar.plannedStart ?? '—'} → ${bar.plannedEnd ?? '—'} · ${bar.temporalState}` +
     (bar.overdue ? ' · overdue' : '');
   return (
     <button
@@ -38,7 +38,7 @@ export default function GanttBar({ bar, x, width, rowHeight, onOpen }: GanttBarP
         opacity: bar.temporalState === 'completed' ? 1 : 0.92,
       }}
     >
-      <span className="truncate [text-shadow:0_1px_1px_rgba(0,0,0,0.35)]">{bar.milestone}</span>
+      <span className="truncate [text-shadow:0_1px_1px_rgba(0,0,0,0.35)]">{bar.activityName}</span>
     </button>
   );
 }

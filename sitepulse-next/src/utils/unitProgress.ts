@@ -1,5 +1,5 @@
-import type { Milestone, StatusLog, TemporalState, Unit } from '@/types/domain';
-import { isMilestoneApplicable, type ApplicabilityIndex } from './applicability';
+import type { Activity, StatusLog, TemporalState, Unit } from '@/types/domain';
+import { isActivityApplicable, type ApplicabilityIndex } from './applicability';
 
 /**
  * Pure progress roll-ups for the map side panel.
@@ -9,23 +9,23 @@ import { isMilestoneApplicable, type ApplicabilityIndex } from './applicability'
  * a sheet-level roll-up (headline % + unit buckets). Kept dependency-free and
  * unit-tested because they hold the panel's load-bearing math.
  *
- * Applicability (N/A) is respected everywhere: a milestone that does not apply to
+ * Applicability (N/A) is respected everywhere: an activity that does not apply to
  * a unit is excluded from that unit's denominator — identical to the map and the
  * field list (see src/utils/applicability.ts).
  */
 
 /** A unit's current "stage" for the panel: a temporal state, or 'done' when every
- *  applicable milestone is completed. 'none' covers units with no applicable work. */
+ *  applicable activity is completed. 'none' covers units with no applicable work. */
 export type UnitStage = TemporalState | 'done';
 
 export interface UnitSummary {
   unitId: string;
-  /** applicable milestones in the active track */
+  /** applicable activities in the active track */
   totalCount: number;
-  /** completed applicable milestones */
+  /** completed applicable activities */
   doneCount: number;
-  /** first non-completed applicable milestone (the bottleneck), or null when done/none */
-  currentMilestone: string | null;
+  /** first non-completed applicable activity (the bottleneck), or null when done/none */
+  currentActivityName: string | null;
   /** stage shown as the row's status dot */
   stage: UnitStage;
 }
@@ -44,32 +44,32 @@ const stateOf = (log: StatusLog | undefined): TemporalState =>
   (log?.temporal_state as TemporalState) || 'none';
 
 /**
- * Summarize one unit against the active track's milestones.
- * `trackMilestones` must already be filtered to the active track and ordered by
+ * Summarize one unit against the active track's activities.
+ * `trackActivities` must already be filtered to the active track and ordered by
  * sequence. `statuses` may be the full sheet array — it is filtered here.
  */
 export function summarizeUnit(
   unit: Pick<Unit, 'id' | 'unit_type'>,
   statuses: StatusLog[],
-  trackMilestones: Array<Pick<Milestone, 'id' | 'name'>>,
+  trackActivities: Array<Pick<Activity, 'id' | 'name'>>,
   index: ApplicabilityIndex,
   track: string,
 ): UnitSummary {
   let totalCount = 0;
   let doneCount = 0;
-  let currentMilestone: string | null = null;
+  let currentActivityName: string | null = null;
 
-  for (const m of trackMilestones) {
-    if (!isMilestoneApplicable(m, unit, index)) continue;
+  for (const a of trackActivities) {
+    if (!isActivityApplicable(a, unit, index)) continue;
     totalCount++;
     const log = statuses.find(
-      s => s.unit_id === unit.id && s.track === track && s.milestone === m.name,
+      s => s.unit_id === unit.id && s.track === track && s.activityName === a.name,
     );
     const state = stateOf(log);
     if (state === 'completed') {
       doneCount++;
-    } else if (currentMilestone === null) {
-      currentMilestone = m.name;
+    } else if (currentActivityName === null) {
+      currentActivityName = a.name;
     }
   }
 
@@ -79,21 +79,21 @@ export function summarizeUnit(
   } else if (doneCount === totalCount) {
     stage = 'done';
   } else {
-    // stage of the bottleneck milestone
+    // stage of the bottleneck activity
     const log = statuses.find(
-      s => s.unit_id === unit.id && s.track === track && s.milestone === currentMilestone,
+      s => s.unit_id === unit.id && s.track === track && s.activityName === currentActivityName,
     );
     stage = stateOf(log);
   }
 
-  return { unitId: unit.id, totalCount, doneCount, currentMilestone, stage };
+  return { unitId: unit.id, totalCount, doneCount, currentActivityName, stage };
 }
 
 /** Sheet-wide roll-up built from per-unit summaries. */
 export function summarizeSheetProgress(
   units: Array<Pick<Unit, 'id' | 'unit_type'>>,
   statuses: StatusLog[],
-  trackMilestones: Array<Pick<Milestone, 'id' | 'name'>>,
+  trackActivities: Array<Pick<Activity, 'id' | 'name'>>,
   index: ApplicabilityIndex,
   track: string,
 ): SheetProgress {
@@ -102,7 +102,7 @@ export function summarizeSheetProgress(
   let total = 0;
 
   for (const u of units) {
-    const s = summarizeUnit(u, statuses, trackMilestones, index, track);
+    const s = summarizeUnit(u, statuses, trackActivities, index, track);
     completed += s.doneCount;
     total += s.totalCount;
     if (s.stage === 'done') buckets.done++;
@@ -116,20 +116,20 @@ export function summarizeSheetProgress(
 }
 
 /**
- * Count, per milestone, how many units currently sit at that milestone (its
+ * Count, per activity, how many units currently sit at that activity (its
  * bottleneck). Drives the "Drywall 18" counts on the overview filter chips.
  */
-export function countUnitsByCurrentMilestone(
+export function countUnitsByCurrentActivity(
   units: Array<Pick<Unit, 'id' | 'unit_type'>>,
   statuses: StatusLog[],
-  trackMilestones: Array<Pick<Milestone, 'id' | 'name'>>,
+  trackActivities: Array<Pick<Activity, 'id' | 'name'>>,
   index: ApplicabilityIndex,
   track: string,
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const u of units) {
-    const { currentMilestone } = summarizeUnit(u, statuses, trackMilestones, index, track);
-    if (currentMilestone) counts[currentMilestone] = (counts[currentMilestone] || 0) + 1;
+    const { currentActivityName } = summarizeUnit(u, statuses, trackActivities, index, track);
+    if (currentActivityName) counts[currentActivityName] = (counts[currentActivityName] || 0) + 1;
   }
   return counts;
 }

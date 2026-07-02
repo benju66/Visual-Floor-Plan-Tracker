@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence, animate } from 'framer-motion';
 import { ArrowRight, X, ListTodo, AlertTriangle, Eye, EyeOff } from 'lucide-react';
-import type { Unit, StatusLog, Milestone, PendingChange, TemporalState, StatusLogAugmented, BottleneckSequence } from '@/types/domain';
+import type { Unit, StatusLog, Activity, PendingChange, TemporalState, StatusLogAugmented, BottleneckSequence } from '@/types/domain';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { useUIStore } from '@/store/useUIStore';
-import { isMilestoneApplicable } from '@/utils/applicability';
+import { isActivityApplicable } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 
 const getBadgeStyle = (state: TemporalState) => {
@@ -37,7 +37,7 @@ interface SwipeCardProps {
   unit: Unit;
   log: StatusLogAugmented | null;
   rawStatuses: StatusLog[];
-  milestones: Milestone[];
+  activities: Activity[];
   isTop: boolean;
   depth: number;
   pendingChanges: Record<string, PendingChange>;
@@ -51,14 +51,14 @@ interface SwipeCardProps {
   swipeRightLabel: string;
   entryDirection?: 'left' | 'right' | 'none';
   applicabilityIndex?: ApplicabilityIndex;
-  onToggleApplicability?: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
+  onToggleApplicability?: (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
 }
 
 const SwipeCard = ({
   unit,
   log,
   rawStatuses,
-  milestones,
+  activities,
   isTop,
   depth,
   pendingChanges,
@@ -130,10 +130,10 @@ const SwipeCard = ({
   const pendingState = (log?.temporal_state as TemporalState) || 'none';
   const unitRawLogs = rawStatuses?.filter((s) => s.unit_id === unit.id) || [];
 
-  const handleOverlayStateSelect = (e: React.MouseEvent, state: TemporalState, m: Milestone) => {
+  const handleOverlayStateSelect = (e: React.MouseEvent, state: TemporalState, m: Activity) => {
     e.stopPropagation();
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
-    onTimelineUpdate(unit, log || null, state, { milestoneObj: m });
+    onTimelineUpdate(unit, log || null, state, { activityObj: m });
   };
 
   const timelineChangeCount = Object.keys(pendingTimelineChanges || {}).filter(k => k.startsWith(unit.id + '_')).length;
@@ -141,20 +141,20 @@ const SwipeCard = ({
   const hasBottleneck = !!log?.outOfSequence?.length;
   const bottleneckCount = log?.outOfSequence?.length || 0;
   
-  // Only milestones applicable to this unit count toward the card's progress
-  const applicableUnitMilestones = applicabilityIndex
-    ? milestones.filter(m => isMilestoneApplicable(m, unit, applicabilityIndex))
-    : milestones;
+  // Only activities applicable to this unit count toward the card's progress
+  const applicableUnitActivities = applicabilityIndex
+    ? activities.filter(m => isActivityApplicable(m, unit, applicabilityIndex))
+    : activities;
 
-  const completedCount = applicableUnitMilestones.filter(m => {
-    const mLog = unitRawLogs.find(l => l.milestone === m.name);
+  const completedCount = applicableUnitActivities.filter(m => {
+    const mLog = unitRawLogs.find(l => l.activityName === m.name);
     const ptc = pendingTimelineChanges?.[`${unit.id}_${m.name}`];
-    const state = ptc?.state || (log?.milestone === m.name ? pendingState : mLog?.temporal_state || 'none');
+    const state = ptc?.state || (log?.activityName === m.name ? pendingState : mLog?.temporal_state || 'none');
     return state === 'completed';
   }).length;
 
-  const outOfSequenceItems = milestones.filter(m => 
-    log?.outOfSequence?.some(oos => oos.milestone === m.name)
+  const outOfSequenceItems = activities.filter(m => 
+    log?.outOfSequence?.some(oos => oos.activityName === m.name)
   );
 
   return (
@@ -229,7 +229,7 @@ const SwipeCard = ({
         <div className="relative z-10 flex flex-col h-full w-full">
           <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-2 min-h-0 overflow-y-auto no-scrollbar touch-pan-y overscroll-contain">
             <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 inline-block shadow-sm">
-              {unit.unit_type || 'Unknown'} · {completedCount}/{applicableUnitMilestones.length}
+              {unit.unit_type || 'Unknown'} · {completedCount}/{applicableUnitActivities.length}
             </span>
 
             <div className="flex items-center justify-center gap-2 mb-1 relative">
@@ -240,10 +240,10 @@ const SwipeCard = ({
 
             <div className="mt-2 mb-3 flex flex-col items-center">
               <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">
-                Current Milestone
+                Current Activity
               </p>
               <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                {log?.milestone || 'Unassigned'}
+                {log?.activityName || 'Unassigned'}
               </p>
               {log?.logged_date && (
                 <p className="text-[10px] text-slate-400 mt-1">
@@ -256,7 +256,7 @@ const SwipeCard = ({
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
                 Status
               </p>
-              <div className="w-full max-w-[280px] flex gap-1.5" role="radiogroup" aria-label={`Status for ${log?.milestone || 'milestone'}`}>
+              <div className="w-full max-w-[280px] flex gap-1.5" role="radiogroup" aria-label={`Status for ${log?.activityName || 'activity'}`}>
                 {[
                   { key: 'none',      label: '×',   ariaLabel: 'Clear status' },
                   { key: 'planned',   label: 'PLN', ariaLabel: 'Planned' },
@@ -393,11 +393,11 @@ const SwipeCard = ({
                     </p>
                     {outOfSequenceItems.map((m) => {
                       const pendingTimeline = pendingTimelineChanges?.[`${unit.id}_${m.name}`];
-                      const mLog = unitRawLogs.find((l) => l.milestone === m.name);
-                      const isCurrentMilestone = log?.milestone === m.name;
+                      const mLog = unitRawLogs.find((l) => l.activityName === m.name);
+                      const isCurrentActivity = log?.activityName === m.name;
                       const state = pendingTimeline 
                         ? pendingTimeline.state
-                        : isCurrentMilestone
+                        : isCurrentActivity
                           ? pendingState
                           : (mLog?.temporal_state as TemporalState) || 'none';
 
@@ -447,8 +447,8 @@ const SwipeCard = ({
                   </div>
                 )}
 
-                {milestones.map((m) => {
-                  const notApplicable = applicabilityIndex && !isMilestoneApplicable(m, unit, applicabilityIndex);
+                {activities.map((m) => {
+                  const notApplicable = applicabilityIndex && !isActivityApplicable(m, unit, applicabilityIndex);
                   if (notApplicable) {
                     return (
                       <div key={m.name} className="border-b border-slate-100 dark:border-white/6 last:border-b-0 px-4 py-2.5 opacity-50">
@@ -475,11 +475,11 @@ const SwipeCard = ({
                   }
 
                   const pendingTimeline = pendingTimelineChanges?.[`${unit.id}_${m.name}`];
-                  const mLog = unitRawLogs.find((l) => l.milestone === m.name);
-                  const isCurrentMilestone = log?.milestone === m.name;
+                  const mLog = unitRawLogs.find((l) => l.activityName === m.name);
+                  const isCurrentActivity = log?.activityName === m.name;
                   const state = pendingTimeline
                     ? pendingTimeline.state
-                    : isCurrentMilestone
+                    : isCurrentActivity
                       ? pendingState
                       : (mLog?.temporal_state as TemporalState) || 'none';
 
@@ -495,7 +495,7 @@ const SwipeCard = ({
                         <span className="flex-1 truncate text-[13px] font-bold text-slate-700 dark:text-slate-200">
                           {m.name}
                         </span>
-                        {isCurrentMilestone && (
+                        {isCurrentActivity && (
                           <span className="text-[9px] font-black uppercase tracking-widest text-sky-500 shrink-0">
                             Active
                           </span>

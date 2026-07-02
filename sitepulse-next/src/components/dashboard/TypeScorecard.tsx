@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE } from '@/utils/progressAnalytics';
 import type { CompletionEvent, GroupRollup } from '@/utils/progressAnalytics';
 import type { ApplicabilityIndex } from '@/utils/applicability';
-import type { Unit, Milestone, StatusLog } from '@/types/domain';
+import type { Unit, Activity, StatusLog } from '@/types/domain';
 
 /**
  * TypeScorecard — comparative leaderboard by unit_type, sorted worst-first,
@@ -20,7 +20,7 @@ const SPARK_SUPPRESS_UNITS = 8;
 export interface TypeScorecardProps {
   allUnits: Unit[];
   statuses: StatusLog[];
-  milestones: Milestone[];
+  activities: Activity[];
   track: string;
   history: CompletionEvent[];
   applicabilityIndex?: ApplicabilityIndex;
@@ -43,7 +43,7 @@ function VarianceChip({ avg }: { avg: number | null }) {
     : avg > -1 ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600'
     : 'bg-blue-500 text-white border-blue-500';
   return (
-    <span className={`inline-block text-[11px] font-bold border rounded-md px-2 py-0.5 whitespace-nowrap ${cls}`} title="Average schedule variance of each location's bottleneck milestone (− = behind plan)">
+    <span className={`inline-block text-[11px] font-bold border rounded-md px-2 py-0.5 whitespace-nowrap ${cls}`} title="Average schedule variance of each location's bottleneck activity (− = behind plan)">
       {label}
     </span>
   );
@@ -141,7 +141,7 @@ function BurnUp({ row, statuses, track, history, today }: {
   );
 }
 
-export default function TypeScorecard({ allUnits, statuses, milestones, track, history, applicabilityIndex }: TypeScorecardProps) {
+export default function TypeScorecard({ allUnits, statuses, activities, track, history, applicabilityIndex }: TypeScorecardProps) {
   const today = useMemo(() => new Date(), []);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -155,7 +155,7 @@ export default function TypeScorecard({ allUnits, statuses, milestones, track, h
     }
     const out: TypeRow[] = [];
     for (const [type, units] of byType) {
-      out.push({ type, units, rollup: summarizeGroup({ units, statuses, milestones, track, history, today, applicabilityIndex }) });
+      out.push({ type, units, rollup: summarizeGroup({ units, statuses, activities, track, history, today, applicabilityIndex }) });
     }
     // Worst first: most behind on average, then most stalled, then least complete.
     out.sort((a, b) => {
@@ -171,7 +171,7 @@ export default function TypeScorecard({ allUnits, statuses, milestones, track, h
       return a.rollup.completionPct - b.rollup.completionPct;
     });
     return out;
-  }, [allUnits, statuses, milestones, track, history, today, applicabilityIndex]);
+  }, [allUnits, statuses, activities, track, history, today, applicabilityIndex]);
 
   if (rows.length <= 1) return null; // a single type has nothing to compare
 
@@ -264,7 +264,7 @@ export default function TypeScorecard({ allUnits, statuses, milestones, track, h
         })}
       </div>
       <p className="px-5 py-2 text-[10px] text-slate-400 italic border-t border-slate-200/60 dark:border-white/5">
-        click a row to expand its burn-up · variance averages each location&apos;s bottleneck milestone vs plan
+        click a row to expand its burn-up · variance averages each location&apos;s bottleneck activity vs plan
       </p>
     </div>
   );

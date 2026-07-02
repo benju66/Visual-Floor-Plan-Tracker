@@ -40,7 +40,7 @@ export type TaxonomyResult =
 
 /** The three location columns a taxonomy pick writes. */
 export interface TaxonomyUnitFields {
-  /** Kept in sync with the chosen sub-type name for milestone-applicability back-compat. */
+  /** Kept in sync with the chosen sub-type name for activity-applicability back-compat. */
   unit_type: string;
   top_level_role: TopLevelRole;
   subtype_id: string | null;

@@ -3,17 +3,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { X, ArrowDownToLine, Save } from 'lucide-react';
 import { useUpdateSheetSchedule, useBulkInsertStatusLogs } from '@/hooks/useProjectQueries';
 import { useUIStore } from '@/store/useUIStore';
-import { orderedTrackMilestones } from '@/utils/progressAnalytics';
+import { orderedTrackActivities } from '@/utils/progressAnalytics';
 import { cascadeLevelToLocations } from '@/utils/ganttMath';
 import type { ApplicabilityIndex } from '@/utils/applicability';
-import type { Sheet, Milestone, Unit, StatusLog, MilestoneSchedules } from '@/types/domain';
+import type { Sheet, Activity, Unit, StatusLog, ActivitySchedules } from '@/types/domain';
 
 interface CascadePanelProps {
   open: boolean;
   onClose: () => void;
   /** The active level — cascade always targets this level's locations. */
   sheet: Sheet | undefined;
-  milestones: Milestone[];
+  activities: Activity[];
   track: string;
   /** Active-level units + their current-state logs. */
   units: Unit[];
@@ -23,8 +23,8 @@ interface CascadePanelProps {
 }
 
 /**
- * Level → location date cascade (Phase 3a). Edit a level's per-milestone default
- * dates (`sheets.milestone_schedules`) and flow them down to its locations.
+ * Level → location date cascade (Phase 3a). Edit a level's per-activity default
+ * dates (`sheets.activity_schedules`) and flow them down to its locations.
  * Non-destructive by default (only fills locations without their own dates);
  * an explicit toggle overwrites. Writes are online via the existing hooks.
  */
@@ -32,7 +32,7 @@ export default function CascadePanel({
   open,
   onClose,
   sheet,
-  milestones,
+  activities,
   track,
   units,
   existing,
@@ -43,7 +43,7 @@ export default function CascadePanel({
   const updateSheetSchedule = useUpdateSheetSchedule(projectId);
   const bulkInsert = useBulkInsertStatusLogs(sheet?.id || '');
 
-  const [draft, setDraft] = useState<MilestoneSchedules>({});
+  const [draft, setDraft] = useState<ActivitySchedules>({});
   const [overrideExisting, setOverrideExisting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -51,25 +51,25 @@ export default function CascadePanel({
   // Seed the draft from the level's saved defaults whenever it opens / changes level.
   useEffect(() => {
     if (!open || !sheet) return;
-    setDraft(((sheet.activity_schedules as MilestoneSchedules) || {}) as MilestoneSchedules);
+    setDraft(((sheet.activity_schedules as ActivitySchedules) || {}) as ActivitySchedules);
     setConfirming(false);
     setOverrideExisting(false);
   }, [open, sheet]);
 
-  const trackMs = useMemo(() => orderedTrackMilestones(milestones, track), [milestones, track]);
+  const trackMs = useMemo(() => orderedTrackActivities(activities, track), [activities, track]);
 
   const writes = useMemo(() => {
     if (!sheet) return [];
     return cascadeLevelToLocations({
       levelSchedule: draft,
       units: units.map((u) => ({ id: u.id, unit_type: u.unit_type })),
-      milestones,
+      activities,
       track,
       existing,
       overrideExisting,
       applicabilityIndex,
     });
-  }, [sheet, draft, units, milestones, track, existing, overrideExisting, applicabilityIndex]);
+  }, [sheet, draft, units, activities, track, existing, overrideExisting, applicabilityIndex]);
 
   const affectedUnits = useMemo(() => new Set(writes.map((w) => w.unit_id)).size, [writes]);
 
@@ -112,7 +112,7 @@ export default function CascadePanel({
         <div className="flex items-start justify-between mb-1">
           <div>
             <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">Level schedule — {sheet?.sheet_name || '—'}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Set default dates per milestone, then apply them down to this level’s locations.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Set default dates per activity, then apply them down to this level’s locations.</p>
           </div>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500">
             <X size={18} />
@@ -121,12 +121,12 @@ export default function CascadePanel({
 
         <div className="flex-1 min-h-0 overflow-auto mt-3 -mx-1 px-1">
           {trackMs.length === 0 ? (
-            <div className="text-sm text-slate-500 py-6 text-center">No milestones on the {track} track.</div>
+            <div className="text-sm text-slate-500 py-6 text-center">No activities on the {track} track.</div>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-slate-400 text-left">
-                  <th className="py-1.5 font-semibold">Milestone</th>
+                  <th className="py-1.5 font-semibold">Activity</th>
                   <th className="py-1.5 font-semibold">Start</th>
                   <th className="py-1.5 font-semibold">End</th>
                 </tr>
@@ -166,7 +166,7 @@ export default function CascadePanel({
           {confirming ? (
             <div className="flex items-center gap-2 rounded-lg border-2 border-amber-400 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-500/60 px-3 py-2">
               <span className="text-sm font-semibold text-amber-800 dark:text-amber-200 mr-auto">
-                Apply {writes.length} milestone date{writes.length === 1 ? '' : 's'} across {affectedUnits} location{affectedUnits === 1 ? '' : 's'}
+                Apply {writes.length} activity date{writes.length === 1 ? '' : 's'} across {affectedUnits} location{affectedUnits === 1 ? '' : 's'}
                 {overrideExisting ? ' (overwriting existing)' : ' (only empty ones)'}?
               </span>
               <button type="button" disabled={busy} onClick={applyCascade} className="rounded-md bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold py-1.5 px-3 disabled:opacity-60">

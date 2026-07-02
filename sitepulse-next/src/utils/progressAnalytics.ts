@@ -1,5 +1,5 @@
-import type { Milestone, StatusLog, Unit } from '@/types/domain';
-import { applicableMilestones, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
+import type { Activity, StatusLog, Unit } from '@/types/domain';
+import { applicableActivities, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 
 /**
@@ -11,10 +11,10 @@ import type { ApplicabilityIndex } from '@/utils/applicability';
  * timezone-stable. `today` is always passed in explicitly so the functions
  * stay deterministic and testable.
  *
- * Milestone applicability (N/A): callers must pass each unit's APPLICABLE
- * track-milestones. `computeUnitVariance` takes the already-filtered list;
+ * Activity applicability (N/A): callers must pass each unit's APPLICABLE
+ * track-activities. `computeUnitVariance` takes the already-filtered list;
  * `summarizeGroup` filters internally via the optional `applicabilityIndex`.
- * N/A milestones are excluded from bottleneck detection and every denominator.
+ * N/A activities are excluded from bottleneck detection and every denominator.
  */
 
 const DAY_MS = 86_400_000;
@@ -31,9 +31,9 @@ export function dayDiff(from: Date, to: Date): number {
   return Math.round((to.getTime() - from.getTime()) / DAY_MS);
 }
 
-export function orderedTrackMilestones(milestones: Milestone[], track: string): Milestone[] {
-  return milestones
-    .filter(m => m.track === track)
+export function orderedTrackActivities(activities: Activity[], track: string): Activity[] {
+  return activities
+    .filter(a => a.track === track)
     .sort((a, b) => (a.sequence_order || 0) - (b.sequence_order || 0));
 }
 
@@ -42,7 +42,7 @@ export function orderedTrackMilestones(milestones: Milestone[], track: string): 
 // ---------------------------------------------------------------------------
 
 export type VarianceKind =
-  | 'complete'    // every milestone in the track is completed
+  | 'complete'    // every activity in the track is completed
   | 'behind'      // bottleneck's planned finish has passed
   | 'ahead'       // bottleneck's planned start is still in the future
   | 'onpace'      // inside the bottleneck's planned window
@@ -55,7 +55,7 @@ export interface VarianceInfo {
   days: number;
   /** noplan only: days since the unit's last logged activity (null if unknown). */
   idleDays: number | null;
-  /** Bottleneck milestone name (null when complete). */
+  /** Bottleneck activity name (null when complete). */
   bottleneck: string | null;
   /** Temporal state of the bottleneck slot ('none' when no log exists). */
   state: string;
@@ -73,29 +73,29 @@ export function lastActivityAt(unitLogs: StatusLog[]): Date | null {
 }
 
 /**
- * Schedule variance of a unit's bottleneck milestone (the earliest incomplete
- * milestone in sequence order). `unitLogs` must already be filtered to one
- * unit + one track; `trackMilestones` must be sequence-ordered for that track.
+ * Schedule variance of a unit's bottleneck activity (the earliest incomplete
+ * activity in sequence order). `unitLogs` must already be filtered to one
+ * unit + one track; `trackActivities` must be sequence-ordered for that track.
  *
- * Planned dates are read from the bottleneck milestone's `status_logs` row.
- * If no row exists yet for that milestone, it is treated as unplanned —
- * milestone-template dates do NOT flow through here (dates live per slot).
+ * Planned dates are read from the bottleneck activity's `status_logs` row.
+ * If no row exists yet for that activity, it is treated as unplanned —
+ * activity-template dates do NOT flow through here (dates live per slot).
  */
 export function computeUnitVariance(
   unitLogs: StatusLog[],
-  trackMilestones: Milestone[],
+  trackActivities: Activity[],
   today: Date
 ): VarianceInfo {
-  if (trackMilestones.length === 0) {
+  if (trackActivities.length === 0) {
     return { kind: 'notstarted', days: 0, idleDays: null, bottleneck: null, state: 'none' };
   }
 
-  let bottleneck: Milestone | null = null;
+  let bottleneck: Activity | null = null;
   let bottleneckLog: StatusLog | undefined;
-  for (const m of trackMilestones) {
-    const log = unitLogs.find(s => s.milestone === m.name);
+  for (const a of trackActivities) {
+    const log = unitLogs.find(s => s.activityName === a.name);
     if (!log || log.temporal_state !== 'completed') {
-      bottleneck = m;
+      bottleneck = a;
       bottleneckLog = log;
       break;
     }
@@ -246,22 +246,22 @@ export interface GroupRollupInput {
   units: Pick<Unit, 'id' | 'unit_type'>[];
   /** Current-state logs for (at least) those units, single project. */
   statuses: StatusLog[];
-  milestones: Milestone[];
+  activities: Activity[];
   track: string;
   /** Completed audit events for (at least) those units. */
   history: CompletionEvent[];
   today: Date;
   /** How many weekly buckets to return (default 8). */
   weeks?: number;
-  /** N/A milestones are dropped from every denominator + bottleneck. Defaults to all-applicable. */
+  /** N/A activities are dropped from every denominator + bottleneck. Defaults to all-applicable. */
   applicabilityIndex?: ApplicabilityIndex;
 }
 
 export function summarizeGroup({
-  units, statuses, milestones, track, history, today, weeks = 8,
+  units, statuses, activities, track, history, today, weeks = 8,
   applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
 }: GroupRollupInput): GroupRollup {
-  const trackMilestones = orderedTrackMilestones(milestones, track);
+  const trackActivities = orderedTrackActivities(activities, track);
   const idSet = new Set(units.map(u => u.id));
   const trackStatuses = statuses.filter(s => s.track === track && s.unit_id && idSet.has(s.unit_id));
 
@@ -272,7 +272,7 @@ export function summarizeGroup({
     else logsByUnit.set(s.unit_id as string, [s]);
   }
 
-  // One pass per unit over its APPLICABLE milestones — N/A slots never enter
+  // One pass per unit over its APPLICABLE activities — N/A slots never enter
   // the denominator, the completion/ongoing counts, or the bottleneck.
   let totalSlots = 0;
   let completedSlots = 0;
@@ -284,12 +284,12 @@ export function summarizeGroup({
   let varianceCount = 0;
 
   for (const unit of units) {
-    const appMs = applicableMilestones(trackMilestones, unit, applicabilityIndex);
+    const appActs = applicableActivities(trackActivities, unit, applicabilityIndex);
     const unitLogs = logsByUnit.get(unit.id) || [];
 
-    totalSlots += appMs.length;
-    for (const m of appMs) {
-      const log = unitLogs.find(s => s.milestone === m.name);
+    totalSlots += appActs.length;
+    for (const a of appActs) {
+      const log = unitLogs.find(s => s.activityName === a.name);
       if (log?.temporal_state === 'completed') completedSlots++;
       else if (log?.temporal_state === 'ongoing') ongoingSlots++;
       const end = log ? parseDay(log.planned_end_date) : null;
@@ -299,7 +299,7 @@ export function summarizeGroup({
       }
     }
 
-    const info = computeUnitVariance(unitLogs, appMs, today);
+    const info = computeUnitVariance(unitLogs, appActs, today);
     if (info.kind === 'behind') { varianceSum += info.days; varianceCount++; }
     else if (info.kind === 'ahead') { varianceSum -= info.days; varianceCount++; }
     else if (info.kind === 'onpace') { varianceCount++; }

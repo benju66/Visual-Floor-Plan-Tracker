@@ -5,17 +5,17 @@ import { useUnits } from '@/hooks/useProjectQueries';
 import {
   summarizeUnit,
   summarizeSheetProgress,
-  countUnitsByCurrentMilestone,
+  countUnitsByCurrentActivity,
   type UnitSummary,
 } from '@/utils/unitProgress';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import UnitInspector from './UnitInspector';
-import type { Milestone, Unit, Sheet, StatusLog, TemporalState } from '@/types/domain';
+import type { Activity, Unit, Sheet, StatusLog, TemporalState } from '@/types/domain';
 
 export interface MapSidebarProps {
-  milestones?: Milestone[];
-  filterMilestone: string | null;
-  setFilterMilestone: React.Dispatch<React.SetStateAction<string | null>>;
+  activities?: Activity[];
+  filterActivity: string | null;
+  setFilterActivity: React.Dispatch<React.SetStateAction<string | null>>;
   temporalFilters: string[];
   setTemporalFilters: React.Dispatch<React.SetStateAction<string[]>>;
   activeSheet: Sheet | null | undefined;
@@ -25,8 +25,8 @@ export interface MapSidebarProps {
   onRenameUnitInitiate: (id: string) => void;
   onDeleteUnit: (id: string) => void;
   onLocateUnit?: (unitId: string) => void;
-  onCommitStatus: (unit: Unit, milestone: Milestone, state: TemporalState, extraProps?: Record<string, unknown>) => void;
-  onToggleApplicability: (unit: Unit, milestone: Milestone, isApplicable: boolean, currentState?: TemporalState) => void;
+  onCommitStatus: (unit: Unit, activity: Activity, state: TemporalState, extraProps?: Record<string, unknown>) => void;
+  onToggleApplicability: (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState) => void;
   onOpenHistory: (unitId: string) => void;
 }
 
@@ -41,9 +41,9 @@ const STAGE_DOT: Record<string, string> = {
 type SortMode = 'number' | 'progress';
 
 function MapSidebar({
-  milestones = [],
-  filterMilestone,
-  setFilterMilestone,
+  activities = [],
+  filterActivity,
+  setFilterActivity,
   temporalFilters,
   setTemporalFilters,
   activeSheet,
@@ -71,31 +71,31 @@ function MapSidebar({
 
   const { data: units = [] } = useUnits(activeSheetId);
 
-  const trackMilestones = useMemo(
+  const trackActivities = useMemo(
     () =>
-      milestones
+      activities
         .filter(m => m.track === trackingMode)
         .sort((a, b) => (a.sequence_order || 0) - (b.sequence_order || 0)),
-    [milestones, trackingMode],
+    [activities, trackingMode],
   );
 
   // One summary per unit — drives row dots, sort, and the roll-up.
   const summaries = useMemo(() => {
     const map = new Map<string, UnitSummary>();
     for (const u of units) {
-      map.set(u.id, summarizeUnit(u, activeStatuses, trackMilestones, applicabilityIndex, trackingMode));
+      map.set(u.id, summarizeUnit(u, activeStatuses, trackActivities, applicabilityIndex, trackingMode));
     }
     return map;
-  }, [units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode]);
+  }, [units, activeStatuses, trackActivities, applicabilityIndex, trackingMode]);
 
   const sheetProgress = useMemo(
-    () => summarizeSheetProgress(units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode),
-    [units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode],
+    () => summarizeSheetProgress(units, activeStatuses, trackActivities, applicabilityIndex, trackingMode),
+    [units, activeStatuses, trackActivities, applicabilityIndex, trackingMode],
   );
 
-  const milestoneCounts = useMemo(
-    () => countUnitsByCurrentMilestone(units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode),
-    [units, activeStatuses, trackMilestones, applicabilityIndex, trackingMode],
+  const activityCounts = useMemo(
+    () => countUnitsByCurrentActivity(units, activeStatuses, trackActivities, applicabilityIndex, trackingMode),
+    [units, activeStatuses, trackActivities, applicabilityIndex, trackingMode],
   );
 
   const visibleUnits = useMemo(() => {
@@ -141,7 +141,7 @@ function MapSidebar({
       <div className="w-full h-full p-4 rounded-xl border flex flex-col min-h-0 flex-shrink-0 glass-panel">
         <UnitInspector
           unit={singleUnit}
-          milestones={milestones}
+          activities={activities}
           trackingMode={trackingMode}
           activeStatuses={activeStatuses}
           applicabilityIndex={applicabilityIndex}
@@ -210,7 +210,7 @@ function MapSidebar({
         </div>
       </div>
 
-      {/* Live legend (milestone filter) */}
+      {/* Live legend (activity filter) */}
       <button
         onClick={() => setIsLegendExpanded(p => !p)}
         className="w-full font-bold text-sm mb-2 border-b border-slate-200/60 dark:border-white/10 pb-2 flex-shrink-0 text-slate-800 dark:text-slate-100 flex items-center justify-between hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
@@ -223,23 +223,23 @@ function MapSidebar({
         <div className="flex flex-wrap gap-1.5 mb-4 max-h-[120px] overflow-y-auto pr-1">
           <button
             type="button"
-            onClick={() => setFilterMilestone(null)}
+            onClick={() => setFilterActivity(null)}
             className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
-              !filterMilestone
+              !filterActivity
                 ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900 border-transparent hover:opacity-90'
                 : 'bg-white/50 dark:bg-black/20 border-slate-200/80 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10'
             }`}
           >
             All
           </button>
-          {trackMilestones.map(m => {
-            const count = milestoneCounts[m.name] || 0;
-            const active = filterMilestone === m.name;
+          {trackActivities.map(m => {
+            const count = activityCounts[m.name] || 0;
+            const active = filterActivity === m.name;
             return (
               <button
                 key={m.id}
                 type="button"
-                onClick={() => setFilterMilestone(prev => (prev === m.name ? null : (m.name as string)))}
+                onClick={() => setFilterActivity(prev => (prev === m.name ? null : (m.name as string)))}
                 className={`px-2.5 py-1 rounded-full text-[10px] font-medium border max-w-[150px] flex items-center gap-1.5 transition-all cursor-pointer hover:opacity-80 ${
                   active ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900 scale-[1.02]' : 'hover:scale-[1.02]'
                 }`}

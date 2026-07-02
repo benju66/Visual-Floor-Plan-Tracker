@@ -32,7 +32,7 @@ export interface MapSettings {
   gridAwareSnapping?: boolean;
   /** Persisted width (px) of the interactive-map right side panel. Desktop only. */
   sidebarWidth?: number;
-  /** Lag Mode: color unit polygons by schedule variance instead of milestone color. */
+  /** Lag Mode: color unit polygons by schedule variance instead of activity color. */
   colorByVariance?: boolean;
   /** Magnifier loupe on/off. Session-only — deliberately NOT restored across
    *  reloads (see persist `merge` below): a persisted-on loupe silently suspends
@@ -63,8 +63,8 @@ export interface SettingsState {
   temporalFilters: TemporalState[];
   setTemporalFilters: (filters: Updater<TemporalState[]>) => void;
 
-  filterMilestone: string | null;
-  setFilterMilestone: (ml: Updater<string | null>) => void;
+  filterActivity: string | null;
+  setFilterActivity: (val: Updater<string | null>) => void;
 
   settings: AppSettings;
   setSettings: (settingsFn: Updater<DeepPartial<AppSettings>>) => void;
@@ -85,8 +85,8 @@ export const useSettingsStore = create<SettingsState>()(
       temporalFilters: ['planned', 'ongoing', 'completed', 'none'],
       setTemporalFilters: (filters) => set(typeof filters === 'function' ? (state) => ({ temporalFilters: filters(state.temporalFilters) }) : { temporalFilters: filters }),
 
-      filterMilestone: null,
-      setFilterMilestone: (ml) => set((state) => ({ filterMilestone: typeof ml === 'function' ? ml(state.filterMilestone) : ml })),
+      filterActivity: null,
+      setFilterActivity: (val) => set((state) => ({ filterActivity: typeof val === 'function' ? val(state.filterActivity) : val })),
 
       settings: { enableToasts: true, showHistoryHover: false, defaultViewMode: 'dashboard', show_delay_indicators: true, auto_advance_tracks: { 'Production': true } },
       setSettings: (settingsFn) => set((state) => ({ 

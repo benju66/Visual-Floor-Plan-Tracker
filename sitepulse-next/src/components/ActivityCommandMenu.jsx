@@ -2,14 +2,14 @@
 import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
 
-/** Command palette for milestones; Cmd/Ctrl+K toggles from parent. */
-export default function MilestoneCommandMenu({
+/** Command palette for activities; Cmd/Ctrl+K toggles from parent. */
+export default function ActivityCommandMenu({
   open,
   onOpenChange,
   onSelect,
   title = 'Set status',
   description,
-  milestones = [],
+  activities = [],
 }) {
   useEffect(() => {
     if (!open) return;
@@ -45,13 +45,13 @@ export default function MilestoneCommandMenu({
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{title}</p>
             {description && <p className="text-xs text-slate-500 mt-0.5">{description}</p>}
             <Command.Input
-              placeholder="Search milestones (e.g. MEP, Punch)…"
+              placeholder="Search activities (e.g. MEP, Punch)…"
               className="mt-2 w-full rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/50 dark:bg-black/20 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/40"
             />
           </div>
           <Command.List className="max-h-[min(50vh,360px)] overflow-y-auto p-2">
             <Command.Empty className="py-8 text-center text-sm text-slate-500">No matches.</Command.Empty>
-            <Command.Group heading="Milestones" className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1">
+            <Command.Group heading="Activities" className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1">
               <Command.Item
                 value="clear unassign remove delete status"
                 onSelect={() => {
@@ -66,7 +66,7 @@ export default function MilestoneCommandMenu({
                 <span className="truncate">Clear Status</span>
               </Command.Item>
               
-              {milestones.map((m) => (
+              {activities.map((m) => (
                 <Command.Item
                   key={m.id}
                   value={`${m.name} ${m.id}`}

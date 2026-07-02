@@ -38,7 +38,7 @@ import RBush from 'rbush';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
-import { useUnits, useMilestones, useUpdateWalkSequence, useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
+import { useUnits, useActivities, useUpdateWalkSequence, useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
 import { unitsPerPxFromCalibration, parseFeetInches } from '@/utils/scale';
 import { FRACTION_LABELS, type FractionDenominator } from '@/utils/measure';
 import { loadImageDimensions } from '@/utils/imageDimensions';
@@ -46,7 +46,7 @@ import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point, Gridline, OpeningEdge, OpeningType } from '@/types/domain';
-import { applicableMilestones } from '@/utils/applicability';
+import { applicableActivities } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
@@ -136,7 +136,7 @@ interface FloorplanCanvasProps {
   onPendingPolygonMove?: (points: Point[]) => void;
   onAddNodeToSegment?: (unitId: string, segmentIndex: number, newPoint: Point) => void;
   onPendingPolygonComplete?: () => void;
-  onOpenMilestoneModal?: (unitId: string | null) => void;
+  onOpenActivityModal?: (unitId: string | null) => void;
   onOpenStatusModal?: (unitId: string | null) => void;
   applicabilityIndex?: ApplicabilityIndex;
 }
@@ -168,7 +168,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onInstantStamp,
   pendingPolygonPoints,
   onPendingPolygonMove,
-  onOpenMilestoneModal,
+  onOpenActivityModal,
   onOpenStatusModal,
   applicabilityIndex,
 }, ref) => {
@@ -185,7 +185,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const trackingMode = useMapStore(s => s.trackingMode);
 
   const temporalFilters = useSettingsStore(s => s.temporalFilters);
-  const legendFilter = useSettingsStore(s => s.filterMilestone);
+  const legendFilter = useSettingsStore(s => s.filterActivity);
   
   const setHistoryModalUnitId = useUIStore(s => s.setHistoryModalUnitId);
   
@@ -197,8 +197,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const params = useParams();
   const projectId = params?.projectId as string;
 
-  const { data: allMilestones = [] } = useMilestones(projectId);
-  const milestones = allMilestones.filter(m => m.track === trackingMode);
+  const { data: allActivities = [] } = useActivities(projectId);
+  const activities = allActivities.filter(m => m.track === trackingMode);
   const { data: units = [], isLoading: isLoadingUnits } = useUnits(activeSheetId);
 
   // Active sheet resolved by PK so scale calibration (Phase 2b) works in BOTH the
@@ -225,18 +225,18 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }
     const unitById = new Map(units.map(u => [u.id, u]));
     return activeStatuses.map(s => {
-      // Variance skips milestones that are N/A for this unit, matching the bottleneck.
+      // Variance skips activities that are N/A for this unit, matching the bottleneck.
       const unit = unitById.get(s.unit_id as string);
-      const unitMilestones = unit && applicabilityIndex
-        ? applicableMilestones(milestones, unit, applicabilityIndex)
-        : milestones;
-      const info = computeUnitVariance(logsByUnit.get(s.unit_id as string) || [], unitMilestones, today);
+      const unitActivities = unit && applicabilityIndex
+        ? applicableActivities(activities, unit, applicabilityIndex)
+        : activities;
+      const info = computeUnitVariance(logsByUnit.get(s.unit_id as string) || [], unitActivities, today);
       return { ...s, status_color: varianceFill(info) };
     });
-  // `milestones` is derived from allMilestones+trackingMode (both in deps); listing
+  // `activities` is derived from allActivities+trackingMode (both in deps); listing
   // the derived array would change identity every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lagMode, activeStatuses, rawStatuses, allMilestones, trackingMode, today, units, applicabilityIndex]);
+  }, [lagMode, activeStatuses, rawStatuses, allActivities, trackingMode, today, units, applicabilityIndex]);
   // Synchronous main-thread snapping engine. The hook returns raw JSON vectors;
   // we instantiate the RBush spatial index here in a deferred effect (never in the
   // Query cache — see AGENTS.md §5). getSnappedCoordinate() is then called inline,
@@ -2034,7 +2034,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         handleFlip={handleFlip}
         handleRotatePolygon={handleRotatePolygon}
         onDeleteUnit={onDeleteUnit}
-        onOpenMilestoneModal={onOpenMilestoneModal}
+        onOpenActivityModal={onOpenActivityModal}
         onOpenStatusModal={onOpenStatusModal}
         onOpenHistoryModal={(id) => setHistoryModalUnitId(id)}
         onHideLegend={() => onLegendDragEnd?.({ isVisible: false })}
@@ -2580,7 +2580,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               rotation={legendPosition?.rotation}
               layout={layout}
               units={units}
-              milestones={milestones}
+              activities={activities}
               activeStatuses={activeStatuses}
               lagMode={lagMode}
               isSelected={isLegendSelected}
@@ -2637,7 +2637,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             units={units}
             rawStatuses={rawStatuses}
             trackingMode={trackingMode}
-            milestones={milestones}
+            activities={activities}
             dimensions={dimensions}
             toolMode={toolMode}
             contextMenu={contextMenu}
@@ -2654,7 +2654,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         handleFlip={handleFlip}
         handleRotatePolygon={handleRotatePolygon}
         onDeleteUnit={onDeleteUnit}
-        onOpenMilestoneModal={onOpenMilestoneModal}
+        onOpenActivityModal={onOpenActivityModal}
         onOpenStatusModal={onOpenStatusModal}
         onOpenHistoryModal={(id: string) => setHistoryModalUnitId(id)}
       />

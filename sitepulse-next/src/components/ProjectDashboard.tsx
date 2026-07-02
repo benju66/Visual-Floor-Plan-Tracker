@@ -8,11 +8,11 @@ import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/h
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { summarizeGroup, parseDay } from '@/utils/progressAnalytics';
-import { isMilestoneApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
+import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import FloorPulse from '@/components/dashboard/FloorPulse';
 import TypeScorecard from '@/components/dashboard/TypeScorecard';
-import type { Unit, Milestone, StatusLog, Sheet, TrackingMode } from '@/types/domain';
+import type { Unit, Activity, StatusLog, Sheet, TrackingMode } from '@/types/domain';
 
 // Lazy-load recharts via next/dynamic — prevents SSR hydration crash
 // (recharts uses ResizeObserver and window which don't exist server-side)
@@ -82,14 +82,14 @@ function bucketByWeek(
 interface ProjectDashboardProps {
   units: Unit[];
   activeStatuses: StatusLog[];
-  milestones: Milestone[];
+  activities: Activity[];
   trackingMode: TrackingMode;
   sheets?: Sheet[];
   activeSheet?: Sheet | null;
   applicabilityIndex?: ApplicabilityIndex;
 }
 
-export default function ProjectDashboard({ milestones, trackingMode, sheets = [], applicabilityIndex = EMPTY_APPLICABILITY_INDEX }: ProjectDashboardProps) {
+export default function ProjectDashboard({ activities, trackingMode, sheets = [], applicabilityIndex = EMPTY_APPLICABILITY_INDEX }: ProjectDashboardProps) {
   // Scope replaces the old Active Level / All Levels toggle: Floor Pulse rows set it.
   const [scope, setScope] = useState<string>('all');
   const [isChartExpanded, setIsChartExpanded] = useState(true);
@@ -120,30 +120,30 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
     [allProjectStatuses, displayUnitIds]
   );
 
-  const currentTrackMilestones = useMemo(() =>
-    milestones.filter(m => m.track === trackingMode),
-  [milestones, trackingMode]);
+  const currentTrackActivities = useMemo(() =>
+    activities.filter(m => m.track === trackingMode),
+  [activities, trackingMode]);
 
   // Rollup for the scoped selection — drives the KPI cards.
   const scopeRollup = useMemo(() => summarizeGroup({
     units: displayUnits,
     statuses: allProjectStatuses,
-    milestones,
+    activities,
     track: trackingMode,
     history: trackHistory,
     today,
     applicabilityIndex,
-  }), [displayUnits, allProjectStatuses, milestones, trackingMode, trackHistory, today, applicabilityIndex]);
+  }), [displayUnits, allProjectStatuses, activities, trackingMode, trackHistory, today, applicabilityIndex]);
 
-  const { overallProgress, milestoneStats, totalUnits, totalCompletedTasks, totalPossibleTasks } = useMemo(() => {
+  const { overallProgress, activityStats, totalUnits, totalCompletedTasks, totalPossibleTasks } = useMemo(() => {
     if (!displayUnits || displayUnits.length === 0) {
-      return { overallProgress: 0, milestoneStats: [] as any[], totalUnits: 0, totalCompletedTasks: 0, totalPossibleTasks: 0 };
+      return { overallProgress: 0, activityStats: [] as any[], totalUnits: 0, totalCompletedTasks: 0, totalPossibleTasks: 0 };
     }
 
     const currentTrackStatuses = displayStatuses.filter(s => s.track === trackingMode);
     const totalDisplayUnits = displayUnits.length;
 
-    const stats = currentTrackMilestones.map(milestone => {
+    const stats = currentTrackActivities.map(activity => {
       let tCompleted = 0;
       let tOngoing = 0;
       let tNotStarted = 0;
@@ -153,11 +153,11 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
       const naUnits: string[] = [];
 
       displayUnits.forEach(unit => {
-        if (!isMilestoneApplicable(milestone, unit, applicabilityIndex)) {
+        if (!isActivityApplicable(activity, unit, applicabilityIndex)) {
           naUnits.push(unit.unit_number);
           return;
         }
-        const status = currentTrackStatuses.find(s => s.unit_id === unit.id && s.milestone === milestone.name);
+        const status = currentTrackStatuses.find(s => s.unit_id === unit.id && s.activityName === activity.name);
 
         if (!status || status.temporal_state === 'none') {
           tNotStarted++;
@@ -173,7 +173,7 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
       });
 
       return {
-        ...milestone,
+        ...activity,
         completed: tCompleted,
         completedUnits,
         ongoing: tOngoing,
@@ -194,19 +194,19 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
 
     return {
       overallProgress: progress,
-      milestoneStats: stats,
+      activityStats: stats,
       totalUnits: totalDisplayUnits,
       totalCompletedTasks: completed,
       totalPossibleTasks: possible,
     };
-  }, [displayUnits, displayStatuses, currentTrackMilestones, trackingMode, applicabilityIndex]);
+  }, [displayUnits, displayStatuses, currentTrackActivities, trackingMode, applicabilityIndex]);
 
   // ----- Velocity Chart Data Engine -----
   const chartData = useMemo(() => {
     const scopedHistory = trackHistory.filter(log => log.unit_id && displayUnitIds.has(log.unit_id as string));
     if (scopedHistory.length === 0) return [];
 
-    const totalScope = applicableSlotCount(displayUnits, currentTrackMilestones, applicabilityIndex);
+    const totalScope = applicableSlotCount(displayUnits, currentTrackActivities, applicabilityIndex);
     if (totalScope === 0) return [];
 
     // Planned cumulative line: how many slots were planned to finish by each date.
@@ -247,7 +247,7 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
         totalScope,
       };
     });
-  }, [trackHistory, displayUnitIds, displayUnits, displayStatuses, currentTrackMilestones, trackingMode, applicabilityIndex]);
+  }, [trackHistory, displayUnitIds, displayUnits, displayStatuses, currentTrackActivities, trackingMode, applicabilityIndex]);
 
   const openMap = (sheetId: string) => {
     setActiveSheetId(sheetId);
@@ -300,7 +300,7 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
         sheets={sheets}
         allUnits={allProjectUnits}
         statuses={allProjectStatuses}
-        milestones={milestones}
+        activities={activities}
         track={trackingMode}
         history={trackHistory}
         applicabilityIndex={applicabilityIndex}
@@ -325,7 +325,7 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
             </p>
           </div>
           <div className="absolute left-6 bottom-full mb-3 hidden group-hover:block w-64 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20 z-50">
-            Completed milestone tasks out of all possible tasks in this scope. Counts tasks equally — it is not a schedule percentage.
+            Completed activity tasks out of all possible tasks in this scope. Counts tasks equally — it is not a schedule percentage.
           </div>
         </div>
 
@@ -360,7 +360,7 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
             <p className="text-xs text-slate-500 mt-0.5">
               {chartData.length > 0
                 ? `${chartData[0].label} → ${chartData[chartData.length - 1].label} · ${chartData.length > 90 ? 'Weekly view' : 'Daily view'} · dashed = planned`
-                : 'Mark milestones as Completed to see trends'}
+                : 'Mark activities as Completed to see trends'}
             </p>
           </div>
           {chartData.length > 0 && (
@@ -400,23 +400,23 @@ export default function ProjectDashboard({ milestones, trackingMode, sheets = []
       <TypeScorecard
         allUnits={allProjectUnits}
         statuses={allProjectStatuses}
-        milestones={milestones}
+        activities={activities}
         track={trackingMode}
         history={trackHistory}
         applicabilityIndex={applicabilityIndex}
       />
 
       <div className="glass-panel rounded-2xl border p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6">Milestone Breakdown</h2>
+        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6">Activity Breakdown</h2>
         <div className="space-y-6">
-          {milestoneStats.length === 0 ? (
+          {activityStats.length === 0 ? (
             <p className="text-slate-500">
               {totalUnits === 0
                 ? 'No locations mapped in this scope yet. Switch to Map view to draw locations.'
-                : `No milestones configured for ${trackingMode}.`}
+                : `No activities configured for ${trackingMode}.`}
             </p>
           ) : (
-            milestoneStats.map(stat => {
+            activityStats.map(stat => {
               const bgOngoingColor = stat.color ? `${stat.color}80` : '#94a3b8'; // 50% opacity for ongoing
               const bgCompletedColor = stat.color || '#3b82f6';
               const completedPct = (stat.completed / stat.total) * 100 || 0;

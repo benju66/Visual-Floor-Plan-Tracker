@@ -163,7 +163,7 @@ export function UpdatingRing() {
 
 export interface BottleneckSequence {
   id: string;
-  milestone: string;
+  activityName: string;
   status_color: string;
   temporal_state: TemporalState;
 }
@@ -186,7 +186,7 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }: Bot
     e.stopPropagation();
     if (onUpdateStatus && unit) {
       onUpdateStatus(unit, {}, newState, { 
-        milestoneObj: { name: seq.milestone, color: seq.status_color } 
+        activityObj: { name: seq.activityName, color: seq.status_color } 
       });
     }
     setExpandedSeqId(null);
@@ -245,7 +245,7 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }: Bot
                             className="w-full flex items-center gap-3 py-3 px-1 transition-colors hover:bg-white/5 dark:hover:bg-black/5 rounded-lg active:scale-[0.98]"
                           >
                             <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
-                            <span className="truncate font-bold text-[14px] flex-1 text-left">{seq.milestone}</span>
+                            <span className="truncate font-bold text-[14px] flex-1 text-left">{seq.activityName}</span>
                             <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full ${badgeStyle.wrapper}`}>
                               {seq.temporal_state}
                             </span>
@@ -322,7 +322,7 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }: Bot
                           className="w-full flex items-center gap-2 py-2.5 px-1 transition-colors hover:bg-white/5 dark:hover:bg-black/5 rounded-lg active:scale-[0.98]"
                         >
                           <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: seq.status_color }} />
-                          <span className="truncate font-medium text-[13px] flex-1 text-left">{seq.milestone}</span>
+                          <span className="truncate font-medium text-[13px] flex-1 text-left">{seq.activityName}</span>
                           <span className={`text-[9px] uppercase tracking-widest px-2 py-1 rounded-full ${badgeStyle.wrapper}`}>
                             {seq.temporal_state}
                           </span>
