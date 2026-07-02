@@ -1,13 +1,15 @@
 "use client";
 import React, { useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { X, FileUp, Flag, CheckCircle2, AlertTriangle, ArrowRight } from 'lucide-react';
+import { X, FileUp, Flag, CheckCircle2, AlertTriangle, ArrowRight, Plus, ListPlus } from 'lucide-react';
 import {
   useAllProjectUnits,
   useAllProjectStatuses,
   useBulkInsertStatusLogs,
 } from '@/hooks/useProjectQueries';
-import { useActivityDictionary } from '@/hooks/useActivityDictionary';
+import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
+import { resolveActivityByName, activityPickToFields, type ActivityPickResult } from '@/utils/activityDictionary';
+import ActivityDictionaryField from '@/components/ActivityDictionaryField';
 import { useUIStore } from '@/store/useUIStore';
 import { parseMspXml, leafTasks, type MspParseResult, type MspTask } from '@/utils/mspImport';
 import {
@@ -20,7 +22,7 @@ import {
   type TargetUnit,
 } from '@/utils/scheduleReconcile';
 import type { ApplicabilityIndex } from '@/utils/applicability';
-import type { Sheet, Milestone, StatusLog, Unit } from '@/types/domain';
+import type { Sheet, Milestone, StatusLog, Unit, ActivityDictionaryEntry, ActivityType } from '@/types/domain';
 
 interface MspImportPanelProps {
   open: boolean;
@@ -30,6 +32,9 @@ interface MspImportPanelProps {
   milestones: Milestone[];
   applicabilityIndex: ApplicabilityIndex;
   activeSheetId: string;
+  /** Add a missing activity inline (dictionary-backed), so an unmatched task can be
+   *  mapped without leaving the importer. Same handler the Activities panel uses. */
+  onAddMilestone?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
 }
 
 /** Per-imported-task reconciliation state (the human-adjustable mapping). */
@@ -61,11 +66,37 @@ export default function MspImportPanel({
   milestones,
   applicabilityIndex,
   activeSheetId,
+  onAddMilestone,
 }: MspImportPanelProps) {
   const setToast = useUIStore((s) => s.setToast);
   const queryClient = useQueryClient();
   const bulkInsert = useBulkInsertStatusLogs(activeSheetId);
   const { data: dictionary = [] } = useActivityDictionary();
+  const proposePendingActivity = useProposePendingActivity();
+
+  // Inline "add a missing activity" (Phase 4) — dictionary-backed, mirrors the Activities
+  // panel's add flow so an unmatched imported task can be mapped without leaving.
+  const [showAddActivity, setShowAddActivity] = useState(false);
+  const [addName, setAddName] = useState('');
+  const [addEntry, setAddEntry] = useState<ActivityDictionaryEntry | null>(null);
+  const [addTrack, setAddTrack] = useState('');
+  const existingTracks = useMemo(() => [...new Set(milestones.map((m) => m.track))], [milestones]);
+
+  const handleAddActivity = async () => {
+    const trimmed = addName.trim();
+    if (!trimmed || !onAddMilestone) return;
+    const picked =
+      addEntry && addEntry.name.trim().toLowerCase() === trimmed.toLowerCase()
+        ? addEntry
+        : resolveActivityByName(dictionary, trimmed);
+    const result: ActivityPickResult = picked
+      ? { kind: 'entry', dictionaryId: picked.id, name: picked.name, track: picked.track, type: picked.type as ActivityType }
+      : { kind: 'pending', name: trimmed, track: null };
+    const fields = await activityPickToFields(result, (vars) => proposePendingActivity.mutateAsync(vars));
+    onAddMilestone(fields.name, '#3b82f6', addTrack.trim() || existingTracks[0] || 'Production', fields.dictionary_id);
+    setAddName('');
+    setAddEntry(null);
+  };
 
   // Cross-level targets: the import can span every sheet, so fetch all units +
   // their current-state logs (same hooks/keys the all-levels Gantt scope uses).
@@ -256,6 +287,30 @@ export default function MspImportPanel({
           )}
         </div>
 
+        {/* ── First-run explainer (before a file is chosen) ── */}
+        {!parse && (
+          <div className="mt-4 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">How this works</div>
+            <ol className="space-y-2.5">
+              {[
+                { n: 1, t: 'Export from MS Project as XML', d: 'In Microsoft Project: File → Save As → “XML (*.xml)”. Binary .mpp and Primavera .xer aren’t supported.' },
+                { n: 2, t: 'Match tasks to your activities', d: 'Each imported task is auto-matched to one of your activities (synonyms are recognised). Fix any from the dropdowns — or add a missing activity right here.' },
+                { n: 3, t: 'Pick the levels each task covers', d: 'Choose which level(s)/locations each task applies to — “LEVEL 3” is guessed from the task name.' },
+                { n: 4, t: 'Write the planned dates', d: 'Confirm, and each task’s window spreads across its locations as planned start/finish dates — no hand-entry.' },
+              ].map((s) => (
+                <li key={s.n} className="flex gap-3">
+                  <span className="shrink-0 w-6 h-6 rounded-full bg-sky-100 dark:bg-sky-500/20 text-sky-600 dark:text-sky-300 text-xs font-bold flex items-center justify-center">{s.n}</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{s.t}</div>
+                    <div className="text-xs text-slate-500">{s.d}</div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-3 text-[11px] text-slate-400">Nothing is written until you review the mappings and confirm.</p>
+          </div>
+        )}
+
         {parse && !parse.ok && (
           <div className="mt-3 flex items-center gap-2 rounded-lg border-2 border-red-400 bg-red-50 dark:bg-red-900/20 dark:border-red-500/60 px-3 py-2 text-sm font-semibold text-red-700 dark:text-red-300">
             <AlertTriangle size={16} className="shrink-0" /> {parse.error}
@@ -265,6 +320,26 @@ export default function MspImportPanel({
         {/* ── Reconciliation table ── */}
         {parse?.ok && (
           <div className="flex-1 min-h-0 overflow-auto mt-3 -mx-1 px-1">
+            {/* Inline "add a missing activity" — map an unmatched task without leaving */}
+            {onAddMilestone && (
+              <div className="mb-3 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-white/5 p-2">
+                {!showAddActivity ? (
+                  <button type="button" onClick={() => setShowAddActivity(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-600 dark:text-sky-300 hover:underline">
+                    <ListPlus size={14} /> Add a missing activity
+                  </button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex-1 min-w-[200px]">
+                      <ActivityDictionaryField value={addName} onChange={setAddName} selectedEntry={addEntry} onSelectEntry={setAddEntry} placeholder="Activity name…" />
+                    </div>
+                    <input type="text" list="msp-add-tracks" value={addTrack} onChange={(e) => setAddTrack(e.target.value)} placeholder={existingTracks[0] || 'Production'} className="w-32 rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-black/25 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-sky-500/40" />
+                    <datalist id="msp-add-tracks">{existingTracks.map((t) => <option key={t} value={t} />)}</datalist>
+                    <button type="button" disabled={!addName.trim()} onClick={handleAddActivity} className="inline-flex items-center gap-1 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3 disabled:opacity-40"><Plus size={13} /> Add</button>
+                    <button type="button" onClick={() => { setShowAddActivity(false); setAddName(''); setAddEntry(null); }} className="text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">Done</button>
+                  </div>
+                )}
+              </div>
+            )}
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur">
                 <tr className="text-[10px] uppercase tracking-wide text-slate-400 text-left">

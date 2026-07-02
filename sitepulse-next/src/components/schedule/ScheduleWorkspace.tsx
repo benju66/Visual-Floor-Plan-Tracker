@@ -348,6 +348,7 @@ export default function ScheduleWorkspace({
         milestones={milestones}
         applicabilityIndex={applicabilityIndex}
         activeSheetId={activeSheetId}
+        onAddMilestone={onAddMilestone}
       />
 
       <CascadePanel
