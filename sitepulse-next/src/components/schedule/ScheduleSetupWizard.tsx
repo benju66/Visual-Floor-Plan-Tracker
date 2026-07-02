@@ -1,6 +1,6 @@
 "use client";
 import React, { useMemo, useState } from 'react';
-import { BookOpenCheck, Plus, ListChecks, Layers } from 'lucide-react';
+import { BookOpenCheck, Plus, ListChecks, Layers, Search } from 'lucide-react';
 import { useProject, useCurrentUserRole, useCreateActivitiesBulk } from '@/hooks/useProjectQueries';
 import { useActivityDictionary } from '@/hooks/useActivityDictionary';
 import { usePlaybooks, useApplyPlaybook } from '@/hooks/usePlaybooks';
@@ -44,6 +44,7 @@ export default function ScheduleSetupWizard({ projectId, onStartBlank }: Schedul
   const [track, setTrack] = useState('Production');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pickedMode, setPickedMode] = useState<WizardMode | null>(null);
+  const [search, setSearch] = useState('');
 
   const projectType = (project?.project_type as ProjectType | null) ?? null;
 
@@ -52,6 +53,20 @@ export default function ScheduleSetupWizard({ projectId, onStartBlank }: Schedul
     const active = dict.filter(e => e.status === 'active' && e.name !== PENDING_ACTIVITY_NAME);
     return activitiesForProjectType(projectType, active);
   }, [dict, projectType]);
+
+  // #6 — searchable picker: filter the displayed list by name or track tag (selection
+  // is unaffected; handleSeed still reads `selected` so a filtered-out pick stays chosen).
+  const visibleOrdered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return ordered;
+    return ordered.filter(e => e.name.toLowerCase().includes(q) || (e.track || '').toLowerCase().includes(q));
+  }, [ordered, search]);
+
+  // #5 — scope combobox suggestions: the distinct default-track hints from the dictionary.
+  const scopeSuggestions = useMemo(() => {
+    const set = new Set(dict.map(e => (e.track || '').trim()).filter(t => t.length > 0));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [dict]);
 
   // Active playbooks, scoped/ordered for this project type (never restricted).
   const activePlaybooks = useMemo(() => {
@@ -169,10 +184,15 @@ export default function ScheduleSetupWizard({ projectId, onStartBlank }: Schedul
           <label className="text-xs font-bold uppercase tracking-widest text-slate-400 shrink-0">Scope of work</label>
           <input
             type="text"
+            list="wizard-scope-suggestions"
             value={track}
             onChange={(e) => setTrack(e.target.value)}
+            placeholder="Pick or type…"
             className="w-48 bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
           />
+          <datalist id="wizard-scope-suggestions">
+            {scopeSuggestions.map(s => <option key={s} value={s} />)}
+          </datalist>
           <span className="text-[11px] text-slate-400">
             {mode === 'playbook' ? 'used for activities the playbook doesn’t already scope' : 'the track these activities are added to'}
           </span>
@@ -219,24 +239,47 @@ export default function ScheduleSetupWizard({ projectId, onStartBlank }: Schedul
             The company dictionary is empty — start blank and add activities by hand.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            {ordered.map(entry => {
-              const checked = selected.has(entry.id);
-              return (
-                <label
-                  key={entry.id}
-                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                    checked
-                      ? 'border-sky-400 bg-sky-50 dark:bg-sky-900/30 dark:border-sky-600'
-                      : 'border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'
-                  }`}
-                >
-                  <input type="checkbox" checked={checked} onChange={() => toggle(entry.id)} className="accent-sky-500" />
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{entry.name}</span>
-                  {entry.track && <span className="ml-auto text-[10px] text-slate-400 shrink-0">{entry.track}</span>}
-                </label>
-              );
-            })}
+          <div className="flex flex-col gap-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search activities…"
+                className="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+              />
+              {selected.size > 0 && (
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-sky-600 dark:text-sky-300">
+                  {selected.size} selected
+                </span>
+              )}
+            </div>
+            {visibleOrdered.length === 0 ? (
+              <div className="text-sm text-slate-500 py-4 text-center border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
+                No activities match “{search}”.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {visibleOrdered.map(entry => {
+                  const checked = selected.has(entry.id);
+                  return (
+                    <label
+                      key={entry.id}
+                      className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                        checked
+                          ? 'border-sky-400 bg-sky-50 dark:bg-sky-900/30 dark:border-sky-600'
+                          : 'border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'
+                      }`}
+                    >
+                      <input type="checkbox" checked={checked} onChange={() => toggle(entry.id)} className="accent-sky-500" />
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{entry.name}</span>
+                      {entry.track && <span className="ml-auto text-[10px] text-slate-400 shrink-0">{entry.track}</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

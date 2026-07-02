@@ -265,19 +265,43 @@ export default function ActivityManagerPanel({
     );
   };
 
-  const uniqueScopes = [...new Set(milestones.map(m => m.track))];
-  if (uniqueScopes.length === 0) uniqueScopes.push('Production');
+  const baseScopes = [...new Set(milestones.map(m => m.track))];
+  if (baseScopes.length === 0) baseScopes.push('Production');
 
   const [activeTrack, setActiveTrack] = useState(
-    initialTrack && uniqueScopes.includes(initialTrack) ? initialTrack : uniqueScopes[0]
+    initialTrack && baseScopes.includes(initialTrack) ? initialTrack : baseScopes[0]
   );
   const [newTrackInput, setNewTrackInput] = useState('');
+  // Scopes a user just added but hasn't put an activity in yet. Merged with the
+  // derived scopes so a brand-new scope shows its tab IMMEDIATELY (fixes the
+  // "new scope button doesn't appear" bug); it materialises for real once an
+  // activity lands in it. Ephemeral across reload — an empty scope has nothing to persist.
+  const [draftScopes, setDraftScopes] = useState<string[]>([]);
+  const uniqueScopes = [...new Set([...baseScopes, ...draftScopes])];
+
+  // Add (or switch to) a scope from the combobox — pick an existing one or type a new one.
+  const addOrSelectScope = (raw: string) => {
+    const val = raw.trim();
+    if (!val) return;
+    if (!uniqueScopes.includes(val)) setDraftScopes(prev => [...prev, val]);
+    setActiveTrack(val);
+    setNewTrackInput('');
+  };
   const [newActivityName, setNewActivityName] = useState('');
   const [newActivityColor, setNewActivityColor] = useState('#3b82f6');
   // The explicitly-picked dictionary entry for the activity being added (null = free-typed).
   const [selectedDictEntry, setSelectedDictEntry] = useState<ActivityDictionaryEntry | null>(null);
   const { data: activityDictionary = [] } = useActivityDictionary();
   const proposePendingActivity = useProposePendingActivity();
+
+  // Combobox suggestions for the "add scope" field: the project's existing scopes
+  // + the distinct default-track hints from the company dictionary. Pick one or type new.
+  const scopeSuggestions = useMemo(() => {
+    const fromDict = activityDictionary
+      .map(e => (e.track || '').trim())
+      .filter(t => t.length > 0);
+    return [...new Set([...baseScopes, ...draftScopes, ...fromDict])].sort((a, b) => a.localeCompare(b));
+  }, [activityDictionary, baseScopes, draftScopes]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -406,21 +430,21 @@ export default function ActivityManagerPanel({
               <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-700 rounded-lg p-1">
                 <input
                   type="text"
-                  placeholder="New Scope"
+                  list="scope-suggestions"
+                  placeholder="Pick or add scope"
                   value={newTrackInput}
                   onChange={e => setNewTrackInput(e.target.value)}
-                  className="w-24 px-2 py-0.5 text-xs bg-transparent outline-none"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addOrSelectScope(newTrackInput); } }}
+                  className="w-32 px-2 py-0.5 text-xs bg-transparent outline-none"
                 />
+                <datalist id="scope-suggestions">
+                  {scopeSuggestions.map(s => <option key={s} value={s} />)}
+                </datalist>
                 <button
                   type="button"
-                  onClick={() => {
-                    const val = newTrackInput.trim();
-                    if (val && !uniqueScopes.includes(val)) {
-                      setActiveTrack(val);
-                      setNewTrackInput('');
-                    }
-                  }}
+                  onClick={() => addOrSelectScope(newTrackInput)}
                   className="p-1 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600"
+                  title="Add this scope of work"
                 >
                   <Plus size={14} />
                 </button>
