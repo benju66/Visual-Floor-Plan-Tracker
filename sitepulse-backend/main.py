@@ -425,7 +425,7 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
          storage does not error on already-absent paths.
       3. Delete the `projects` row. Every child table FKs to `projects` with
          `ON DELETE CASCADE` (sheets → units → status_logs/audit/vectors,
-         project_members, project_milestones, lookahead_plans, project_contacts),
+         project_members, activities, lookahead_plans, project_contacts),
          so the whole data tree goes with it in one statement.
 
     Storage removal is best-effort/non-fatal (a hiccup re-orphans blobs, the
@@ -748,7 +748,9 @@ async def export_status_pdf(
                 pctX = legend.get('pctX', 0.05)
                 pctY = legend.get('pctY', 0.05)
                 scaleX = legend.get('scaleX', 1)
-                active_milestones = legend.get('active_milestones', [])
+                # milestone->activity rename: prefer the new payload key, fall back
+                # to the legacy one so an older frontend still exports a full legend.
+                active_activities = legend.get('active_activities') or legend.get('active_milestones', [])
 
                 # Correctly map a visual percentage point to the underlying unrotated PDF canvas
                 def get_mapped_pt(px_pct, py_pct):
@@ -768,11 +770,11 @@ async def export_status_pdf(
 
                 active_temporal_states = legend.get('active_temporal_states', [])
 
-                milestones_height = (30 * overall_scale) + (len(active_milestones) * item_height) if active_milestones else 0
+                activities_height = (30 * overall_scale) + (len(active_activities) * item_height) if active_activities else 0
                 statuses_height = (30 * overall_scale) + (len(active_temporal_states) * item_height) if active_temporal_states else 0
-                
-                middle_pad = padding if (active_milestones and active_temporal_states) else 0
-                total_items_height = milestones_height + statuses_height + middle_pad
+
+                middle_pad = padding if (active_activities and active_temporal_states) else 0
+                total_items_height = activities_height + statuses_height + middle_pad
                 
                 legend_h = padding * 2 + total_items_height
 
@@ -797,13 +799,13 @@ async def export_status_pdf(
                 def map_offset_quad(x_off, y_off, w, h):
                     return map_quad(pctX + (x_off / page.rect.width), pctY + (y_off / page.rect.height), w / page.rect.width, h / page.rect.height)
 
-                if active_milestones:
+                if active_activities:
                     # Title 1
                     title_1_pt = map_offset_pt(padding, padding + title_size * 0.8)
-                    page.insert_text(title_1_pt, "Milestones", fontsize=title_size, fontname="hebo", color=hex_to_rgb("#334155"), rotate=page.rotation)
+                    page.insert_text(title_1_pt, "Activities", fontsize=title_size, fontname="hebo", color=hex_to_rgb("#334155"), rotate=page.rotation)
 
                     y_offset = padding + (30 * overall_scale)
-                    for m in active_milestones:
+                    for m in active_activities:
                         r_rgb = hex_to_rgb(m['color'])
                         # Swatch is 14x14 
                         swatch_quad = map_offset_quad(padding, y_offset, 14 * overall_scale, 14 * overall_scale)
@@ -816,7 +818,7 @@ async def export_status_pdf(
                         y_offset += item_height
 
                 if active_temporal_states:
-                    start_y = padding + milestones_height + middle_pad
+                    start_y = padding + activities_height + middle_pad
                     title_2_pt = map_offset_pt(padding, start_y + title_size * 0.8)
                     page.insert_text(title_2_pt, "Map Statuses", fontsize=title_size, fontname="hebo", color=hex_to_rgb("#334155"), rotate=page.rotation)
 

@@ -8,7 +8,7 @@ Use the Supabase MCP `list_tables` (and `list_migrations`) to understand the cur
 **Step 2: Write the migration SQL**
 Create a new file in `sitepulse-next/supabase/migrations/` named `YYYYMMDD_short_description.sql` (date-prefixed, matching existing files).
 * Make it **idempotent where practical** (`create table if not exists`, `create or replace function`, guarded `alter table ... add column if not exists`).
-* **`status_logs` is slot-unique:** preserve `UNIQUE(unit_id, track, milestone)`. Current-state writes go through the `upsert_status_log` RPC (with its Last-Write-Wins `client_timestamp` guard) or `.upsert({ onConflict: 'unit_id,track,milestone' })` — never plain `INSERT`. Do not add a competing uniqueness rule.
+* **`status_logs` is slot-unique:** preserve `UNIQUE(unit_id, activity_id)` (the stable slot key since `20260701_activity_model.sql`). Current-state writes go through the `upsert_status_log` RPC (with its Last-Write-Wins `client_timestamp` guard) or `.upsert({ onConflict: 'unit_id,activity_id' })` — never plain `INSERT`. Do not add a competing uniqueness rule, and never re-add a name-keyed constraint.
 * **History is append-only** in `status_audit_log` via a trigger — never write to it directly; never make history queries read from `status_logs`.
 * If a step is **destructive** (dedup, drop, backfill), call it out explicitly and require a backup first. The existing `status_logs` dedup is the cautionary example.
 

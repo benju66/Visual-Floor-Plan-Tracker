@@ -21,7 +21,7 @@ Use this when a feature needs to read or write server data, or manage global UI 
 * Derive return types from `src/types/domain.ts` — never hand-write a shape that duplicates a Supabase table.
 
 **Step 5: Mutations must preserve sync integrity**
-* `status_logs` writes go through the `upsert_status_log` RPC (single) or `.upsert({ onConflict: 'unit_id,track,milestone' })` (bulk) — **never** plain `.insert()`.
+* `status_logs` writes go through the `upsert_status_log` RPC (single) or `.upsert({ onConflict: 'unit_id,activity_id' })` (bulk) — **never** plain `.insert()`. Writes carry `activity_id` (the stable slot key); strip the synthesized display `activityName` before any write.
 * Preserve `client_timestamp` capture-time semantics: it is stamped when the change is captured offline (`PendingChange.capturedAt`), not at sync time. Pass it through; don't restamp it at sync.
 * Don't break the IDB mutation queue, the per-item checkpointing (`isSyncingRef`), or the `hasRehydrated` guard.
 

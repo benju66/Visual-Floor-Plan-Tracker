@@ -22,7 +22,7 @@ Identify where state is transformed, which hook/service owns the logic, and wher
 **Step 3: Integration & Sync-Integrity Audit**
 Identify every external touchpoint and integrity guarantee the feature must preserve:
 * Does it touch the **offline-first sync engine**? (the IDB mutation queue, per-item checkpointing, `client_timestamp` capture-time stamping, `hasRehydrated` guard, `isSyncingRef`). Breaking these causes data loss.
-* Does it write `status_logs`? It MUST go through the `upsert_status_log` RPC or `.upsert({ onConflict: 'unit_id,track,milestone' })` — never plain `.insert()`.
+* Does it write `status_logs`? It MUST go through the `upsert_status_log` RPC or `.upsert({ onConflict: 'unit_id,activity_id' })` — never plain `.insert()`.
 * Does it touch backend auth? Auth is **local JWT validation** (`PyJWT` + `SUPABASE_JWT_SECRET`) — never reintroduce a `supabase.auth.get_user()` network call.
 * Does it touch the snapping engine? Never persist `RBush`/`Map`/`Set` instances into TanStack Query cache (IDB serialization will crash).
 
