@@ -203,6 +203,38 @@ export type ActivityDictionaryEntry = Omit<
 };
 export type ActivityDictionaryInsert = Database['public']['Tables']['activity_dictionary']['Insert'];
 
+// Global managed "scopes of work" palette (Scheduling UX Hardening). A small,
+// curated, company-wide list of scope names (the "default scopes") — the source of
+// truth the scope pickers draw from and the Activity Library groups/filters by.
+// Loosely linked to activities BY NAME (activities.track / activity_dictionary.track
+// stay plain text), so it never touches the status/progress/offline pipeline. No
+// JSONB columns → nothing to narrow; the Row is used as-is. `status` is the soft
+// active/archived governance flag.
+export type ActivityScopeStatus = 'active' | 'archived';
+export type ActivityScope = Database['public']['Tables']['activity_scopes']['Row'];
+export type ActivityScopeInsert = Database['public']['Tables']['activity_scopes']['Insert'];
+
+// Playbooks (Scheduling Foundation Slice A, Phase 5) — a named, reusable,
+// project-type-scoped activity sequence: an ORDERED list of dictionary activities
+// ({@link PlaybookItem}) plus their default Finish-to-Start links, applied to seed
+// a new/empty project's activities + sequence + dependencies in one action. GLOBAL +
+// governed (mirrors {@link ActivityDictionaryEntry}). `default_project_types` is the
+// only JSONB column, narrowed to ProjectType[] at the query boundary (reusing
+// {@link isProjectTypeArray}). A PlaybookItem carries no JSONB (nothing to narrow);
+// its name/type derive from the referenced dictionary entry at apply time.
+export type PlaybookStatus = 'active' | 'archived';
+export type Playbook = Omit<
+  Database['public']['Tables']['playbooks']['Row'],
+  'default_project_types'
+> & {
+  default_project_types: ProjectType[];
+};
+export type PlaybookInsert = Database['public']['Tables']['playbooks']['Insert'];
+export type PlaybookItem = Database['public']['Tables']['playbook_items']['Row'];
+export type PlaybookItemInsert = Database['public']['Tables']['playbook_items']['Insert'];
+/** A playbook joined with its ordered items — the shape the picker + apply logic consume. */
+export type PlaybookWithItems = Playbook & { items: PlaybookItem[] };
+
 export type TemporalState = 'planned' | 'ongoing' | 'completed' | 'none';
 export type MemberRole    = 'admin' | 'pm' | 'superintendent' | 'viewer';
 export type TrackName     = string;

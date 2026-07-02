@@ -557,6 +557,39 @@ export interface Database {
         }
         Relationships: []
       }
+      activity_scopes: {
+        Row: {
+          id: string
+          name: string
+          description: string | null
+          sort_order: number
+          status: string
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string | null
+          sort_order?: number
+          status?: string
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          description?: string | null
+          sort_order?: number
+          status?: string
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       activity_applicability_overrides: {
         Row: {
           id: string
@@ -596,6 +629,94 @@ export interface Database {
             foreignKeyName: "activity_applicability_overrides_unit_id_fkey"
             columns: ["unit_id"]
             referencedRelation: "units"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      playbooks: {
+        Row: {
+          id: string
+          name: string
+          description: string | null
+          default_project_types: Json
+          status: string
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string | null
+          default_project_types?: Json
+          status?: string
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          description?: string | null
+          default_project_types?: Json
+          status?: string
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      playbook_items: {
+        Row: {
+          id: string
+          playbook_id: string
+          dictionary_id: string
+          sequence_order: number
+          track: string | null
+          color: string | null
+          predecessor_item_id: string | null
+          lag_days: number
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          playbook_id: string
+          dictionary_id: string
+          sequence_order?: number
+          track?: string | null
+          color?: string | null
+          predecessor_item_id?: string | null
+          lag_days?: number
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          playbook_id?: string
+          dictionary_id?: string
+          sequence_order?: number
+          track?: string | null
+          color?: string | null
+          predecessor_item_id?: string | null
+          lag_days?: number
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "playbook_items_playbook_id_fkey"
+            columns: ["playbook_id"]
+            referencedRelation: "playbooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "playbook_items_dictionary_id_fkey"
+            columns: ["dictionary_id"]
+            referencedRelation: "activity_dictionary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "playbook_items_predecessor_item_id_fkey"
+            columns: ["predecessor_item_id"]
+            referencedRelation: "playbook_items"
             referencedColumns: ["id"]
           }
         ]

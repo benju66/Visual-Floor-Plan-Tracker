@@ -1,0 +1,232 @@
+/**
+ * Playbooks — pure helpers for applying a reusable, project-type-scoped activity
+ * sequence (Scheduling Foundation, Slice A, Phase 5).
+ *
+ * Framework-free and deterministic (no DB, no React, no `Date.now()` — callers pass
+ * everything in). A PLAYBOOK is a named recipe: an ORDERED list of dictionary
+ * activities plus their default Finish-to-Start links. {@link applyPlaybook} turns a
+ * playbook (+ the dictionary it references + the project's current activities) into
+ *   1. the ordered `activities` INSERT payload (explicit `sequence_order`,
+ *      dictionary links) for the existing bulk-create path, and
+ *   2. an FS edge list keyed BY INDEX into that payload (the caller resolves indices
+ *      to the DB-generated activity ids after the bulk insert, then writes the
+ *      activity_dependencies rows).
+ *
+ * A playbook is a STARTING POINT, never mandatory — the output is fully editable
+ * once seeded. The "never duplicate" skip rule means applying a playbook to a project
+ * that ALREADY has some of the activities won't create a second copy of one it has.
+ * Edge output is acyclic BY CONSTRUCTION (cyclic edges are dropped defensively,
+ * mirroring `wouldCreateCycle` in {@link ./activityDependencies}).
+ */
+import type { Database } from '@/types/database.types';
+import { isProjectTypeArray } from '@/types/domain';
+import type { ActivityDictionaryEntry, Playbook, PlaybookWithItems, ProjectType } from '@/types/domain';
+
+type PlaybookRow = Database['public']['Tables']['playbooks']['Row'];
+
+/**
+ * Narrow a raw `playbooks` row to the domain {@link Playbook}: the one JSONB column
+ * (`default_project_types`) is typed `Json` by the Supabase generator and must be
+ * narrowed at the query boundary (AGENTS.md §6). A malformed value degrades to `[]`
+ * rather than throwing, so a bad row can never crash a picker. Mirrors
+ * `narrowActivityDictionaryRow`.
+ */
+export function narrowPlaybook(row: PlaybookRow): Playbook {
+  return {
+    ...row,
+    default_project_types: isProjectTypeArray(row.default_project_types) ? row.default_project_types : [],
+  };
+}
+
+/**
+ * Order playbooks for a project type's pick-list: defaults first (playbooks whose
+ * `default_project_types` includes this project type), then everything else — stable
+ * within each group. NEVER restricts (all remain available; project type only scopes
+ * ordering), mirroring `activitiesForProjectType`. `projectType === null` keeps
+ * natural order. Pure.
+ */
+export function playbooksForProjectType<T extends Pick<Playbook, 'default_project_types'>>(
+  projectType: ProjectType | null,
+  playbooks: T[],
+): T[] {
+  if (projectType == null) return [...playbooks];
+  const defaults: T[] = [];
+  const rest: T[] = [];
+  for (const p of playbooks) {
+    if (p.default_project_types.includes(projectType)) defaults.push(p);
+    else rest.push(p);
+  }
+  return [...defaults, ...rest];
+}
+
+// ---------------------------------------------------------------------------
+// applyPlaybook
+// ---------------------------------------------------------------------------
+
+/** A row ready for the bulk activities INSERT (shape-compatible with `NewActivityRow`). */
+export interface PlaybookActivityRow {
+  name: string;
+  color: string;
+  track: string;
+  sequence_order: number;
+  dictionary_id: string | null;
+  type: string;
+}
+
+/**
+ * One FS edge, keyed by INDEX into {@link ApplyPlaybookResult.activities}. The caller
+ * maps each index to the inserted activity's id (e.g. by `(name, track)`, unique among
+ * emitted rows) and inserts an `activity_dependencies` row. `lagDays` may be negative.
+ */
+export interface PlaybookEdgeRef {
+  predecessorIndex: number;
+  successorIndex: number;
+  lagDays: number;
+}
+
+/** The identity of a project activity, for the never-duplicate skip check. */
+export interface ExistingActivityKey {
+  dictionary_id: string | null;
+  name: string | null;
+  track: string | null;
+}
+
+export interface ApplyPlaybookInput {
+  /** The playbook + its items (items are re-sorted by `sequence_order` internally). */
+  playbook: PlaybookWithItems;
+  /**
+   * The dictionary the playbook references — pass the FULL list (incl. `deprecated`
+   * entries), since a playbook may point at a deprecated-but-not-deleted activity.
+   * An item whose `dictionary_id` can't be resolved here is skipped (can't seed a
+   * nameless activity — defensive; the DB's ON DELETE RESTRICT normally prevents it).
+   */
+  dictionary: ActivityDictionaryEntry[];
+  /** The project's current activities, for the "never duplicate" skip rule. */
+  existing: ExistingActivityKey[];
+  /** Fallback scope-of-work track for items with no per-item track override. */
+  track: string;
+  /** `sequence_order` for the first emitted row (append after existing max+1, or 0). */
+  startSequenceOrder: number;
+  /** Rotating color palette — fallback when an item has no per-item color override. */
+  colors: string[];
+}
+
+export interface ApplyPlaybookResult {
+  /** Ordered rows to bulk-insert into `activities` (explicit contiguous sequence_order). */
+  activities: PlaybookActivityRow[];
+  /** FS edges keyed by index into `activities` (acyclic; endpoints both emitted). */
+  edges: PlaybookEdgeRef[];
+  /** Canonical names skipped because the project already has that activity+scope. */
+  skipped: string[];
+}
+
+function normalizeTrack(track: string | null | undefined): string {
+  return (track ?? '').trim().toLowerCase();
+}
+
+/**
+ * Identity keys for an activity, scoped by track. Both a dictionary-id key (when
+ * linked) and a name key (case-insensitive) are produced, so an EXISTING unlinked
+ * activity (`dictionary_id` null) still matches a playbook item by name. Track is part
+ * of the key: the same canonical activity in a DIFFERENT scope is not a duplicate.
+ */
+function activityKeys(dictionaryId: string | null, name: string | null, track: string | null): string[] {
+  const t = normalizeTrack(track);
+  const keys: string[] = [];
+  if (dictionaryId) keys.push(`dict:${dictionaryId}\u0000${t}`);
+  const n = (name ?? '').trim().toLowerCase();
+  if (n) keys.push(`name:${n}\u0000${t}`);
+  return keys;
+}
+
+/**
+ * Would adding `candidate` to `accepted` close a loop? Each successor has at most one
+ * predecessor here, so this walks the predecessor chain up from the candidate's
+ * predecessor; reaching the candidate's successor means a cycle. A visited set guards
+ * against pre-existing bad chains. Mirrors `wouldCreateCycle` in activityDependencies.
+ */
+function edgeCreatesCycle(accepted: PlaybookEdgeRef[], candidate: PlaybookEdgeRef): boolean {
+  if (candidate.predecessorIndex === candidate.successorIndex) return true;
+  const predOf = new Map<number, number>();
+  for (const e of accepted) predOf.set(e.successorIndex, e.predecessorIndex);
+  const visited = new Set<number>();
+  let cur: number | undefined = candidate.predecessorIndex;
+  while (cur !== undefined) {
+    if (cur === candidate.successorIndex) return true;
+    if (visited.has(cur)) return false;
+    visited.add(cur);
+    cur = predOf.get(cur);
+  }
+  return false;
+}
+
+/**
+ * Turn a playbook into an ordered activities-insert payload + an FS edge list.
+ *
+ * Ordering: items are seeded in `sequence_order` order with fresh CONTIGUOUS
+ * `sequence_order` starting at `startSequenceOrder` (only non-skipped items consume a
+ * slot). Track/color per item fall back to the batch `track` / rotating `colors`.
+ * Name + type derive from the referenced dictionary entry (governed — no snapshot
+ * drift). Duplicates the project already has (same dictionary-id-or-name AND track)
+ * are skipped. Edges are emitted only where BOTH endpoints survived, then filtered to
+ * stay acyclic.
+ */
+export function applyPlaybook(input: ApplyPlaybookInput): ApplyPlaybookResult {
+  const { playbook, dictionary, existing, track: batchTrack, startSequenceOrder, colors } = input;
+
+  const dictById = new Map(dictionary.map((d) => [d.id, d]));
+
+  // Seed the emitted-key set with what the project already has (never-duplicate rule).
+  const emittedKeys = new Set<string>();
+  for (const a of existing) {
+    for (const k of activityKeys(a.dictionary_id, a.name, a.track)) emittedKeys.add(k);
+  }
+
+  const items = [...playbook.items].sort((a, b) => a.sequence_order - b.sequence_order);
+
+  const activities: PlaybookActivityRow[] = [];
+  const skipped: string[] = [];
+  const itemIdToIndex = new Map<string, number>();
+
+  let seq = startSequenceOrder;
+  for (const item of items) {
+    const entry = dictById.get(item.dictionary_id);
+    if (!entry) continue; // can't seed a nameless activity (defensive)
+    const name = entry.name;
+    const effTrack = (item.track && item.track.trim()) || batchTrack;
+    const keys = activityKeys(item.dictionary_id, name, effTrack);
+    if (keys.some((k) => emittedKeys.has(k))) {
+      skipped.push(name);
+      continue;
+    }
+    for (const k of keys) emittedKeys.add(k);
+    // Fallback color is keyed to the emitted POSITION (like the wizard's
+    // SEED_COLORS[i % len]) so consecutive seeded rows stay visually distinct.
+    const pos = activities.length;
+    const color = (item.color && item.color.trim()) || colors[pos % colors.length] || '#3b82f6';
+    itemIdToIndex.set(item.id, pos);
+    activities.push({
+      name,
+      color,
+      track: effTrack,
+      sequence_order: seq,
+      dictionary_id: item.dictionary_id,
+      type: entry.type,
+    });
+    seq++;
+  }
+
+  // FS edges — only where both endpoints were emitted; keep the set acyclic.
+  const edges: PlaybookEdgeRef[] = [];
+  for (const item of items) {
+    if (!item.predecessor_item_id) continue;
+    const successorIndex = itemIdToIndex.get(item.id);
+    const predecessorIndex = itemIdToIndex.get(item.predecessor_item_id);
+    if (successorIndex === undefined || predecessorIndex === undefined) continue;
+    const candidate: PlaybookEdgeRef = { predecessorIndex, successorIndex, lagDays: item.lag_days ?? 0 };
+    if (edgeCreatesCycle(edges, candidate)) continue;
+    edges.push(candidate);
+  }
+
+  return { activities, edges, skipped };
+}

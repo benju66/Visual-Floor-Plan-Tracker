@@ -1,18 +1,22 @@
 "use client";
 import React, { useMemo, useState } from 'react';
-import { Flag, Plus, Trash2, Pencil, GripVertical, X, CornerDownRight, Link2 } from 'lucide-react';
+import { Flag, Plus, Trash2, Pencil, GripVertical, X, CornerDownRight, Link2, BookMarked } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useProject, useCurrentUserRole, useReorderMilestones, useUpdateMilestoneRules } from '@/hooks/useProjectQueries';
 import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
+import { useActivityScopes } from '@/hooks/useActivityScopes';
+import { activeScopeNames } from '@/utils/activityScopes';
 import { useActivityDependencies, useSetActivityPredecessor } from '@/hooks/useActivityDependencies';
+import { useSaveProjectAsPlaybook } from '@/hooks/usePlaybooks';
 import { predecessorEdgeFor, wouldCreateCycle, dependencyLabel } from '@/utils/activityDependencies';
 import { resolveActivityByName, activityPickToFields, type ActivityPickResult } from '@/utils/activityDictionary';
 import ActivityDictionaryField from '@/components/ActivityDictionaryField';
+import ScopeCombobox from './ScopeCombobox';
 import { useUIStore } from '@/store/useUIStore';
 import { getAppliesTo } from '@/types/domain';
-import type { Milestone, ActivityDependency, ActivityDictionaryEntry, ActivityType } from '@/types/domain';
+import type { Milestone, ActivityDependency, ActivityDictionaryEntry, ActivityType, ProjectType } from '@/types/domain';
 import type { AppSettings } from '@/store/useSettingsStore';
 
 interface SortableActivityItemProps {
@@ -226,20 +230,87 @@ export default function ActivityManagerPanel({
   const { data: currentUserRole } = useCurrentUserRole(projectId);
   const canEdit = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'pm';
   const setConfirmModal = useUIStore((s) => s.setConfirmModal);
+  const setToast = useUIStore((s) => s.setToast);
+  const saveAsPlaybook = useSaveProjectAsPlaybook(projectId);
 
-  const uniqueScopes = [...new Set(milestones.map(m => m.track))];
-  if (uniqueScopes.length === 0) uniqueScopes.push('Production');
+  const projectType = (project?.project_type as ProjectType | null) ?? null;
+  // "Save current project as a playbook" (Phase 5 authoring, privileged) — a small
+  // footer form; the full add/remove playbook editor rides the dictionary-admin
+  // pattern later.
+  const [showSaveForm, setShowSaveForm] = useState(false);
+  const [pbName, setPbName] = useState('');
+  const [pbDesc, setPbDesc] = useState('');
+  const [pbScopeToType, setPbScopeToType] = useState(true);
+
+  const handleSaveAsPlaybook = () => {
+    const name = pbName.trim();
+    if (!name) return;
+    saveAsPlaybook.mutate(
+      {
+        name,
+        description: pbDesc.trim() || null,
+        defaultProjectTypes: pbScopeToType && projectType ? [projectType] : [],
+      },
+      {
+        onSuccess: ({ itemCount, skippedUnlinked }) => {
+          setToast({
+            message: `Saved “${name}” as a playbook (${itemCount} ${itemCount === 1 ? 'activity' : 'activities'})${
+              skippedUnlinked > 0 ? ` · ${skippedUnlinked} unlinked left out` : ''
+            }.`,
+            type: 'success',
+          });
+          setShowSaveForm(false);
+          setPbName('');
+          setPbDesc('');
+        },
+        onError: (err) => setToast({ message: (err as Error)?.message || 'Could not save the playbook.', type: 'error' }),
+      },
+    );
+  };
+
+  const baseScopes = [...new Set(milestones.map(m => m.track))];
+  if (baseScopes.length === 0) baseScopes.push('Production');
 
   const [activeTrack, setActiveTrack] = useState(
-    initialTrack && uniqueScopes.includes(initialTrack) ? initialTrack : uniqueScopes[0]
+    initialTrack && baseScopes.includes(initialTrack) ? initialTrack : baseScopes[0]
   );
   const [newTrackInput, setNewTrackInput] = useState('');
+  // Scopes a user just added but hasn't put an activity in yet. Merged with the
+  // derived scopes so a brand-new scope shows its tab IMMEDIATELY (fixes the
+  // "new scope button doesn't appear" bug); it materialises for real once an
+  // activity lands in it. Ephemeral across reload — an empty scope has nothing to persist.
+  const [draftScopes, setDraftScopes] = useState<string[]>([]);
+  const uniqueScopes = [...new Set([...baseScopes, ...draftScopes])];
+
+  // Add (or switch to) a scope from the combobox — pick an existing one or type a new one.
+  const addOrSelectScope = (raw: string) => {
+    const val = raw.trim();
+    if (!val) return;
+    if (!uniqueScopes.includes(val)) setDraftScopes(prev => [...prev, val]);
+    setActiveTrack(val);
+    setNewTrackInput('');
+  };
   const [newActivityName, setNewActivityName] = useState('');
   const [newActivityColor, setNewActivityColor] = useState('#3b82f6');
   // The explicitly-picked dictionary entry for the activity being added (null = free-typed).
   const [selectedDictEntry, setSelectedDictEntry] = useState<ActivityDictionaryEntry | null>(null);
   const { data: activityDictionary = [] } = useActivityDictionary();
+  const { data: managedScopes = [] } = useActivityScopes();
   const proposePendingActivity = useProposePendingActivity();
+
+  // Combobox suggestions for the "add scope" field: the managed scope palette FIRST (in
+  // its curated order), then the project's own scopes + dictionary track hints. Pick or type.
+  const scopeSuggestions = useMemo(() => {
+    const managed = activeScopeNames(managedScopes);
+    const rest = [...new Set([
+      ...baseScopes,
+      ...draftScopes,
+      ...activityDictionary.map(e => (e.track || '').trim()),
+    ].filter(t => t.length > 0))]
+      .filter(t => !managed.includes(t))
+      .sort((a, b) => a.localeCompare(b));
+    return [...managed, ...rest];
+  }, [managedScopes, activityDictionary, baseScopes, draftScopes]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -337,7 +408,7 @@ export default function ActivityManagerPanel({
   };
 
   return (
-    <aside className="w-[360px] shrink-0 flex flex-col min-h-0 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 shadow-sm">
+    <aside className="w-full h-full flex flex-col min-h-0 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 shadow-sm">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200 dark:border-white/10">
         <div className="flex items-center gap-2">
           <Flag size={15} className="text-sky-500" />
@@ -365,24 +436,21 @@ export default function ActivityManagerPanel({
               </button>
             ))}
             {canEdit && (
-              <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-700 rounded-lg p-1">
-                <input
-                  type="text"
-                  placeholder="New Scope"
+              <div className="flex items-center gap-1">
+                <ScopeCombobox
                   value={newTrackInput}
-                  onChange={e => setNewTrackInput(e.target.value)}
-                  className="w-24 px-2 py-0.5 text-xs bg-transparent outline-none"
+                  onChange={setNewTrackInput}
+                  onCommit={addOrSelectScope}
+                  suggestions={scopeSuggestions}
+                  placeholder="Pick or add scope"
+                  className="w-40"
+                  inputClassName="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-lg pl-2.5 pr-7 py-1 text-xs outline-none focus:ring-2 focus:ring-sky-500"
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    const val = newTrackInput.trim();
-                    if (val && !uniqueScopes.includes(val)) {
-                      setActiveTrack(val);
-                      setNewTrackInput('');
-                    }
-                  }}
-                  className="p-1 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600"
+                  onClick={() => addOrSelectScope(newTrackInput)}
+                  className="p-1 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 shrink-0"
+                  title="Add this scope of work"
                 >
                   <Plus size={14} />
                 </button>
@@ -494,6 +562,71 @@ export default function ActivityManagerPanel({
           )}
         </div>
       </div>
+
+      {/* Save this project's activities as a reusable playbook (Phase 5 authoring) */}
+      {canEdit && milestones.length > 0 && (
+        <div className="border-t border-slate-200 dark:border-white/10 p-3">
+          {!showSaveForm ? (
+            <button
+              type="button"
+              onClick={() => { setShowSaveForm(true); setPbName(project?.name ? `${project.name}` : ''); }}
+              className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/70 dark:bg-black/20 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+              title="Save this project's activities + sequence + FS links as a reusable playbook"
+            >
+              <BookMarked size={14} /> Save as playbook
+            </button>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <BookMarked size={14} className="text-sky-500 shrink-0" />
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Save as playbook</span>
+              </div>
+              <input
+                type="text"
+                autoFocus
+                value={pbName}
+                onChange={(e) => setPbName(e.target.value)}
+                placeholder="Playbook name"
+                className="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+              />
+              <input
+                type="text"
+                value={pbDesc}
+                onChange={(e) => setPbDesc(e.target.value)}
+                placeholder="Description (optional)"
+                className="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-sky-500"
+              />
+              {projectType && (
+                <label className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                  <input type="checkbox" checked={pbScopeToType} onChange={(e) => setPbScopeToType(e.target.checked)} className="accent-sky-500" />
+                  Suggest this playbook for {projectType} projects
+                </label>
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!pbName.trim() || saveAsPlaybook.isPending}
+                  onClick={handleSaveAsPlaybook}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3.5 shadow-sm disabled:opacity-50"
+                >
+                  {saveAsPlaybook.isPending ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowSaveForm(false); setPbName(''); setPbDesc(''); }}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-snug">
+                Captures every dictionary-linked activity, its scope, order and FS links. Unlinked
+                (“Review”) activities are left out.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

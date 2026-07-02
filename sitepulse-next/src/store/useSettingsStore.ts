@@ -51,6 +51,12 @@ export interface MapSettings {
   /** Mini-map size multiplier over the ~160×120 base envelope, set by dragging the
    *  mini-map's corner handle (aspect stays locked). Default 1. Persisted. */
   miniMapScale?: number;
+  /** Persisted width (px) of the Schedule view's left Activities panel, set by dragging
+   *  its divider (VS Code-style). Desktop only. Default 360. */
+  scheduleActivitiesWidth?: number;
+  /** Persisted width (px) of the Schedule view's right floor-plan panel, set by dragging
+   *  its divider. Desktop only. Default 380. */
+  schedulePlanWidth?: number;
 }
 
 export interface SettingsState {
@@ -87,7 +93,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, showMagnifier: false, magnifierZoom: 3, showMiniMap: false, miniMapScale: 1, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, showMagnifier: false, magnifierZoom: 3, showMiniMap: false, miniMapScale: 1, scheduleActivitiesWidth: 360, schedulePlanWidth: 380, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),

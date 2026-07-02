@@ -290,7 +290,7 @@ export function reconcileOpenings(units: ReconcileUnit[], opts: ReconcileOptions
     const typeConflict = ri.type !== rj.type;
     const isAmbiguous = ambiguous[i] || ambiguous[p];
     const neighbors = [ri.unitId, rj.unitId].sort();
-    adjacencySet.add(`${neighbors[0]} ${neighbors[1]}`);
+    adjacencySet.add(`${neighbors[0]}\u0000${neighbors[1]}`);
 
     openings.push({
       id: sources.map((s) => refKey(s.unitId, s.edgeIndex)).join('|'),
@@ -310,7 +310,7 @@ export function reconcileOpenings(units: ReconcileUnit[], opts: ReconcileOptions
 
   openings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const adjacency = [...adjacencySet]
-    .map((k) => k.split(' ') as [string, string])
+    .map((k) => k.split('\u0000') as [string, string])
     .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1));
 
   return { openings, adjacency };

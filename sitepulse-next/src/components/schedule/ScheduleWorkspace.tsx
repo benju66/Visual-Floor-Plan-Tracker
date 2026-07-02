@@ -1,9 +1,11 @@
 "use client";
 import React, { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Layers, GanttChartSquare, CalendarRange, Flag, Map as MapIcon, FileUp } from 'lucide-react';
+import { Layers, GanttChartSquare, CalendarRange, Flag, Map as MapIcon, FileUp, ListPlus } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useManageStore } from '@/store/useManageStore';
+import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
+import ResizableDivider from './ResizableDivider';
 import { useAllProjectUnits, useAllProjectStatuses, useUpdateStatus } from '@/hooks/useProjectQueries';
 import ActivityManagerPanel from './ActivityManagerPanel';
 import ScheduleSetupWizard from './ScheduleSetupWizard';
@@ -85,12 +87,25 @@ export default function ScheduleWorkspace({
   const [zoom, setZoom] = useState<GanttZoom>('week');
   const [cascadeOpen, setCascadeOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [activitiesOpen, setActivitiesOpen] = useState(true);
   const [planOpen, setPlanOpen] = useState(false);
   // "Start blank" dismisses the first-run wizard without seeding activities.
   const [wizardDismissed, setWizardDismissed] = useState(false);
   const [hoverUnitId, setHoverUnitId] = useState<string | null>(null);
   const pxPerDay = ZOOM_PX_PER_DAY[zoom];
+
+  // Resizable panel widths (VS Code-style), persisted in settings. Read hydration-safe.
+  // The divider reports cumulative movement from drag start; because these handlers
+  // capture the width at drag start, newWidth = startWidth + delta stays correct as the
+  // store updates mid-drag. Each move commits the clamped width (persisted for next time).
+  const setMapSettings = useSettingsStore((s) => s.setMapSettings);
+  const activitiesWidth = useHydratedStore((s) => s.mapSettings.scheduleActivitiesWidth ?? 360, 360);
+  const planWidth = useHydratedStore((s) => s.mapSettings.schedulePlanWidth ?? 380, 380);
+  const clampPanel = (w: number) => Math.max(260, Math.min(720, Math.round(w)));
+  const resizeActivities = (delta: number) => setMapSettings({ scheduleActivitiesWidth: clampPanel(activitiesWidth + delta) });
+  // The plan panel is on the RIGHT (divider on its left), so moving right shrinks it.
+  const resizePlan = (delta: number) => setMapSettings({ schedulePlanWidth: clampPanel(planWidth - delta) });
 
   // UTC-noon of the local calendar day — matches ganttMath / progressAnalytics parsing.
   const today = useMemo(() => {
@@ -218,6 +233,18 @@ export default function ScheduleWorkspace({
           <CalendarRange size={14} /> Level dates
         </button>
 
+        {/* Add activities from the dictionary / a playbook, any time (append) */}
+        {milestones.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSetupOpen(true)}
+            title="Add activities from your dictionary or a playbook (appended to what you have)"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/70 dark:bg-black/20 px-3 py-1.5 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+          >
+            <ListPlus size={14} /> Add activities
+          </button>
+        )}
+
         {/* MS Project import (Phase 4) */}
         <button
           type="button"
@@ -273,19 +300,24 @@ export default function ScheduleWorkspace({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 flex items-stretch gap-3">
+      <div className="flex-1 min-h-0 flex items-stretch">
         {activitiesOpen && (
-          <ActivityManagerPanel
-            projectId={projectId}
-            milestones={milestones}
-            settings={settings}
-            onUpdateSettings={onUpdateSettings}
-            onAddMilestone={onAddMilestone}
-            onUpdateMilestone={onUpdateMilestone}
-            onDeleteMilestone={onDeleteMilestone}
-            initialTrack={trackingMode}
-            onClose={() => setActivitiesOpen(false)}
-          />
+          <>
+            <div style={{ width: activitiesWidth }} className="shrink-0 min-h-0 flex">
+              <ActivityManagerPanel
+                projectId={projectId}
+                milestones={milestones}
+                settings={settings}
+                onUpdateSettings={onUpdateSettings}
+                onAddMilestone={onAddMilestone}
+                onUpdateMilestone={onUpdateMilestone}
+                onDeleteMilestone={onDeleteMilestone}
+                initialTrack={trackingMode}
+                onClose={() => setActivitiesOpen(false)}
+              />
+            </div>
+            <ResizableDivider ariaLabel="Resize activities panel" onResize={resizeActivities} />
+          </>
         )}
 
         {milestones.length === 0 && !wizardDismissed ? (
@@ -308,12 +340,17 @@ export default function ScheduleWorkspace({
         )}
 
         {planOpen && (
-          <SchedulePlanPanel
-            sheet={activeSheet}
-            units={units}
-            highlightUnitId={hoverUnitId}
-            onClose={() => setPlanOpen(false)}
-          />
+          <>
+            <ResizableDivider ariaLabel="Resize floor-plan panel" onResize={resizePlan} />
+            <div style={{ width: planWidth }} className="shrink-0 min-h-0 flex">
+              <SchedulePlanPanel
+                sheet={activeSheet}
+                units={units}
+                highlightUnitId={hoverUnitId}
+                onClose={() => setPlanOpen(false)}
+              />
+            </div>
+          </>
         )}
       </div>
 
@@ -324,6 +361,7 @@ export default function ScheduleWorkspace({
         milestones={milestones}
         applicabilityIndex={applicabilityIndex}
         activeSheetId={activeSheetId}
+        onAddMilestone={onAddMilestone}
       />
 
       <CascadePanel
@@ -337,6 +375,17 @@ export default function ScheduleWorkspace({
         applicabilityIndex={applicabilityIndex}
         projectId={projectId}
       />
+
+      {/* Reopenable "add activities" (appends from dictionary/playbook) */}
+      {setupOpen && (
+        <ScheduleSetupWizard
+          projectId={projectId}
+          asModal
+          onClose={() => setSetupOpen(false)}
+          existingActivities={milestones}
+          onStartBlank={() => setSetupOpen(false)}
+        />
+      )}
     </div>
   );
 }
