@@ -107,14 +107,13 @@ export function useUnitHistory(unitId: string) {
       if (!unitId) return [];
       // Re-pointed to status_audit_log: the append-only audit table preserves
       // full state-change history, unlike status_logs which is now slot-unique.
-      // The audit table snapshots the activity name in its `milestone` DB column
-      // (data layer — not renamed); map it onto the domain `activityName` field.
+      // Map its `activity_name` snapshot onto the domain `activityName` field.
       const { data, error } = await supabase.from('status_audit_log')
         .select('*')
         .eq('unit_id', unitId)
         .order('changed_at', { ascending: false });
       if (error) throw error;
-      return (data ?? []).map(r => ({ ...r, activityName: r.milestone })) as unknown as StatusLog[];
+      return (data ?? []).map(r => ({ ...r, activityName: r.activity_name })) as unknown as StatusLog[];
     },
     enabled: !!unitId
   });
@@ -1446,17 +1445,16 @@ export function useStatusHistory(unitIds: string[]) {
       if (validUnitIds.length === 0) return [];
       // Re-pointed to status_audit_log: the audit table has the full append-only
       // history of completed activities, used by the dashboard timeline chart.
-      // The audit table's `milestone` DB column (the name snapshot — data layer,
-      // not renamed) is mapped onto the domain `activityName` field.
+      // Map its `activity_name` snapshot onto the domain `activityName` field.
       const { data, error } = await supabase
         .from('status_audit_log')
-        .select('unit_id, milestone, track, logged_date, client_timestamp, user_id')
+        .select('unit_id, activity_name, track, logged_date, client_timestamp, user_id')
         .in('unit_id', validUnitIds)
         .eq('temporal_state', 'completed')
         .not('logged_date', 'is', null)
         .order('logged_date', { ascending: true });
       if (error) throw error;
-      return (data ?? []).map(({ milestone, ...r }) => ({ ...r, activityName: milestone })) as unknown as Pick<StatusLog, 'unit_id' | 'activityName' | 'track' | 'logged_date'>[];
+      return (data ?? []).map(({ activity_name, ...r }) => ({ ...r, activityName: activity_name })) as unknown as Pick<StatusLog, 'unit_id' | 'activityName' | 'track' | 'logged_date'>[];
     },
     enabled: validUnitIds.length > 0,
     staleTime: 1000 * 60 * 5,

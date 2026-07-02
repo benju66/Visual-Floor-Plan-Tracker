@@ -775,7 +775,7 @@ export interface Database {
           id: string
           unit_id: string | null
           activity_id: string | null
-          milestone: string
+          activity_name: string
           status_color: string
           temporal_state: string
           track: string
@@ -790,7 +790,7 @@ export interface Database {
           id?: string
           unit_id?: string | null
           activity_id?: string | null
-          milestone: string
+          activity_name: string
           status_color?: string
           temporal_state?: string
           track?: string
@@ -805,7 +805,7 @@ export interface Database {
           id?: string
           unit_id?: string | null
           activity_id?: string | null
-          milestone?: string
+          activity_name?: string
           status_color?: string
           temporal_state?: string
           track?: string

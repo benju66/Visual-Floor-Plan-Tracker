@@ -410,10 +410,6 @@ function App() {
         pctY: legendPosition.pctY,
         scaleX: legendPosition.scaleX,
         active_activities: activeLegendActivities,
-        // Legacy wire key, sent alongside for one deploy cycle: the backend
-        // prefers `active_activities` but an older backend build only reads
-        // this. Drop once the renamed backend is confirmed live on Render.
-        active_milestones: activeLegendActivities,
         active_temporal_states: activeTemporalStates
       };
     }
