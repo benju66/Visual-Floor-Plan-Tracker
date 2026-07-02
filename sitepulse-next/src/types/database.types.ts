@@ -482,6 +482,36 @@ export interface Database {
         }
         Relationships: []
       }
+      activity_dependencies: {
+        Row: {
+          id: string
+          predecessor_activity_id: string
+          successor_activity_id: string
+          type: string
+          lag_days: number
+          created_by: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          predecessor_activity_id: string
+          successor_activity_id: string
+          type?: string
+          lag_days?: number
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          predecessor_activity_id?: string
+          successor_activity_id?: string
+          type?: string
+          lag_days?: number
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
       activity_dictionary: {
         Row: {
           id: string

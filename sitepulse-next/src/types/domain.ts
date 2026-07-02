@@ -59,6 +59,11 @@ export type StatusAuditLog = Database['public']['Tables']['status_audit_log']['R
 export type ActivityOverride = Database['public']['Tables']['activity_applicability_overrides']['Row'];
 /** @deprecated use {@link ActivityOverride}. */
 export type MilestoneOverride = ActivityOverride;
+// A light Finish-to-Start dependency edge between two of a project's activities
+// (Scheduling Foundation Slice A, Phase 3b): "successor starts after predecessor
+// finishes, +lag_days". COARSE by design — `type` is always 'FS'; no critical-path
+// or float math anywhere. No JSONB columns, so no narrowing/guard needed.
+export type ActivityDependency = Database['public']['Tables']['activity_dependencies']['Row'];
 // Look-Ahead Schedule plan (1:1 with a project). `doc` is the vendored module's
 // `ProjectBlob`, stored opaquely as JSONB — keep it `Json` here and narrow it to
 // `ProjectBlob` at the query boundary with `isProjectBlob` (src/lookahead/isProjectBlob.ts),

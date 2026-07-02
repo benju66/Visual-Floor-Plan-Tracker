@@ -72,6 +72,9 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
 
       queryClient.invalidateQueries({ queryKey: queryKeys.milestones(project?.id || projectId) });
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
+      // FS dependency edges cascade-delete with the activity (Phase 3b) — refresh
+      // the cached graph so a surviving successor's chip doesn't go stale.
+      queryClient.invalidateQueries({ queryKey: queryKeys.activityDependencies(project?.id || projectId) });
     } catch (err: any) {
       showToast('Failed to delete milestone: ' + err.message, 'error');
     }
