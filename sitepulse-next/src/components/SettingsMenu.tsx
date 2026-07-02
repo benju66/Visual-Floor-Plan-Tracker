@@ -1,127 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, X, Palette, Monitor, PenTool, Flag, Plus, Trash2, Pencil, GripVertical, Calendar, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle } from 'lucide-react';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { useUpdateSheetScopes, useReorderMilestones, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useUpdateSheetSchedule, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useUpdateMilestoneRules, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, useImportProjectContacts, type ProjectContactFields } from '@/hooks/useProjectQueries';
+import { Settings, X, Palette, Monitor, PenTool, Plus, Trash2, Pencil, Calendar, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle, Layers } from 'lucide-react';
+import { useUpdateSheetScopes, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, useImportProjectContacts, type ProjectContactFields } from '@/hooks/useProjectQueries';
 import { parseProcoreDirectoryCsv } from '@/utils/procoreDirectoryCsv';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
-import { getAppliesTo } from '@/types/domain';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 import { useUIStore } from '@/store/useUIStore';
 import type { Milestone, Sheet, ProjectContact } from '@/types/domain';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
-interface SortableMilestoneItemProps {
-  m: Milestone;
-  editingMilestoneId: string | null;
-  editMilestoneName: string;
-  setEditMilestoneName: (name: string) => void;
-  editMilestoneColor: string;
-  setEditMilestoneColor: (color: string) => void;
-  editMilestoneAppliesTo: string[] | null;
-  setEditMilestoneAppliesTo: (val: string[] | null) => void;
-  projectUnitTypes: string[];
-  setEditingMilestoneId: (id: string | null) => void;
-  onUpdateMilestone?: (id: string, oldName: string, newName: string, newColor: string) => void;
-  onUpdateMilestoneRules?: (id: string, appliesTo: string[] | null) => void;
-  onDeleteMilestone?: (id: string) => void;
-}
-
-function SortableMilestoneItem({ m, editingMilestoneId, editMilestoneName, setEditMilestoneName, editMilestoneColor, setEditMilestoneColor, editMilestoneAppliesTo, setEditMilestoneAppliesTo, projectUnitTypes, setEditingMilestoneId, onUpdateMilestone, onUpdateMilestoneRules, onDeleteMilestone }: SortableMilestoneItemProps) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: m.id });
-  const style = { transform: CSS.Transform.toString(transform), transition };
-
-  const savedRule = getAppliesTo(m);
-  // null = applies to all unit types; chips show the effective selection
-  const effectiveSelection = editMilestoneAppliesTo ?? projectUnitTypes;
-
-  const toggleAppliesTo = (type: string) => {
-    const next = effectiveSelection.includes(type)
-      ? effectiveSelection.filter(t => t !== type)
-      : [...effectiveSelection, type];
-    // All selected (or none) collapses back to the "applies to all" rule
-    if (next.length === 0 || next.length === projectUnitTypes.length) {
-      setEditMilestoneAppliesTo(null);
-    } else {
-      setEditMilestoneAppliesTo(next);
-    }
-  };
-
-  const handleSave = () => {
-    onUpdateMilestone?.(m.id, m.name, editMilestoneName, editMilestoneColor);
-    const changed = JSON.stringify(editMilestoneAppliesTo) !== JSON.stringify(savedRule);
-    if (changed) onUpdateMilestoneRules?.(m.id, editMilestoneAppliesTo);
-    setEditingMilestoneId(null);
-  };
-
-  return (
-    <li ref={setNodeRef} style={style} className="flex items-center justify-between bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-2 pl-2 shadow-sm">
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <button {...attributes} {...listeners} type="button" className="p-1 cursor-grab text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
-          <GripVertical size={16} />
-        </button>
-        {editingMilestoneId === m.id ? (
-          <div className="flex flex-col bg-white dark:bg-black/30 border border-slate-300 dark:border-white/10 rounded-lg p-1 w-full gap-2 flex-1">
-             <div className="flex gap-2 items-center w-full">
-               <input type="text" value={editMilestoneName} onChange={(e) => setEditMilestoneName(e.target.value)} autoFocus className="w-full bg-transparent text-sm font-medium outline-none px-2 text-slate-900 dark:text-white" />
-               <input type="color" value={editMilestoneColor} onChange={(e) => setEditMilestoneColor(e.target.value)} className="w-7 h-7 border-0 cursor-pointer bg-transparent shrink-0" />
-               <button type="button" onClick={handleSave} className="px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-md text-sm font-bold h-7 transition-colors">Save</button>
-             </div>
-             <div className="px-2 pb-1">
-               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
-                 Applies to {editMilestoneAppliesTo === null ? 'all space types' : `${effectiveSelection.length} of ${projectUnitTypes.length} space types`}
-               </div>
-               <div className="flex flex-wrap gap-1.5">
-                 {projectUnitTypes.map(type => {
-                   const active = effectiveSelection.includes(type);
-                   return (
-                     <button
-                       key={type}
-                       type="button"
-                       onClick={() => toggleAppliesTo(type)}
-                       className={`px-2 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
-                         active
-                           ? 'bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/40 dark:text-sky-300 dark:border-sky-700'
-                           : 'bg-slate-100 text-slate-400 border-slate-200 line-through dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700'
-                       }`}
-                     >
-                       {type}
-                     </button>
-                   );
-                 })}
-               </div>
-               <div className="text-[10px] text-slate-400 italic mt-1.5">Deselected types are tracked as N/A for this milestone.</div>
-             </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-             <span className="w-4 h-4 rounded-full shadow-sm shrink-0" style={{ backgroundColor: m.color }} />
-             <span className="font-semibold text-sm truncate text-slate-800 dark:text-slate-200">{m.name}</span>
-             {savedRule && (
-               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 bg-slate-200/70 dark:bg-slate-800 px-1.5 py-0.5 rounded-full shrink-0" title={`Applies only to: ${savedRule.join(', ')}`}>
-                 {savedRule.length} type{savedRule.length === 1 ? '' : 's'}
-               </span>
-             )}
-          </div>
-        )}
-      </div>
-
-      {editingMilestoneId !== m.id && (
-        <div className="flex items-center gap-1 shrink-0 ml-2">
-          <button type="button" onClick={() => { setEditingMilestoneId(m.id); setEditMilestoneName(m.name); setEditMilestoneColor(m.color); setEditMilestoneAppliesTo(savedRule); }} className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Edit">
-            <Pencil size={14} />
-          </button>
-          <button type="button" onClick={() => onDeleteMilestone?.(m.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Delete">
-            <Trash2 size={14} />
-          </button>
-        </div>
-      )}
-    </li>
-  );
-}
+// NOTE (Scheduling Foundation Slice A, Phase 3a): the activity manager that
+// lived here (the "Milestones" tab — scopes of work, auto-advance, add/edit/
+// reorder/applies-to) MOVED to the Schedule view's ActivityManagerPanel
+// (src/components/schedule/ActivityManagerPanel.tsx) so activity management
+// has ONE home. Settings keeps only the sheet-scoped config: which scopes
+// apply to each level + the legacy per-level scale preset ("Levels & Scopes").
 
 // ---- Project Contacts manager ----------------------------------------------
 // A shared, project-level contact directory (Company, name, title, mobile,
@@ -488,10 +382,9 @@ interface SettingsMenuProps {
   colorMode: string;
   setColorMode: (mode: string) => void;
   onAttachOriginal: (file: File) => void;
+  /** Used only to derive the scopes-of-work list for level assignments —
+   *  activity management itself lives in the Schedule view (Phase 3a). */
   milestones?: Milestone[];
-  onAddMilestone?: (name: string, color: string, track: string) => void;
-  onUpdateMilestone?: (id: string, oldName: string, newName: string, newColor: string) => void;
-  onDeleteMilestone?: (id: string) => void;
   mapSettings?: MapSettings;
   onUpdateMapSettings: (settings: MapSettings) => void;
   sheets?: Sheet[];
@@ -507,9 +400,6 @@ export default function SettingsMenu({
   setColorMode,
   onAttachOriginal,
   milestones = [],
-  onAddMilestone,
-  onUpdateMilestone,
-  onDeleteMilestone,
   mapSettings,
   onUpdateMapSettings,
   sheets = [],
@@ -539,25 +429,13 @@ export default function SettingsMenu({
 
   const uniqueScopes = [...new Set(milestones.map(m => m.track))];
   if (uniqueScopes.length === 0) uniqueScopes.push('Production');
-  
-  const [activeSettingsTrack, setActiveSettingsTrack] = useState(uniqueScopes[0] || 'Production');
-  const [newSettingsTrackInput, setNewSettingsTrackInput] = useState('');
-  const [newMilestoneName, setNewMilestoneName] = useState('');
-  const [newMilestoneColor, setNewMilestoneColor] = useState('#3b82f6');
-  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
-  const [editMilestoneName, setEditMilestoneName] = useState('');
-  const [editMilestoneColor, setEditMilestoneColor] = useState('');
-  const [editMilestoneAppliesTo, setEditMilestoneAppliesTo] = useState<string[] | null>(null);
-  const [expandedSchedules, setExpandedSchedules] = useState<Record<string, boolean>>({});
+
   const [newUnitTypeAdd, setNewUnitTypeAdd] = useState('');
-  
+
   const setViewMode = useUIStore((s) => s.setViewMode);
 
-  const reorderMilestonesMutation = useReorderMilestones(projectId);
-  const updateMilestoneRulesMutation = useUpdateMilestoneRules(projectId);
   const updateSheetScopesMutation = useUpdateSheetScopes(projectId);
   const updateSheetScaleMutation = useUpdateSheetScale(projectId);
-  const updateSheetScheduleMutation = useUpdateSheetSchedule(projectId);
   const updateUnitFieldsMutation = useUpdateUnitFields('');
   const updateMemberRoleMutation = useUpdateProjectMemberRole(projectId);
 
@@ -567,26 +445,7 @@ export default function SettingsMenu({
 
   const projectUnitTypes = (project?.unit_types as string[]) || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
   if (!open) return null;
-
-  const currentScopeMilestones = milestones.filter(m => m.track === activeSettingsTrack).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
-
-  const handleDragEnd = (event: any) => {
-    const { active, over } = event;
-    if (active.id !== over?.id && over) {
-      const oldIndex = currentScopeMilestones.findIndex(m => m.id === active.id);
-      const newIndex = currentScopeMilestones.findIndex(m => m.id === over.id);
-      
-      const newArray = arrayMove(currentScopeMilestones, oldIndex, newIndex);
-      const updates = newArray.map((m, index) => ({ id: m.id, sequence_order: index }));
-      reorderMilestonesMutation.mutate(updates as any);
-    }
-  };
 
   return (
     <div
@@ -623,14 +482,14 @@ export default function SettingsMenu({
             <Palette size={16} /> Appearance
           </button>
           <button
-            onClick={() => setActiveTab('milestones')}
+            onClick={() => setActiveTab('levels')}
             className={`flex items-center gap-2 shrink-0 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${
-              activeTab === 'milestones'
+              activeTab === 'levels'
                 ? 'border-sky-500 text-sky-600 dark:text-sky-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
-            <Flag size={16} /> Milestones
+            <Layers size={16} /> Levels &amp; Scopes
           </button>
           <button
             onClick={() => setActiveTab('contacts')}
@@ -869,127 +728,23 @@ export default function SettingsMenu({
             </>
           )}
 
-          {activeTab === 'milestones' && (
+          {activeTab === 'levels' && (
             <div className="flex flex-col h-full space-y-4">
-              <div className="flex flex-col mb-2">
-                <span className="text-sm font-bold mb-2">Scopes of Work</span>
-                <div className="flex flex-wrap gap-2">
-                  {uniqueScopes.map(scope => (
-                     <button
-                       key={scope}
-                       onClick={() => setActiveSettingsTrack(scope)}
-                       className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors border ${activeSettingsTrack === scope ? 'bg-sky-500 text-white border-sky-600 shadow-sm' : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
-                     >
-                        {scope}
-                     </button>
-                  ))}
-                  <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-700 rounded-lg p-1">
-                     <input
-                       type="text"
-                       placeholder="New Scope"
-                       value={newSettingsTrackInput}
-                       onChange={e => setNewSettingsTrackInput(e.target.value)}
-                       className="w-24 px-2 py-0.5 text-xs bg-transparent outline-none"
-                     />
-                     <button
-                       type="button"
-                       onClick={() => {
-                          const val = newSettingsTrackInput.trim();
-                          if (val && !uniqueScopes.includes(val)) {
-                            setActiveSettingsTrack(val);
-                            setNewSettingsTrackInput('');
-                          }
-                       }}
-                       className="p-1 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600"
-                     >
-                       <Plus size={14} />
-                     </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between bg-white/50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl p-3 mb-2">
-                <div>
-                  <span className="font-semibold block text-sm">Auto-Advance {activeSettingsTrack}</span>
-                  <span className="text-xs text-slate-500">Automatically plan the next step when a milestone is completed.</span>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={settings.auto_advance_tracks?.[activeSettingsTrack] || false}
-                    onChange={(e) => onUpdateSettings({ 
-                      ...settings, 
-                      auto_advance_tracks: {
-                        ...(settings.auto_advance_tracks || {}),
-                        [activeSettingsTrack]: e.target.checked
-                      }
-                    })}
-                  />
-                  <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
-                </label>
-              </div>
-
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder={`Add to ${activeSettingsTrack}...`}
-                  value={newMilestoneName}
-                  onChange={e => setNewMilestoneName(e.target.value)}
-                  className="flex-1 bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
-                />
-                <input
-                  type="color"
-                  value={newMilestoneColor}
-                  onChange={e => setNewMilestoneColor(e.target.value)}
-                  className="w-10 h-10 border-0 rounded-lg cursor-pointer bg-white dark:bg-black/20 p-1"
-                />
+              <div className="flex items-start justify-between gap-3 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900/40 rounded-xl p-3">
+                <p className="text-xs text-slate-600 dark:text-slate-300 text-balance">
+                  Looking for the activity list? Adding, renaming, reordering and sequencing activities now lives in the{' '}
+                  <span className="font-semibold">Schedule</span> view.
+                </p>
                 <button
                   type="button"
-                  onClick={() => {
-                    onAddMilestone?.(newMilestoneName, newMilestoneColor, activeSettingsTrack);
-                    setNewMilestoneName('');
-                  }}
-                  className="h-10 px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-lg flex items-center justify-center transition-colors shadow-sm"
+                  onClick={() => { setViewMode('schedule'); onClose(); }}
+                  className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3 shadow-sm"
                 >
-                  <Plus size={18} />
+                  <Calendar size={13} /> Open Schedule
                 </button>
               </div>
 
-              <div className="mt-2 flex-col flex space-y-1">
-                <div className="text-xs text-slate-500 italic mb-2">Drag to reorder sequence within scope.</div>
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={currentScopeMilestones.map(m => m.id)} strategy={verticalListSortingStrategy}>
-                    <ul className="space-y-2">
-                      {currentScopeMilestones.map(m => (
-                        <SortableMilestoneItem
-                          key={m.id}
-                          m={m}
-                          editingMilestoneId={editingMilestoneId}
-                          editMilestoneName={editMilestoneName}
-                          setEditMilestoneName={setEditMilestoneName}
-                          editMilestoneColor={editMilestoneColor}
-                          setEditMilestoneColor={setEditMilestoneColor}
-                          editMilestoneAppliesTo={editMilestoneAppliesTo}
-                          setEditMilestoneAppliesTo={setEditMilestoneAppliesTo}
-                          projectUnitTypes={projectUnitTypes}
-                          setEditingMilestoneId={setEditingMilestoneId}
-                          onUpdateMilestone={onUpdateMilestone}
-                          onUpdateMilestoneRules={(id, appliesTo) => updateMilestoneRulesMutation.mutate({ id, applies_to_unit_types: appliesTo })}
-                          onDeleteMilestone={onDeleteMilestone}
-                        />
-                      ))}
-                    </ul>
-                  </SortableContext>
-                </DndContext>
-                {currentScopeMilestones.length === 0 && (
-                  <div className="text-center py-6 text-slate-500 text-sm bg-slate-50 dark:bg-slate-900/50 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
-                    No milestones in {activeSettingsTrack}.
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t border-slate-200 dark:border-white/10 pt-4 mt-6">
+              <div>
                  <h3 className="font-bold text-sm mb-3">Sheet Scope Assignments</h3>
                  <p className="text-xs text-slate-500 mb-3 text-balance">Assign which Scopes of Work apply to each floor plan level. Unassigned scopes will be hidden from the map for that level.</p>
                  <div className="space-y-3">
@@ -1053,61 +808,6 @@ export default function SettingsMenu({
                                </button>
                              );
                            })}
-                         </div>
-                         
-                         {/* Level Schedulues Expansion */}
-                         <div className="mt-3 border-t border-slate-200 dark:border-slate-700/50 pt-2">
-                           <button 
-                             type="button"
-                             onClick={() => setExpandedSchedules(prev => ({ ...prev, [sheet.id]: !prev[sheet.id] }))}
-                             className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-700 flex items-center"
-                           >
-                             {expandedSchedules[sheet.id] ? 'Hide Level Schedule' : 'Set Level Schedule'}
-                           </button>
-                           {expandedSchedules[sheet.id] && (
-                             <div className="mt-2 space-y-2">
-                               {milestones.filter(m => activeScopes.includes(m.track)).map(m => {
-                                 const schedule = ((sheet.activity_schedules as any) || {})[m.name] || { start_date: '', end_date: '' };
-                                 return (
-                                   <div key={m.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-black/20 p-2 rounded border border-slate-200 dark:border-white/10 text-xs">
-                                      <div className="font-medium flex items-center gap-2 mb-1 sm:mb-0 w-1/3">
-                                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: m.color }} />
-                                        <span className="truncate" title={m.name}>{m.name}</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <div className="flex flex-col">
-                                          <span className="text-[10px] text-slate-500 mb-0.5">Start</span>
-                                          <input 
-                                            type="date"
-                                            value={schedule.start_date || ''}
-                                            onChange={(e) => {
-                                              const newSchedules = { ...((sheet.activity_schedules as any) || {}), [m.name]: { ...schedule, start_date: e.target.value } };
-                                              updateSheetScheduleMutation.mutate({ sheetId: sheet.id, activity_schedules: newSchedules });
-                                            }}
-                                            className="px-1.5 py-0.5 border rounded dark:bg-slate-800 dark:border-slate-600 outline-none"
-                                          />
-                                        </div>
-                                        <div className="flex flex-col">
-                                          <span className="text-[10px] text-slate-500 mb-0.5">End</span>
-                                          <input 
-                                            type="date"
-                                            value={schedule.end_date || ''}
-                                            onChange={(e) => {
-                                              const newSchedules = { ...((sheet.activity_schedules as any) || {}), [m.name]: { ...schedule, end_date: e.target.value } };
-                                              updateSheetScheduleMutation.mutate({ sheetId: sheet.id, activity_schedules: newSchedules });
-                                            }}
-                                            className="px-1.5 py-0.5 border rounded dark:bg-slate-800 dark:border-slate-600 outline-none"
-                                          />
-                                        </div>
-                                      </div>
-                                   </div>
-                                 );
-                               })}
-                               {milestones.filter(m => activeScopes.includes(m.track)).length === 0 && (
-                                  <div className="text-[11px] text-slate-500 italic">No milestones available. Assign scopes first.</div>
-                               )}
-                             </div>
-                           )}
                          </div>
                        </div>
                      );
@@ -1360,7 +1060,8 @@ export default function SettingsMenu({
               <div>
                 <h3 className="font-bold text-base text-slate-800 dark:text-slate-100">Scheduling has moved</h3>
                 <p className="text-sm text-slate-500 mt-1 max-w-sm">
-                  Planned dates, the level→location cascade, and behind-schedule tracking now live in the full{' '}
+                  Activity management (add, rename, reorder, sequence), planned dates, the level→location cascade, and behind-schedule
+                  tracking all live in the full{' '}
                   <span className="font-semibold text-slate-700 dark:text-slate-200">Schedule</span> view — a visual timeline you can read and edit directly.
                 </p>
               </div>

@@ -36,15 +36,17 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleAddMilestone = async (name: string, color: string, track: string) => {
+  const handleAddMilestone = async (name: string, color: string, track: string, dictionaryId?: string | null) => {
     const rawName = name?.trim();
     if (!rawName || !project || !project.id) return;
     try {
       const milestones = queryClient.getQueryData<Milestone[]>(queryKeys.milestones(project.id)) || [];
       const trackMs = milestones.filter(m => m.track === track);
       const maxOrder = trackMs.reduce((max, m) => Math.max(max, m.sequence_order || 0), -1);
-      
-      const { data, error } = await supabase.from('activities').insert([{ project_id: project.id, name: rawName, color, track, sequence_order: maxOrder + 1 }]).select();
+
+      // dictionary_id links this project activity to the global governed activity
+      // dictionary (Scheduling Foundation Slice A, Phase 2); null = unlinked (review queue).
+      const { data, error } = await supabase.from('activities').insert([{ project_id: project.id, name: rawName, color, track, sequence_order: maxOrder + 1, dictionary_id: dictionaryId ?? null }]).select();
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: queryKeys.milestones(project.id) });
     } catch (err: any) {
@@ -70,6 +72,9 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
 
       queryClient.invalidateQueries({ queryKey: queryKeys.milestones(project?.id || projectId) });
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
+      // FS dependency edges cascade-delete with the activity (Phase 3b) — refresh
+      // the cached graph so a surviving successor's chip doesn't go stale.
+      queryClient.invalidateQueries({ queryKey: queryKeys.activityDependencies(project?.id || projectId) });
     } catch (err: any) {
       showToast('Failed to delete milestone: ' + err.message, 'error');
     }

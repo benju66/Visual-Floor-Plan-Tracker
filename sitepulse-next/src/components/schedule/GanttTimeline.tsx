@@ -29,6 +29,8 @@ interface GanttTimelineProps {
   levelByUnitId?: Record<string, string>;
   /** Persist a bar's planned dates (online). */
   onEditDates: (unitId: string, bar: GanttBarModel, start: string | null, end: string | null) => void;
+  /** Row hover, for the floor-plan reference highlight (only wired when the plan panel is open). */
+  onRowHover?: (unitId: string | null) => void;
 }
 
 const LEFT_W = 208;
@@ -91,6 +93,7 @@ export default function GanttTimeline({
   today,
   levelByUnitId,
   onEditDates,
+  onRowHover,
 }: GanttTimelineProps) {
   const [editing, setEditing] = useState<{ unitId: string; bar: GanttBarModel; rect: DOMRect } | null>(null);
 
@@ -146,7 +149,13 @@ export default function GanttTimeline({
             {rows.map((r) => {
               const meta = rowMeta[r.unitId];
               return (
-                <div key={r.unitId} className="flex items-center gap-2 px-3 border-b border-slate-100 dark:border-white/5" style={{ height: ROW_H }}>
+                <div
+                  key={r.unitId}
+                  className="flex items-center gap-2 px-3 border-b border-slate-100 dark:border-white/5"
+                  style={{ height: ROW_H }}
+                  onMouseEnter={() => onRowHover?.(r.unitId)}
+                  onMouseLeave={() => onRowHover?.(null)}
+                >
                   <span
                     className="shrink-0 w-2.5 h-2.5 rounded-full"
                     style={{ background: meta?.color || '#cbd5e1' }}
@@ -180,6 +189,8 @@ export default function GanttTimeline({
                 key={r.unitId}
                 className="absolute left-0 border-b border-slate-100 dark:border-white/5"
                 style={{ top: i * ROW_H, height: ROW_H, width: timelineW }}
+                onMouseEnter={() => onRowHover?.(r.unitId)}
+                onMouseLeave={() => onRowHover?.(null)}
               >
                 {r.bars.map((b) => {
                   const rect = barRect(b.plannedStart, b.plannedEnd, win.start, pxPerDay);

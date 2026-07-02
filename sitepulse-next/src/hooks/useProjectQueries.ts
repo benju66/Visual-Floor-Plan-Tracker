@@ -1258,6 +1258,35 @@ export function useUpdateSheetSchedule(projectId: string) {
   });
 }
 
+// One-shot bulk activity creation for the Schedule view's first-run wizard
+// (Scheduling Foundation Slice A, Phase 3a: "start from your dictionary").
+// A single INSERT with explicit sequence_order values — the per-row
+// handleAddMilestone path reads max(sequence_order) from the cache, which
+// doesn't refresh between calls in a loop, so seeding N activities that way
+// would collide their ordering. Online-first (schedule authoring).
+export interface NewActivityRow {
+  name: string;
+  color: string;
+  track: string;
+  sequence_order: number;
+  dictionary_id: string | null;
+  type: string;
+}
+
+export function useCreateActivitiesBulk(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (rows: NewActivityRow[]) => {
+      if (rows.length === 0) return;
+      const { error } = await supabase
+        .from('activities')
+        .insert(rows.map(r => ({ ...r, project_id: projectId })));
+      if (error) throw error;
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.milestones(projectId) })
+  });
+}
+
 export function useReorderMilestones(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({

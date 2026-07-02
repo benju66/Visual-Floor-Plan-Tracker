@@ -1,10 +1,14 @@
 "use client";
 import React, { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Layers, GanttChartSquare, CalendarRange } from 'lucide-react';
+import { Layers, GanttChartSquare, CalendarRange, Flag, Map as MapIcon, FileUp } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useManageStore } from '@/store/useManageStore';
 import { useAllProjectUnits, useAllProjectStatuses, useUpdateStatus } from '@/hooks/useProjectQueries';
+import ActivityManagerPanel from './ActivityManagerPanel';
+import ScheduleSetupWizard from './ScheduleSetupWizard';
+import SchedulePlanPanel from './SchedulePlanPanel';
+import type { AppSettings } from '@/store/useSettingsStore';
 import {
   buildScheduleRows,
   windowBounds,
@@ -22,6 +26,7 @@ import {
 import { applicableMilestones, EMPTY_APPLICABILITY_INDEX, type ApplicabilityIndex } from '@/utils/applicability';
 import GanttTimeline, { type RowMeta } from './GanttTimeline';
 import CascadePanel from './CascadePanel';
+import MspImportPanel from './MspImportPanel';
 import type { Sheet, Unit, Milestone, StatusLog } from '@/types/domain';
 
 interface ScheduleWorkspaceProps {
@@ -32,6 +37,13 @@ interface ScheduleWorkspaceProps {
   applicabilityIndex?: ApplicabilityIndex;
   sheets: Sheet[];
   activeSheetId: string;
+  /** Activity-management wiring (Phase 3a) — the shared useProjectActions
+   *  handlers + persisted settings, reused (not forked) from page.jsx. */
+  settings: AppSettings;
+  onUpdateSettings: (settings: AppSettings) => void;
+  onAddMilestone?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
+  onUpdateMilestone?: (id: string, oldName: string, newName: string, newColor: string) => void;
+  onDeleteMilestone?: (id: string) => void;
 }
 
 const ZOOMS: { key: GanttZoom; label: string }[] = [
@@ -41,10 +53,15 @@ const ZOOMS: { key: GanttZoom; label: string }[] = [
 ];
 
 /**
- * Phase 3a Schedule view — a read-only Gantt with online date edits and a
- * level→location cascade (added in the cascade slice). Reuses the List's scope
- * (`useManageStore`) and the all-project data hooks. Behind-schedule coloring
- * comes from `progressAnalytics` (single source of truth — never forked here).
+ * The consolidated Schedule view (Scheduling Foundation Slice A, Phase 3) —
+ * the SINGLE home for activity management. Left panel: the activity manager
+ * (moved out of Settings in 3a — scopes, auto-advance, dictionary add, reorder,
+ * applicability, FS dependencies). Center: the Gantt with online date edits and
+ * the level→location cascade. Right (toggleable): a floor-plan reference so
+ * space-bound sequencing keeps its context. First-run: a light "start from
+ * your dictionary" wizard. Reuses the List's scope (`useManageStore`) and the
+ * all-project data hooks. Behind-schedule coloring comes from
+ * `progressAnalytics` (single source of truth — never forked here).
  */
 export default function ScheduleWorkspace({
   units,
@@ -53,6 +70,11 @@ export default function ScheduleWorkspace({
   applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
   sheets,
   activeSheetId,
+  settings,
+  onUpdateSettings,
+  onAddMilestone,
+  onUpdateMilestone,
+  onDeleteMilestone,
 }: ScheduleWorkspaceProps) {
   const params = useParams();
   const projectId = params?.projectId as string;
@@ -62,6 +84,12 @@ export default function ScheduleWorkspace({
 
   const [zoom, setZoom] = useState<GanttZoom>('week');
   const [cascadeOpen, setCascadeOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [activitiesOpen, setActivitiesOpen] = useState(true);
+  const [planOpen, setPlanOpen] = useState(false);
+  // "Start blank" dismisses the first-run wizard without seeding activities.
+  const [wizardDismissed, setWizardDismissed] = useState(false);
+  const [hoverUnitId, setHoverUnitId] = useState<string | null>(null);
   const pxPerDay = ZOOM_PX_PER_DAY[zoom];
 
   // UTC-noon of the local calendar day — matches ganttMath / progressAnalytics parsing.
@@ -152,6 +180,34 @@ export default function ScheduleWorkspace({
           <span className="text-xs text-slate-400">· {trackingMode} · {scopedLocationCount} locations</span>
         </div>
 
+        {/* Activity manager panel toggle */}
+        <button
+          type="button"
+          onClick={() => setActivitiesOpen((v) => !v)}
+          title="Manage this project's activities — add, rename, reorder, sequence"
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors ${
+            activitiesOpen
+              ? 'bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900 dark:border-white'
+              : 'border-slate-300/80 dark:border-white/15 bg-white/70 dark:bg-black/20 hover:bg-slate-100 dark:hover:bg-white/10'
+          }`}
+        >
+          <Flag size={14} /> Activities
+        </button>
+
+        {/* Floor-plan reference toggle */}
+        <button
+          type="button"
+          onClick={() => setPlanOpen((v) => !v)}
+          title="Show the level's floor plan beside the schedule"
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors ${
+            planOpen
+              ? 'bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900 dark:border-white'
+              : 'border-slate-300/80 dark:border-white/15 bg-white/70 dark:bg-black/20 hover:bg-slate-100 dark:hover:bg-white/10'
+          }`}
+        >
+          <MapIcon size={14} /> Plan
+        </button>
+
         {/* Level dates / cascade */}
         <button
           type="button"
@@ -160,6 +216,16 @@ export default function ScheduleWorkspace({
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/70 dark:bg-black/20 px-3 py-1.5 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
         >
           <CalendarRange size={14} /> Level dates
+        </button>
+
+        {/* MS Project import (Phase 4) */}
+        <button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          title="Import an MS Project schedule (.xml) and populate planned dates"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/70 dark:bg-black/20 px-3 py-1.5 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+        >
+          <FileUp size={14} /> Import
         </button>
 
         {/* Scope toggle (shared with the List via useManageStore) */}
@@ -207,15 +273,57 @@ export default function ScheduleWorkspace({
         </div>
       )}
 
-      <GanttTimeline
-        rows={rows}
-        rowMeta={rowMeta}
-        window={dateWindow}
-        zoom={zoom}
-        pxPerDay={pxPerDay}
-        today={today}
-        levelByUnitId={levelByUnitId}
-        onEditDates={handleEditDates}
+      <div className="flex-1 min-h-0 flex items-stretch gap-3">
+        {activitiesOpen && (
+          <ActivityManagerPanel
+            projectId={projectId}
+            milestones={milestones}
+            settings={settings}
+            onUpdateSettings={onUpdateSettings}
+            onAddMilestone={onAddMilestone}
+            onUpdateMilestone={onUpdateMilestone}
+            onDeleteMilestone={onDeleteMilestone}
+            initialTrack={trackingMode}
+            onClose={() => setActivitiesOpen(false)}
+          />
+        )}
+
+        {milestones.length === 0 && !wizardDismissed ? (
+          <ScheduleSetupWizard
+            projectId={projectId}
+            onStartBlank={() => { setWizardDismissed(true); setActivitiesOpen(true); }}
+          />
+        ) : (
+          <GanttTimeline
+            rows={rows}
+            rowMeta={rowMeta}
+            window={dateWindow}
+            zoom={zoom}
+            pxPerDay={pxPerDay}
+            today={today}
+            levelByUnitId={levelByUnitId}
+            onEditDates={handleEditDates}
+            onRowHover={planOpen ? setHoverUnitId : undefined}
+          />
+        )}
+
+        {planOpen && (
+          <SchedulePlanPanel
+            sheet={activeSheet}
+            units={units}
+            highlightUnitId={hoverUnitId}
+            onClose={() => setPlanOpen(false)}
+          />
+        )}
+      </div>
+
+      <MspImportPanel
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        sheets={sheets}
+        milestones={milestones}
+        applicabilityIndex={applicabilityIndex}
+        activeSheetId={activeSheetId}
       />
 
       <CascadePanel

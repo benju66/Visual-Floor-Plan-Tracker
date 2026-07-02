@@ -539,6 +539,11 @@ function App() {
               applicabilityIndex={applicabilityIndex}
               sheets={sheets}
               activeSheetId={activeSheetId}
+              settings={settings}
+              onUpdateSettings={setSettings}
+              onAddMilestone={handleAddMilestone}
+              onUpdateMilestone={handleUpdateMilestone}
+              onDeleteMilestone={handleDeleteMilestone}
             />
           </div>
         ) : viewMode === 'lookahead' ? (
@@ -779,9 +784,6 @@ function App() {
         setColorMode={setColorMode}
         onAttachOriginal={handleAttachOriginal}
         milestones={milestones}
-        onAddMilestone={handleAddMilestone}
-        onUpdateMilestone={handleUpdateMilestone}
-        onDeleteMilestone={handleDeleteMilestone}
         mapSettings={mapSettings}
         onUpdateMapSettings={setMapSettings}
         sheets={sheets}

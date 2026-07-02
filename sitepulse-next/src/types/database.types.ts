@@ -453,6 +453,7 @@ export interface Database {
           track: string
           type: string
           applies_to_unit_types: Json | null
+          dictionary_id: string | null
           created_at: string | null
         }
         Insert: {
@@ -464,6 +465,7 @@ export interface Database {
           track?: string
           type?: string
           applies_to_unit_types?: Json | null
+          dictionary_id?: string | null
           created_at?: string | null
         }
         Update: {
@@ -475,7 +477,83 @@ export interface Database {
           track?: string
           type?: string
           applies_to_unit_types?: Json | null
+          dictionary_id?: string | null
           created_at?: string | null
+        }
+        Relationships: []
+      }
+      activity_dependencies: {
+        Row: {
+          id: string
+          predecessor_activity_id: string
+          successor_activity_id: string
+          type: string
+          lag_days: number
+          created_by: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          predecessor_activity_id: string
+          successor_activity_id: string
+          type?: string
+          lag_days?: number
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          predecessor_activity_id?: string
+          successor_activity_id?: string
+          type?: string
+          lag_days?: number
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      activity_dictionary: {
+        Row: {
+          id: string
+          name: string
+          track: string | null
+          type: string
+          status: string
+          aliases: Json
+          default_project_types: Json
+          cost_code_id: string | null
+          proposed_note: string | null
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          track?: string | null
+          type?: string
+          status?: string
+          aliases?: Json
+          default_project_types?: Json
+          cost_code_id?: string | null
+          proposed_note?: string | null
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          track?: string | null
+          type?: string
+          status?: string
+          aliases?: Json
+          default_project_types?: Json
+          cost_code_id?: string | null
+          proposed_note?: string | null
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }

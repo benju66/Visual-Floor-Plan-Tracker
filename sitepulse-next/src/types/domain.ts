@@ -59,6 +59,11 @@ export type StatusAuditLog = Database['public']['Tables']['status_audit_log']['R
 export type ActivityOverride = Database['public']['Tables']['activity_applicability_overrides']['Row'];
 /** @deprecated use {@link ActivityOverride}. */
 export type MilestoneOverride = ActivityOverride;
+// A light Finish-to-Start dependency edge between two of a project's activities
+// (Scheduling Foundation Slice A, Phase 3b): "successor starts after predecessor
+// finishes, +lag_days". COARSE by design — `type` is always 'FS'; no critical-path
+// or float math anywhere. No JSONB columns, so no narrowing/guard needed.
+export type ActivityDependency = Database['public']['Tables']['activity_dependencies']['Row'];
 // Look-Ahead Schedule plan (1:1 with a project). `doc` is the vendored module's
 // `ProjectBlob`, stored opaquely as JSONB — keep it `Json` here and narrow it to
 // `ProjectBlob` at the query boundary with `isProjectBlob` (src/lookahead/isProjectBlob.ts),
@@ -176,6 +181,27 @@ export type Subtype = Omit<
   default_project_types: ProjectType[];
 };
 export type SubtypeInsert = Database['public']['Tables']['subtypes']['Insert'];
+
+// Global governed activity dictionary row (Scheduling Foundation Slice A, Phase 2).
+// The company-wide canonical activity list a project activity points at via
+// activities.dictionary_id — the SAME governed-dictionary pattern as {@link Subtype}
+// (aliases + default_project_types + status active/pending/deprecated + the
+// "Other (pending)" sentinel), for scheduling instead of location taxonomy. The two
+// JSONB columns are narrowed off the generated `Json` to their real shapes at the
+// query boundary (reusing {@link isStringArray} / {@link isProjectTypeArray}),
+// exactly like Subtype narrows `aliases` / `default_project_types`. `type` is the
+// activity kind (task/milestone), `track` an optional default grouping hint, and
+// `cost_code_id` is reserved for Slice B.
+export type ActivityType = 'task' | 'milestone';
+export type ActivityDictionaryStatus = 'active' | 'pending' | 'deprecated';
+export type ActivityDictionaryEntry = Omit<
+  Database['public']['Tables']['activity_dictionary']['Row'],
+  'aliases' | 'default_project_types'
+> & {
+  aliases: string[];
+  default_project_types: ProjectType[];
+};
+export type ActivityDictionaryInsert = Database['public']['Tables']['activity_dictionary']['Insert'];
 
 export type TemporalState = 'planned' | 'ongoing' | 'completed' | 'none';
 export type MemberRole    = 'admin' | 'pm' | 'superintendent' | 'viewer';
