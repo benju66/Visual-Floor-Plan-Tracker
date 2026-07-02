@@ -34,6 +34,11 @@ export const queryKeys = {
   // Foundation Slice A, Phase 3b). Project-scoped; invalidated by the
   // set/clear-predecessor mutations and on activity delete (FK cascades).
   activityDependencies: (projectId: string)      => ['activity_dependencies', projectId] as const,
+  // Reusable, project-type-scoped activity playbooks (Scheduling Foundation
+  // Slice A, Phase 5). GLOBAL (cross-project) governed library, keyed globally +
+  // shared like `activityDictionary`. Read = any member; writes (save-current-
+  // project / archive) = privileged. Each read joins the playbook's ordered items.
+  playbooks:          ()                         => ['playbooks'] as const,
   // Company-wide learned naming vocabulary (Trace Naming & Type Assist Phase 2):
   // a paginated read of every confirmed room the user can see (RLS-scoped to their
   // project memberships), folded into a plain-JSON frequency model. Keyed globally
