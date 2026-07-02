@@ -10,6 +10,7 @@ import {
 import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
 import { resolveActivityByName, activityPickToFields, type ActivityPickResult } from '@/utils/activityDictionary';
 import ActivityDictionaryField from '@/components/ActivityDictionaryField';
+import ScopeCombobox from './ScopeCombobox';
 import { useUIStore } from '@/store/useUIStore';
 import { parseMspXml, leafTasks, type MspParseResult, type MspTask } from '@/utils/mspImport';
 import {
@@ -332,8 +333,7 @@ export default function MspImportPanel({
                     <div className="flex-1 min-w-[200px]">
                       <ActivityDictionaryField value={addName} onChange={setAddName} selectedEntry={addEntry} onSelectEntry={setAddEntry} placeholder="Activity name…" />
                     </div>
-                    <input type="text" list="msp-add-tracks" value={addTrack} onChange={(e) => setAddTrack(e.target.value)} placeholder={existingTracks[0] || 'Production'} className="w-32 rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-black/25 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-sky-500/40" />
-                    <datalist id="msp-add-tracks">{existingTracks.map((t) => <option key={t} value={t} />)}</datalist>
+                    <ScopeCombobox value={addTrack} onChange={setAddTrack} suggestions={existingTracks} placeholder={existingTracks[0] || 'Production'} className="w-36" inputClassName="w-full rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-black/25 pl-2 pr-7 py-1.5 text-xs outline-none focus:ring-2 focus:ring-sky-500/40" />
                     <button type="button" disabled={!addName.trim()} onClick={handleAddActivity} className="inline-flex items-center gap-1 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3 disabled:opacity-40"><Plus size={13} /> Add</button>
                     <button type="button" onClick={() => { setShowAddActivity(false); setAddName(''); setAddEntry(null); }} className="text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">Done</button>
                   </div>

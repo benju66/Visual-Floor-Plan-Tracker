@@ -10,6 +10,7 @@ import {
   useAddActivityAlias,
 } from '@/hooks/useActivityDictionary';
 import { PENDING_ACTIVITY_NAME } from '@/utils/activityDictionary';
+import ScopeCombobox from './ScopeCombobox';
 import {
   filterActivitiesForAdmin,
   groupActivitiesByTrack,
@@ -188,13 +189,13 @@ export default function ActivityLibraryPanel({ canManage = true }: ActivityLibra
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Default scope</span>
-                  <input
-                    type="text"
-                    list="activity-lib-tracks"
+                  <ScopeCombobox
                     value={newTrack}
-                    onChange={(e) => setNewTrack(e.target.value)}
+                    onChange={setNewTrack}
+                    suggestions={trackSuggestions}
                     placeholder="optional"
-                    className="w-36 rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-black/25 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-sky-500/40"
+                    className="w-36"
+                    inputClassName="w-full rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-black/25 pl-2 pr-7 py-1 text-xs outline-none focus:ring-2 focus:ring-sky-500/40"
                   />
                 </div>
               </div>
@@ -257,10 +258,6 @@ export default function ActivityLibraryPanel({ canManage = true }: ActivityLibra
           )
         )}
       </div>
-
-      <datalist id="activity-lib-tracks">
-        {trackSuggestions.map((t) => <option key={t} value={t} />)}
-      </datalist>
 
       {/* ── Dictionary list (grouped by default-scope tag) ───────────── */}
       {isLoading ? (
@@ -387,19 +384,17 @@ function ActivityRow({ entry, canManage, trackSuggestions, onSetStatus, onAddAli
       <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
         <span className="text-slate-400">Default scope:</span>
         {editingTrack && canManage ? (
-          <>
-            <input
-              type="text"
-              list="activity-lib-tracks"
-              autoFocus
-              value={trackDraft}
-              onChange={(e) => setTrackDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveTrack(); } if (e.key === 'Escape') { setEditingTrack(false); setTrackDraft(entry.track || ''); } }}
-              onBlur={saveTrack}
-              placeholder="none"
-              className="w-32 rounded border border-slate-300 dark:border-white/15 bg-white dark:bg-black/30 px-1.5 py-0.5 text-[11px] outline-none focus:ring-2 focus:ring-sky-500/40"
-            />
-          </>
+          <ScopeCombobox
+            value={trackDraft}
+            onChange={setTrackDraft}
+            onCommit={() => saveTrack()}
+            commitOnBlur
+            autoFocus
+            suggestions={trackSuggestions}
+            placeholder="none"
+            className="w-40"
+            inputClassName="w-full rounded border border-slate-300 dark:border-white/15 bg-white dark:bg-black/30 pl-1.5 pr-6 py-0.5 text-[11px] outline-none focus:ring-2 focus:ring-sky-500/40"
+          />
         ) : (
           <button
             type="button"

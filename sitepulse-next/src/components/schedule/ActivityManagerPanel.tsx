@@ -11,6 +11,7 @@ import { useSaveProjectAsPlaybook } from '@/hooks/usePlaybooks';
 import { predecessorEdgeFor, wouldCreateCycle, dependencyLabel } from '@/utils/activityDependencies';
 import { resolveActivityByName, activityPickToFields, type ActivityPickResult } from '@/utils/activityDictionary';
 import ActivityDictionaryField from '@/components/ActivityDictionaryField';
+import ScopeCombobox from './ScopeCombobox';
 import { useUIStore } from '@/store/useUIStore';
 import { getAppliesTo } from '@/types/domain';
 import type { Milestone, ActivityDependency, ActivityDictionaryEntry, ActivityType, ProjectType } from '@/types/domain';
@@ -427,23 +428,20 @@ export default function ActivityManagerPanel({
               </button>
             ))}
             {canEdit && (
-              <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-700 rounded-lg p-1">
-                <input
-                  type="text"
-                  list="scope-suggestions"
-                  placeholder="Pick or add scope"
+              <div className="flex items-center gap-1">
+                <ScopeCombobox
                   value={newTrackInput}
-                  onChange={e => setNewTrackInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addOrSelectScope(newTrackInput); } }}
-                  className="w-32 px-2 py-0.5 text-xs bg-transparent outline-none"
+                  onChange={setNewTrackInput}
+                  onCommit={addOrSelectScope}
+                  suggestions={scopeSuggestions}
+                  placeholder="Pick or add scope"
+                  className="w-40"
+                  inputClassName="w-full bg-white dark:bg-black/20 border border-slate-300 dark:border-slate-700 rounded-lg pl-2.5 pr-7 py-1 text-xs outline-none focus:ring-2 focus:ring-sky-500"
                 />
-                <datalist id="scope-suggestions">
-                  {scopeSuggestions.map(s => <option key={s} value={s} />)}
-                </datalist>
                 <button
                   type="button"
                   onClick={() => addOrSelectScope(newTrackInput)}
-                  className="p-1 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600"
+                  className="p-1 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 shrink-0"
                   title="Add this scope of work"
                 >
                   <Plus size={14} />

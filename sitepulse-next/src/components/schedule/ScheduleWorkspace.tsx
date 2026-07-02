@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Layers, GanttChartSquare, CalendarRange, Flag, Map as MapIcon, FileUp } from 'lucide-react';
+import { Layers, GanttChartSquare, CalendarRange, Flag, Map as MapIcon, FileUp, ListPlus } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useManageStore } from '@/store/useManageStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
@@ -87,6 +87,7 @@ export default function ScheduleWorkspace({
   const [zoom, setZoom] = useState<GanttZoom>('week');
   const [cascadeOpen, setCascadeOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [activitiesOpen, setActivitiesOpen] = useState(true);
   const [planOpen, setPlanOpen] = useState(false);
   // "Start blank" dismisses the first-run wizard without seeding activities.
@@ -232,6 +233,18 @@ export default function ScheduleWorkspace({
           <CalendarRange size={14} /> Level dates
         </button>
 
+        {/* Add activities from the dictionary / a playbook, any time (append) */}
+        {milestones.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSetupOpen(true)}
+            title="Add activities from your dictionary or a playbook (appended to what you have)"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/70 dark:bg-black/20 px-3 py-1.5 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+          >
+            <ListPlus size={14} /> Add activities
+          </button>
+        )}
+
         {/* MS Project import (Phase 4) */}
         <button
           type="button"
@@ -362,6 +375,17 @@ export default function ScheduleWorkspace({
         applicabilityIndex={applicabilityIndex}
         projectId={projectId}
       />
+
+      {/* Reopenable "add activities" (appends from dictionary/playbook) */}
+      {setupOpen && (
+        <ScheduleSetupWizard
+          projectId={projectId}
+          asModal
+          onClose={() => setSetupOpen(false)}
+          existingActivities={milestones}
+          onStartBlank={() => setSetupOpen(false)}
+        />
+      )}
     </div>
   );
 }
