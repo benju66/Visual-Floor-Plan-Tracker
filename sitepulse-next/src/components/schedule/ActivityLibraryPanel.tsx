@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState } from 'react';
 import {
-  Plus, Check, X, Search, AlertCircle, Loader2, Tag, CornerDownRight, Flag, Eraser,
+  Plus, Check, X, Search, AlertCircle, Loader2, Tag, CornerDownRight, Flag, Eraser, Building2,
 } from 'lucide-react';
 import {
   useActivityDictionary,
@@ -9,14 +9,18 @@ import {
   useSetActivityDictionaryStatus,
   useAddActivityAlias,
 } from '@/hooks/useActivityDictionary';
+import { useActivityScopes } from '@/hooks/useActivityScopes';
+import { activeScopeNames } from '@/utils/activityScopes';
 import { PENDING_ACTIVITY_NAME } from '@/utils/activityDictionary';
+import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 import ScopeCombobox from './ScopeCombobox';
+import ScopesManagerBar from './ScopesManagerBar';
 import {
   filterActivitiesForAdmin,
   groupActivitiesByTrack,
   type ActivityAdminStatusFilter,
 } from '@/utils/activityLibraryAdmin';
-import type { ActivityDictionaryEntry, ActivityDictionaryStatus, ActivityType } from '@/types/domain';
+import type { ActivityDictionaryEntry, ActivityDictionaryStatus, ActivityType, ProjectType } from '@/types/domain';
 
 const STATUS_FILTERS: { value: ActivityAdminStatusFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -41,39 +45,53 @@ interface ActivityLibraryPanelProps {
 }
 
 /**
- * Global Activity Library admin (Scheduling UX Hardening, Phase 3) — the scheduling
- * twin of {@link LocationLibraryPanel}. Lives in the cross-project Global Settings modal
- * because the activity dictionary is one shared list; editing it changes every project.
- * Surfaces: a review queue of `status='pending'` proposals; add an activity; the full
- * dictionary grouped by its default-scope (`track`) tag, filterable by status +
- * searchable across names/aliases, with per-row status / alias / editable tag controls;
- * and a bulk "clear all default-scope tags" to clean the messy seeded data.
+ * Global "Scopes & Activities" admin (Scheduling UX Hardening) — the scheduling twin
+ * of {@link LocationLibraryPanel}. Lives in the cross-project Global Settings modal
+ * because both the activity dictionary and the scope palette are single shared lists;
+ * editing either changes every project. Surfaces, top to bottom:
+ *   1. a collapsible {@link ScopesManagerBar} — manage the scope-of-work palette; its
+ *      chips double as the activity-list filter;
+ *   2. a review queue of `status='pending'` proposals → promote / alias / retire;
+ *   3. add an activity (name + type + default scope + which project types show it);
+ *   4. the dictionary grouped by default-scope (`track`), filterable by status +
+ *      searchable, each row with per-row status / alias / editable scope / project-type
+ *      controls; plus a bulk "clear all default-scope tags".
  */
 export default function ActivityLibraryPanel({ canManage = true }: ActivityLibraryPanelProps) {
   const { data: entries = [], isLoading } = useActivityDictionary();
+  const { data: scopes = [] } = useActivityScopes();
   const upsert = useUpsertActivityDictionaryEntry();
   const setStatus = useSetActivityDictionaryStatus();
   const addAlias = useAddActivityAlias();
 
   const [statusFilter, setStatusFilter] = useState<ActivityAdminStatusFilter>('all');
+  const [activeScope, setActiveScope] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<ActivityType>('task');
   const [newTrack, setNewTrack] = useState('');
+  const [newProjectTypes, setNewProjectTypes] = useState<ProjectType[]>([]);
   const [confirmClear, setConfirmClear] = useState(false);
 
   const pending = entries.filter((e) => e.status === 'pending' && e.name !== PENDING_ACTIVITY_NAME);
   const activeEntries = entries.filter((e) => e.status === 'active' && e.name !== PENDING_ACTIVITY_NAME);
-  const filtered = filterActivitiesForAdmin(entries, statusFilter, search);
+  const realEntries = entries.filter((e) => e.name !== PENDING_ACTIVITY_NAME);
+
+  const byStatusAndSearch = filterActivitiesForAdmin(entries, statusFilter, search);
+  const filtered = activeScope
+    ? byStatusAndSearch.filter((e) => (e.track || '').trim() === activeScope)
+    : byStatusAndSearch;
   const grouped = groupActivitiesByTrack(filtered);
 
-  // Distinct existing tracks for the tag combobox suggestions.
-  const trackSuggestions = useMemo(
-    () => [...new Set(entries.map((e) => (e.track || '').trim()).filter((t) => t.length > 0))].sort((a, b) => a.localeCompare(b)),
-    [entries],
-  );
+  // Scope-picker suggestions: the managed palette first, then any legacy track still
+  // present on an entry (so nothing silently disappears until it's cleaned up).
+  const trackSuggestions = useMemo(() => {
+    const legacy = entries.map((e) => (e.track || '').trim()).filter((t) => t.length > 0);
+    return [...new Set([...activeScopeNames(scopes), ...legacy])];
+  }, [scopes, entries]);
+
   const taggedCount = useMemo(() => entries.filter((e) => (e.track || '').trim().length > 0).length, [entries]);
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -81,14 +99,24 @@ export default function ActivityLibraryPanel({ canManage = true }: ActivityLibra
     try { await fn(); } catch (e) { setError(errMessage(e)); }
   };
 
+  const toggleNewProjectType = (pt: ProjectType) =>
+    setNewProjectTypes((prev) => (prev.includes(pt) ? prev.filter((p) => p !== pt) : [...prev, pt]));
+
   const handleAdd = () =>
     run(async () => {
       const name = newName.trim();
       if (!name) return;
-      await upsert.mutateAsync({ name, type: newType, track: newTrack.trim() || null, status: 'active' });
+      await upsert.mutateAsync({
+        name,
+        type: newType,
+        track: newTrack.trim() || null,
+        defaultProjectTypes: newProjectTypes,
+        status: 'active',
+      });
       setNewName('');
       setNewTrack('');
       setNewType('task');
+      setNewProjectTypes([]);
       setAdding(false);
     });
 
@@ -102,9 +130,10 @@ export default function ActivityLibraryPanel({ canManage = true }: ActivityLibra
   return (
     <div className="flex flex-col gap-5">
       <p className="text-xs text-slate-500 dark:text-slate-400 text-balance">
-        A single shared list of activities used across <span className="font-semibold">all</span> projects.
-        Add or retire activities, fold synonyms into a canonical name, and set each one&apos;s default
-        scope-of-work tag. Changes here apply everywhere.
+        Two shared lists used across <span className="font-semibold">all</span> projects: your
+        <span className="font-semibold"> scopes of work</span> (the buckets activities group into) and the
+        <span className="font-semibold"> activities</span> themselves. A “default scope” just sets which bucket an
+        activity drops into when you add it to a project — each project can still move it. Changes here apply everywhere.
       </p>
 
       {error && (
@@ -113,6 +142,16 @@ export default function ActivityLibraryPanel({ canManage = true }: ActivityLibra
           <span>{error}</span>
         </div>
       )}
+
+      {/* ── Scopes of Work (manage + filter) ─────────────────────────── */}
+      <ScopesManagerBar
+        scopes={scopes}
+        entryTracks={realEntries.map((e) => e.track)}
+        activeScope={activeScope}
+        onSelectScope={setActiveScope}
+        canManage={canManage}
+        onError={setError}
+      />
 
       {/* ── Review queue ─────────────────────────────────────────────── */}
       {pending.length > 0 && (
@@ -199,6 +238,26 @@ export default function ActivityLibraryPanel({ canManage = true }: ActivityLibra
                   />
                 </div>
               </div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Show in these project types</div>
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {PROJECT_TYPES.map((pt) => {
+                  const on = newProjectTypes.includes(pt);
+                  return (
+                    <button
+                      key={pt}
+                      type="button"
+                      onClick={() => toggleNewProjectType(pt)}
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                        on
+                          ? 'border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-300'
+                          : 'border-slate-200 dark:border-white/10 text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10'
+                      }`}
+                    >
+                      {pt}
+                    </button>
+                  );
+                })}
+              </div>
               <button
                 type="button"
                 onClick={handleAdd}
@@ -263,7 +322,9 @@ export default function ActivityLibraryPanel({ canManage = true }: ActivityLibra
       {isLoading ? (
         <div className="flex justify-center py-10 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : grouped.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 dark:border-white/10 py-8 text-center text-sm text-slate-500">No activities match.</div>
+        <div className="rounded-xl border border-dashed border-slate-300 dark:border-white/10 py-8 text-center text-sm text-slate-500">
+          {activeScope ? `No activities in “${activeScope}”.` : 'No activities match.'}
+        </div>
       ) : (
         <div className="space-y-4">
           {grouped.map((group) => (
@@ -281,6 +342,7 @@ export default function ActivityLibraryPanel({ canManage = true }: ActivityLibra
                     onSetStatus={(status) => run(() => setStatus.mutateAsync({ id: e.id, status }))}
                     onAddAlias={(alias) => run(() => addAlias.mutateAsync({ id: e.id, alias }))}
                     onSetTrack={(track) => run(() => upsert.mutateAsync({ id: e.id, name: e.name, track }))}
+                    onSetProjectTypes={(types) => run(() => upsert.mutateAsync({ id: e.id, name: e.name, defaultProjectTypes: types }))}
                   />
                 ))}
               </div>
@@ -346,19 +408,34 @@ interface ActivityRowProps {
   onSetStatus: (status: ActivityDictionaryStatus) => void;
   onAddAlias: (alias: string) => void;
   onSetTrack: (track: string | null) => void;
+  onSetProjectTypes: (types: ProjectType[]) => void;
 }
 
-function ActivityRow({ entry, canManage, trackSuggestions, onSetStatus, onAddAlias, onSetTrack }: ActivityRowProps) {
+function ActivityRow({ entry, canManage, trackSuggestions, onSetStatus, onAddAlias, onSetTrack, onSetProjectTypes }: ActivityRowProps) {
   const [editingTrack, setEditingTrack] = useState(false);
   const [trackDraft, setTrackDraft] = useState(entry.track || '');
   const [aliasing, setAliasing] = useState(false);
   const [aliasText, setAliasText] = useState('');
+  const [editingTypes, setEditingTypes] = useState(false);
+  const [draftTypes, setDraftTypes] = useState<ProjectType[]>(entry.default_project_types);
 
   const saveTrack = () => {
     const next = trackDraft.trim();
     setEditingTrack(false);
     if (next !== (entry.track || '')) onSetTrack(next || null);
   };
+
+  const openTypes = () => { setDraftTypes(entry.default_project_types); setEditingTypes(true); };
+  const toggleDraftType = (pt: ProjectType) =>
+    setDraftTypes((prev) => (prev.includes(pt) ? prev.filter((p) => p !== pt) : [...prev, pt]));
+  const commitTypes = () => { onSetProjectTypes(draftTypes); setEditingTypes(false); };
+
+  const allTypes = entry.default_project_types.length === PROJECT_TYPES.length;
+  const typesSummary = allTypes
+    ? 'All project types'
+    : entry.default_project_types.length
+      ? entry.default_project_types.join(', ')
+      : 'All project types';
 
   return (
     <div className="rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/20 p-2.5">
@@ -370,6 +447,14 @@ function ActivityRow({ entry, canManage, trackSuggestions, onSetStatus, onAddAli
         </div>
         {canManage && (
           <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => (editingTypes ? setEditingTypes(false) : openTypes())}
+              title="Choose which project types show this activity"
+              className={`rounded-md p-1 transition-colors ${editingTypes ? 'text-sky-500 bg-sky-50 dark:bg-sky-500/10' : 'text-slate-400 hover:text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10'}`}
+            >
+              <Building2 size={14} />
+            </button>
             <button type="button" onClick={() => setAliasing((a) => !a)} className="rounded-md border border-slate-300 dark:border-white/15 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">Alias</button>
             {entry.status === 'deprecated' ? (
               <button type="button" onClick={() => onSetStatus('active')} className="rounded-md px-2 py-0.5 text-[11px] font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors">Restore</button>
@@ -408,6 +493,42 @@ function ActivityRow({ entry, canManage, trackSuggestions, onSetStatus, onAddAli
           </button>
         )}
       </div>
+
+      {/* Project-type visibility (summary + inline editor) */}
+      <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
+        <Building2 size={11} className="shrink-0" />
+        <span className="truncate" title={typesSummary}>{typesSummary}</span>
+      </div>
+
+      {editingTypes && canManage && (
+        <div className="mt-2 border-t border-slate-100 dark:border-white/5 pt-2">
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">Show in these project types</div>
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {PROJECT_TYPES.map((pt) => {
+              const on = draftTypes.includes(pt);
+              return (
+                <button
+                  key={pt}
+                  type="button"
+                  onClick={() => toggleDraftType(pt)}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                    on
+                      ? 'border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-300'
+                      : 'border-slate-200 dark:border-white/10 text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10'
+                  }`}
+                >
+                  {pt}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mb-2 text-[10px] italic text-slate-400">Leave all off to show this activity for every project type.</p>
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={commitTypes} className="flex items-center gap-1 rounded-md bg-sky-500 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 transition-colors"><Check size={13} /> Save</button>
+            <button type="button" onClick={() => setEditingTypes(false)} className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Cancel</button>
+          </div>
+        </div>
+      )}
 
       {/* Aliases */}
       {entry.aliases.length > 0 && (

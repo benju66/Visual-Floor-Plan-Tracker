@@ -6,6 +6,8 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSo
 import { CSS } from '@dnd-kit/utilities';
 import { useProject, useCurrentUserRole, useReorderMilestones, useUpdateMilestoneRules } from '@/hooks/useProjectQueries';
 import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
+import { useActivityScopes } from '@/hooks/useActivityScopes';
+import { activeScopeNames } from '@/utils/activityScopes';
 import { useActivityDependencies, useSetActivityPredecessor } from '@/hooks/useActivityDependencies';
 import { useSaveProjectAsPlaybook } from '@/hooks/usePlaybooks';
 import { predecessorEdgeFor, wouldCreateCycle, dependencyLabel } from '@/utils/activityDependencies';
@@ -293,16 +295,22 @@ export default function ActivityManagerPanel({
   // The explicitly-picked dictionary entry for the activity being added (null = free-typed).
   const [selectedDictEntry, setSelectedDictEntry] = useState<ActivityDictionaryEntry | null>(null);
   const { data: activityDictionary = [] } = useActivityDictionary();
+  const { data: managedScopes = [] } = useActivityScopes();
   const proposePendingActivity = useProposePendingActivity();
 
-  // Combobox suggestions for the "add scope" field: the project's existing scopes
-  // + the distinct default-track hints from the company dictionary. Pick one or type new.
+  // Combobox suggestions for the "add scope" field: the managed scope palette FIRST (in
+  // its curated order), then the project's own scopes + dictionary track hints. Pick or type.
   const scopeSuggestions = useMemo(() => {
-    const fromDict = activityDictionary
-      .map(e => (e.track || '').trim())
-      .filter(t => t.length > 0);
-    return [...new Set([...baseScopes, ...draftScopes, ...fromDict])].sort((a, b) => a.localeCompare(b));
-  }, [activityDictionary, baseScopes, draftScopes]);
+    const managed = activeScopeNames(managedScopes);
+    const rest = [...new Set([
+      ...baseScopes,
+      ...draftScopes,
+      ...activityDictionary.map(e => (e.track || '').trim()),
+    ].filter(t => t.length > 0))]
+      .filter(t => !managed.includes(t))
+      .sort((a, b) => a.localeCompare(b));
+    return [...managed, ...rest];
+  }, [managedScopes, activityDictionary, baseScopes, draftScopes]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');

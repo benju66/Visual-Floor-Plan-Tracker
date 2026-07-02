@@ -203,6 +203,17 @@ export type ActivityDictionaryEntry = Omit<
 };
 export type ActivityDictionaryInsert = Database['public']['Tables']['activity_dictionary']['Insert'];
 
+// Global managed "scopes of work" palette (Scheduling UX Hardening). A small,
+// curated, company-wide list of scope names (the "default scopes") — the source of
+// truth the scope pickers draw from and the Activity Library groups/filters by.
+// Loosely linked to activities BY NAME (activities.track / activity_dictionary.track
+// stay plain text), so it never touches the status/progress/offline pipeline. No
+// JSONB columns → nothing to narrow; the Row is used as-is. `status` is the soft
+// active/archived governance flag.
+export type ActivityScopeStatus = 'active' | 'archived';
+export type ActivityScope = Database['public']['Tables']['activity_scopes']['Row'];
+export type ActivityScopeInsert = Database['public']['Tables']['activity_scopes']['Insert'];
+
 // Playbooks (Scheduling Foundation Slice A, Phase 5) — a named, reusable,
 // project-type-scoped activity sequence: an ORDERED list of dictionary activities
 // ({@link PlaybookItem}) plus their default Finish-to-Start links, applied to seed

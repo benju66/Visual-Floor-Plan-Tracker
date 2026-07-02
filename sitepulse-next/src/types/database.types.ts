@@ -557,6 +557,39 @@ export interface Database {
         }
         Relationships: []
       }
+      activity_scopes: {
+        Row: {
+          id: string
+          name: string
+          description: string | null
+          sort_order: number
+          status: string
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string | null
+          sort_order?: number
+          status?: string
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          description?: string | null
+          sort_order?: number
+          status?: string
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       activity_applicability_overrides: {
         Row: {
           id: string

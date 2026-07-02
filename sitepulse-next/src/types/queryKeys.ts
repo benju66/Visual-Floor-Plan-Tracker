@@ -30,6 +30,10 @@ export const queryKeys = {
   // Cross-project (not project-scoped) — keyed globally + shared across projects,
   // exactly like `subtypes`. Read = any member; writes (propose/admin) = privileged.
   activityDictionary: ()                         => ['activity_dictionary'] as const,
+  // Global managed "scopes of work" palette (Scheduling UX Hardening). Cross-project
+  // (not project-scoped) — keyed globally + shared like `activityDictionary`. Read =
+  // any member; writes (add/rename/reorder/archive/delete) = privileged.
+  activityScopes:     ()                         => ['activity_scopes'] as const,
   // Light FS dependency edges between a project's activities (Scheduling
   // Foundation Slice A, Phase 3b). Project-scoped; invalidated by the
   // set/clear-predecessor mutations and on activity delete (FK cascades).

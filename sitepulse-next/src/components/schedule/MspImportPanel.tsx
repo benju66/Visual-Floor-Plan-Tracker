@@ -8,6 +8,8 @@ import {
   useBulkInsertStatusLogs,
 } from '@/hooks/useProjectQueries';
 import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
+import { useActivityScopes } from '@/hooks/useActivityScopes';
+import { activeScopeNames } from '@/utils/activityScopes';
 import { resolveActivityByName, activityPickToFields, type ActivityPickResult } from '@/utils/activityDictionary';
 import ActivityDictionaryField from '@/components/ActivityDictionaryField';
 import ScopeCombobox from './ScopeCombobox';
@@ -73,6 +75,7 @@ export default function MspImportPanel({
   const queryClient = useQueryClient();
   const bulkInsert = useBulkInsertStatusLogs(activeSheetId);
   const { data: dictionary = [] } = useActivityDictionary();
+  const { data: managedScopes = [] } = useActivityScopes();
   const proposePendingActivity = useProposePendingActivity();
 
   // Inline "add a missing activity" (Phase 4) — dictionary-backed, mirrors the Activities
@@ -81,7 +84,11 @@ export default function MspImportPanel({
   const [addName, setAddName] = useState('');
   const [addEntry, setAddEntry] = useState<ActivityDictionaryEntry | null>(null);
   const [addTrack, setAddTrack] = useState('');
-  const existingTracks = useMemo(() => [...new Set(milestones.map((m) => m.track))], [milestones]);
+  const existingTracks = useMemo(() => {
+    const managed = activeScopeNames(managedScopes);
+    const rest = [...new Set(milestones.map((m) => m.track))].filter((t) => t && !managed.includes(t));
+    return [...managed, ...rest];
+  }, [managedScopes, milestones]);
 
   const handleAddActivity = async () => {
     const trimmed = addName.trim();

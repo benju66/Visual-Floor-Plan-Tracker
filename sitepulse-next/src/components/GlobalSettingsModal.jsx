@@ -359,7 +359,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
                 onClick={() => setActiveTab('activity-library')}
                 className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'activity-library' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
               >
-                <ListChecks className="w-4 h-4" /> Activity Library
+                <ListChecks className="w-4 h-4" /> Scopes &amp; Activities
               </button>
               <button
                 onClick={() => setActiveTab('projects')}
