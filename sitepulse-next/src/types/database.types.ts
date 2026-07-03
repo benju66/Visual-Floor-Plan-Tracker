@@ -489,6 +489,7 @@ export interface Database {
           successor_activity_id: string
           type: string
           lag_days: number
+          ripple_dates: boolean
           created_by: string | null
           created_at: string | null
         }
@@ -498,6 +499,7 @@ export interface Database {
           successor_activity_id: string
           type?: string
           lag_days?: number
+          ripple_dates?: boolean
           created_by?: string | null
           created_at?: string | null
         }
@@ -507,6 +509,7 @@ export interface Database {
           successor_activity_id?: string
           type?: string
           lag_days?: number
+          ripple_dates?: boolean
           created_by?: string | null
           created_at?: string | null
         }

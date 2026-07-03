@@ -13,6 +13,7 @@ function edge(pred: string, succ: string, lag = 0): ActivityDependency {
     successor_activity_id: succ,
     type: 'FS',
     lag_days: lag,
+    ripple_dates: false,
     created_by: null,
     created_at: null,
   };

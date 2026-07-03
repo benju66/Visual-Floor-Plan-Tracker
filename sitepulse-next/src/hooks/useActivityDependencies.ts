@@ -46,6 +46,9 @@ export interface SetPredecessorVars {
   predecessorId: string | null;
   /** Lag in days (may be negative for a lead). Ignored when clearing. */
   lagDays?: number;
+  /** When true, a predecessor slip offers to shift this successor's planned
+   *  dates (the date-ripple). Default false = sequencing/make-ready only. */
+  rippleDates?: boolean;
 }
 
 /**
@@ -57,7 +60,7 @@ export interface SetPredecessorVars {
 export function useSetActivityPredecessor(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ successorId, predecessorId, lagDays = 0 }: SetPredecessorVars): Promise<void> => {
+    mutationFn: async ({ successorId, predecessorId, lagDays = 0, rippleDates = false }: SetPredecessorVars): Promise<void> => {
       const { error: delErr } = await supabase
         .from('activity_dependencies')
         .delete()
@@ -69,11 +72,12 @@ export function useSetActivityPredecessor(projectId: string) {
         predecessor_activity_id: predecessorId,
         successor_activity_id: successorId,
         lag_days: Math.trunc(lagDays),
+        ripple_dates: rippleDates,
         created_by: session?.user?.id || null,
       });
       if (error) throw error;
     },
-    onMutate: async ({ successorId, predecessorId, lagDays = 0 }) => {
+    onMutate: async ({ successorId, predecessorId, lagDays = 0, rippleDates = false }) => {
       const key = queryKeys.activityDependencies(projectId);
       await queryClient.cancelQueries({ queryKey: key });
       const prev = queryClient.getQueryData<ActivityDependency[]>(key);
@@ -86,6 +90,7 @@ export function useSetActivityPredecessor(projectId: string) {
           successor_activity_id: successorId,
           type: 'FS',
           lag_days: Math.trunc(lagDays),
+          ripple_dates: rippleDates,
           created_by: null,
           created_at: new Date().toISOString(),
         };

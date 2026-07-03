@@ -33,6 +33,8 @@ interface SortableActivityItemProps {
   setEditPredecessorId: (id: string) => void;
   editLagDays: string;
   setEditLagDays: (v: string) => void;
+  editRippleDates: boolean;
+  setEditRippleDates: (v: boolean) => void;
   projectUnitTypes: string[];
   /** Same-track activities eligible as a predecessor (self + cycles excluded). */
   predecessorOptions: Activity[];
@@ -55,6 +57,7 @@ function SortableActivityItem({
   editName, setEditName, editColor, setEditColor,
   editAppliesTo, setEditAppliesTo,
   editPredecessorId, setEditPredecessorId, editLagDays, setEditLagDays,
+  editRippleDates, setEditRippleDates,
   projectUnitTypes, predecessorOptions, dependency, dependencyText,
   onBeginEdit, onSave, onDelete,
 }: SortableActivityItemProps) {
@@ -145,7 +148,21 @@ function SortableActivityItem({
                     lag (days)
                   </label>
                 </div>
-                <div className="text-[10px] text-slate-400 italic mt-1.5">Coarse sequencing only — “this starts after that finishes, plus N days”.</div>
+                <label className={`flex items-start gap-2 mt-2 text-[11px] ${editPredecessorId ? 'text-slate-600 dark:text-slate-300 cursor-pointer' : 'text-slate-400'}`}>
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-sky-500"
+                    disabled={!editPredecessorId}
+                    checked={editRippleDates}
+                    onChange={(e) => setEditRippleDates(e.target.checked)}
+                  />
+                  <span>
+                    Cascade dates when the predecessor slips
+                    <span className="block text-[10px] text-slate-400 italic">
+                      Off (default): shows ready/blocked but never moves this activity’s dates — you set them yourself.
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
           ) : (
@@ -186,6 +203,11 @@ function SortableActivityItem({
         <div className={`flex items-center gap-1 mt-1 text-[10px] text-slate-400 ${canEdit ? 'pl-7' : 'pl-1'}`} title={dependencyText}>
           <CornerDownRight size={11} className="shrink-0" />
           <span className="truncate">{dependencyText}</span>
+          {dependency?.ripple_dates && (
+            <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400" title="A predecessor slip offers to shift this activity's dates">
+              <Link2 size={9} /> cascades
+            </span>
+          )}
         </div>
       )}
     </li>
@@ -318,6 +340,7 @@ export default function ActivityManagerPanel({
   const [editAppliesTo, setEditAppliesTo] = useState<string[] | null>(null);
   const [editPredecessorId, setEditPredecessorId] = useState('');
   const [editLagDays, setEditLagDays] = useState('0');
+  const [editRippleDates, setEditRippleDates] = useState(false);
 
   const reorderActivitiesMutation = useReorderActivities(projectId);
   const updateActivityRulesMutation = useUpdateActivityRules(projectId);
@@ -377,6 +400,7 @@ export default function ActivityManagerPanel({
     const edge = predecessorEdgeFor(dependencies, m.id);
     setEditPredecessorId(edge?.predecessor_activity_id ?? '');
     setEditLagDays(String(edge?.lag_days ?? 0));
+    setEditRippleDates(edge?.ripple_dates ?? false);
   };
 
   const saveEdit = (m: Activity) => {
@@ -388,12 +412,14 @@ export default function ActivityManagerPanel({
     const edge = predecessorEdgeFor(dependencies, m.id);
     const prevPred = edge?.predecessor_activity_id ?? '';
     const prevLag = edge?.lag_days ?? 0;
+    const prevRipple = edge?.ripple_dates ?? false;
     const nextLag = Math.trunc(Number(editLagDays)) || 0;
-    if (editPredecessorId !== prevPred || (editPredecessorId && nextLag !== prevLag)) {
+    if (editPredecessorId !== prevPred || (editPredecessorId && (nextLag !== prevLag || editRippleDates !== prevRipple))) {
       setPredecessorMutation.mutate({
         successorId: m.id,
         predecessorId: editPredecessorId || null,
         lagDays: nextLag,
+        rippleDates: editRippleDates,
       });
     }
     setEditingId(null);
@@ -542,6 +568,8 @@ export default function ActivityManagerPanel({
                       setEditPredecessorId={setEditPredecessorId}
                       editLagDays={editLagDays}
                       setEditLagDays={setEditLagDays}
+                      editRippleDates={editRippleDates}
+                      setEditRippleDates={setEditRippleDates}
                       projectUnitTypes={projectUnitTypes}
                       predecessorOptions={options}
                       dependency={edge}

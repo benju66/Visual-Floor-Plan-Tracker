@@ -23,6 +23,9 @@
  *    duration is preserved); undated downstream slots are left untouched.
  *  - Cycle-safe: a recursion-stack guard breaks loops in malformed edge data so
  *    the walk always terminates (mirrors `activityDependencies.wouldCreateCycle`).
+ *  - Per-link opt-in: only edges with `ripple_dates === true` propagate. A link
+ *    left as sequencing/make-ready only (the default) shows blocked/ready but
+ *    never moves dates. Make-ready (`activityReadiness`) still uses ALL edges.
  */
 import type { ActivityDependency, StatusLog, StatusLogInsert } from '@/types/domain';
 import { parseDay, dayDiff } from '@/utils/progressAnalytics';
@@ -64,6 +67,9 @@ export function rippleForward(
 
   const successorsOf = new Map<string, ActivityDependency[]>();
   for (const e of edges) {
+    // Only links explicitly opted into date propagation ripple; sequencing-only
+    // links (the default) are skipped here (they still drive make-ready).
+    if (!e.ripple_dates) continue;
     const arr = successorsOf.get(e.predecessor_activity_id);
     if (arr) arr.push(e);
     else successorsOf.set(e.predecessor_activity_id, [e]);

@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { rippleForward, buildRippleWrites, type PlannedWindow, type RippleDelta } from '@/utils/dateRipple';
 import type { ActivityDependency, StatusLog } from '@/types/domain';
 
-function edge(predecessor: string, successor: string, lag_days = 0): ActivityDependency {
+function edge(predecessor: string, successor: string, lag_days = 0, ripple_dates = true): ActivityDependency {
   return {
     id: `${predecessor}->${successor}`,
     predecessor_activity_id: predecessor,
     successor_activity_id: successor,
     type: 'FS',
     lag_days,
+    ripple_dates,
     created_by: null,
     created_at: '2026-07-02T00:00:00Z',
   } as ActivityDependency;
@@ -94,6 +95,24 @@ describe('rippleForward', () => {
 
   it('returns nothing for an invalid finish date', () => {
     expect(rippleForward([edge('A', 'B')], new Map([['B', win('2026-07-11', null)]]), 'A', 'not-a-date')).toEqual([]);
+  });
+
+  it('ignores sequencing-only links (ripple_dates = false)', () => {
+    const edges = [edge('A', 'B', 0, false)];
+    const planned = new Map<string, PlannedWindow>([['B', win('2026-07-11', '2026-07-15')]]);
+    // Same slip that would shift B if the link cascaded — but this link doesn't.
+    expect(rippleForward(edges, planned, 'A', '2026-07-20')).toEqual([]);
+  });
+
+  it('propagates only through opted-in links in a mixed chain', () => {
+    // A→B cascades, B→C does not. A slip moves B but stops there.
+    const edges = [edge('A', 'B', 0, true), edge('B', 'C', 0, false)];
+    const planned = new Map<string, PlannedWindow>([
+      ['B', win('2026-07-11', '2026-07-12')],
+      ['C', win('2026-07-13', '2026-07-14')],
+    ]);
+    const deltas = rippleForward(edges, planned, 'A', '2026-07-20');
+    expect(deltas.map((d) => d.activityId)).toEqual(['B']);
   });
 });
 
