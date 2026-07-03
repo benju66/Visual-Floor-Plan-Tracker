@@ -34,6 +34,13 @@ export const queryKeys = {
   // (not project-scoped) — keyed globally + shared like `activityDictionary`. Read =
   // any member; writes (add/rename/reorder/archive/delete) = privileged.
   activityScopes:     ()                         => ['activity_scopes'] as const,
+  // Global cost-code catalog (Scheduling Analytics Slice B, Phase 5). Cross-project
+  // (not project-scoped) — keyed globally + shared like `activityDictionary`. Read =
+  // any member; writes (import/add/edit/deprecate) = privileged.
+  costCodes:          ()                         => ['cost_codes'] as const,
+  // Global company/subcontractor directory (Scheduling Analytics Slice B, Phase 5).
+  // Cross-project, keyed globally + shared. Read = any member; writes = privileged.
+  companies:          ()                         => ['companies'] as const,
   // Light FS dependency edges between a project's activities (Scheduling
   // Foundation Slice A, Phase 3b). Project-scoped; invalidated by the
   // set/clear-predecessor mutations and on activity delete (FK cascades).

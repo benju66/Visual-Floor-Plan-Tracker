@@ -190,6 +190,41 @@ export function useSetActivityDictionaryStatus() {
 }
 
 /**
+ * Stamp (or clear) the cost code on a canonical dictionary entry
+ * (activity_dictionary.cost_code_id — Scheduling Analytics Slice B, Phase 5). The code
+ * lives on the SHARED entry, so it propagates to every project whose activity links to
+ * it — the normalization key Phase-6 rates read. Pass `costCodeId: null` to clear.
+ * Optimistic: the field updates immediately and rolls back on error. Privileged-only (RLS).
+ */
+export function useSetActivityDictionaryCostCode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, costCodeId }: { id: string; costCodeId: string | null }): Promise<ActivityDictionaryEntry> => {
+      const { data, error } = await supabase
+        .from('activity_dictionary')
+        .update({ cost_code_id: costCodeId, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return narrowActivityDictionaryRow(data);
+    },
+    onMutate: async ({ id, costCodeId }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.activityDictionary() });
+      const prev = queryClient.getQueryData<ActivityDictionaryEntry[]>(queryKeys.activityDictionary());
+      queryClient.setQueryData<ActivityDictionaryEntry[]>(queryKeys.activityDictionary(), old =>
+        old?.map(e => (e.id === id ? { ...e, cost_code_id: costCodeId } : e)),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKeys.activityDictionary(), ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activityDictionary() }),
+  });
+}
+
+/**
  * Append an alias name → an existing canonical entry (e.g. "Rough-Ins" → "MEP Rough-In"),
  * so both spellings resolve to one thing. Reads the current `aliases[]` from the warm cache
  * (falling back to a fetch) and writes the de-duplicated next list via the shared

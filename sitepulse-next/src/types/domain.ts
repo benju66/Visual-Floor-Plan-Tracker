@@ -209,6 +209,25 @@ export type ActivityScopeStatus = 'active' | 'archived';
 export type ActivityScope = Database['public']['Tables']['activity_scopes']['Row'];
 export type ActivityScopeInsert = Database['public']['Tables']['activity_scopes']['Insert'];
 
+// Global cost-code catalog (Scheduling Analytics Slice B, Phase 5). The company-wide
+// CSI-MasterFormat list a canonical activity points at via activity_dictionary.cost_code_id.
+// Used purely as a normalization LABEL (no dollars). No JSONB columns → the Row is used
+// as-is (like {@link ActivityScope}). `status` is the active/deprecated governance flag;
+// `code_type` is the advisory estimate kind (plain text — the union is a convenience for
+// the picker's default filter, not a DB-enforced enum).
+export type CostCodeStatus = 'active' | 'deprecated';
+export type CostCodeType = 'Subcontract' | 'Material' | 'Labor';
+export type CostCode = Database['public']['Tables']['cost_codes']['Row'];
+export type CostCodeInsert = Database['public']['Tables']['cost_codes']['Insert'];
+
+// Global company/subcontractor directory (Scheduling Analytics Slice B, Phase 5). The
+// tenant-wide vendor identity a project activity points at via activities.subcontractor_id
+// (cross-project so Phase-6 benchmarking can compare a sub across the GC's own jobs). No
+// JSONB columns → the Row is used as-is. `status` is the active/deprecated governance flag.
+export type CompanyStatus = 'active' | 'deprecated';
+export type Company = Database['public']['Tables']['companies']['Row'];
+export type CompanyInsert = Database['public']['Tables']['companies']['Insert'];
+
 // Playbooks (Scheduling Foundation Slice A, Phase 5) — a named, reusable,
 // project-type-scoped activity sequence: an ORDERED list of dictionary activities
 // ({@link PlaybookItem}) plus their default Finish-to-Start links, applied to seed

@@ -454,6 +454,7 @@ export interface Database {
           type: string
           applies_to_unit_types: Json | null
           dictionary_id: string | null
+          subcontractor_id: string | null
           created_at: string | null
         }
         Insert: {
@@ -466,6 +467,7 @@ export interface Database {
           type?: string
           applies_to_unit_types?: Json | null
           dictionary_id?: string | null
+          subcontractor_id?: string | null
           created_at?: string | null
         }
         Update: {
@@ -478,6 +480,7 @@ export interface Database {
           type?: string
           applies_to_unit_types?: Json | null
           dictionary_id?: string | null
+          subcontractor_id?: string | null
           created_at?: string | null
         }
         Relationships: []
@@ -587,6 +590,81 @@ export interface Database {
           description?: string | null
           sort_order?: number
           status?: string
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      cost_codes: {
+        Row: {
+          id: string
+          code: string
+          description: string | null
+          division: string | null
+          code_type: string | null
+          unit_of_measure: string
+          status: string
+          sort_order: number
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          code: string
+          description?: string | null
+          division?: string | null
+          code_type?: string | null
+          unit_of_measure?: string
+          status?: string
+          sort_order?: number
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          code?: string
+          description?: string | null
+          division?: string | null
+          code_type?: string | null
+          unit_of_measure?: string
+          status?: string
+          sort_order?: number
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      companies: {
+        Row: {
+          id: string
+          name: string
+          trade: string | null
+          status: string
+          sort_order: number
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          trade?: string | null
+          status?: string
+          sort_order?: number
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          trade?: string | null
+          status?: string
+          sort_order?: number
           created_by?: string | null
           created_at?: string | null
           updated_at?: string | null

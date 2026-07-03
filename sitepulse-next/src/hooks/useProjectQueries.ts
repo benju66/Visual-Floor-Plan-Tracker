@@ -921,6 +921,42 @@ export function useUpdateActivityRules(projectId: string) {
   });
 }
 
+/**
+ * Assign (or clear) the subcontractor on a project activity — activities.subcontractor_id
+ * (Scheduling Analytics Slice B, Phase 5). Project-scoped (a GC uses different subs per
+ * job), online-first, RLS-enforced (owner/admin/pm). Pass `subcontractorId: null` to
+ * clear. Optimistic over queryKeys.activities(projectId); rolls back on error. Mirrors
+ * useUpdateActivityRules.
+ */
+export function useSetActivitySubcontractor(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, subcontractorId }: { id: string; subcontractorId: string | null }) => {
+      const { data, error } = await supabase
+        .from('activities')
+        .update({ subcontractor_id: subcontractorId })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as Activity;
+    },
+    onMutate: async ({ id, subcontractorId }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.activities(projectId) });
+      const prev = queryClient.getQueriesData<Activity[]>({ queryKey: queryKeys.activities(projectId) });
+      queryClient.setQueriesData<Activity[]>({ queryKey: queryKeys.activities(projectId) }, old => {
+        if (!old) return old;
+        return old.map(a => a.id === id ? { ...a, subcontractor_id: subcontractorId } as Activity : a);
+      });
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
+  });
+}
+
 export function useBulkUpdateStatus(sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({

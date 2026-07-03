@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings, Folder, Trash2, AlertTriangle, Sparkles, ListChecks } from 'lucide-react';
+import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings, Folder, Trash2, AlertTriangle, Sparkles, ListChecks, Hash } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/providers/AuthProvider';
 import LocationLibraryPanel from '@/components/taxonomy/LocationLibraryPanel';
 import ActivityLibraryPanel from '@/components/schedule/ActivityLibraryPanel';
+import CostCodeLibraryPanel from '@/components/costcodes/CostCodeLibraryPanel';
 import { deleteProjectService } from '@/services/api';
 
 export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, onProjectDeleted, onProjectUpdated }) {
@@ -362,6 +363,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
                 <ListChecks className="w-4 h-4" /> Scopes &amp; Activities
               </button>
               <button
+                onClick={() => setActiveTab('cost-codes')}
+                className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'cost-codes' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+              >
+                <Hash className="w-4 h-4" /> Cost Codes
+              </button>
+              <button
                 onClick={() => setActiveTab('projects')}
                 className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'projects' ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
               >
@@ -383,6 +390,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
         {activeTab === 'activity-library' && (
           <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
             <ActivityLibraryPanel canManage />
+          </div>
+        )}
+
+        {activeTab === 'cost-codes' && (
+          <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+            <CostCodeLibraryPanel canManage />
           </div>
         )}
 

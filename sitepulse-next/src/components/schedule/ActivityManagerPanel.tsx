@@ -1,11 +1,13 @@
 "use client";
 import React, { useMemo, useState } from 'react';
-import { Flag, Plus, Trash2, Pencil, GripVertical, X, CornerDownRight, Link2, BookMarked } from 'lucide-react';
+import { Flag, Plus, Trash2, Pencil, GripVertical, X, CornerDownRight, Link2, BookMarked, Hash, HardHat } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useProject, useCurrentUserRole, useReorderActivities, useUpdateActivityRules } from '@/hooks/useProjectQueries';
-import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
+import { useProject, useCurrentUserRole, useReorderActivities, useUpdateActivityRules, useSetActivitySubcontractor } from '@/hooks/useProjectQueries';
+import { useActivityDictionary, useProposePendingActivity, useSetActivityDictionaryCostCode } from '@/hooks/useActivityDictionary';
+import { useCostCodes } from '@/hooks/useCostCodes';
+import { useCompanies, useAddOrGetCompany } from '@/hooks/useCompanies';
 import { useActivityScopes } from '@/hooks/useActivityScopes';
 import { activeScopeNames } from '@/utils/activityScopes';
 import { useActivityDependencies, useSetActivityPredecessor } from '@/hooks/useActivityDependencies';
@@ -16,7 +18,7 @@ import ActivityDictionaryField from '@/components/ActivityDictionaryField';
 import ScopeCombobox from './ScopeCombobox';
 import { useUIStore } from '@/store/useUIStore';
 import { getAppliesTo } from '@/types/domain';
-import type { Activity, ActivityDependency, ActivityDictionaryEntry, ActivityType, ProjectType } from '@/types/domain';
+import type { Activity, ActivityDependency, ActivityDictionaryEntry, ActivityType, ProjectType, CostCode, Company } from '@/types/domain';
 import type { AppSettings } from '@/store/useSettingsStore';
 
 interface SortableActivityItemProps {
@@ -40,6 +42,17 @@ interface SortableActivityItemProps {
   predecessorOptions: Activity[];
   dependency: ActivityDependency | null;
   dependencyText: string | null;
+  /** Active cost codes (for the picker); the code lives on the linked dictionary entry. */
+  costCodeOptions: CostCode[];
+  /** Active companies (for the subcontractor picker). */
+  companyOptions: Company[];
+  /** True when this activity is linked to a dictionary entry (required to stamp a cost code). */
+  isLinkedToDictionary: boolean;
+  /** The linked dictionary entry's cost_code_id (null when unlinked or unset). */
+  linkedCostCodeId: string | null;
+  onAssignCostCode: (costCodeId: string | null) => void;
+  onAssignSubcontractor: (companyId: string | null) => void;
+  onCreateAndAssignSubcontractor: (name: string) => void;
   onBeginEdit: (m: Activity) => void;
   onSave: (m: Activity) => void;
   onDelete: (m: Activity) => void;
@@ -59,10 +72,26 @@ function SortableActivityItem({
   editPredecessorId, setEditPredecessorId, editLagDays, setEditLagDays,
   editRippleDates, setEditRippleDates,
   projectUnitTypes, predecessorOptions, dependency, dependencyText,
+  costCodeOptions, companyOptions, isLinkedToDictionary, linkedCostCodeId,
+  onAssignCostCode, onAssignSubcontractor, onCreateAndAssignSubcontractor,
   onBeginEdit, onSave, onDelete,
 }: SortableActivityItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: m.id, disabled: !canEdit });
   const style = { transform: CSS.Transform.toString(transform), transition };
+  const [addingCompany, setAddingCompany] = useState(false);
+  const [companyNameInput, setCompanyNameInput] = useState('');
+
+  const submitNewCompany = () => {
+    const name = companyNameInput.trim();
+    if (!name) return;
+    onCreateAndAssignSubcontractor(name);
+    setCompanyNameInput('');
+    setAddingCompany(false);
+  };
+
+  // Collapsed-row display labels (active options only; a deprecated assignment shows nothing).
+  const costCodeLabel = linkedCostCodeId ? costCodeOptions.find(c => c.id === linkedCostCodeId)?.code ?? null : null;
+  const subLabel = m.subcontractor_id ? companyOptions.find(c => c.id === m.subcontractor_id)?.name ?? null : null;
 
   const savedRule = getAppliesTo(m);
   // null = applies to all unit types; chips show the effective selection
@@ -164,6 +193,67 @@ function SortableActivityItem({
                   </span>
                 </label>
               </div>
+              {/* Cost code (on the shared dictionary entry) + subcontractor (on this activity) */}
+              <div className="px-2 pb-1 border-t border-slate-200/70 dark:border-white/10 pt-2 space-y-2">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Cost code</div>
+                  {isLinkedToDictionary ? (
+                    <select
+                      value={linkedCostCodeId ?? ''}
+                      onChange={(e) => onAssignCostCode(e.target.value || null)}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 text-xs outline-none"
+                    >
+                      <option value="">— No cost code —</option>
+                      {costCodeOptions.map(c => (
+                        <option key={c.id} value={c.id}>{c.code}{c.description ? ` — ${c.description}` : ''}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="text-[11px] text-slate-400 italic">
+                      Link this activity to a company activity (pick a standard name when adding) to stamp a cost code — it’s shared across projects.
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Subcontractor</div>
+                  {addingCompany ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={companyNameInput}
+                        onChange={(e) => setCompanyNameInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitNewCompany(); } }}
+                        placeholder="New company name…"
+                        className="flex-1 min-w-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 text-xs outline-none"
+                      />
+                      <button type="button" onClick={submitNewCompany} disabled={!companyNameInput.trim()} className="px-2 py-1 bg-sky-500 hover:bg-sky-600 text-white rounded-md text-[11px] font-bold disabled:opacity-40">Add</button>
+                      <button type="button" onClick={() => { setAddingCompany(false); setCompanyNameInput(''); }} className="px-1.5 py-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Cancel</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={m.subcontractor_id ?? ''}
+                        onChange={(e) => onAssignSubcontractor(e.target.value || null)}
+                        className="flex-1 min-w-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 text-xs outline-none"
+                      >
+                        <option value="">— No subcontractor —</option>
+                        {companyOptions.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setAddingCompany(true)}
+                        className="px-2 py-1 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-[11px] font-semibold text-slate-600 dark:text-slate-200 shrink-0"
+                        title="Add a new company"
+                      >
+                        + New
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -206,6 +296,21 @@ function SortableActivityItem({
           {dependency?.ripple_dates && (
             <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400" title="A predecessor slip offers to shift this activity's dates">
               <Link2 size={9} /> cascades
+            </span>
+          )}
+        </div>
+      )}
+
+      {editingId !== m.id && (costCodeLabel || subLabel) && (
+        <div className={`flex flex-wrap items-center gap-1.5 mt-1 ${canEdit ? 'pl-7' : 'pl-1'}`}>
+          {costCodeLabel && (
+            <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-white/10 px-1.5 py-0.5 text-[9px] font-mono font-bold text-slate-500 dark:text-slate-300" title="Cost code (from the company activity dictionary)">
+              <Hash size={9} /> {costCodeLabel}
+            </span>
+          )}
+          {subLabel && (
+            <span className="inline-flex items-center gap-1 rounded bg-slate-100 dark:bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 dark:text-slate-300" title="Subcontractor">
+              <HardHat size={9} /> {subLabel}
             </span>
           )}
         </div>
@@ -346,6 +451,36 @@ export default function ActivityManagerPanel({
   const updateActivityRulesMutation = useUpdateActivityRules(projectId);
   const { data: dependencies = [] } = useActivityDependencies(projectId);
   const setPredecessorMutation = useSetActivityPredecessor(projectId);
+
+  // Cost-code + subcontractor assignment (Scheduling Analytics Slice B, Phase 5). The
+  // cost code lives on the SHARED dictionary entry (activity_dictionary.cost_code_id);
+  // the subcontractor is per project-activity (activities.subcontractor_id).
+  const { data: costCodes = [] } = useCostCodes();
+  const { data: companies = [] } = useCompanies();
+  const setDictCostCode = useSetActivityDictionaryCostCode();
+  const setActivitySub = useSetActivitySubcontractor(projectId);
+  const addOrGetCompany = useAddOrGetCompany();
+  const activeCostCodes = useMemo(() => costCodes.filter(c => c.status === 'active'), [costCodes]);
+  const activeCompanies = useMemo(() => companies.filter(c => c.status === 'active'), [companies]);
+  const dictById = useMemo(
+    () => new Map(activityDictionary.map(e => [e.id, e])),
+    [activityDictionary],
+  );
+
+  const assignCostCode = (m: Activity, costCodeId: string | null) => {
+    if (!m.dictionary_id) return; // no shared entry to stamp — guarded in the UI too
+    setDictCostCode.mutate({ id: m.dictionary_id, costCodeId });
+  };
+  const assignSubcontractor = (m: Activity, companyId: string | null) =>
+    setActivitySub.mutate({ id: m.id, subcontractorId: companyId });
+  const createAndAssignSubcontractor = async (m: Activity, name: string) => {
+    try {
+      const company = await addOrGetCompany.mutateAsync({ name });
+      setActivitySub.mutate({ id: m.id, subcontractorId: company.id });
+    } catch (err) {
+      setToast({ message: (err as Error)?.message || 'Could not add the company.', type: 'error' });
+    }
+  };
 
   const projectUnitTypes = (project?.unit_types as string[]) || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
 
@@ -552,10 +687,18 @@ export default function ActivityManagerPanel({
                   const options = currentScopeActivities.filter(
                     p => p.id !== m.id && !wouldCreateCycle(dependencies.filter(d => d.successor_activity_id !== m.id), p.id, m.id)
                   );
+                  const linkedEntry = m.dictionary_id ? dictById.get(m.dictionary_id) : null;
                   return (
                     <SortableActivityItem
                       key={m.id}
                       m={m}
+                      costCodeOptions={activeCostCodes}
+                      companyOptions={activeCompanies}
+                      isLinkedToDictionary={!!m.dictionary_id}
+                      linkedCostCodeId={linkedEntry?.cost_code_id ?? null}
+                      onAssignCostCode={(costCodeId) => assignCostCode(m, costCodeId)}
+                      onAssignSubcontractor={(companyId) => assignSubcontractor(m, companyId)}
+                      onCreateAndAssignSubcontractor={(name) => createAndAssignSubcontractor(m, name)}
                       canEdit={canEdit}
                       editingId={editingId}
                       editName={editName}
