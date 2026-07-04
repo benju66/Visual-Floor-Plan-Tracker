@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import type { PercentPoint } from '@/types/domain';
 import type { Updater } from '@/types/utils';
 import type { RoomSuggestion } from '@/utils/roomSuggestion';
+import { IDENTITY_STAMP_TRANSFORM, type StampTransform } from '@/utils/stampTransform';
 
 // `capture_box` is a workbench-only mode (AI Tracing Assist — Phase 3a): a
 // rubber-band box drag over a region to read (e.g. the title block). `capture_line`
@@ -65,6 +66,14 @@ export interface MapState {
   mapLabelSuggestion: RoomSuggestion | null;
   setMapLabelSuggestion: (val: Updater<RoomSuggestion | null>) => void;
 
+  // The transient orientation the NEXT stamp drops with (Stamp & Fast Markup — Phase 1):
+  // net 90° rotation steps + horizontal/vertical mirror. Lives only while
+  // `toolMode === 'stamp'`, reset on tool change; transient + NOT persisted (partialize).
+  stampTransform: StampTransform;
+  rotateStamp: (dir: 'left' | 'right') => void;
+  flipStamp: (axis: 'horizontal' | 'vertical') => void;
+  resetStampTransform: () => void;
+
   selectedFile: File | null;
   setSelectedFile: (val: Updater<File | null>) => void;
 
@@ -119,6 +128,17 @@ export const useMapStore = create<MapState>()(
 
       mapLabelSuggestion: null,
       setMapLabelSuggestion: (val) => set((state) => ({ mapLabelSuggestion: typeof val === 'function' ? val(state.mapLabelSuggestion) : val })),
+
+      stampTransform: IDENTITY_STAMP_TRANSFORM,
+      rotateStamp: (dir) => set((state) => ({
+        stampTransform: { ...state.stampTransform, rotation: state.stampTransform.rotation + (dir === 'right' ? 1 : -1) },
+      })),
+      flipStamp: (axis) => set((state) => ({
+        stampTransform: axis === 'horizontal'
+          ? { ...state.stampTransform, flipX: !state.stampTransform.flipX }
+          : { ...state.stampTransform, flipY: !state.stampTransform.flipY },
+      })),
+      resetStampTransform: () => set({ stampTransform: IDENTITY_STAMP_TRANSFORM }),
 
       selectedFile: null,
       setSelectedFile: (val) => set((state) => ({ selectedFile: typeof val === 'function' ? val(state.selectedFile) : val })),

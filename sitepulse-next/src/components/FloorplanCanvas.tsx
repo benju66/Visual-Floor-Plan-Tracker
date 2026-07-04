@@ -12,6 +12,7 @@ import MappedUnit from '@/components/canvas/MappedUnit';
 import DraftPolygon from '@/components/canvas/DraftPolygon';
 import MeasureReadout from '@/components/canvas/MeasureReadout';
 import StampPreview from '@/components/canvas/StampPreview';
+import { buildStampPolygon, flipPolygon, rotatePolygon } from '@/utils/stampTransform';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import CaptureBoxOverlay from '@/components/canvas/CaptureBoxOverlay';
 import CaptureLineOverlay from '@/components/canvas/CaptureLineOverlay';
@@ -186,6 +187,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const onClearSelection = useMapStore(s => s.clearSelectedUnits);
   const onSetSelectedUnitIds = useMapStore(s => s.setSelectedUnitIds);
   const trackingMode = useMapStore(s => s.trackingMode);
+  // Stamp & Fast Markup — Phase 1: transient rotate/flip the next stamp drops with.
+  const stampTransform = useMapStore(s => s.stampTransform);
+  const rotateStamp = useMapStore(s => s.rotateStamp);
+  const flipStamp = useMapStore(s => s.flipStamp);
+  const resetStampTransform = useMapStore(s => s.resetStampTransform);
 
   const temporalFilters = useSettingsStore(s => s.temporalFilters);
   const legendFilter = useSettingsStore(s => s.filterActivity);
@@ -755,6 +761,16 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         if (e.key === '2') onToolModeChange('pan');
         if (e.key === '3') onToolModeChange('draw');
 
+        // Stamp & Fast Markup — Phase 1: rotate/flip the ghost before dropping. Gated to
+        // stamp mode so these stay free elsewhere (R = rotate CW, Shift+R = rotate CCW,
+        // H = flip horizontal, V = flip vertical; NOT F, which is "fit selection").
+        if (toolMode === 'stamp') {
+          const k = e.key.toLowerCase();
+          if (k === 'r') { e.preventDefault(); rotateStamp(e.shiftKey ? 'left' : 'right'); }
+          else if (k === 'h') { e.preventDefault(); flipStamp('horizontal'); }
+          else if (k === 'v') { e.preventDefault(); flipStamp('vertical'); }
+        }
+
         // M = toggle the magnifier loupe on/off (unified with the toolbar button).
         // The `e.repeat` guard means holding the key flips it once, not every frame.
         if (e.key.toLowerCase() === 'm' && !e.repeat) {
@@ -857,6 +873,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     // Drop the ephemeral measure run whenever we leave the measure tool (the fraction
     // preference is intentionally kept). Nothing here persists.
     if (toolMode !== 'measure') { setMeasurePoints([]); }
+    // Drop the transient stamp orientation whenever we leave the stamp tool so a stale
+    // rotate/flip never bleeds into the next stamp session (Stamp & Fast Markup — Phase 1).
+    if (toolMode !== 'stamp') { resetStampTransform(); }
     if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
       onClearSelection();
     }
@@ -1280,20 +1299,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     if (toolMode === 'stamp' && selectedUnitIds?.length === 1) {
       const sourceUnit = units.find(u => u.id === selectedUnitIds[0]);
       if (sourceUnit && sourceUnit.polygon_coordinates && sourceUnit.polygon_coordinates.length > 0) {
-        let sumX = 0, sumY = 0;
-        sourceUnit.polygon_coordinates.forEach(pt => { sumX += pt.pctX; sumY += pt.pctY; });
-        const cx = sumX / sourceUnit.polygon_coordinates.length;
-        const cy = sumY / sourceUnit.polygon_coordinates.length;
-        const dx = pctX - cx;
-        const dy = pctY - cy;
-        
-        const translatedPoints = sourceUnit.polygon_coordinates.map(pt => ({
-          pctX: pt.pctX + dx,
-          pctY: pt.pctY + dy
-        }));
+        // Snap the drop anchor with the same engine tracing uses, then apply the active
+        // rotate/flip — StampPreview and this commit build the identical polygon.
+        const anchor = snapPoint({ pctX, pctY });
+        const stampedPoints = buildStampPolygon(sourceUnit.polygon_coordinates, stampTransform, aspect, anchor);
 
-        if (warnIfUnwired(onInstantStamp, 'onInstantStamp:stamp')) {
-          onInstantStamp?.(selectedUnitIds[0], translatedPoints);
+        // Never persist a corrupt shape from a bad transform/snap.
+        if (isFinitePolygon(stampedPoints) && warnIfUnwired(onInstantStamp, 'onInstantStamp:stamp')) {
+          onInstantStamp?.(selectedUnitIds[0], stampedPoints);
         }
       }
     } else if (toolMode === 'draw' && !isEditingPending) {
@@ -1512,40 +1525,19 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   };
 
   const handleFlip = (direction: 'horizontal' | 'vertical') => {
+    // Flip math lives in stampTransform.flipPolygon (single source of truth, shared
+    // with the stamp tool). Behavior unchanged: mirror about the bounding-box center.
     if (pendingPolygonPoints && pendingPolygonPoints.length > 0) {
-      const newPoints = pendingPolygonPoints.map(p => ({ ...p }));
-      if (direction === 'horizontal') {
-        const xs = newPoints.map(p => p.pctX);
-        const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-        newPoints.forEach(p => p.pctX = centerX - (p.pctX - centerX));
-      } else {
-        const ys = newPoints.map(p => p.pctY);
-        const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
-        newPoints.forEach(p => p.pctY = centerY - (p.pctY - centerY));
-      }
       // Phase 3: route through the history-recording wrapper so a flip is one undo step.
-      handlePendingPolygonEdit(newPoints);
+      handlePendingPolygonEdit(flipPolygon(pendingPolygonPoints, direction));
       return;
     }
 
     if (selectedUnitIds?.length !== 1) return;
     const unit = units.find(u => u.id === selectedUnitIds[0]);
     if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length === 0) return;
-    
-    const pts = unit.polygon_coordinates;
-    const newPoints = pts.map(p => ({ ...p }));
-    
-    if (direction === 'horizontal') {
-      const xs = pts.map(p => p.pctX);
-      const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-      newPoints.forEach(p => p.pctX = centerX - (p.pctX - centerX));
-    } else {
-      const ys = pts.map(p => p.pctY);
-      const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
-      newPoints.forEach(p => p.pctY = centerY - (p.pctY - centerY));
-    }
-    
-    
+
+    const newPoints = flipPolygon(unit.polygon_coordinates, direction);
     if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:flip')) {
       onUpdateUnitPolygon?.(unit.id, newPoints);
     }
@@ -1559,39 +1551,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
     const { drawW, drawH } = layout;
     if (drawW <= 0 || drawH <= 0) return;
-    const aspect = drawW / drawH;
 
-    const pts = unit.polygon_coordinates;
-    const centroid = getCentroid(pts);
-    const cx = centroid.pctX || 0;
-    const cy = centroid.pctY || 0;
-
-    const newPoints = pts.map(p => {
-      // 1. Get relative offsets in percentage space
-      const dx = p.pctX - cx;
-      const dy = p.pctY - cy;
-
-      // 2. Convert to 'real' aspect-corrected space
-      const realX = dx * aspect;
-      const realY = dy;
-
-      // 3. Rotate 90 degrees around (0,0) in real space
-      let rotX, rotY;
-      if (direction === 'left') { // CCW
-        rotX = realY;
-        rotY = -realX;
-      } else { // CW
-        rotX = -realY;
-        rotY = realX;
-      }
-
-      // 4. Convert back to percentage space and re-add centroid
-      return { 
-        pctX: cx + (rotX / aspect), 
-        pctY: cy + rotY 
-      };
-    });
-
+    // Rotation math lives in stampTransform.rotatePolygon (single source of truth,
+    // shared with the stamp tool). Behavior unchanged: aspect-correct 90° about the centroid.
+    const newPoints = rotatePolygon(unit.polygon_coordinates, direction, drawW / drawH);
     if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:rotate')) {
       onUpdateUnitPolygon?.(unit.id, newPoints);
     }
@@ -2092,6 +2055,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         onDuplicateUnit={onDuplicateUnit}
         handleFlip={handleFlip}
         handleRotatePolygon={handleRotatePolygon}
+        stampTransform={stampTransform}
+        onRotateStamp={rotateStamp}
+        onFlipStamp={flipStamp}
         onDeleteUnit={onDeleteUnit}
         onOpenActivityModal={onOpenActivityModal}
         onOpenStatusModal={onOpenStatusModal}
@@ -2583,6 +2549,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 units={units}
                 activeStatuses={activeStatuses}
                 toPixels={toPixels}
+                transform={stampTransform}
+                aspect={aspect}
+                snap={snapPoint}
               />
             )}
 

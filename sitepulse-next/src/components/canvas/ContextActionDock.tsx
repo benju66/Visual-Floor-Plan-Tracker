@@ -1,23 +1,37 @@
 import React from 'react';
-import { Copy, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp, RotateCcw, RotateCw, Flag, Activity, History } from 'lucide-react';
+import { Copy, FlipHorizontal, FlipVertical, Pencil, Trash2, Stamp, RotateCcw, RotateCw, Flag, Activity, History, Check } from 'lucide-react';
 import type { ToolMode } from '@/store/useMapStore';
+import type { StampTransform } from '@/utils/stampTransform';
 
 interface ActionButtonProps {
   icon: React.ElementType;
   label: string;
   onClick?: () => void;
   colorClass?: string;
+  /** Keyboard shortcut shown as a chip (used by the stamp transform controls). */
+  hint?: string;
+  /** Highlight the button when its toggle is currently applied (e.g. an active flip). */
+  active?: boolean;
 }
 
-const ActionButton: React.FC<ActionButtonProps> = ({ icon: Icon, label, onClick, colorClass = "blue" }) => {
+const ActionButton: React.FC<ActionButtonProps> = ({ icon: Icon, label, onClick, colorClass = "blue", hint, active }) => {
   return (
     <button
       type="button"
       onClick={onClick}
-      title={label}
-      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all text-slate-600 hover:bg-white/40 dark:text-slate-300 dark:hover:bg-white/10`}
+      title={hint ? `${label} (${hint})` : label}
+      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+        active
+          ? 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-300'
+          : 'text-slate-600 hover:bg-white/40 dark:text-slate-300 dark:hover:bg-white/10'
+      }`}
     >
       <Icon size={18} /> <span className="hidden lg:inline">{label}</span>
+      {hint && (
+        <kbd className="ml-auto hidden lg:inline-block rounded border border-slate-300/70 dark:border-white/20 bg-white/70 dark:bg-black/30 px-1.5 py-0.5 text-[10px] font-semibold leading-none">
+          {hint}
+        </kbd>
+      )}
     </button>
   );
 };
@@ -30,6 +44,13 @@ export interface ContextActionDockProps {
   onDuplicateUnit?: (id: string | null) => void;
   handleFlip?: (direction: 'horizontal' | 'vertical') => void;
   handleRotatePolygon?: (direction: 'left' | 'right') => void;
+  // Stamp & Fast Markup — Phase 1: while stamping, the dock morphs into these live
+  // transform controls (mirroring the R / Shift+R / H / V keys). Distinct from
+  // handleFlip/handleRotatePolygon, which edit a SAVED unit — these steer the
+  // transient stamp ghost being placed.
+  stampTransform?: StampTransform;
+  onRotateStamp?: (dir: 'left' | 'right') => void;
+  onFlipStamp?: (axis: 'horizontal' | 'vertical') => void;
   onDeleteUnit?: (ids: string | string[] | null) => void;
   onOpenActivityModal?: (id: string | null) => void;
   onOpenStatusModal?: (id: string | null) => void;
@@ -47,6 +68,9 @@ export default function ContextActionDock({
   onDuplicateUnit,
   handleFlip,
   handleRotatePolygon,
+  stampTransform,
+  onRotateStamp,
+  onFlipStamp,
   onDeleteUnit,
   onOpenActivityModal,
   onOpenStatusModal,
@@ -91,6 +115,31 @@ export default function ContextActionDock({
           onClick={onHideLegend} 
           colorClass="red" 
         />
+      </div>
+    );
+  }
+
+  // Stamp & Fast Markup — Phase 1: clicking "Stamp Trace" swaps this dock to the live
+  // stamp transform controls — the same R / Shift+R / H / V keys, shown as chips and
+  // doubling as buttons. Active flips are highlighted. "Done" returns to the normal dock.
+  if (isSingle && toolMode === 'stamp') {
+    return (
+      <div
+        className={`${dockClass} absolute left-3 top-1/2 -translate-y-1/2`}
+        style={{
+          background: 'var(--glass-bg, rgba(255, 255, 255, 0.7))',
+          borderColor: 'var(--glass-border, rgba(226, 232, 240, 0.5))',
+        }}
+      >
+        <div className="px-2 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-fuchsia-500">
+          Stamping — click to place
+        </div>
+        <ActionButton icon={RotateCw} label="Rotate Right" hint="R" onClick={() => onRotateStamp?.('right')} />
+        <ActionButton icon={RotateCcw} label="Rotate Left" hint="⇧R" onClick={() => onRotateStamp?.('left')} />
+        <ActionButton icon={FlipHorizontal} label="Flip H" hint="H" active={!!stampTransform?.flipX} onClick={() => onFlipStamp?.('horizontal')} />
+        <ActionButton icon={FlipVertical} label="Flip V" hint="V" active={!!stampTransform?.flipY} onClick={() => onFlipStamp?.('vertical')} />
+        <div className="h-px bg-slate-200/80 dark:bg-white/10 mx-1 my-1" />
+        <ActionButton icon={Check} label="Done" onClick={() => onToolModeChange?.('select')} />
       </div>
     );
   }
