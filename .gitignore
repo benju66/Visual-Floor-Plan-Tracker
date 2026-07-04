@@ -83,3 +83,10 @@ skills-lock.json
 docs/Schdules/
 docs/floor_plans/
 docs/procore_project_directory_export.csv
+
+# Local scratch: ad-hoc screenshots + PDF exports dropped at the REPO ROOT during
+# manual verification, plus the Notes/exports scratch dir. Throwaway, never tracked.
+# Root-anchored so tracked images in subdirs (e.g. src/assets/hero.png) are unaffected.
+/*.png
+/*.pdf
+sitepulse-next/Notes/exports/
