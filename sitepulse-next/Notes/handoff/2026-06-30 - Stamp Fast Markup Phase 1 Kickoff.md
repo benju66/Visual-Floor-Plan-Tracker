@@ -6,7 +6,7 @@
 > - `sitepulse-next/Notes/plans/Stamp-Fast-Markup-Plan.md` (Phase 1)
 > - `sitepulse-next/AGENTS.md`
 >
-> Branch off `main`. Build **only Phase 1**. No migration. Keep `FloorplanCanvas.tsx` edits surgical; extract the flip/rotate math to a shared util rather than duplicating it. Don't commit or push until I say "Approved."
+> Branch off `main`. Build **only Phase 1**. No migration. Keep `FloorplanCanvas.tsx` edits surgical; extract the flip/rotate math to a shared util rather than duplicating it. Stamp transform keys are **R/Shift+R rotate + H/V flip** (NOT `F` — it's already "fit selection"), gated to `toolMode === 'stamp'`. Don't commit or push until I say "Approved."
 
 ---
 
@@ -44,9 +44,13 @@ Phases 2 and 3. Small, self-contained placement-quality upgrade.
 3. Current source, read FRESH (line numbers drift):
    - `src/components/canvas/StampPreview.tsx` — the preview to extend with the
      transform + snap.
-   - `src/components/FloorplanCanvas.tsx` — `handleStageClick` stamp branch,
-     `handleFlip`, `handleRotatePolygon`, the `getSnappedCoordinate` inline call,
-     the `toolMode`-change reset effect, the keyboard handler.
+   - `src/components/FloorplanCanvas.tsx` — `handleStageClick` stamp branch (commits via
+     `onInstantStamp`, now wrapped in `warnIfUnwired(onInstantStamp, 'onInstantStamp:stamp')`
+     from Slice 0 — keep `onInstantStamp` wired; no signature change), `handleFlip`,
+     `handleRotatePolygon`, the `getSnappedCoordinate` inline call, the `toolMode`-change
+     reset effect, and the keyboard handler. **Taken keys** in the always-on map handler:
+     `1/2/3` `m` `[` `]` `=`/`-` `0`/`Home` `f` `z`(Ctrl) + arrows/Space/Esc/Enter — so
+     stamp uses **R/Shift+R/H/V**, never `f`.
    - `src/hooks/useMapActions.ts` — `handleInstantStamp` (the commit path).
    - `src/store/useMapStore.ts` — `ToolMode` + where transient stamp-transform state
      goes. `src/utils/geometry.ts` — `getCentroid`, `getSnappedCoordinate`,
@@ -60,10 +64,16 @@ Phases 2 and 3. Small, self-contained placement-quality upgrade.
    behavior change to existing flip/rotate on saved/pending shapes).
 2. Hold a transient **stamp transform** (rotation steps + flipX/flipY) in
    `useMapStore`; apply it in `StampPreview` (so the ghost shows the rotated/flipped
-   shape) and at commit. Bind keys while `toolMode === 'stamp'`: **R / Shift+R**
-   rotate right/left, **F** flip horizontal, **V** flip vertical (confirm keys;
-   show a small hint). **Reset the transform on tool change** (extend the existing
-   reset effect).
+   shape) and at commit. Bind keys **only while `toolMode === 'stamp'`** (gate on the
+   tool mode so they never fire otherwise): **R** rotate clockwise · **Shift+R** rotate
+   counter-clockwise · **H** flip horizontal (left↔right) · **V** flip vertical
+   (top↔bottom). Ignore them while typing in an input; show a small hint chip.
+   **Do NOT use `F`** — it is already "fit selection to screen" in the map keydown
+   handler (active whenever a unit is selected = the stamp source case). `R`/`H`/`V`
+   are free in the always-on handler; `H` is only otherwise used by the workbench
+   openings-capture (`openingTypeForKey`, gated behind `openingCaptureEnabled`, which is
+   inert in stamp mode), so gating on `toolMode === 'stamp'` keeps them fully separate.
+   **Reset the transform on tool change** (extend the existing reset effect).
 3. **Snap** the drop point with `getSnappedCoordinate` (honor snapping settings +
    magnifier-suspends-snapping), show the snap ring, and commit the snapped +
    transformed polygon via the existing `onInstantStamp` path. **Validate with
@@ -83,8 +93,8 @@ Phases 2 and 3. Small, self-contained placement-quality upgrade.
   ```
 - `stampTransform.test.ts` covers: rotate 4× = identity, flip twice = identity,
   aspect correctness, normalize→place round-trip.
-- **Live `dev:3010`:** select a room → stamp mode → rotate/flip the ghost with the
-  keys → drop near a wall: it **snaps** and lands **rotated/flipped**; existing
+- **Live `dev:3010`:** select a room → stamp mode → rotate (R/Shift+R) and flip (H/V)
+  the ghost → drop near a wall: it **snaps** and lands **rotated/flipped**; existing
   flip/rotate on a selected/pending shape is unchanged. The magnifier still
   suspends snapping while up.
 - Close with the **`verify-feature`** skill (Definition of Done → STOP). Then draft

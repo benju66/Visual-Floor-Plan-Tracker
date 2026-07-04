@@ -141,10 +141,11 @@ stamp `createdAt`/`id`):
     `handleRotatePolygon` to call the shared pure fns (no behavior change to
     existing flip/rotate).
   - Hold a transient **stamp transform** (rotation steps + flipX/flipY) in
-    `useMapStore`; apply it in `StampPreview` and at commit. Bind keys while
-    `toolMode === 'stamp'`: **R / Shift+R** rotate, **F** flip horizontal, **V**
-    flip vertical (final keys owner-confirmable; show a tiny hint). Reset the
-    transform on tool change.
+    `useMapStore`; apply it in `StampPreview` and at commit. Bind keys **only while
+    `toolMode === 'stamp'`**: **R** rotate CW · **Shift+R** rotate CCW · **H** flip
+    horizontal · **V** flip vertical (RESOLVED 2026-07-04 — NOT `F`, which is already
+    "fit selection to screen"; ignore keys while typing in an input; show a tiny hint).
+    Reset the transform on tool change.
   - **Snap** the drop: run the cursor anchor through `getSnappedCoordinate`
     (honor the snapping on/off + strength settings) and show the snap ring; commit
     the snapped, transformed polygon via the existing `onInstantStamp` path.
@@ -227,8 +228,14 @@ npm --prefix "C:/Users/BUrness/Dev/Visual-Floor-Plan-Tracker/sitepulse-next" run
   `window.Konva.stages[0]` where useful.
 
 ## Open decisions
-- **Transform key bindings** (R/F/V vs others) — recommend R/Shift+R rotate,
-  F flip-horizontal, V flip-vertical; confirm in Phase 1 (low stakes).
+- **Transform key bindings** — RESOLVED 2026-07-04: **R** rotate CW / **Shift+R** rotate
+  CCW / **H** flip horizontal / **V** flip vertical, gated to `toolMode === 'stamp'`.
+  Dropped the original `F` (flip): `F` is already "fit selection to screen" in the map
+  canvas (`FloorplanCanvas` keydown, active whenever a unit is selected = the stamp
+  source case). `R`/`H`/`V` are free in the always-on handler; `H` is only otherwise used
+  by the workbench openings-capture (`openingTypeForKey`, gated behind
+  `openingCaptureEnabled`, which is inert in stamp mode), so gating on `toolMode ===
+  'stamp'` keeps them fully separate.
 - **Drawer placement** (bottom strip vs left/right rail) + thumbnail rendering
   (mini Konva vs SVG path) — decide in Phase 2 (recommend a bottom strip with SVG
   thumbnails).
