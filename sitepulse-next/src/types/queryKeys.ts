@@ -50,6 +50,11 @@ export const queryKeys = {
   // shared like `activityDictionary`. Read = any member; writes (save-current-
   // project / archive) = privileged. Each read joins the playbook's ordered items.
   playbooks:          ()                         => ['playbooks'] as const,
+  // Cross-project (per-GC) benchmarking dataset (Scheduling Analytics Slice B,
+  // Phase 6c): a compact snapshot of the signed-in user's OWN projects' scheduling
+  // data, RLS-scoped to their memberships (never cross-tenant). Keyed globally +
+  // warm-cached; recomputed client-side per selected sub / cost code.
+  benchmarkDataset:   ()                         => ['benchmark_dataset'] as const,
   // Company-wide learned naming vocabulary (Trace Naming & Type Assist Phase 2):
   // a paginated read of every confirmed room the user can see (RLS-scoped to their
   // project memberships), folded into a plain-JSON frequency model. Keyed globally

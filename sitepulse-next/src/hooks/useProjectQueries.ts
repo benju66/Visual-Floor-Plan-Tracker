@@ -1473,24 +1473,28 @@ export function useUpdateProjectMemberRole(projectId: string) {
   });
 }
 
+export type StatusHistoryEvent = Pick<StatusLog, 'unit_id' | 'activity_id' | 'activityName' | 'track' | 'logged_date'>;
+
 export function useStatusHistory(unitIds: string[]) {
   const validUnitIds = unitIds?.filter(id => !String(id).startsWith('temp_')) || [];
   return useQuery({
     queryKey: queryKeys.statusHistory(...validUnitIds),
-    queryFn: async (): Promise<Pick<StatusLog, 'unit_id' | 'activityName' | 'track' | 'logged_date'>[]> => {
+    queryFn: async (): Promise<StatusHistoryEvent[]> => {
       if (validUnitIds.length === 0) return [];
       // Re-pointed to status_audit_log: the audit table has the full append-only
-      // history of completed activities, used by the dashboard timeline chart.
+      // history of completed activities, used by the dashboard timeline chart AND
+      // (Scheduling Analytics Phase 6) the production-rate math, which needs the
+      // stable `activity_id` to join a completion to its cost code / subcontractor.
       // Map its `activity_name` snapshot onto the domain `activityName` field.
       const { data, error } = await supabase
         .from('status_audit_log')
-        .select('unit_id, activity_name, track, logged_date, client_timestamp, user_id')
+        .select('unit_id, activity_id, activity_name, track, logged_date, client_timestamp, user_id')
         .in('unit_id', validUnitIds)
         .eq('temporal_state', 'completed')
         .not('logged_date', 'is', null)
         .order('logged_date', { ascending: true });
       if (error) throw error;
-      return (data ?? []).map(({ activity_name, ...r }) => ({ ...r, activityName: activity_name })) as unknown as Pick<StatusLog, 'unit_id' | 'activityName' | 'track' | 'logged_date'>[];
+      return (data ?? []).map(({ activity_name, ...r }) => ({ ...r, activityName: activity_name })) as unknown as StatusHistoryEvent[];
     },
     enabled: validUnitIds.length > 0,
     staleTime: 1000 * 60 * 5,

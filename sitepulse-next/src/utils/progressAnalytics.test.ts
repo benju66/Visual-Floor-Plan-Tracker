@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   parseDay,
   dayDiff,
+  mondayOf,
+  projectForecastDate,
   computeUnitVariance,
   varianceFill,
   varianceLabel,
@@ -292,5 +294,31 @@ describe('summarizeGroup / computeUnitVariance — activity applicability (N/A)'
     const applicable = [ACTIVITIES[0], ACTIVITIES[2]]; // Framing, Paint (Drywall N/A)
     const info = computeUnitVariance(statuses, applicable, TODAY);
     expect(info.bottleneck).toBe('Paint'); // not Drywall
+  });
+});
+
+// The forecast projection was factored out of summarizeGroup so the Phase-6
+// forecast-trend util can replay it as-of past dates. These pin its behavior
+// directly (the summarizeGroup tests above are the behavior-preservation guard).
+describe('mondayOf', () => {
+  it('returns the Monday (UTC, Mon-start) of the given date', () => {
+    expect(mondayOf(parseDay('2026-06-29') as Date)).toBe('2026-06-29'); // a Monday
+    expect(mondayOf(parseDay('2026-07-05') as Date)).toBe('2026-06-29'); // the Sunday rolls back
+    expect(mondayOf(parseDay('2026-07-01') as Date)).toBe('2026-06-29');
+  });
+});
+
+describe('projectForecastDate', () => {
+  const today = parseDay('2026-06-01') as Date;
+  it('projects a finish at the median weekly pace', () => {
+    // remaining 12, median 4/wk over the last full weeks → 3 weeks → Jun 22.
+    const r = projectForecastDate({ remaining: 12, totalSlots: 20, fullWeekCounts: [4, 4, 4, 4], today });
+    expect(r.forecastSuppressed).toBeNull();
+    expect(r.forecastDate).toBe('2026-06-22');
+  });
+  it('suppresses complete / small-sample / no-pace honestly', () => {
+    expect(projectForecastDate({ remaining: 0, totalSlots: 20, fullWeekCounts: [4], today }).forecastSuppressed).toBe('complete');
+    expect(projectForecastDate({ remaining: 5, totalSlots: 8, fullWeekCounts: [4], today }).forecastSuppressed).toBe('small-sample');
+    expect(projectForecastDate({ remaining: 5, totalSlots: 20, fullWeekCounts: [0, 0, 0], today }).forecastSuppressed).toBe('no-pace');
   });
 });

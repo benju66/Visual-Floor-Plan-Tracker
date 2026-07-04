@@ -234,11 +234,48 @@ const FORECAST_WINDOW_WEEKS = 6;
 /** Below this fraction of dated slots, the plan tick is too sparse to be trustworthy and is hidden. */
 export const PLAN_TICK_MIN_COVERAGE = 0.5;
 
-function mondayOf(d: Date): string {
+/** ISO 'YYYY-MM-DD' of the Monday of `d`'s week (UTC, Mon-start). Exported so the
+ *  Phase-6 rate + forecast-trend utils bucket by the SAME week boundary. */
+export function mondayOf(d: Date): string {
   const day = d.getUTCDay(); // 0 = Sun
   const offset = day === 0 ? 6 : day - 1;
   const monday = new Date(d.getTime() - offset * DAY_MS);
   return monday.toISOString().slice(0, 10);
+}
+
+/**
+ * The median-pace finish projection — factored out of {@link summarizeGroup} so the
+ * Phase-6 forecast-TREND util can replay it as-of past vantage dates without forking
+ * the math (AGENTS.md §3). Same suppression honesty: 'complete' when nothing remains,
+ * 'small-sample' below {@link SMALL_SAMPLE_SLOTS} total slots, 'no-pace' when the
+ * median of the last {@link FORECAST_WINDOW_WEEKS} full weeks is zero.
+ *
+ * @param fullWeekCounts contiguous weekly completion counts (INCLUDING zero weeks),
+ *   oldest→newest, EXCLUDING the current partial week. The median is taken over the
+ *   trailing {@link FORECAST_WINDOW_WEEKS} of them.
+ */
+export function projectForecastDate(params: {
+  remaining: number;
+  totalSlots: number;
+  fullWeekCounts: number[];
+  today: Date;
+}): { forecastDate: string | null; forecastSuppressed: GroupRollup['forecastSuppressed'] } {
+  const { remaining, totalSlots, fullWeekCounts, today } = params;
+  if (remaining <= 0 && totalSlots > 0) return { forecastDate: null, forecastSuppressed: 'complete' };
+  if (totalSlots < SMALL_SAMPLE_SLOTS) return { forecastDate: null, forecastSuppressed: 'small-sample' };
+
+  const windowSize = Math.min(FORECAST_WINDOW_WEEKS, fullWeekCounts.length);
+  const window = fullWeekCounts.slice(-windowSize).slice().sort((a, b) => a - b);
+  const median = window.length === 0 ? 0
+    : window.length % 2 === 1
+      ? window[(window.length - 1) / 2]
+      : (window[window.length / 2 - 1] + window[window.length / 2]) / 2;
+  if (median <= 0) return { forecastDate: null, forecastSuppressed: 'no-pace' };
+
+  const weeksLeft = remaining / median;
+  const forecastDate = new Date(today.getTime() + Math.ceil(weeksLeft * 7) * DAY_MS)
+    .toISOString().slice(0, 10);
+  return { forecastDate, forecastSuppressed: null };
 }
 
 export interface GroupRollupInput {
@@ -339,29 +376,11 @@ export function summarizeGroup({
     ? trailing4.reduce((sum, w) => sum + w.count, 0) / trailing4.length
     : null;
 
-  // --- Forecast at median weekly pace ---
+  // --- Forecast at median weekly pace (shared with the Phase-6 forecast-trend util) ---
   const remaining = totalSlots - completedSlots;
-  let forecastDate: string | null = null;
-  let forecastSuppressed: GroupRollup['forecastSuppressed'] = null;
-  if (remaining <= 0 && totalSlots > 0) {
-    forecastSuppressed = 'complete';
-  } else if (totalSlots < SMALL_SAMPLE_SLOTS) {
-    forecastSuppressed = 'small-sample';
-  } else {
-    const windowSize = Math.min(FORECAST_WINDOW_WEEKS, fullWeeks.length);
-    const window = fullWeeks.slice(-windowSize).map(w => w.count).sort((a, b) => a - b);
-    const median = window.length === 0 ? 0
-      : window.length % 2 === 1
-        ? window[(window.length - 1) / 2]
-        : (window[window.length / 2 - 1] + window[window.length / 2]) / 2;
-    if (median <= 0) {
-      forecastSuppressed = 'no-pace';
-    } else {
-      const weeksLeft = remaining / median;
-      forecastDate = new Date(today.getTime() + Math.ceil(weeksLeft * 7) * DAY_MS)
-        .toISOString().slice(0, 10);
-    }
-  }
+  const { forecastDate, forecastSuppressed } = projectForecastDate({
+    remaining, totalSlots, fullWeekCounts: fullWeeks.map(w => w.count), today,
+  });
 
   return {
     unitCount: units.length,
