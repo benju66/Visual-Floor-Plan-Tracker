@@ -35,6 +35,7 @@ import { unitMakeReady, makeReadyFill, slotKey } from '@/utils/activityReadiness
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
+import { warnIfUnwired } from '@/utils/wiringGuard';
 import RBush from 'rbush';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -691,7 +692,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 pctX: p.pctX + dx,
                 pctY: p.pctY + dy
               }));
-              onUpdateUnitPolygonRef.current?.(unit.id, newPoints);
+              if (warnIfUnwired(onUpdateUnitPolygonRef.current, 'onUpdateUnitPolygon:arrow-nudge')) {
+                onUpdateUnitPolygonRef.current?.(unit.id, newPoints);
+              }
             }
           });
         }
@@ -730,7 +733,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       if (toolMode === 'draw' && e.key === 'Enter') {
         if (!isInputActive && draftPointsRef.current.length > 2) {
           e.stopImmediatePropagation();
-          onPolygonComplete(draftPointsRef.current, draftOpeningEdgesRef.current);
+          if (warnIfUnwired(onPolygonComplete, 'onPolygonComplete:draw-enter')) {
+            onPolygonComplete(draftPointsRef.current, draftOpeningEdgesRef.current);
+          }
           setDraftPoints([]);
           setDraftOpeningEdges([]);
         }
@@ -1286,8 +1291,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           pctX: pt.pctX + dx,
           pctY: pt.pctY + dy
         }));
-        
-        onInstantStamp?.(selectedUnitIds[0], translatedPoints);
+
+        if (warnIfUnwired(onInstantStamp, 'onInstantStamp:stamp')) {
+          onInstantStamp?.(selectedUnitIds[0], translatedPoints);
+        }
       }
     } else if (toolMode === 'draw' && !isEditingPending) {
       // `!isEditingPending` (Phase 1): while a freshly-traced polygon is open for naming
@@ -1385,7 +1392,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const finishDrawing = () => {
     if (draftPoints.length > 2) {
-      onPolygonComplete(draftPoints, draftOpeningEdges);
+      if (warnIfUnwired(onPolygonComplete, 'onPolygonComplete:finish')) {
+        onPolygonComplete(draftPoints, draftOpeningEdges);
+      }
       setDraftPoints([]);
       setDraftOpeningEdges([]);
     }
@@ -1495,7 +1504,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       if (bestIdx !== -1) {
         const newPoints = [...pts];
         newPoints.splice(bestIdx + 1, 0, {pctX, pctY});
-        onUpdateUnitPolygon?.(unit.id, newPoints);
+        if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:add-node')) {
+          onUpdateUnitPolygon?.(unit.id, newPoints);
+        }
       }
     }
   };
@@ -1535,7 +1546,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }
     
     
-    onUpdateUnitPolygon?.(unit.id, newPoints);
+    if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:flip')) {
+      onUpdateUnitPolygon?.(unit.id, newPoints);
+    }
   };
 
   const handleRotatePolygon = (direction: 'left' | 'right', overrideId: string | null = null) => {
@@ -1579,7 +1592,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       };
     });
 
-    onUpdateUnitPolygon?.(unit.id, newPoints);
+    if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:rotate')) {
+      onUpdateUnitPolygon?.(unit.id, newPoints);
+    }
   };
 
   const handlePolygonDragEnd = (e: any, unit: Unit) => {
@@ -1601,7 +1616,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         console.warn('[geometry] polygon move produced an invalid shape — not saving', unit.id);
         return;
       }
-      onUpdateUnitPolygon?.(unit.id, newPoints);
+      if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:polygon-drag')) {
+        onUpdateUnitPolygon?.(unit.id, newPoints);
+      }
     }
   };
 
@@ -1633,7 +1650,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       console.warn('[geometry] node move produced an invalid polygon — not saving', unitId);
       return;
     }
-    onUpdateUnitPolygon?.(unitId, newPoints);
+    if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:node-move')) {
+      onUpdateUnitPolygon?.(unitId, newPoints);
+    }
   };
 
   const handleAnchorClick = (e: any, unitId: string, index: number) => {
@@ -1644,7 +1663,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
     const newPoints = [...unit.polygon_coordinates];
     newPoints.splice(index, 1);
-    onUpdateUnitPolygon?.(unitId, newPoints);
+    if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:delete-node')) {
+      onUpdateUnitPolygon?.(unitId, newPoints);
+    }
   };
 
   // Drawing Tool Excellence — Phase 4. Pending-polygon vertex insert/delete: the
@@ -1694,7 +1715,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     const newPoints = [...pts];
     newPoints.splice(edgeIndex + 1, 0, midpoint);
     if (!isFinitePolygon(newPoints)) return;
-    onUpdateUnitPolygonRef.current?.(unitId, newPoints);
+    if (warnIfUnwired(onUpdateUnitPolygonRef.current, 'onUpdateUnitPolygon:insert-vertex')) {
+      onUpdateUnitPolygonRef.current?.(unitId, newPoints);
+    }
   }, []);
 
   // Stable identity (keyed on layout) so memoized children don't re-render on
@@ -2226,12 +2249,14 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
               
               if ((dx > 0.005 && dy > 0.005) && draftPoints.length === 0) {
                 lastBoxEndRef.current = Date.now();
-                onPolygonComplete([
-                  { pctX: startX, pctY: startY },
-                  { pctX: pctX, pctY: startY },
-                  { pctX: pctX, pctY: pctY },
-                  { pctX: startX, pctY: pctY }
-                ]);
+                if (warnIfUnwired(onPolygonComplete, 'onPolygonComplete:box')) {
+                  onPolygonComplete([
+                    { pctX: startX, pctY: startY },
+                    { pctX: pctX, pctY: startY },
+                    { pctX: pctX, pctY: pctY },
+                    { pctX: startX, pctY: pctY }
+                  ]);
+                }
                 setDraftPoints([]);
               }
             }

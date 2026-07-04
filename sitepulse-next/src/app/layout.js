@@ -2,6 +2,7 @@ import { Outfit, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 import QueryProvider from "@/providers/QueryProvider";
 import { AuthProvider } from "@/providers/AuthProvider";
+import DevDbBanner from "@/components/DevDbBanner";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -32,6 +33,7 @@ export default function RootLayout({ children }) {
       className={`${outfit.variable} ${robotoMono.variable} h-full antialiased overscroll-none`}
     >
       <body className="min-h-full flex flex-col font-sans bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300 ease-in-out overscroll-y-none">
+        <DevDbBanner />
         <AuthProvider>
           <QueryProvider>{children}</QueryProvider>
         </AuthProvider>
