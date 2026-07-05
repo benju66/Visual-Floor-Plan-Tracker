@@ -30,6 +30,8 @@ import {
 import { isProjectTrainingEnabled } from '@/utils/trainingGate';
 import { computeAreaFromUnitsPerPx } from '@/utils/scale';
 import { loadImageDimensions } from '@/utils/imageDimensions';
+import { normalizeToCentroid } from '@/utils/stampTransform';
+import type { StampDef } from '@/utils/stampLibrary';
 
 export function useMapActions(project: Project | null | undefined) {
   const queryClient = useQueryClient();
@@ -62,6 +64,8 @@ export function useMapActions(project: Project | null | undefined) {
   const toast = useUIStore(s => s.toast);
 
   const settings = useSettingsStore(s => s.settings) || {};
+  // Stamp & Fast Markup — Phase 2: collect committed shapes into the drawer's recents.
+  const pushRecentStamp = useSettingsStore(s => s.pushRecentStamp);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning') => {
     if (!settings.enableToasts) return;
@@ -151,14 +155,13 @@ export function useMapActions(project: Project | null | undefined) {
     setUnitNamingOpen(true);
   };
 
-  const handleInstantStamp = async (sourceUnitId: string, newPoints: PercentPoint[]) => {
+  // Shared create + undo for both instant-stamp paths (Phase 2 extracted this so a
+  // drawer stamp with NO source unit can auto-name off its own base name). `baseName`
+  // is the un-suffixed name; a "(Stamp N)" suffix is appended with the next free index
+  // on this sheet. Behavior for the selected-room path is unchanged.
+  const commitStampedUnit = async (baseName: string, newPoints: PercentPoint[]) => {
     const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
-    const sourceUnit = units.find(u => u.id === sourceUnitId);
-    if (!sourceUnit) return;
-    
-    const baseNameMatch = sourceUnit.unit_number.match(/^(.*?)(?:\s*\(Stamp\s*(\d+)\))?$/);
-    const baseName = baseNameMatch ? baseNameMatch[1].trim() : sourceUnit.unit_number;
-    
+
     let nextIndex = 1;
     units.forEach(u => {
       if (u.unit_number.startsWith(`${baseName} (Stamp`)) {
@@ -169,7 +172,7 @@ export function useMapActions(project: Project | null | undefined) {
         }
       }
     });
-    
+
     const stampedName = `${baseName} (Stamp ${nextIndex})`;
     try {
       const data = await createUnitMutation.mutateAsync({ sheet_id: activeSheetId, unit_number: stampedName, polygon_coordinates: newPoints as any });
@@ -181,6 +184,42 @@ export function useMapActions(project: Project | null | undefined) {
     } catch (err: any) {
       showToast('Error stamping location: ' + err.message, 'error');
     }
+  };
+
+  const handleInstantStamp = async (sourceUnitId: string, newPoints: PercentPoint[]) => {
+    const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
+    const sourceUnit = units.find(u => u.id === sourceUnitId);
+    if (!sourceUnit) return;
+
+    const baseNameMatch = sourceUnit.unit_number.match(/^(.*?)(?:\s*\(Stamp\s*(\d+)\))?$/);
+    const baseName = baseNameMatch ? baseNameMatch[1].trim() : sourceUnit.unit_number;
+
+    await commitStampedUnit(baseName, newPoints);
+
+    // Collect the source room's shape into the drawer's recents so it's re-stampable
+    // without re-selecting it (Phase 2). Stored normalized to its own centroid; de-dup
+    // by shape keeps repeated stamps of one room to a single recent entry.
+    const sourcePoly = sourceUnit.polygon_coordinates;
+    if (sourcePoly && sourcePoly.length >= 3) {
+      pushRecentStamp({
+        id: crypto.randomUUID(),
+        name: baseName || sourceUnit.unit_number,
+        points: normalizeToCentroid(sourcePoly),
+        subtypeId: sourceUnit.subtype_id ?? null,
+        unitType: sourceUnit.unit_type ?? null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  };
+
+  // Instant-stamp an ARMED drawer stamp (no source unit): the "(Stamp N)" base name comes
+  // from the StampDef itself. Same create/undo path as a selected-room stamp; re-collects
+  // the stamp as a recent (a fresh id + timestamp keeps a saved stamp and its recent use
+  // as independent drawer entries — de-dup by shape still collapses repeated drops).
+  const handleInstantStampShape = async (stamp: StampDef, newPoints: PercentPoint[]) => {
+    const baseName = (stamp.name || 'Stamp').trim() || 'Stamp';
+    await commitStampedUnit(baseName, newPoints);
+    pushRecentStamp({ ...stamp, id: crypto.randomUUID(), createdAt: new Date().toISOString() });
   };
 
   const handleRenameUnitInitiate = (unitId: string) => {
@@ -287,6 +326,21 @@ export function useMapActions(project: Project | null | undefined) {
              return next.length > 50 ? next.slice(next.length - 50) : next;
          });
          setRedoStack([]);
+
+         // Collect a freshly-drawn room's shape into the stamp drawer's recents too
+         // (Phase 2) — so anything you just traced is immediately re-stampable. Normalized
+         // to its centroid; de-dup keeps identical shapes to one entry.
+         if (pendingPolygonPoints && pendingPolygonPoints.length >= 3) {
+           pushRecentStamp({
+             id: crypto.randomUUID(),
+             name,
+             points: normalizeToCentroid(pendingPolygonPoints),
+             subtypeId: taxonomy?.subtype_id ?? null,
+             unitType: taxonomy?.unit_type ?? null,
+             createdAt: new Date().toISOString(),
+           });
+         }
+
          setUnitNamingOpen(false);
          setPendingPolygonPoints(null);
          setMapLabelSuggestion(null);
@@ -667,6 +721,7 @@ export function useMapActions(project: Project | null | undefined) {
     handleUpdateUnitPolygon,
     handleDuplicateUnit,
     handleInstantStamp,
+    handleInstantStampShape,
     handleRenameUnitInitiate,
     saveNewUnitFromPopover,
     cancelUnitNaming,

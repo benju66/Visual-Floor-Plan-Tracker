@@ -4,6 +4,7 @@ import type { PercentPoint } from '@/types/domain';
 import type { Updater } from '@/types/utils';
 import type { RoomSuggestion } from '@/utils/roomSuggestion';
 import { IDENTITY_STAMP_TRANSFORM, type StampTransform } from '@/utils/stampTransform';
+import type { StampDef } from '@/utils/stampLibrary';
 
 // `capture_box` is a workbench-only mode (AI Tracing Assist — Phase 3a): a
 // rubber-band box drag over a region to read (e.g. the title block). `capture_line`
@@ -74,6 +75,21 @@ export interface MapState {
   flipStamp: (axis: 'horizontal' | 'vertical') => void;
   resetStampTransform: () => void;
 
+  // The drawer stamp currently ARMED for placement (Stamp & Fast Markup — Phase 2), or
+  // null when placement falls back to the selected room. A `StampDef` is plain JSON, but
+  // this is transient tool state (never persisted — not in `partialize`) and is cleared
+  // the moment we leave stamp mode. `armStamp` is the atomic "pick this from the drawer"
+  // action: arm the shape, enter stamp mode, drop any selection + stale orientation, and
+  // reveal the drawer, all in one commit.
+  armedStamp: StampDef | null;
+  armStamp: (stamp: StampDef) => void;
+  clearArmedStamp: () => void;
+
+  // Whether the stamp drawer strip is expanded. Transient floating-UI state (Zustand,
+  // per AGENTS §2) — NOT persisted; defaults closed each session.
+  stampDrawerOpen: boolean;
+  setStampDrawerOpen: (val: Updater<boolean>) => void;
+
   selectedFile: File | null;
   setSelectedFile: (val: Updater<File | null>) => void;
 
@@ -139,6 +155,19 @@ export const useMapStore = create<MapState>()(
           : { ...state.stampTransform, flipY: !state.stampTransform.flipY },
       })),
       resetStampTransform: () => set({ stampTransform: IDENTITY_STAMP_TRANSFORM }),
+
+      armedStamp: null,
+      armStamp: (stamp) => set({
+        armedStamp: stamp,
+        toolMode: 'stamp',
+        selectedUnitIds: [],
+        stampTransform: IDENTITY_STAMP_TRANSFORM,
+        stampDrawerOpen: true,
+      }),
+      clearArmedStamp: () => set({ armedStamp: null }),
+
+      stampDrawerOpen: false,
+      setStampDrawerOpen: (val) => set((state) => ({ stampDrawerOpen: typeof val === 'function' ? val(state.stampDrawerOpen) : val })),
 
       selectedFile: null,
       setSelectedFile: (val) => set((state) => ({ selectedFile: typeof val === 'function' ? val(state.selectedFile) : val })),

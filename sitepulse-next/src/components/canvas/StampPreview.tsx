@@ -7,6 +7,10 @@ import type { Unit, StatusLog, PercentPoint } from '@/types/domain';
 
 export interface StampPreviewProps {
   selectedUnitId: string | null;
+  /** An armed drawer stamp's centroid-normalized points (Stamp & Fast Markup — Phase 2).
+   *  When present it is the preview source and `selectedUnitId` is ignored, so a stamp can
+   *  be placed with NO room selected. */
+  armedPoints?: PercentPoint[] | null;
   pointerStore: PointerStore;
   stageScale: number;
   units: Unit[];
@@ -28,6 +32,7 @@ export interface StampPreviewProps {
  */
 export default function StampPreview({
   selectedUnitId,
+  armedPoints,
   pointerStore,
   stageScale,
   units,
@@ -40,6 +45,12 @@ export default function StampPreview({
   const sample = usePointerSample(pointerStore);
 
   const source = useMemo(() => {
+    // An armed drawer stamp wins over the selected unit — it lets you stamp with nothing
+    // selected. Its points are already centroid-normalized; buildStampPolygon re-normalizes
+    // anyway, so passing them through is a no-op. Use the default violet stamp styling.
+    if (armedPoints && armedPoints.length > 0) {
+      return { polyCoords: armedPoints, fillColor: 'rgba(139, 92, 246, 0.3)', strokeColor: '#8b5cf6' };
+    }
     if (!selectedUnitId) return null;
     const sourceUnit = units.find(u => u.id === selectedUnitId);
     const polyCoords = sourceUnit?.polygon_coordinates as PercentPoint[] | undefined;
@@ -54,7 +65,7 @@ export default function StampPreview({
     }
 
     return { polyCoords, fillColor, strokeColor };
-  }, [selectedUnitId, units, activeStatuses]);
+  }, [armedPoints, selectedUnitId, units, activeStatuses]);
 
   if (!source || !sample) return null;
 

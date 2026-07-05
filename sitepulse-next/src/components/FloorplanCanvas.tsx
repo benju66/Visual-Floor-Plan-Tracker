@@ -12,7 +12,9 @@ import MappedUnit from '@/components/canvas/MappedUnit';
 import DraftPolygon from '@/components/canvas/DraftPolygon';
 import MeasureReadout from '@/components/canvas/MeasureReadout';
 import StampPreview from '@/components/canvas/StampPreview';
+import StampDrawer from '@/components/canvas/StampDrawer';
 import { buildStampPolygon, flipPolygon, rotatePolygon } from '@/utils/stampTransform';
+import type { StampDef } from '@/utils/stampLibrary';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import CaptureBoxOverlay from '@/components/canvas/CaptureBoxOverlay';
 import CaptureLineOverlay from '@/components/canvas/CaptureLineOverlay';
@@ -136,6 +138,8 @@ interface FloorplanCanvasProps {
   openingEditTarget?: OpeningEditTarget | null;
   onToggleOpeningEdge?: (unitId: string, edgeIndex: number) => void;
   onInstantStamp?: (unitId: string, points: Point[]) => void;
+  /** Instant-stamp an ARMED drawer stamp (no source unit) — Stamp & Fast Markup Phase 2. */
+  onInstantStampShape?: (stamp: StampDef, points: Point[]) => void;
   pendingPolygonPoints?: Point[] | null;
   onPendingPolygonMove?: (points: Point[]) => void;
   onAddNodeToSegment?: (unitId: string, segmentIndex: number, newPoint: Point) => void;
@@ -170,6 +174,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   openingEditTarget,
   onToggleOpeningEdge,
   onInstantStamp,
+  onInstantStampShape,
   pendingPolygonPoints,
   onPendingPolygonMove,
   onOpenActivityModal,
@@ -192,6 +197,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const rotateStamp = useMapStore(s => s.rotateStamp);
   const flipStamp = useMapStore(s => s.flipStamp);
   const resetStampTransform = useMapStore(s => s.resetStampTransform);
+  // Stamp & Fast Markup — Phase 2: the armed drawer stamp (source when nothing selected).
+  const armedStamp = useMapStore(s => s.armedStamp);
+  const clearArmedStamp = useMapStore(s => s.clearArmedStamp);
 
   const temporalFilters = useSettingsStore(s => s.temporalFilters);
   const legendFilter = useSettingsStore(s => s.filterActivity);
@@ -875,7 +883,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     if (toolMode !== 'measure') { setMeasurePoints([]); }
     // Drop the transient stamp orientation whenever we leave the stamp tool so a stale
     // rotate/flip never bleeds into the next stamp session (Stamp & Fast Markup — Phase 1).
-    if (toolMode !== 'stamp') { resetStampTransform(); }
+    // Phase 2: also disarm the drawer stamp so it never lingers outside stamp mode.
+    if (toolMode !== 'stamp') { resetStampTransform(); clearArmedStamp(); }
     if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
       onClearSelection();
     }
@@ -1296,7 +1305,16 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     let pctX = (logicalX - offsetX) / drawW;
     let pctY = (logicalY - offsetY) / drawH;
 
-    if (toolMode === 'stamp' && selectedUnitIds?.length === 1) {
+    if (toolMode === 'stamp' && armedStamp && armedStamp.points.length > 0) {
+      // Phase 2: an armed drawer stamp is the source (no room selected). Its points are
+      // centroid-normalized; snap the anchor + apply the transform exactly like below so
+      // StampPreview and this commit build the identical polygon.
+      const anchor = snapPoint({ pctX, pctY });
+      const stampedPoints = buildStampPolygon(armedStamp.points, stampTransform, aspect, anchor);
+      if (isFinitePolygon(stampedPoints) && warnIfUnwired(onInstantStampShape, 'onInstantStamp:armed')) {
+        onInstantStampShape?.(armedStamp, stampedPoints);
+      }
+    } else if (toolMode === 'stamp' && selectedUnitIds?.length === 1) {
       const sourceUnit = units.find(u => u.id === selectedUnitIds[0]);
       if (sourceUnit && sourceUnit.polygon_coordinates && sourceUnit.polygon_coordinates.length > 0) {
         // Snap the drop anchor with the same engine tracing uses, then apply the active
@@ -2058,6 +2076,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         stampTransform={stampTransform}
         onRotateStamp={rotateStamp}
         onFlipStamp={flipStamp}
+        hasArmedStamp={!!armedStamp}
         onDeleteUnit={onDeleteUnit}
         onOpenActivityModal={onOpenActivityModal}
         onOpenStatusModal={onOpenStatusModal}
@@ -2068,6 +2087,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
           onLegendDragEnd?.({ rotation: (legendPosition?.rotation || 0) + rotDelta });
         }}
       />
+
+      {/* Stamp & Fast Markup — Phase 2: the recent/saved stamp drawer. Arm a shape here
+          and drop it with no room selected. Persisted in this browser (useSettingsStore). */}
+      <StampDrawer units={units} />
 
       {toolMode === 'draw' && draftPoints.length > 2 && (
         <button
@@ -2544,6 +2567,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             {toolMode === 'stamp' && (
               <StampPreview
                 selectedUnitId={selectedUnitIds?.length === 1 ? selectedUnitIds[0] : null}
+                armedPoints={armedStamp?.points ?? null}
                 pointerStore={pointerStore}
                 stageScale={stageScale}
                 units={units}

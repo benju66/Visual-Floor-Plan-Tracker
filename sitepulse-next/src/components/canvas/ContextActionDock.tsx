@@ -51,6 +51,10 @@ export interface ContextActionDockProps {
   stampTransform?: StampTransform;
   onRotateStamp?: (dir: 'left' | 'right') => void;
   onFlipStamp?: (axis: 'horizontal' | 'vertical') => void;
+  // Phase 2: an armed drawer stamp has NO selected unit, but the rotate/flip controls
+  // must still appear while placing it. When true, the stamp-transform panel shows in
+  // stamp mode even with an empty selection.
+  hasArmedStamp?: boolean;
   onDeleteUnit?: (ids: string | string[] | null) => void;
   onOpenActivityModal?: (id: string | null) => void;
   onOpenStatusModal?: (id: string | null) => void;
@@ -71,6 +75,7 @@ export default function ContextActionDock({
   stampTransform,
   onRotateStamp,
   onFlipStamp,
+  hasArmedStamp,
   onDeleteUnit,
   onOpenActivityModal,
   onOpenStatusModal,
@@ -79,7 +84,8 @@ export default function ContextActionDock({
   onRotateLegend,
   onHideLegend
 }: ContextActionDockProps) {
-  if ((!selectedUnitIds || selectedUnitIds.length === 0) && !isLegendSelected) return null;
+  const stampArmedNoSelection = toolMode === 'stamp' && !!hasArmedStamp;
+  if ((!selectedUnitIds || selectedUnitIds.length === 0) && !isLegendSelected && !stampArmedNoSelection) return null;
 
   const isMulti = selectedUnitIds && selectedUnitIds.length > 1;
   const isSingle = selectedUnitIds && selectedUnitIds.length === 1;
@@ -122,7 +128,7 @@ export default function ContextActionDock({
   // Stamp & Fast Markup — Phase 1: clicking "Stamp Trace" swaps this dock to the live
   // stamp transform controls — the same R / Shift+R / H / V keys, shown as chips and
   // doubling as buttons. Active flips are highlighted. "Done" returns to the normal dock.
-  if (isSingle && toolMode === 'stamp') {
+  if (toolMode === 'stamp' && (isSingle || hasArmedStamp)) {
     return (
       <div
         className={`${dockClass} absolute left-3 top-1/2 -translate-y-1/2`}

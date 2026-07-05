@@ -3,6 +3,10 @@ import { persist } from 'zustand/middleware';
 import { useState, useEffect } from 'react';
 import type { Updater, DeepPartial } from '@/types/utils';
 import type { LegendPosition, TemporalState } from '@/types/domain';
+import {
+  pushRecent, saveStamp, removeStamp, renameStamp,
+  EMPTY_STAMP_LIBRARY, type StampDef, type StampLibrary,
+} from '@/utils/stampLibrary';
 
 export interface AppSettings {
   enableToasts: boolean;
@@ -80,6 +84,15 @@ export interface SettingsState {
 
   colorMode: 'light' | 'dark' | 'system';
   setColorMode: (modeFn: Updater<'light' | 'dark' | 'system'>) => void;
+
+  // Stamp & Fast Markup — Phase 2: the persisted stamp drawer (this browser only). Plain
+  // JSON `StampDef` objects; the pure ops live in `@/utils/stampLibrary`. Read via
+  // `useHydratedStore` to avoid an SSR hydration mismatch.
+  stampLibrary: StampLibrary;
+  pushRecentStamp: (stamp: StampDef) => void;
+  saveStampToLibrary: (stamp: StampDef) => void;
+  removeSavedStamp: (id: string) => void;
+  renameSavedStamp: (id: string, name: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -110,6 +123,20 @@ export const useSettingsStore = create<SettingsState>()(
       setColorMode: (modeFn) => set((state) => ({
         colorMode: typeof modeFn === 'function' ? modeFn(state.colorMode) : modeFn
       })),
+
+      stampLibrary: EMPTY_STAMP_LIBRARY,
+      pushRecentStamp: (stamp) => set((state) => ({
+        stampLibrary: { ...state.stampLibrary, recents: pushRecent(state.stampLibrary.recents, stamp) },
+      })),
+      saveStampToLibrary: (stamp) => set((state) => ({
+        stampLibrary: { ...state.stampLibrary, saved: saveStamp(state.stampLibrary.saved, stamp) },
+      })),
+      removeSavedStamp: (id) => set((state) => ({
+        stampLibrary: { ...state.stampLibrary, saved: removeStamp(state.stampLibrary.saved, id) },
+      })),
+      renameSavedStamp: (id, name) => set((state) => ({
+        stampLibrary: { ...state.stampLibrary, saved: renameStamp(state.stampLibrary.saved, id, name) },
+      })),
     }),
     {
       name: 'sitepulse-settings-storage',
@@ -118,6 +145,7 @@ export const useSettingsStore = create<SettingsState>()(
         mapSettings: state.mapSettings,
         legendPosition: state.legendPosition,
         colorMode: state.colorMode,
+        stampLibrary: state.stampLibrary,
       }),
       // Default shallow merge, but the magnifier loupe is forced OFF on every
       // rehydrate. It's a transient placement aid that suspends snapping while

@@ -229,6 +229,7 @@ function App() {
     handleUpdateUnitPolygon,
     handleDuplicateUnit,
     handleInstantStamp,
+    handleInstantStampShape,
     handleRenameUnitInitiate,
     saveNewUnitFromPopover,
     cancelUnitNaming,
@@ -583,6 +584,7 @@ function App() {
                   onRenameUnit={handleRenameUnitInitiate}
                   onDeleteUnit={(ids) => { if (Array.isArray(ids)) handleDeleteUnits(ids); else if (ids) handleDeleteUnit(ids); }}
                   onInstantStamp={handleInstantStamp}
+                  onInstantStampShape={handleInstantStampShape}
                   pendingPolygonPoints={pendingPolygonPoints}
                   onPendingPolygonMove={setPendingPolygonPoints}
                   onPendingPolygonComplete={handlePolygonComplete}
