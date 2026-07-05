@@ -140,6 +140,10 @@ interface FloorplanCanvasProps {
   onInstantStamp?: (unitId: string, points: Point[]) => void;
   /** Instant-stamp an ARMED drawer stamp (no source unit) — Stamp & Fast Markup Phase 2. */
   onInstantStampShape?: (stamp: StampDef, points: Point[]) => void;
+  /** Opt-in "name each stamp" drop (Stamp & Fast Markup Phase 3): route the snapped/
+   *  transformed polygon through the naming popover instead of instant-create. `source`
+   *  is the armed stamp's or the selected room's name + type, normalized here. */
+  onStampWithNaming?: (source: { name: string; subtypeId: string | null; unitType: string | null }, points: Point[]) => void;
   pendingPolygonPoints?: Point[] | null;
   onPendingPolygonMove?: (points: Point[]) => void;
   onAddNodeToSegment?: (unitId: string, segmentIndex: number, newPoint: Point) => void;
@@ -175,6 +179,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   onToggleOpeningEdge,
   onInstantStamp,
   onInstantStampShape,
+  onStampWithNaming,
   pendingPolygonPoints,
   onPendingPolygonMove,
   onOpenActivityModal,
@@ -208,6 +213,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   
   const settings = useHydratedStore(s => s.settings, { showHistoryHover: false } as ProjectSettings);
   const mapSettings = useHydratedStore(s => s.mapSettings, { showCrosshair: false } as MapSettings);
+  // Stamp & Fast Markup — Phase 3: when ON, a stamp drop routes through the naming popover
+  // (pre-filled + re-arming) instead of dropping instantly. Default OFF ⇒ Phase 1/2 behavior.
+  const nameEachStamp = !!mapSettings?.nameEachStamp;
   const legendPosition = useHydratedStore(s => s.legendPosition, { isVisible: false } as any);
   const onLegendDragEnd = useSettingsStore(s => s.setLegendPosition);
 
@@ -1305,16 +1313,26 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     let pctX = (logicalX - offsetX) / drawW;
     let pctY = (logicalY - offsetY) / drawH;
 
-    if (toolMode === 'stamp' && armedStamp && armedStamp.points.length > 0) {
+    if (toolMode === 'stamp' && !isEditingPending && armedStamp && armedStamp.points.length > 0) {
       // Phase 2: an armed drawer stamp is the source (no room selected). Its points are
       // centroid-normalized; snap the anchor + apply the transform exactly like below so
-      // StampPreview and this commit build the identical polygon.
+      // StampPreview and this commit build the identical polygon. `!isEditingPending`
+      // (Phase 3): while a named stamp's pending polygon awaits Enter, a stray canvas
+      // click must not drop a SECOND stamp on top of it.
       const anchor = snapPoint({ pctX, pctY });
       const stampedPoints = buildStampPolygon(armedStamp.points, stampTransform, aspect, anchor);
-      if (isFinitePolygon(stampedPoints) && warnIfUnwired(onInstantStampShape, 'onInstantStamp:armed')) {
-        onInstantStampShape?.(armedStamp, stampedPoints);
+      if (isFinitePolygon(stampedPoints)) {
+        if (nameEachStamp) {
+          // Phase 3 (opt-in): route through the naming popover, pre-filled from the stamp,
+          // then re-arm. The armed stamp is left set so the next click drops it again.
+          if (warnIfUnwired(onStampWithNaming, 'onStampWithNaming:armed')) {
+            onStampWithNaming?.({ name: armedStamp.name, subtypeId: armedStamp.subtypeId ?? null, unitType: armedStamp.unitType ?? null }, stampedPoints);
+          }
+        } else if (warnIfUnwired(onInstantStampShape, 'onInstantStamp:armed')) {
+          onInstantStampShape?.(armedStamp, stampedPoints);
+        }
       }
-    } else if (toolMode === 'stamp' && selectedUnitIds?.length === 1) {
+    } else if (toolMode === 'stamp' && !isEditingPending && selectedUnitIds?.length === 1) {
       const sourceUnit = units.find(u => u.id === selectedUnitIds[0]);
       if (sourceUnit && sourceUnit.polygon_coordinates && sourceUnit.polygon_coordinates.length > 0) {
         // Snap the drop anchor with the same engine tracing uses, then apply the active
@@ -1323,8 +1341,16 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         const stampedPoints = buildStampPolygon(sourceUnit.polygon_coordinates, stampTransform, aspect, anchor);
 
         // Never persist a corrupt shape from a bad transform/snap.
-        if (isFinitePolygon(stampedPoints) && warnIfUnwired(onInstantStamp, 'onInstantStamp:stamp')) {
-          onInstantStamp?.(selectedUnitIds[0], stampedPoints);
+        if (isFinitePolygon(stampedPoints)) {
+          if (nameEachStamp) {
+            // Phase 3 (opt-in): pre-fill the popover from the source room; selection
+            // persists so the next click stamps it again.
+            if (warnIfUnwired(onStampWithNaming, 'onStampWithNaming:unit')) {
+              onStampWithNaming?.({ name: sourceUnit.unit_number, subtypeId: sourceUnit.subtype_id ?? null, unitType: sourceUnit.unit_type ?? null }, stampedPoints);
+            }
+          } else if (warnIfUnwired(onInstantStamp, 'onInstantStamp:stamp')) {
+            onInstantStamp?.(selectedUnitIds[0], stampedPoints);
+          }
         }
       }
     } else if (toolMode === 'draw' && !isEditingPending) {
@@ -2430,6 +2456,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                   isHovered={hoveredUnit === unit.id}
                   temporalFilters={temporalFilters}
                   toolMode={toolMode}
+                  shadeUnstatused={!!mapSettings?.shadeLocations}
                   layout={layout}
                   stageScale={stageScale}
                   vectorTree={vectorTree}

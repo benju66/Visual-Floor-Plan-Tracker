@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Search, Map, Workflow } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Search, Map, Workflow, Highlighter } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
 
@@ -209,6 +209,21 @@ export default function MapHorizontalToolbar({
         title={`${mapSettings?.showMiniMap ? 'Hide' : 'Show'} Mini-map`}
       >
         <Map size={18} />
+      </button>
+
+      {/* Shade locations: keep the faint fill on un-statused locations in every mode, so
+          they're visible while setting them up before any status is recorded. */}
+      <button
+        type="button"
+        onClick={() => onUpdateMapSettings?.({ ...mapSettings, shadeLocations: !mapSettings?.shadeLocations })}
+        className={`p-2 rounded-full flex items-center justify-center transition-all ${
+          mapSettings?.shadeLocations
+            ? 'bg-blue-500 text-white shadow-sm scale-110'
+            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+        }`}
+        title={mapSettings?.shadeLocations ? 'Hide location shading' : 'Shade locations (show un-statused locations)'}
+      >
+        <Highlighter size={18} />
       </button>
 
       <button

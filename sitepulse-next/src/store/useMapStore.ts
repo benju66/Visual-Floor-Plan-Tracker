@@ -67,6 +67,14 @@ export interface MapState {
   mapLabelSuggestion: RoomSuggestion | null;
   setMapLabelSuggestion: (val: Updater<RoomSuggestion | null>) => void;
 
+  // The type (subtype/unit_type) carried by the stamp currently being named through the
+  // opt-in "name each stamp" flow (Stamp & Fast Markup — Phase 3), or null. It lets the
+  // naming popover pre-select the stamp's type without threading a channel through the
+  // canvas. Transient tool state: set the moment a drop opens the popover, cleared on
+  // save/cancel — it parallels `pendingPolygonPoints`' lifecycle. Plain JSON, NOT persisted.
+  pendingStampType: { subtypeId: string | null; unitType: string | null } | null;
+  setPendingStampType: (val: Updater<{ subtypeId: string | null; unitType: string | null } | null>) => void;
+
   // The transient orientation the NEXT stamp drops with (Stamp & Fast Markup — Phase 1):
   // net 90° rotation steps + horizontal/vertical mirror. Lives only while
   // `toolMode === 'stamp'`, reset on tool change; transient + NOT persisted (partialize).
@@ -144,6 +152,9 @@ export const useMapStore = create<MapState>()(
 
       mapLabelSuggestion: null,
       setMapLabelSuggestion: (val) => set((state) => ({ mapLabelSuggestion: typeof val === 'function' ? val(state.mapLabelSuggestion) : val })),
+
+      pendingStampType: null,
+      setPendingStampType: (val) => set((state) => ({ pendingStampType: typeof val === 'function' ? val(state.pendingStampType) : val })),
 
       stampTransform: IDENTITY_STAMP_TRANSFORM,
       rotateStamp: (dir) => set((state) => ({

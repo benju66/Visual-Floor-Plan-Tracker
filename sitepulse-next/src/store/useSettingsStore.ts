@@ -64,6 +64,15 @@ export interface MapSettings {
   /** Persisted width (px) of the Schedule view's right floor-plan panel, set by dragging
    *  its divider. Desktop only. Default 380. */
   schedulePlanWidth?: number;
+  /** "Name each stamp" (Stamp & Fast Markup — Phase 3): when ON, a stamp drop opens the
+   *  name + type box (pre-filled from the stamp) instead of dropping instantly, then
+   *  re-arms the same stamp. Default OFF — only an explicit `true` enables it, so
+   *  stamping stays instant/auto-named exactly like Phase 1/2 out of the box. */
+  nameEachStamp?: boolean;
+  /** "Shade locations": keep the faint fill on un-statused locations in EVERY mode (not
+   *  just draw/stamp), so locations are visible while setting them up before any status
+   *  is recorded. Default OFF. */
+  shadeLocations?: boolean;
 }
 
 export interface SettingsState {
@@ -109,7 +118,7 @@ export const useSettingsStore = create<SettingsState>()(
         settings: typeof settingsFn === 'function' ? { ...state.settings, ...settingsFn(state.settings) } : { ...state.settings, ...settingsFn } 
       }) as Partial<SettingsState>),
 
-      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, colorByMakeReady: false, showMagnifier: false, magnifierZoom: 3, showMiniMap: false, miniMapScale: 1, scheduleActivitiesWidth: 360, schedulePlanWidth: 380, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
+      mapSettings: { showHorizontalToolbar: true, showCrosshair: false, crosshairStyle: 'lines', enableSnapping: true, showWalkSequence: false, smoothWheelZoom: true, gridAwareSnapping: true, sidebarWidth: 320, colorByVariance: false, colorByMakeReady: false, showMagnifier: false, magnifierZoom: 3, showMiniMap: false, miniMapScale: 1, scheduleActivitiesWidth: 360, schedulePlanWidth: 380, nameEachStamp: false, shadeLocations: false, pinnedTools: ['undo', 'redo', 'pan', 'draw', 'add_node'] },
       setMapSettings: (settingsFn) => set((state) => ({ 
         mapSettings: typeof settingsFn === 'function' ? { ...state.mapSettings, ...settingsFn(state.mapSettings) } : { ...state.mapSettings, ...settingsFn } 
       }) as Partial<SettingsState>),

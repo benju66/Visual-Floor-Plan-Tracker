@@ -31,7 +31,7 @@ export interface StampLibrary {
 export const EMPTY_STAMP_LIBRARY: StampLibrary = { recents: [], saved: [] };
 
 /** How many recent stamps the drawer keeps (newest-first). */
-export const RECENTS_CAP = 12;
+export const RECENTS_CAP = 5;
 
 /**
  * A rounded-point signature used to de-dupe recents. Points are centroid-normalized, so

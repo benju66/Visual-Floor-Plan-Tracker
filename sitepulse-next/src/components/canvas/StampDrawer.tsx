@@ -53,6 +53,12 @@ export default function StampDrawer({ units }: StampDrawerProps) {
   const removeSavedStamp = useSettingsStore((s) => s.removeSavedStamp);
   const renameSavedStamp = useSettingsStore((s) => s.renameSavedStamp);
 
+  // Stamp & Fast Markup — Phase 3: "Name each stamp" — when ON, each drop opens the
+  // name + type box (pre-filled) instead of dropping instantly, then re-arms. Persisted
+  // in mapSettings; read via useHydratedStore to avoid an SSR hydration mismatch.
+  const setMapSettings = useSettingsStore((s) => s.setMapSettings);
+  const nameEachStamp = useHydratedStore((s) => s.mapSettings.nameEachStamp ?? false, false);
+
   const armedStamp = useMapStore((s) => s.armedStamp);
   const armStamp = useMapStore((s) => s.armStamp);
   const clearArmedStamp = useMapStore((s) => s.clearArmedStamp);
@@ -164,14 +170,40 @@ export default function StampDrawer({ units }: StampDrawerProps) {
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setStampDrawerOpen(false)}
-          className="p-1 rounded-lg text-slate-500 hover:bg-white/40 dark:text-slate-300 dark:hover:bg-white/10 transition-colors"
-          title="Close drawer"
-        >
-          <ChevronDown size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Phase 3: flip ON to name + type each stamp as you drop it (then it re-arms). */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={nameEachStamp}
+            onClick={() => setMapSettings({ nameEachStamp: !nameEachStamp })}
+            className="flex items-center gap-1.5 select-none normal-case tracking-normal text-[11px] font-semibold text-slate-500 dark:text-slate-300 hover:text-slate-700 dark:hover:text-slate-100 transition-colors"
+            title={nameEachStamp
+              ? 'Naming each stamp — each drop opens the name/type box, then re-arms. Click to stamp instantly instead.'
+              : 'Stamping instantly (auto-named). Click to name + set the type on each drop.'}
+          >
+            <span
+              className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+                nameEachStamp ? 'bg-fuchsia-500' : 'bg-slate-300 dark:bg-slate-600'
+              }`}
+            >
+              <span
+                className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${
+                  nameEachStamp ? 'translate-x-3.5' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+            Name each stamp
+          </button>
+          <button
+            type="button"
+            onClick={() => setStampDrawerOpen(false)}
+            className="p-1 rounded-lg text-slate-500 hover:bg-white/40 dark:text-slate-300 dark:hover:bg-white/10 transition-colors"
+            title="Close drawer"
+          >
+            <ChevronDown size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="flex items-stretch gap-3 px-3 pb-3 overflow-x-auto overscroll-contain">
@@ -191,7 +223,7 @@ export default function StampDrawer({ units }: StampDrawerProps) {
         )}
 
         {saved.length > 0 && (
-          <Section label="Saved">
+          <Section label="Saved" divider={recents.length > 0}>
             {saved.map((stamp) => (
               <div key={stamp.id} className="relative group flex flex-col items-center">
                 {renamingId === stamp.id ? (
@@ -283,9 +315,9 @@ export default function StampDrawer({ units }: StampDrawerProps) {
   );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ label, children, divider = false }: { label: string; children: React.ReactNode; divider?: boolean }) {
   return (
-    <div className="flex flex-col shrink-0">
+    <div className={`flex flex-col shrink-0${divider ? ' pl-3 border-l border-slate-200/70 dark:border-white/10' : ''}`}>
       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1 px-0.5">{label}</div>
       <div className="flex items-start gap-2">{children}</div>
     </div>

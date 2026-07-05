@@ -38,6 +38,9 @@ export interface MappedUnitProps {
   isHovered: boolean;
   temporalFilters: string[] | null;
   toolMode: ToolMode;
+  /** "Shade locations" map toggle: keep the faint un-statused fill on in EVERY mode (not
+   *  just draw/stamp), so locations are visible during setup before statuses exist. */
+  shadeUnstatused?: boolean;
   layout: CanvasLayout;
   stageScale: number;
   vectorTree: RBush<any> | null;
@@ -80,6 +83,7 @@ export const MappedUnitComponent = ({
   isHovered,
   temporalFilters,
   toolMode,
+  shadeUnstatused,
   layout,
   stageScale,
   vectorTree,
@@ -164,13 +168,13 @@ export const MappedUnitComponent = ({
      currentStroke = '#10b981';
   }
 
-  // Draw tool active: lightly shade already-traced polygons that carry no status
-  // fill of their own (e.g. the labeling workbench, which passes no statuses) so
-  // you can see what's already been traced while drawing new ones. Faint and under
-  // the multiply fill, so the drawing underneath stays readable; the fill Line is
-  // listening={false}, so it never intercepts a draw click. Live-map units keep
-  // their status color (guarded by !activeStatus).
-  if (toolMode === 'draw' && !activeStatus) {
+  // Lightly shade already-traced polygons that carry no status fill of their own so you
+  // can see what's already there. On automatically while drawing or stamping new ones,
+  // and always-on when the "Shade locations" map toggle is set (handy for setting up
+  // locations before statuses exist). Faint and under the multiply fill, so the drawing
+  // underneath stays readable; the fill Line is listening={false}, so it never intercepts
+  // a click. Live-map units keep their status color (guarded by !activeStatus).
+  if ((toolMode === 'draw' || toolMode === 'stamp' || shadeUnstatused) && !activeStatus) {
     currentFill = mixAlpha('#60a5fa', 0.12);
   }
 
@@ -529,6 +533,7 @@ export default React.memo(MappedUnitComponent, (prevProps, nextProps) => {
     prevProps.isHovered === nextProps.isHovered &&
     prevProps.stageScale === nextProps.stageScale &&
     prevProps.toolMode === nextProps.toolMode &&
+    prevProps.shadeUnstatused === nextProps.shadeUnstatused &&
     prevProps.legendFilter === nextProps.legendFilter &&
     prevProps.activeDragNode?.unitId === nextProps.activeDragNode?.unitId &&
     (prevProps.activeDragNode?.unitId !== prevProps.unit.id ? true :

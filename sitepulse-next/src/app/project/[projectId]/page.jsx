@@ -218,7 +218,7 @@ function App() {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
     newUnitName, setNewUnitName,
-    suggestedPick, isSuggested,
+    suggestedPick, isSuggested, stampPick,
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,
@@ -230,6 +230,7 @@ function App() {
     handleDuplicateUnit,
     handleInstantStamp,
     handleInstantStampShape,
+    handleStampWithNaming,
     handleRenameUnitInitiate,
     saveNewUnitFromPopover,
     cancelUnitNaming,
@@ -585,6 +586,7 @@ function App() {
                   onDeleteUnit={(ids) => { if (Array.isArray(ids)) handleDeleteUnits(ids); else if (ids) handleDeleteUnit(ids); }}
                   onInstantStamp={handleInstantStamp}
                   onInstantStampShape={handleInstantStampShape}
+                  onStampWithNaming={handleStampWithNaming}
                   pendingPolygonPoints={pendingPolygonPoints}
                   onPendingPolygonMove={setPendingPolygonPoints}
                   onPendingPolygonComplete={handlePolygonComplete}
@@ -613,7 +615,7 @@ function App() {
                   projectType={project?.project_type || null}
                   initialSubtypeId={editingUnitId ? (units.find(u => u.id === editingUnitId)?.subtype_id || null) : null}
                   initialUnitType={editingUnitId ? (units.find(u => u.id === editingUnitId)?.unit_type || null) : null}
-                  initialPick={suggestedPick}
+                  initialPick={stampPick ?? suggestedPick}
                   isSuggested={isSuggested}
                   recentSubtypeIds={recentSubtypeIdsFromUnits(units)}
                   saveNewUnitFromPopover={saveNewUnitFromPopover}

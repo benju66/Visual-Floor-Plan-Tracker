@@ -7,7 +7,7 @@ import {
   useCreateUnit, useUpdateUnitGeometry, useUpdateUnitFields,
   useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateActivity, useBulkUpdateStatus
 } from '@/hooks/useProjectQueries';
-import type { Project, Unit, PercentPoint, StatusLog, Activity, TemporalState, Sheet, ActivityOverride } from '@/types/domain';
+import type { Project, Unit, PercentPoint, StatusLog, Activity, TemporalState, Sheet, ActivityOverride, TopLevelRole } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
 import { buildApplicabilityIndex, hasSequenceGaps, nextApplicableIndex } from '@/utils/applicability';
 import { useProposePendingSubtype, useSubtypes } from '@/hooks/useSubtypes';
@@ -32,6 +32,7 @@ import { computeAreaFromUnitsPerPx } from '@/utils/scale';
 import { loadImageDimensions } from '@/utils/imageDimensions';
 import { normalizeToCentroid } from '@/utils/stampTransform';
 import type { StampDef } from '@/utils/stampLibrary';
+import { stampBaseName, nextStampName } from '@/utils/stampNaming';
 
 export function useMapActions(project: Project | null | undefined) {
   const queryClient = useQueryClient();
@@ -48,6 +49,9 @@ export function useMapActions(project: Project | null | undefined) {
   const setPendingPolygonPoints = useMapStore(s => s.setPendingPolygonPoints);
   const mapLabelSuggestion = useMapStore(s => s.mapLabelSuggestion);
   const setMapLabelSuggestion = useMapStore(s => s.setMapLabelSuggestion);
+  // Stamp & Fast Markup — Phase 3: the type carried by a stamp being named (opt-in flow).
+  const pendingStampType = useMapStore(s => s.pendingStampType);
+  const setPendingStampType = useMapStore(s => s.setPendingStampType);
   const quickStatusUnitId = useMapStore(s => s.quickStatusUnitId);
   const setQuickStatusUnitId = useMapStore(s => s.setQuickStatusUnitId);
   const quickActivityUnitId = useMapStore(s => s.quickActivityUnitId);
@@ -110,6 +114,7 @@ export function useMapActions(project: Project | null | undefined) {
 
   const handlePolygonComplete = (points: PercentPoint[]) => {
     setEditingUnitId(null);
+    setPendingStampType(null); // a fresh hand-trace is never a stamp
     setPendingPolygonPoints(points);
     // Read the sheet words inside the polygon, propose a name + type, and pre-fill the
     // naming popover (Phase 4). The geometry stays 100% hand-traced; only the name/type
@@ -150,6 +155,7 @@ export function useMapActions(project: Project | null | undefined) {
     }));
     
     setMapLabelSuggestion(null); // a duplicate is not an AI-suggested trace
+    setPendingStampType(null);   // …nor a stamp
     setPendingPolygonPoints(newPoints);
     setNewUnitName(`${sourceUnit.unit_number} (Copy)`);
     setUnitNamingOpen(true);
@@ -159,23 +165,22 @@ export function useMapActions(project: Project | null | undefined) {
   // drawer stamp with NO source unit can auto-name off its own base name). `baseName`
   // is the un-suffixed name; a "(Stamp N)" suffix is appended with the next free index
   // on this sheet. Behavior for the selected-room path is unchanged.
-  const commitStampedUnit = async (baseName: string, newPoints: PercentPoint[]) => {
+  const commitStampedUnit = async (
+    baseName: string,
+    newPoints: PercentPoint[],
+    // A stamp is a copy of a location, so it carries that location's type onto the copy
+    // (subtype_id + unit_type + top_level_role). Omitted → the new row falls back to the
+    // DB default. Copying unit_type also gives the stamped location the SAME milestone
+    // applicability as its source (applicability keys on unit_type — AGENTS §3).
+    typeFields?: { subtype_id: string | null; unit_type: string | null; top_level_role: TopLevelRole | null },
+  ) => {
     const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
 
-    let nextIndex = 1;
-    units.forEach(u => {
-      if (u.unit_number.startsWith(`${baseName} (Stamp`)) {
-        const match = u.unit_number.match(/\(Stamp\s*(\d+)\)$/);
-        if (match) {
-          const idx = parseInt(match[1]);
-          if (idx >= nextIndex) nextIndex = idx + 1;
-        }
-      }
-    });
-
-    const stampedName = `${baseName} (Stamp ${nextIndex})`;
+    // Shared index math (Phase 3) so an instant drop and an Enter-through in the naming
+    // popover produce the identical "{base} (Stamp N)" name.
+    const stampedName = nextStampName(baseName, units.map(u => u.unit_number));
     try {
-      const data = await createUnitMutation.mutateAsync({ sheet_id: activeSheetId, unit_number: stampedName, polygon_coordinates: newPoints as any });
+      const data = await createUnitMutation.mutateAsync({ sheet_id: activeSheetId, unit_number: stampedName, polygon_coordinates: newPoints as any, ...(typeFields ?? {}) });
       setUndoStack(prev => {
         const next = [...prev, { actionType: 'CREATE_UNIT' as const, unitData: data as any }];
         return next.length > 50 ? next.slice(next.length - 50) : next;
@@ -191,10 +196,15 @@ export function useMapActions(project: Project | null | undefined) {
     const sourceUnit = units.find(u => u.id === sourceUnitId);
     if (!sourceUnit) return;
 
-    const baseNameMatch = sourceUnit.unit_number.match(/^(.*?)(?:\s*\(Stamp\s*(\d+)\))?$/);
-    const baseName = baseNameMatch ? baseNameMatch[1].trim() : sourceUnit.unit_number;
+    const baseName = stampBaseName(sourceUnit.unit_number);
 
-    await commitStampedUnit(baseName, newPoints);
+    // Copy the source room's type onto the stamped copy (its role is authoritative on
+    // the source unit — no derivation needed).
+    await commitStampedUnit(baseName, newPoints, {
+      subtype_id: sourceUnit.subtype_id ?? null,
+      unit_type: sourceUnit.unit_type ?? null,
+      top_level_role: (sourceUnit.top_level_role as TopLevelRole) ?? null,
+    });
 
     // Collect the source room's shape into the drawer's recents so it's re-stampable
     // without re-selecting it (Phase 2). Stored normalized to its own centroid; de-dup
@@ -218,8 +228,37 @@ export function useMapActions(project: Project | null | undefined) {
   // as independent drawer entries — de-dup by shape still collapses repeated drops).
   const handleInstantStampShape = async (stamp: StampDef, newPoints: PercentPoint[]) => {
     const baseName = (stamp.name || 'Stamp').trim() || 'Stamp';
-    await commitStampedUnit(baseName, newPoints);
+    // Carry the stamp's saved type onto the copy. A StampDef stores subtype_id + unit_type
+    // but not the role, so recover the role from the dictionary (same resolution the
+    // naming path's stampPick uses) — never write a stray unit_type without its role.
+    const st = stamp.subtypeId ? subtypes.find(s => s.id === stamp.subtypeId) : null;
+    await commitStampedUnit(baseName, newPoints, {
+      subtype_id: stamp.subtypeId ?? null,
+      unit_type: stamp.unitType ?? null,
+      top_level_role: st ? (st.top_level_role as TopLevelRole) : null,
+    });
     pushRecentStamp({ ...stamp, id: crypto.randomUUID(), createdAt: new Date().toISOString() });
+  };
+
+  // Stamp & Fast Markup — Phase 3: the OPT-IN "name each stamp" drop. Instead of the
+  // instant create, route the already snapped/transformed polygon through the SAME
+  // pending-polygon + naming popover a fresh trace uses (mirror handleDuplicateUnit),
+  // pre-filling the name ("{base} (Stamp N)", matching the instant path) and — via the
+  // `pendingStampType` carrier → `stampPick` below — the stamp's type. The armed stamp
+  // (or the selected room) is left untouched, so hitting Enter re-arms it for the next
+  // drop. `source` is the armed StampDef's identity or the selected room's, normalized
+  // in FloorplanCanvas. saveNewUnitFromPopover does the create + recent-push (no dupe).
+  const handleStampWithNaming = (
+    source: { name: string; subtypeId: string | null; unitType: string | null },
+    newPoints: PercentPoint[],
+  ) => {
+    const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
+    const baseName = stampBaseName(source.name || 'Stamp') || 'Stamp';
+    setMapLabelSuggestion(null); // a stamp is not an AI-suggested trace
+    setPendingStampType({ subtypeId: source.subtypeId ?? null, unitType: source.unitType ?? null });
+    setPendingPolygonPoints(newPoints);
+    setNewUnitName(nextStampName(baseName, units.map(u => u.unit_number)));
+    setUnitNamingOpen(true);
   };
 
   const handleRenameUnitInitiate = (unitId: string) => {
@@ -227,6 +266,7 @@ export function useMapActions(project: Project | null | undefined) {
      const unit = units.find(u => u.id === unitId);
      if (!unit) return;
      setMapLabelSuggestion(null); // a rename is an edit, never an AI suggestion
+     setPendingStampType(null);
      setEditingUnitId(unitId);
      setNewUnitName(unit.unit_number);
      setUnitNamingOpen(true);
@@ -344,6 +384,7 @@ export function useMapActions(project: Project | null | undefined) {
          setUnitNamingOpen(false);
          setPendingPolygonPoints(null);
          setMapLabelSuggestion(null);
+         setPendingStampType(null);
          setNewUnitName('');
          showToast('Location saved.', 'success');
       }
@@ -374,6 +415,7 @@ export function useMapActions(project: Project | null | undefined) {
     setEditingUnitId(null);
     setNewUnitName('');
     setMapLabelSuggestion(null);
+    setPendingStampType(null);
   };
 
   const handleDeleteUnit = (unitId: string) => {
@@ -706,11 +748,23 @@ export function useMapActions(project: Project | null | undefined) {
   const suggestedPick = !editingUnitId && mapLabelSuggestion ? suggestionToPick(mapLabelSuggestion) : null;
   const isSuggested = !editingUnitId && !!mapLabelSuggestion;
 
+  // Stamp & Fast Markup — Phase 3: pre-select the stamp's type in the naming popover.
+  // Resolve the carried `subtypeId` to a real dictionary pick (name + role) so hitting
+  // Enter saves WITH the type — mirrors `suggestedPick`, gated to CREATE (never a rename).
+  // Null when the stamp is typeless (no subtype) or its id has since left the dictionary,
+  // in which case the popover just opens with no type pre-selected.
+  const stampSubtype = !editingUnitId && pendingStampType?.subtypeId
+    ? subtypes.find(s => s.id === pendingStampType.subtypeId) ?? null
+    : null;
+  const stampPick: TaxonomyResult | null = stampSubtype
+    ? { kind: 'subtype', subtypeId: stampSubtype.id, name: stampSubtype.name, role: stampSubtype.top_level_role as TopLevelRole }
+    : null;
+
   return {
     undoStack, triggerUndo, triggerRedo, redoStack,
     unitNamingOpen, setUnitNamingOpen,
     newUnitName, setNewUnitName,
-    suggestedPick, isSuggested,
+    suggestedPick, isSuggested, stampPick,
     editingUnitId, savingUnitId,
     confirmModal, setConfirmModal,
     quickStatusUnitId, setQuickStatusUnitId,
@@ -722,6 +776,7 @@ export function useMapActions(project: Project | null | undefined) {
     handleDuplicateUnit,
     handleInstantStamp,
     handleInstantStampShape,
+    handleStampWithNaming,
     handleRenameUnitInitiate,
     saveNewUnitFromPopover,
     cancelUnitNaming,
