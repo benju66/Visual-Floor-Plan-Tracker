@@ -36,6 +36,7 @@ import { tagVectorsWithGrid } from '@/utils/gridAwareSnap';
 import { computeUnitVariance, varianceFill, orderedTrackActivities } from '@/utils/progressAnalytics';
 import { unitMakeReady, makeReadyFill, slotKey } from '@/utils/activityReadiness';
 import { classifyWheelIntent, clampStagePosition, createViewportSync, dampToward } from '@/utils/viewport';
+import { computeLayout, computeVisibleBox, cullVisibleUnits } from '@/utils/canvasLayout';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
 import { warnIfUnwired } from '@/utils/wiringGuard';
@@ -925,62 +926,22 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     return () => { cancelled = true; };
   }, [toolMode, activeSheet?.base_image_url, originalWidth, originalHeight]);
 
-  const layout = useMemo(() => {
-    const stageW = dimensions.width;
-    const stageH = dimensions.height;
-    if (!stageW || !stageH) {
-      return { offsetX: 0, offsetY: 0, drawW: 0, drawH: 0, stageW: 0, stageH: 0 };
-    }
-
-    const nw = originalWidth;
-    const nh = originalHeight;
-
-    if (!nw || !nh) {
-      return { offsetX: 0, offsetY: 0, drawW: stageW, drawH: stageH, stageW, stageH };
-    }
-    const scale = Math.min(stageW / nw, stageH / nh);
-    const drawW = nw * scale;
-    const drawH = nh * scale;
-    const offsetX = (stageW - drawW) / 2;
-    const offsetY = (stageH - drawH) / 2;
-    return { offsetX, offsetY, drawW, drawH, stageW, stageH };
-  }, [originalWidth, originalHeight, dimensions.width, dimensions.height]);
+  const layout = useMemo(
+    () => computeLayout(dimensions.width, dimensions.height, originalWidth, originalHeight),
+    [originalWidth, originalHeight, dimensions.width, dimensions.height],
+  );
 
   useEffect(() => { layoutRef.current = layout; }, [layout]);
 
-  const visibleBoundingBox = useMemo(() => {
-    if (!layout.drawW || !layout.drawH || !dimensions.width || !dimensions.height) return null;
-    const minX = ((-stagePosition.x / stageScale) - layout.offsetX) / layout.drawW;
-    const minY = ((-stagePosition.y / stageScale) - layout.offsetY) / layout.drawH;
-    const maxX = (((dimensions.width - stagePosition.x) / stageScale) - layout.offsetX) / layout.drawW;
-    const maxY = (((dimensions.height - stagePosition.y) / stageScale) - layout.offsetY) / layout.drawH;
-    return {
-      minPctX: minX - 0.05,
-      maxPctX: maxX + 0.05,
-      minPctY: minY - 0.05,
-      maxPctY: maxY + 0.05,
-    };
-  }, [stagePosition, stageScale, dimensions, layout]);
+  const visibleBoundingBox = useMemo(
+    () => computeVisibleBox(layout, stagePosition, stageScale, dimensions),
+    [stagePosition, stageScale, dimensions, layout],
+  );
 
-  const visibleUnits = useMemo(() => {
-    if (!visibleBoundingBox || !layout.drawW) return units;
-    const { minPctX, maxPctX, minPctY, maxPctY } = visibleBoundingBox;
-
-    return units.filter(unit => {
-      // Unmapped units have no renderable geometry — exclude them unless the user is
-      // actively drawing, where clicking the canvas can target any unit slot.
-      if (!unit.polygon_coordinates || (unit.polygon_coordinates as any[]).length === 0) {
-        return toolMode === 'draw';
-      }
-      
-      return unit.polygon_coordinates.some(pt => 
-        pt.pctX >= minPctX && 
-        pt.pctX <= maxPctX && 
-        pt.pctY >= minPctY && 
-        pt.pctY <= maxPctY
-      );
-    });
-  }, [units, visibleBoundingBox, layout.drawW, toolMode]);
+  const visibleUnits = useMemo(
+    () => cullVisibleUnits(units, visibleBoundingBox, layout.drawW, toolMode),
+    [units, visibleBoundingBox, layout.drawW, toolMode],
+  );
 
   useImperativeHandle(ref, () => ({
     exportFullImage: () => {
