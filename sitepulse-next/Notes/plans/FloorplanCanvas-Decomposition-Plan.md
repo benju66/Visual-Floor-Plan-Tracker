@@ -45,12 +45,16 @@ Framework-free, deterministic functions (no `Date.now()` inside — pass timesta
 ## Sub-phasing (ship + verify each)
 > Ordering is the dependency chain. Each phase is one fresh session, behavior-preserving, closed with `verify-feature`. After EVERY phase: `npm run test -- src/components/FloorplanCanvas.test.tsx` must stay green (the golden master), plus the full gate below.
 
-### Phase 1 — Extract pure layout + culling math → `src/utils/canvasLayout.ts`
+### Phase 1 — Extract pure layout + culling math → `src/utils/canvasLayout.ts` — ✅ DONE (e4f9274, Approved)
 - **Scope:** Move the `layout` memo (928–947), `visibleBoundingBox` memo (951–963), and `visibleUnits` filter (965–983) into pure functions in `canvasLayout.ts` with a co-located test. `FloorplanCanvas` imports and calls them (state/memo wrappers stay in the component). Smallest, purest phase — establishes the extraction pattern and the highest test payoff. No hook yet.
 - **Approval gates:** none (no DB/queue/UI-behavior change).
 - **Exit criteria:** typecheck + test + build green · `canvasLayout.test.ts` covers the mapping the golden master assumes · golden master still green · `dev:3010`: floor plan renders, markers positioned correctly, culling on pan/zoom unchanged · `verify-feature`.
 
-### Phase 2 — Extract the viewport/camera engine → `useCanvasViewport`
+### Phase 2 — Extract the viewport/camera engine → `useCanvasViewport` — ✅ DONE (87399e3, Approved)
+> Landed as `src/hooks/useCanvasViewport.ts` (flat hooks folder — decision resolved). Two seams: the
+> component keeps a 3-line `handleZoom` wrapper (clears the context menu — component UI state), and the
+> hook RETURNS `viewportSync` + `liveViewportRef` because the Stage's drag handlers (Phase 4 territory)
+> write through them. No new pure math fell out — `viewport.test.ts` unchanged. FloorplanCanvas 2,709 → 2,368 lines.
 - **Scope:** Move `stageScale`/`stagePosition` state + `liveViewportRef` + `viewportSync`, the wheel path (`handleWheel`, `cancelSmoothWheel`, `stepSmoothWheel`, and the `wheel*Ref`s), `animateViewport`, `handleZoom`, `resetView`, `zoomToFit`, `zoomToLevel`, and the mini-map helpers (`miniMapRecenter`/`miniMapPanTo`/`miniMapPanEnd`/`miniMapResize`) into `src/hooks/useCanvasViewport.ts`. The hook takes `stageRef` + `layout` + `dimensions` and returns `{ stageScale, stagePosition, handleWheel, animateViewport, zoomToFit, zoomToLevel, resetView, miniMap* }`. The `useImperativeHandle` (`exportFullImage`, `zoomToFit`) keeps exposing the same surface. REUSE `viewport.ts` math.
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: mouse-wheel zoom (must stay wheel-zoom, not scroll-pan — [[users-are-mouse-wheel-primary]]), smooth-glide, double-click zoom, pan, fit-to-view, mini-map drag/resize all identical · `verify-feature`.
@@ -116,5 +120,5 @@ npm --prefix "C:/Users/BUrness/Dev/Visual-Floor-Plan-Tracker/sitepulse-next" run
 - **Lint is NOT a gate** (~1850 pre-existing problems). No E2E framework — UI/canvas verified by a live `npm run dev:3010` click-through (port 3010, not 3000). ⚠️ a `next build` corrupts a running `dev:3010` server → restart via `scripts/restart-dev.ps1`. Vitest globals are OFF: import `{ describe, it, expect, vi }` from `'vitest'`; co-locate `foo.test.ts`.
 
 ## Open decisions
-- **Hook folder layout** — `src/hooks/useCanvas*.ts` flat (matches the existing flat `src/hooks/`) vs. a new `src/hooks/canvas/` subfolder. Default: **flat `src/hooks/`** (lowest friction; revisit if it clutters). Resolve in Phase 2 when the first hook lands.
+- **Hook folder layout** — ✅ RESOLVED in Phase 2: **flat `src/hooks/`** (`useCanvasViewport.ts` landed there; later canvas hooks follow suit).
 - **Post-FloorplanCanvas Slice-2 breadth** — whether to continue to `useProjectQueries` / `SettingsMenu` after Phase 10, or return to features. Resolve at the Phase 10 re-evaluation, per the master plan's diminishing-returns caveat.
