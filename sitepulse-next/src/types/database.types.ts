@@ -261,6 +261,7 @@ export interface Database {
           spans_levels: boolean | null
           level_note: string | null
           has_void: boolean | null
+          standard_version: string | null
           polygon_coordinates: Json
           opening_edges: Json
           icon_offset_x: number | null
@@ -287,6 +288,7 @@ export interface Database {
           spans_levels?: boolean | null
           level_note?: string | null
           has_void?: boolean | null
+          standard_version?: string | null
           polygon_coordinates: Json
           opening_edges?: Json
           icon_offset_x?: number | null
@@ -313,6 +315,7 @@ export interface Database {
           spans_levels?: boolean | null
           level_note?: string | null
           has_void?: boolean | null
+          standard_version?: string | null
           polygon_coordinates?: Json
           opening_edges?: Json
           icon_offset_x?: number | null
@@ -910,21 +913,21 @@ export interface Database {
         Row: {
           id: string
           display_name: string | null
-          email: string
+          email: string | null
           avatar_url: string | null
           updated_at: string | null
         }
         Insert: {
           id: string
           display_name?: string | null
-          email: string
+          email?: string | null
           avatar_url?: string | null
           updated_at?: string | null
         }
         Update: {
           id?: string
           display_name?: string | null
-          email?: string
+          email?: string | null
           avatar_url?: string | null
           updated_at?: string | null
         }
@@ -936,7 +939,7 @@ export interface Database {
           project_id: string | null
           user_id: string | null
           user_email: string | null
-          role: string
+          role: string | null
           created_at: string | null
         }
         Insert: {
@@ -944,7 +947,7 @@ export interface Database {
           project_id?: string | null
           user_id?: string | null
           user_email?: string | null
-          role: string
+          role?: string | null
           created_at?: string | null
         }
         Update: {
@@ -952,7 +955,7 @@ export interface Database {
           project_id?: string | null
           user_id?: string | null
           user_email?: string | null
-          role?: string
+          role?: string | null
           created_at?: string | null
         }
         Relationships: []

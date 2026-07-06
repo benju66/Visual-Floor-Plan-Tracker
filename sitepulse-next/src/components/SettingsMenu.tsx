@@ -1135,7 +1135,7 @@ export default function SettingsMenu({
                          <div className="flex items-center gap-3 shrink-0">
                            <select
                              disabled={member.user_id === session?.user?.id || currentUserRole !== 'admin'}
-                             value={member.role}
+                             value={member.role ?? ''}
                              onChange={(e) => updateMemberRoleMutation.mutate({ memberId: member.id, role: e.target.value })}
                              className="text-xs font-semibold bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 outline-none disabled:opacity-50"
                            >
