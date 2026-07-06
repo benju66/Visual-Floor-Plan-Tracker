@@ -13,7 +13,7 @@ import DraftPolygon from '@/components/canvas/DraftPolygon';
 import MeasureReadout from '@/components/canvas/MeasureReadout';
 import StampPreview from '@/components/canvas/StampPreview';
 import StampDrawer from '@/components/canvas/StampDrawer';
-import { buildStampPolygon, flipPolygon, rotatePolygon } from '@/utils/stampTransform';
+import { buildStampPolygon } from '@/utils/stampTransform';
 import type { StampDef } from '@/utils/stampLibrary';
 import PendingPolygon from '@/components/canvas/PendingPolygon';
 import CaptureBoxOverlay from '@/components/canvas/CaptureBoxOverlay';
@@ -29,15 +29,15 @@ import { useLoupeRenderer } from '@/hooks/useLoupeRenderer';
 import { withVersion } from '@/utils/pdfSource';
 import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
-import { distToSegment, getCentroid, getSnappedCoordinate, isFinitePolygon, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
+import { getCentroid, getSnappedCoordinate, isFinitePolygon, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
 import { isSelfIntersecting } from '@/utils/polygonValidity';
-import { pushSnapshot, undo as undoEditHistory, redo as redoEditHistory, seedEditHistory, emptyEditHistory, type EditHistory } from '@/utils/editHistory';
 import { computeUnitVariance, varianceFill, orderedTrackActivities } from '@/utils/progressAnalytics';
 import { unitMakeReady, makeReadyFill, slotKey } from '@/utils/activityReadiness';
 import { clampStagePosition } from '@/utils/viewport';
 import { computeLayout, computeVisibleBox, cullVisibleUnits } from '@/utils/canvasLayout';
 import { useCanvasViewport } from '@/hooks/useCanvasViewport';
 import { useCanvasSnapping } from '@/hooks/useCanvasSnapping';
+import { useGeometryGestures } from '@/hooks/useGeometryGestures';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
 import { warnIfUnwired } from '@/utils/wiringGuard';
@@ -398,8 +398,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // reads these via refs so it never closes over stale props.
   const pendingPolygonPointsRef = useRef(pendingPolygonPoints);
   useEffect(() => { pendingPolygonPointsRef.current = pendingPolygonPoints; }, [pendingPolygonPoints]);
-  const onPendingPolygonMoveRef = useRef(onPendingPolygonMove);
-  useEffect(() => { onPendingPolygonMoveRef.current = onPendingPolygonMove; }, [onPendingPolygonMove]);
 
   const layoutRef = useRef({ offsetX: 0, offsetY: 0, drawW: 0, drawH: 0, stageW: 0, stageH: 0 });
   
@@ -476,34 +474,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const isEditingPendingRef = useRef(isEditingPending);
   isEditingPendingRef.current = isEditingPending;
 
-  // Drawing Tool Excellence — Phase 3 (undo/redo for the NOT-YET-SAVED polygon). A
-  // local, in-memory history of `pendingPolygonPoints` snapshots, kept fully isolated
-  // from the DB-backed saved-unit `useUndoRedo` (no DB writes; nothing enters the
-  // offline IDB mutation queue, `status_logs`, or the `pendingChanges` buffer). It is
-  // SEEDED with the freshly-traced shape the instant a pending polygon opens (so the
-  // first Ctrl+Z returns to the original trace) and CLEARED when the polygon is saved
-  // or cancelled (pending → null), so the next trace starts with a clean stack. Held in
-  // a ref — the keydown handler mutates it without re-binding, and the React tree never
-  // needs to re-render off it. The effect keys ONLY on the open/close transition (never
-  // on `pendingPolygonPoints`), so an edit mid-session can't wipe the history; it reads
-  // the opening points from a ref for the same reason.
-  const editHistoryRef = useRef<EditHistory>(emptyEditHistory());
-  useEffect(() => {
-    editHistoryRef.current = isEditingPending
-      ? seedEditHistory(pendingPolygonPointsRef.current ?? [])
-      : emptyEditHistory();
-  }, [isEditingPending]);
-
-  // Wrap `onPendingPolygonMove`: record each committed pending edit (node move,
-  // whole-shape move, flip) into the history, then apply it. Undo/redo replay snapshots
-  // back through the RAW `onPendingPolygonMove` (via its ref) so they don't re-enter the
-  // history here. Stable identity (depends only on the prop) so PendingPolygon's props
-  // stay referentially steady.
-  const handlePendingPolygonEdit = useCallback((newPoints: Point[]) => {
-    editHistoryRef.current = pushSnapshot(editHistoryRef.current, newPoints);
-    onPendingPolygonMove?.(newPoints);
-  }, [onPendingPolygonMove]);
-
   // Drawing Tool Excellence — Phase 2 (validity warning). Run the LIVE pending shape
   // (with any in-progress node-drag applied via activeDragNode) through the pure
   // self-intersection check so a "bow-tie" lights up the moment a corner crosses the
@@ -569,6 +539,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const handleZoomRef = useRef<(direction: number) => void>(() => {});
   const resetViewRef = useRef<() => void>(() => {});
   const zoomToFitRef = useRef<(unitId: string) => void>(() => {});
+  // Geometry gestures (useGeometryGestures, called later): arrow-nudge write +
+  // pending-edit undo/redo application. Same callback-ref pattern as handleZoom.
+  const nudgeSelectedRef = useRef<(dx: number, dy: number) => void>(() => {});
+  const undoRedoPendingEditRef = useRef<(isRedo: boolean) => void>(() => {});
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -622,27 +596,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedUnitIdsRef.current && selectedUnitIdsRef.current.length > 0 && !isInputActive) {
         e.preventDefault();
-        const activeIds = selectedUnitIdsRef.current;
-        const currentUnits = unitsRef.current;
         const currentLayout = layoutRef.current;
 
         if (currentLayout && currentLayout.drawW && currentLayout.drawH) {
-          const nudgePx = 1; 
+          const nudgePx = 1;
           const dx = e.key === 'ArrowLeft' ? -nudgePx / currentLayout.drawW : e.key === 'ArrowRight' ? nudgePx / currentLayout.drawW : 0;
           const dy = e.key === 'ArrowUp' ? -nudgePx / currentLayout.drawH : e.key === 'ArrowDown' ? nudgePx / currentLayout.drawH : 0;
 
-          activeIds.forEach(id => {
-            const unit = currentUnits.find(u => u.id === id);
-            if (unit && unit.polygon_coordinates) {
-              const newPoints = unit.polygon_coordinates.map(p => ({
-                pctX: p.pctX + dx,
-                pctY: p.pctY + dy
-              }));
-              if (warnIfUnwired(onUpdateUnitPolygonRef.current, 'onUpdateUnitPolygon:arrow-nudge')) {
-                onUpdateUnitPolygonRef.current?.(unit.id, newPoints);
-              }
-            }
-          });
+          // The per-unit map + persist live in useGeometryGestures.nudgeSelected.
+          nudgeSelectedRef.current(dx, dy);
         }
       }
 
@@ -656,11 +618,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && isEditingPendingRef.current && !isInputActive) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const result = e.shiftKey
-          ? redoEditHistory(editHistoryRef.current)
-          : undoEditHistory(editHistoryRef.current);
-        editHistoryRef.current = result.history;
-        if (result.current) onPendingPolygonMoveRef.current?.(result.current);
+        // History step + replay live in useGeometryGestures.undoRedoPendingEdit.
+        undoRedoPendingEditRef.current(e.shiftKey);
         return;
       }
 
@@ -911,6 +870,47 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     snappingStrength: mapSettings?.snappingStrength,
     gridAwareSnappingSetting: mapSettings?.gridAwareSnapping,
     magnifierActive,
+  });
+
+  // The geometry-edit gesture engine (FloorplanCanvas Decomposition — Phase 4):
+  // flip/rotate, whole-shape + node drag commits, delete-node click, add/insert/
+  // delete vertex, the pending-edit undo history (seed/record/apply), and the
+  // arrow-nudge write. The window keydown effect above reaches nudgeSelected /
+  // undoRedoPendingEdit through the callback refs (synced below, next to
+  // handleZoomRef); handlePolygonClick below routes its add_node branch to
+  // handleAddNodeToPolygon. The write-callback props and their signatures are
+  // unchanged; the refs passed in stay owned + synced by this component.
+  const {
+    handleFlip,
+    handleRotatePolygon,
+    handlePolygonDragEnd,
+    handleAnchorDragEnd,
+    handleAnchorClick,
+    handleAddNodeToPolygon,
+    handleInsertPendingVertex,
+    handleDeletePendingVertex,
+    handleInsertSavedVertex,
+    handlePendingPolygonEdit,
+    nudgeSelected,
+    undoRedoPendingEdit,
+  } = useGeometryGestures({
+    toolMode,
+    layout,
+    stageScale,
+    units,
+    selectedUnitIds,
+    pendingPolygonPoints,
+    isEditingPending,
+    vectorTree,
+    aspect,
+    effectiveSnapping,
+    snappingStrength: mapSettings?.snappingStrength,
+    onUpdateUnitPolygon,
+    onPendingPolygonMove,
+    unitsRef,
+    selectedUnitIdsRef,
+    onUpdateUnitPolygonRef,
+    pendingPolygonPointsRef,
   });
 
   const visibleBoundingBox = useMemo(
@@ -1196,193 +1196,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     }
 
     if (toolMode === 'add_node') {
-      const stage = e.target.getStage();
-      const pointer = stage.getPointerPosition();
-      const logicalX = (pointer.x - stage.x()) / stageScale;
-      const logicalY = (pointer.y - stage.y()) / stageScale;
-      const pctX = (logicalX - layout.offsetX) / layout.drawW;
-      const pctY = (logicalY - layout.offsetY) / layout.drawH;
-      
-      let bestIdx = -1;
-      let minDistance = Infinity;
-      const pts = unit.polygon_coordinates || [];
-      for (let i = 0; i < pts.length; i++) {
-        const p1 = pts[i];
-        const p2 = pts[(i+1) % pts.length];
-        const d = distToSegment({pctX, pctY}, p1, p2);
-        if (d < minDistance) {
-          minDistance = d;
-          bestIdx = i;
-        }
-      }
-      if (bestIdx !== -1) {
-        const newPoints = [...pts];
-        newPoints.splice(bestIdx + 1, 0, {pctX, pctY});
-        if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:add-node')) {
-          onUpdateUnitPolygon?.(unit.id, newPoints);
-        }
-      }
+      // Nearest-segment vertex insert — moved to useGeometryGestures (Phase 4);
+      // this click handler keeps only the tool routing + selection sync above.
+      handleAddNodeToPolygon(e, unit);
     }
   };
-
-  const handleFlip = (direction: 'horizontal' | 'vertical') => {
-    // Flip math lives in stampTransform.flipPolygon (single source of truth, shared
-    // with the stamp tool). Behavior unchanged: mirror about the bounding-box center.
-    if (pendingPolygonPoints && pendingPolygonPoints.length > 0) {
-      // Phase 3: route through the history-recording wrapper so a flip is one undo step.
-      handlePendingPolygonEdit(flipPolygon(pendingPolygonPoints, direction));
-      return;
-    }
-
-    if (selectedUnitIds?.length !== 1) return;
-    const unit = units.find(u => u.id === selectedUnitIds[0]);
-    if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length === 0) return;
-
-    const newPoints = flipPolygon(unit.polygon_coordinates, direction);
-    if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:flip')) {
-      onUpdateUnitPolygon?.(unit.id, newPoints);
-    }
-  };
-
-  const handleRotatePolygon = (direction: 'left' | 'right', overrideId: string | null = null) => {
-    const targetId = overrideId || (selectedUnitIds?.length === 1 ? selectedUnitIds[0] : null);
-    if (!targetId) return;
-    const unit = units.find(u => u.id === targetId);
-    if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length === 0) return;
-
-    const { drawW, drawH } = layout;
-    if (drawW <= 0 || drawH <= 0) return;
-
-    // Rotation math lives in stampTransform.rotatePolygon (single source of truth,
-    // shared with the stamp tool). Behavior unchanged: aspect-correct 90° about the centroid.
-    const newPoints = rotatePolygon(unit.polygon_coordinates, direction, drawW / drawH);
-    if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:rotate')) {
-      onUpdateUnitPolygon?.(unit.id, newPoints);
-    }
-  };
-
-  const handlePolygonDragEnd = (e: any, unit: Unit) => {
-    if (toolMode !== 'select') return;
-    const dx = e.target.x() / layout.drawW;
-    const dy = e.target.y() / layout.drawH;
-    
-    e.target.x(0);
-    e.target.y(0);
-    
-    if (dx === 0 && dy === 0) return;
-
-    if (unit.polygon_coordinates) {
-      const newPoints = unit.polygon_coordinates.map(p => ({
-        pctX: p.pctX + dx,
-        pctY: p.pctY + dy
-      }));
-      if (!isFinitePolygon(newPoints)) {
-        console.warn('[geometry] polygon move produced an invalid shape — not saving', unit.id);
-        return;
-      }
-      if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:polygon-drag')) {
-        onUpdateUnitPolygon?.(unit.id, newPoints);
-      }
-    }
-  };
-
-  const handleAnchorDragEnd = (e: any, unitId: string, index: number, overridePct?: Point) => {
-    if (!['select', 'add_node'].includes(toolMode)) return;
-    const node = e.target;
-
-    // MappedUnit computes the snapped position synchronously and passes it as
-    // overridePct; fall back to the raw node position otherwise.
-    let pctX = overridePct ? overridePct.pctX : (node.x() - layout.offsetX) / layout.drawW;
-    let pctY = overridePct ? overridePct.pctY : (node.y() - layout.offsetY) / layout.drawH;
-
-    if (!overridePct && effectiveSnapping) {
-      const snap = getSnappedCoordinate(pctX, pctY, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15);
-      if (snap.snapped) {
-        pctX = snap.pctX;
-        pctY = snap.pctY;
-      }
-    }
-
-    const unit = units.find(u => u.id === unitId);
-    if (!unit || !unit.polygon_coordinates) return;
-    
-    const newPoints = [...unit.polygon_coordinates];
-    newPoints[index] = { pctX, pctY };
-    // Never persist a corrupt shape (NaN/off-canvas from a bad drag). Better to
-    // leave the saved geometry untouched than to write a degenerate polygon.
-    if (!isFinitePolygon(newPoints)) {
-      console.warn('[geometry] node move produced an invalid polygon — not saving', unitId);
-      return;
-    }
-    if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:node-move')) {
-      onUpdateUnitPolygon?.(unitId, newPoints);
-    }
-  };
-
-  const handleAnchorClick = (e: any, unitId: string, index: number) => {
-    e.cancelBubble = true;
-    if (toolMode !== 'delete_node') return;
-    const unit = units.find(u => u.id === unitId);
-    if (!unit || !unit.polygon_coordinates || unit.polygon_coordinates.length <= 3) return;
-
-    const newPoints = [...unit.polygon_coordinates];
-    newPoints.splice(index, 1);
-    if (warnIfUnwired(onUpdateUnitPolygon, 'onUpdateUnitPolygon:delete-node')) {
-      onUpdateUnitPolygon?.(unitId, newPoints);
-    }
-  };
-
-  // Drawing Tool Excellence — Phase 4. Pending-polygon vertex insert/delete: the
-  // not-yet-saved twins of handleAddNodeToPolygon / handleAnchorClick above. Both
-  // write through handlePendingPolygonEdit (NOT the raw onPendingPolygonMove) so the
-  // edit lands in the Phase 3 in-memory undo history and Ctrl+Z works on it. They
-  // read the live points from a ref, so the callbacks stay referentially stable and
-  // PendingPolygon's props don't churn.
-  const handleInsertPendingVertex = useCallback((edgeIndex: number) => {
-    const pts = pendingPolygonPointsRef.current;
-    if (!pts || pts.length < 3) return;
-    const p1 = pts[edgeIndex];
-    const p2 = pts[(edgeIndex + 1) % pts.length];
-    if (!p1 || !p2) return;
-    // Insert at the edge midpoint the "+" marks (predictable; no pointer math).
-    const midpoint = { pctX: (p1.pctX + p2.pctX) / 2, pctY: (p1.pctY + p2.pctY) / 2 };
-    const newPoints = [...pts];
-    newPoints.splice(edgeIndex + 1, 0, midpoint);
-    // Guard like handleAnchorDragEnd — never apply a degenerate/off-canvas shape.
-    if (!isFinitePolygon(newPoints)) return;
-    handlePendingPolygonEdit(newPoints);
-  }, [handlePendingPolygonEdit]);
-
-  const handleDeletePendingVertex = useCallback((index: number) => {
-    const pts = pendingPolygonPointsRef.current;
-    // Mirror handleAnchorClick's <= 3 guard — never drop below a triangle.
-    if (!pts || pts.length <= 3) return;
-    const newPoints = [...pts];
-    newPoints.splice(index, 1);
-    if (!isFinitePolygon(newPoints)) return;
-    handlePendingPolygonEdit(newPoints);
-  }, [handlePendingPolygonEdit]);
-
-  // Saved-unit midpoint "+" insert — the same affordance as the pending one, brought
-  // to selected saved rooms so adding a corner is consistent across both (no need to
-  // switch into the add_node tool). Persists via onUpdateUnitPolygon (which already
-  // pushes a DB undo action). Reads units/callback from refs so the callback stays
-  // referentially stable and MappedUnit's memo doesn't churn.
-  const handleInsertSavedVertex = useCallback((unitId: string, edgeIndex: number) => {
-    const unit = unitsRef.current.find(u => u.id === unitId);
-    if (!unit || !unit.polygon_coordinates) return;
-    const pts = unit.polygon_coordinates;
-    const p1 = pts[edgeIndex];
-    const p2 = pts[(edgeIndex + 1) % pts.length];
-    if (!p1 || !p2) return;
-    const midpoint = { pctX: (p1.pctX + p2.pctX) / 2, pctY: (p1.pctY + p2.pctY) / 2 };
-    const newPoints = [...pts];
-    newPoints.splice(edgeIndex + 1, 0, midpoint);
-    if (!isFinitePolygon(newPoints)) return;
-    if (warnIfUnwired(onUpdateUnitPolygonRef.current, 'onUpdateUnitPolygon:insert-vertex')) {
-      onUpdateUnitPolygonRef.current?.(unitId, newPoints);
-    }
-  }, []);
 
   // Stable identity (keyed on layout) so memoized children don't re-render on
   // unrelated parent renders.
@@ -1398,6 +1216,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   handleZoomRef.current = handleZoom;
   resetViewRef.current = resetView;
   zoomToFitRef.current = zoomToFit;
+  nudgeSelectedRef.current = nudgeSelected;
+  undoRedoPendingEditRef.current = undoRedoPendingEdit;
 
   // computedCursor is the SINGLE source of truth for the cursor. All hover/drag
   // affordances feed in here as React state — no shape handler mutates the cursor
