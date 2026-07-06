@@ -3,10 +3,23 @@ import React, { useState, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegments } from '@/components/ui/FieldStatusAtoms';
-import StatusTrigger from '@/components/ui/StatusTrigger';
+import StatusTrigger, { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
 import RowActionsMenu from './manage/RowActionsMenu';
 import AssigneeCell from './manage/AssigneeCell';
-import { isActivityApplicable } from '@/utils/applicability';
+import { isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
+import type { LocationRow } from '@/utils/locationFilters';
+import type { TaxonomyResult } from '@/utils/subtypes';
+import type { MemberLike } from './manage/assignee';
+import type {
+  Unit,
+  StatusLog,
+  Activity,
+  Subtype,
+  ProjectType,
+  TemporalState,
+  TrackingMode,
+  PendingChangesMap,
+} from '@/types/domain';
 
 /**
  * StatusTable — the desktop data table presenter (isDesktop).
@@ -16,7 +29,7 @@ import { isActivityApplicable } from '@/utils/applicability';
  *       allVisibleSelected / toggleSelectAll (derived from props, no store access).
  *
  * Props:
- *   visible              — { unit, log }[] from useFieldData
+ *   visible              — { unit, log }[] from useFieldData (LocationRow shape)
  *   pendingChanges       — object from useFieldData
  *   handleLocalUpdate    — fn from useFieldData
  *   savingUnitId         — string | null from page
@@ -30,6 +43,48 @@ import { isActivityApplicable } from '@/utils/applicability';
  *   setHistoryModalUnitId — fn from useUIStore (via container)
  *   onChooseStatus       — fn from page
  */
+interface StatusTableProps {
+  visible: LocationRow[];
+  pendingChanges: PendingChangesMap;
+  // The status-update handler shape shared by handleLocalUpdate / handleTimelineUpdate,
+  // identical to StatusTrigger's onLocalUpdate contract (both come from useFieldData).
+  handleLocalUpdate: StatusTriggerProps['onLocalUpdate'];
+  savingUnitId?: string | null;
+  isApplying: boolean;
+  sortColumn: string;
+  sortDirection: 'asc' | 'desc';
+  handleSort: (col: string) => void;
+  selectedUnitIds: string[];
+  toggleSelectedUnitId: (id: string) => void;
+  setSelectedUnitIds: (ids: string[]) => void;
+  setHistoryModalUnitId: (id: string) => void;
+  onChooseStatus?: StatusTriggerProps['onChooseStatus'];
+  pendingCount: number;
+  handleDiscardAll: () => void;
+  handleApplyAll: () => void | Promise<{ succeeded: number; failed: number }>;
+  handleTimelineUpdate: StatusTriggerProps['onLocalUpdate'];
+  rawStatuses: StatusLog[];
+  currentActivities: Activity[];
+  pendingTimelineChanges: PendingChangesMap;
+  trackingMode: TrackingMode;
+  applicabilityIndex?: ApplicabilityIndex;
+  onToggleApplicability?: (
+    unit: Unit,
+    activity: Activity,
+    isApplicable: boolean,
+    currentState?: TemporalState | string | null
+  ) => void;
+  levelByUnitId?: Record<string, string>;
+  subtypes: Subtype[];
+  projectType: ProjectType | null;
+  onRenameLocation?: (unit: Unit) => void;
+  onChangeUnitType?: (unitId: string, result: TaxonomyResult) => void;
+  onLocateUnit?: (unitId: string) => void;
+  onDeleteLocation?: (unitId: string) => void;
+  members?: MemberLike[];
+  onAssignUnit?: (unitId: string, userId: string | null) => void;
+}
+
 export default function StatusTable({
   visible,
   pendingChanges,
@@ -63,9 +118,9 @@ export default function StatusTable({
   onDeleteLocation,
   members,
   onAssignUnit,
-}) {
-  const [lastClickedIndex, setLastClickedIndex] = useState(null);
-  const [expandedUnitIds, setExpandedUnitIds] = useState(new Set());
+}: StatusTableProps) {
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+  const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
 
   // Clear expansions when activities change (e.g., track changes)
   React.useEffect(() => {
@@ -75,7 +130,7 @@ export default function StatusTable({
   // Measure the sticky header so an expanded location's row can pin flush
   // *underneath* it (top: headerH), not behind it. Measured (not hardcoded) so
   // it stays correct across font-size / browser-zoom changes.
-  const theadRef = useRef(null);
+  const theadRef = useRef<HTMLTableSectionElement>(null);
   const [headerH, setHeaderH] = useState(0);
   useLayoutEffect(() => {
     const el = theadRef.current;
@@ -88,7 +143,7 @@ export default function StatusTable({
   }, []);
 
   const logMap = React.useMemo(() => {
-    const map = new Map();
+    const map = new Map<string, StatusLog>();
     if (rawStatuses) {
       rawStatuses.forEach(log => {
         map.set(`${log.unit_id}_${log.activityName}`, log);
@@ -99,7 +154,7 @@ export default function StatusTable({
 
   const isAllExpanded = expandedUnitIds.size === visible.length && visible.length > 0;
 
-  const toggleExpandAll = (e) => {
+  const toggleExpandAll = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isAllExpanded) {
       setExpandedUnitIds(new Set());
@@ -109,7 +164,7 @@ export default function StatusTable({
     }
   };
 
-  const toggleRowExpanded = (e, unitId) => {
+  const toggleRowExpanded = (e: React.MouseEvent, unitId: string) => {
     e.stopPropagation();
     setExpandedUnitIds(prev => {
       const next = new Set(prev);
@@ -120,14 +175,14 @@ export default function StatusTable({
   };
 
   // Q1 resolution: renderSortIcon lives here, not in the hook (no JSX from hooks)
-  const renderSortIcon = (col) => {
+  const renderSortIcon = (col: string) => {
     if (sortColumn !== col) return null;
     return sortDirection === 'asc'
       ? <ArrowUp size={14} className="inline-block ml-1" />
       : <ArrowDown size={14} className="inline-block ml-1" />;
   };
 
-  const handleRowClick = (e, unitId, index) => {
+  const handleRowClick = (e: React.MouseEvent, unitId: string, index: number) => {
     if (e.shiftKey && lastClickedIndex !== null) {
       const start = Math.min(lastClickedIndex, index);
       const end = Math.max(lastClickedIndex, index);
@@ -214,7 +269,10 @@ export default function StatusTable({
         </thead>
         {visible.map(({ unit, log }, index) => {
             const pending = pendingChanges[unit.id];
-            const dLog = pending ? { ...log, temporal_state: pending.state } : log;
+            // Spreading a possibly-null `log` yields optional props, so annotate the result:
+            // when `log` is null the branch is a partial `{ temporal_state }`, which StatusTrigger
+            // tolerates (it re-spreads baseLog) — same runtime shape as the original .jsx.
+            const dLog: StatusLog | null = pending ? ({ ...log, temporal_state: pending.state } as StatusLog) : log;
             // The location's active/current activity is shown inline in this row (it is skipped
             // in the expanded child list below), so its N/A toggle has to live here too — otherwise
             // the current task is the one activity that can never be marked Not Applicable from
@@ -266,8 +324,8 @@ export default function StatusTable({
                     )}
                     <BottleneckIndicator
                       unit={unit}
-                      outOfSequence={log?.outOfSequence}
-                      onUpdateStatus={handleTimelineUpdate}
+                      outOfSequence={log?.outOfSequence as unknown as React.ComponentProps<typeof BottleneckIndicator>['outOfSequence']}
+                      onUpdateStatus={handleTimelineUpdate as unknown as React.ComponentProps<typeof BottleneckIndicator>['onUpdateStatus']}
                     />
                     {savingUnitId === unit.id && <UpdatingRing />}
                   </div>
@@ -302,7 +360,7 @@ export default function StatusTable({
                           disabled={savingUnitId === unit.id || isApplying}
                           className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
                           title="Mark current activity Not Applicable for this location"
-                          aria-label={`Mark ${log.activityName} not applicable for this location`}
+                          aria-label={`Mark ${log?.activityName} not applicable for this location`}
                         >
                           <Ban size={14} />
                         </button>
@@ -316,11 +374,11 @@ export default function StatusTable({
                       type="date"
                       value={
                         pending?.extraProps?.startDate !== undefined
-                          ? pending.extraProps.startDate
+                          ? pending.extraProps.startDate ?? ''
                           : log?.planned_start_date || ''
                       }
                       onChange={(e) =>
-                        handleLocalUpdate(unit, log || {}, pending?.state || log.temporal_state || 'none', {
+                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
                           startDate: e.target.value,
                           endDate: log.planned_end_date,
                         })
@@ -342,11 +400,11 @@ export default function StatusTable({
                       type="date"
                       value={
                         pending?.extraProps?.endDate !== undefined
-                          ? pending.extraProps.endDate
+                          ? pending.extraProps.endDate ?? ''
                           : log?.planned_end_date || ''
                       }
                       onChange={(e) =>
-                        handleLocalUpdate(unit, log || {}, pending?.state || log.temporal_state || 'none', {
+                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
                           startDate: log.planned_start_date,
                           endDate: e.target.value,
                         })
@@ -368,14 +426,14 @@ export default function StatusTable({
                       type="date"
                       value={
                         pending?.extraProps?.loggedDate !== undefined
-                          ? pending.extraProps.loggedDate
+                          ? pending.extraProps.loggedDate ?? ''
                           : log?.logged_date || ''
                       }
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) =>
-                        handleLocalUpdate(unit, log || {}, pending?.state || log.temporal_state || 'none', {
-                          startDate: log.planned_start_date,
-                          endDate: log.planned_end_date,
+                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log!.temporal_state as TemporalState) || 'none', {
+                          startDate: log!.planned_start_date,
+                          endDate: log!.planned_end_date,
                           loggedDate: e.target.value,
                         })
                       }
@@ -448,13 +506,15 @@ export default function StatusTable({
                   );
                 }
 
-                const childLog = logMap.get(`${unit.id}_${activity.name}`) || {
-                  unit_id: unit.id,
-                  activityName: activity.name,
-                  status_color: activity.color,
-                  track: trackingMode,
-                  temporal_state: 'none'
-                };
+                const childLog =
+                  logMap.get(`${unit.id}_${activity.name}`) ||
+                  ({
+                    unit_id: unit.id,
+                    activityName: activity.name,
+                    status_color: activity.color,
+                    track: trackingMode,
+                    temporal_state: 'none',
+                  } as unknown as StatusLog);
                 const childPending = pendingTimelineChanges[`${unit.id}_${activity.name}`];
                 const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
 
@@ -471,7 +531,7 @@ export default function StatusTable({
                     <td className="px-5 py-2 align-middle">
                       <div className="flex items-center gap-2">
                         <StatusSegments
-                          value={dChildLog.temporal_state || 'none'}
+                          value={(dChildLog.temporal_state as TemporalState) || 'none'}
                           onChange={(s) => handleTimelineUpdate(unit, childLog, s, { activityObj: activity })}
                           disabled={savingUnitId === unit.id || isApplying}
                           pending={!!(childPending?.state && childPending.state !== childLog.temporal_state)}
@@ -498,11 +558,11 @@ export default function StatusTable({
                           type="date"
                           value={
                             childPending?.extraProps?.startDate !== undefined
-                              ? childPending.extraProps.startDate
+                              ? childPending.extraProps.startDate ?? ''
                               : childLog.planned_start_date || ''
                           }
                           onChange={(e) =>
-                            handleTimelineUpdate(unit, childLog, childPending?.state || childLog.temporal_state || 'none', {
+                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
                               startDate: e.target.value,
                               endDate: childLog.planned_end_date,
                               activityObj: activity
@@ -525,11 +585,11 @@ export default function StatusTable({
                           type="date"
                           value={
                             childPending?.extraProps?.endDate !== undefined
-                              ? childPending.extraProps.endDate
+                              ? childPending.extraProps.endDate ?? ''
                               : childLog.planned_end_date || ''
                           }
                           onChange={(e) =>
-                            handleTimelineUpdate(unit, childLog, childPending?.state || childLog.temporal_state || 'none', {
+                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
                               startDate: childLog.planned_start_date,
                               endDate: e.target.value,
                               activityObj: activity
@@ -552,12 +612,12 @@ export default function StatusTable({
                           type="date"
                           value={
                             childPending?.extraProps?.loggedDate !== undefined
-                              ? childPending.extraProps.loggedDate
+                              ? childPending.extraProps.loggedDate ?? ''
                               : childLog.logged_date || ''
                           }
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) =>
-                            handleTimelineUpdate(unit, childLog, childPending?.state || childLog.temporal_state || 'none', {
+                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
                               startDate: childLog.planned_start_date,
                               endDate: childLog.planned_end_date,
                               loggedDate: e.target.value,
