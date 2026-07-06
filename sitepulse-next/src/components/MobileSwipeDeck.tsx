@@ -25,7 +25,7 @@ interface MobileSwipeDeckProps {
   pendingCount: number;
   currentActivities: Activity[];
   rawStatuses: StatusLog[];
-  onChooseStatus?: (unitId: string, activityName: string, state: string, track: string) => void;
+  onChooseStatus?: (unit: Unit, onSelect: (m: Partial<Activity>) => void) => void;
   savingUnitId?: string | null;
   isApplying: boolean;
   hasRehydrated: boolean;
@@ -495,7 +495,20 @@ export default function MobileSwipeDeck({
                   setCardRedoStack([]);
                   setActionDirection('none');
                 }}
-                onChooseStatus={() => onChooseStatus?.(unit.id, log?.activityName || '', log?.temporal_state || '', '')}
+                onChooseStatus={() =>
+                  // Open the activity picker for this location, then stage the picked
+                  // activity as a local update — mirrors the desktop StatusTrigger
+                  // contract `(unit, onSelect)`. (Previously called with the wrong arg
+                  // shape `(unitId, name, state, track)`, which broke mobile choose-status.)
+                  onChooseStatus?.(unit, (m) =>
+                    handleLocalUpdate(
+                      unit,
+                      log || null,
+                      currentState === 'none' ? 'completed' : (currentState as TemporalState),
+                      { activityObj: m },
+                    ),
+                  )
+                }
                 onStageUpdate={handleLocalUpdate}
                 onTimelineUpdate={handleTimelineUpdate}
                 applicabilityIndex={applicabilityIndex}

@@ -380,7 +380,7 @@ interface SettingsMenuProps {
   settings: ProjectSettings;
   onUpdateSettings: (settings: ProjectSettings) => void;
   colorMode: string;
-  setColorMode: (mode: string) => void;
+  setColorMode: (mode: 'light' | 'dark' | 'system') => void;
   onAttachOriginal: (file: File) => void;
   /** Used only to derive the scopes-of-work list for level assignments —
    *  activity management itself lives in the Schedule view (Phase 3a). */
@@ -575,7 +575,7 @@ export default function SettingsMenu({
                 </div>
                 <select
                   value={colorMode}
-                  onChange={(e) => setColorMode(e.target.value)}
+                  onChange={(e) => setColorMode(e.target.value as 'light' | 'dark' | 'system')}
                   className="bg-white/50 dark:bg-black/20 border border-slate-300/80 dark:border-white/10 rounded-lg p-1.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-sky-500"
                 >
                   <option value="system">System</option>

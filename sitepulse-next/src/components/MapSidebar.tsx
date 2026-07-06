@@ -16,8 +16,8 @@ export interface MapSidebarProps {
   activities?: Activity[];
   filterActivity: string | null;
   setFilterActivity: React.Dispatch<React.SetStateAction<string | null>>;
-  temporalFilters: string[];
-  setTemporalFilters: React.Dispatch<React.SetStateAction<string[]>>;
+  temporalFilters: TemporalState[];
+  setTemporalFilters: React.Dispatch<React.SetStateAction<TemporalState[]>>;
   activeSheet: Sheet | null | undefined;
   activeStatuses: StatusLog[];
   applicabilityIndex: ApplicabilityIndex;
@@ -269,12 +269,12 @@ function MapSidebar({
 
       {isStatusExpanded && (
         <div className="flex flex-wrap gap-2 mb-4">
-          {[
+          {([
             { value: 'none', label: 'No Status' },
             { value: 'planned', label: 'Planned' },
             { value: 'ongoing', label: 'Ongoing' },
             { value: 'completed', label: 'Completed' },
-          ].map(({ value, label }) => (
+          ] as { value: TemporalState; label: string }[]).map(({ value, label }) => (
             <button
               key={value}
               type="button"

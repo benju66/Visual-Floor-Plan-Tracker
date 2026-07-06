@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Updater } from '@/types/utils';
+import type { Unit, Activity } from '@/types/domain';
 
 export interface Toast {
   message: string;
@@ -11,6 +12,17 @@ export interface ConfirmModal {
   message: string;
   onConfirm: () => void | Promise<void>;
 }
+
+/**
+ * State of the activity command menu (the Ctrl+K palette / per-location status picker).
+ * `filter` mode drives the map + field-list activity filter; `unit` mode opens the
+ * status picker for a specific location, carrying the tapped `unit` and the caller's
+ * apply callback (the desktop `StatusTrigger` path). `null` = closed. This was
+ * previously mis-typed as `string | null`, which the untyped `page.jsx` masked.
+ */
+export type ActivityMenuState =
+  | { mode: 'filter' }
+  | { mode: 'unit'; unit: Unit; onSelect?: (m: Partial<Activity>) => void };
 
 export interface UIState {
   viewMode: string;
@@ -31,8 +43,8 @@ export interface UIState {
   confirmModal: ConfirmModal | null;
   setConfirmModal: (val: Updater<ConfirmModal | null>) => void;
 
-  activityMenu: string | null;
-  setActivityMenu: (val: Updater<string | null>) => void;
+  activityMenu: ActivityMenuState | null;
+  setActivityMenu: (val: Updater<ActivityMenuState | null>) => void;
 
   unitNamingOpen: boolean;
   setUnitNamingOpen: (val: Updater<boolean>) => void;

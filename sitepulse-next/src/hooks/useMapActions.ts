@@ -144,7 +144,7 @@ export function useMapActions(project: Project | null | undefined) {
     });
   };
 
-  const handleDuplicateUnit = async (unitId: string) => {
+  const handleDuplicateUnit = async (unitId: string | null) => {
     const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
     const sourceUnit = units.find(u => u.id === unitId);
     if (!sourceUnit) return;
@@ -261,7 +261,7 @@ export function useMapActions(project: Project | null | undefined) {
     setUnitNamingOpen(true);
   };
 
-  const handleRenameUnitInitiate = (unitId: string) => {
+  const handleRenameUnitInitiate = (unitId: string | null) => {
      const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
      const unit = units.find(u => u.id === unitId);
      if (!unit) return;

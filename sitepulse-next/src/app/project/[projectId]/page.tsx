@@ -6,7 +6,7 @@ import FieldStatusTable from '@/components/FieldStatusTable';
 import ScheduleWorkspace from '@/components/schedule/ScheduleWorkspace';
 import LookaheadWorkspace from '@/lookahead/LookaheadWorkspace';
 import BulkActionDock from '@/components/BulkActionDock';
-import ActivityCommandMenu from '@/components/ActivityCommandMenu';
+import ActivityCommandMenuJs from '@/components/ActivityCommandMenu';
 import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import ProjectDashboard from '@/components/ProjectDashboard';
@@ -14,7 +14,7 @@ import UnitHistoryModal from '@/components/UnitHistoryModal';
 import { supabase } from '@/supabaseClient';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
-import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
+import { useSettingsStore, useHydratedStore, type AppSettings, type MapSettings } from '@/store/useSettingsStore';
 import { useProject, useSheets, useActivities, useUnits, useStatuses, useCurrentUserRole, useSnappingVectors, useActivityOverrides, useSetActivityApplicability, useBulkSetApplicability } from '@/hooks/useProjectQueries';
 import { useSubtypes } from '@/hooks/useSubtypes';
 import { buildApplicabilityIndex, isActivityApplicable } from '@/utils/applicability';
@@ -26,15 +26,55 @@ import { useParams } from 'next/navigation';
 
 import TopHeader from '@/components/TopHeader';
 import MapSidebar from '@/components/MapSidebar';
-import UnitNamingPopover from '@/components/UnitNamingPopover';
-import { recentSubtypeIdsFromUnits } from '@/utils/subtypes';
+import UnitNamingPopoverJs from '@/components/UnitNamingPopover';
+import { recentSubtypeIdsFromUnits, type TaxonomyResult } from '@/utils/subtypes';
 import MapHorizontalToolbar from '@/components/MapHorizontalToolbar';
 import AddLevelModal from '@/components/AddLevelModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import QuickStatusModal from '@/components/QuickStatusModal';
 import QuickActivityModal from '@/components/QuickActivityModal';
-import { exportToPDFService, uploadFloorplanService, attachOriginalService } from '@/services/api';
+import { exportToPDFService, uploadFloorplanService, attachOriginalService, type ExportPDFPayload } from '@/services/api';
 import { prefetchOriginalPdfs } from '@/utils/pdfSource';
+import { isStringArray, type Unit, type Activity, type Subtype, type TemporalState } from '@/types/domain';
+import type { Toast } from '@/store/useUIStore';
+
+// ── Typed boundaries for still-untyped (.jsx) modals ──
+// UnitNamingPopover and ActivityCommandMenu are JS/untyped, so importing them into
+// this typed page infers `never[]`/`null` prop types from their default values.
+// Give them a real prop contract here (AGENTS.md §6 — narrow untyped JS at the seam)
+// so this page's prop-threading is type-checked. Behavior is unchanged — these are
+// the same components, just with a typed view; a later phase converts them properly.
+interface UnitNamingPopoverProps {
+  editingUnitId: string | null;
+  newUnitName: string;
+  setNewUnitName: (val: string) => void;
+  subtypes?: Subtype[];
+  projectType?: string | null;
+  initialSubtypeId?: string | null;
+  initialUnitType?: string | null;
+  initialPick?: TaxonomyResult | null;
+  isSuggested?: boolean;
+  recentSubtypeIds?: string[];
+  saveNewUnitFromPopover: (pick?: TaxonomyResult | null) => void | Promise<void>;
+  cancelUnitNaming: () => void;
+}
+const UnitNamingPopover = UnitNamingPopoverJs as unknown as React.FC<UnitNamingPopoverProps>;
+
+interface ActivityCommandMenuProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (m: Activity) => void;
+  title?: string;
+  description?: string;
+  activities?: Activity[];
+}
+const ActivityCommandMenu = ActivityCommandMenuJs as unknown as React.FC<ActivityCommandMenuProps>;
+
+// The subset of FloorplanCanvas's imperative handle this page uses (the canvas is
+// forwardRef<any>, decomposed in a later slice). Only `zoomToFit` is consumed here.
+interface FloorplanCanvasHandle {
+  zoomToFit: (unitId: string) => void;
+}
 
 function App() {
   const [isMounted, setIsMounted] = useState(false);
@@ -62,7 +102,7 @@ function App() {
   const filterActivity = useSettingsStore(s => s.filterActivity);
   const setFilterActivity = useSettingsStore(s => s.setFilterActivity);
   
-  const settings = useHydratedStore(s => s.settings, { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list' });
+  const settings = useHydratedStore<AppSettings>(s => s.settings, { enableToasts: true, showHistoryHover: false, defaultViewMode: 'list', show_delay_indicators: true, auto_advance_tracks: { Production: true } });
 
   useEffect(() => {
     setIsMounted(true);
@@ -76,7 +116,7 @@ function App() {
   }, [setViewMode]);
 
   useEffect(() => {
-    const handleMouseMove = (e) => {
+    const handleMouseMove = (e: MouseEvent) => {
       if (!isResizingRef.current) return;
       const newWidth = window.innerWidth - e.clientX - 24;
       if (newWidth >= 250 && newWidth <= 600) {
@@ -101,14 +141,14 @@ function App() {
     };
   }, []);
 
-  const handleMouseDownResize = (e) => {
+  const handleMouseDownResize = (e: React.MouseEvent) => {
     e.preventDefault();
     isResizingRef.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
   const setSettings = useSettingsStore(s => s.setSettings);
-  const mapSettings = useHydratedStore(s => s.mapSettings, { showHorizontalToolbar: true, sidebarWidth: 320, pinnedTools: ['undo', 'redo', 'select', 'multi_select', 'pan', 'draw', 'add_node'] });
+  const mapSettings = useHydratedStore<MapSettings>(s => s.mapSettings, { showHorizontalToolbar: true, showCrosshair: false, enableSnapping: true, showWalkSequence: false, sidebarWidth: 320, pinnedTools: ['undo', 'redo', 'select', 'multi_select', 'pan', 'draw', 'add_node'] });
   const setMapSettings = useSettingsStore(s => s.setMapSettings);
   const legendPosition = useHydratedStore(s => s.legendPosition, { pctX: 0.05, pctY: 0.05, scaleX: 1, scaleY: 1, rotation: 0, isVisible: false });
   const setLegendPosition = useSettingsStore(s => s.setLegendPosition);
@@ -130,7 +170,7 @@ function App() {
   };
 
   const params = useParams();
-  const projectId = params?.projectId;
+  const projectId = params?.projectId as string;
 
   const queryClient = useQueryClient();
   const { data: project } = useProject(projectId);
@@ -159,7 +199,7 @@ function App() {
   const { data: sheets = [], isSuccess: isSheetsLoaded } = useSheets(projectId);
   const { data: activities = [] } = useActivities(projectId);
   const { data: units = [] } = useUnits(activeSheetId);
-  const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id), activities);
+  const { data: activeStatuses = [] } = useStatuses(activeSheetId, units.map(u => u.id));
   const { isFetching: isSnappingLoading } = useSnappingVectors(activeSheetId);
   const { data: activityOverrides = [] } = useActivityOverrides(projectId);
   const { data: subtypes = [] } = useSubtypes();
@@ -207,9 +247,11 @@ function App() {
 
   // Auto-select valid tracking mode if the active sheet changes and doesn't contain it
   useEffect(() => {
-    if (activeSheet?.active_scopes && activeSheet.active_scopes.length > 0) {
-      if (!activeSheet.active_scopes.includes(trackingMode)) {
-        setTrackingMode(activeSheet.active_scopes[0]);
+    // active_scopes is JSONB (typed Json); narrow it to string[] at the boundary (§6).
+    const scopes = activeSheet?.active_scopes;
+    if (isStringArray(scopes) && scopes.length > 0) {
+      if (!scopes.includes(trackingMode)) {
+        setTrackingMode(scopes[0]);
       }
     }
   }, [activeSheet, trackingMode, setTrackingMode]);
@@ -263,12 +305,12 @@ function App() {
   const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
   const isProjectMenuOpen = useUIStore(s => s.isProjectMenuOpen);
   const setIsProjectMenuOpen = useUIStore(s => s.setIsProjectMenuOpen);
-  const listRefs = useRef({});
+  const listRefs = useRef<Record<string, HTMLElement>>({});
   const activityMenu = useUIStore(s => s.activityMenu);
   const setActivityMenu = useUIStore(s => s.setActivityMenu);
 
   useEffect(() => {
-    const handleGlobalKeyDown = (e) => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (selectedUnitIds?.length > 0) {
           clearSelectedUnits();
@@ -312,7 +354,7 @@ function App() {
 
 
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setActivityMenu({ mode: 'filter' });
@@ -322,17 +364,17 @@ function App() {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  const showToast = (message, type) => {
+  const showToast = (message: string, type: Toast['type']) => {
     if (!settings.enableToasts) return;
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  const floorplanRef = useRef(null);
+  const floorplanRef = useRef<FloorplanCanvasHandle>(null);
 
   // Per-unit N/A toggle. Marking a slot N/A when it already has recorded
   // status asks for confirmation — history is kept but leaves all progress math.
-  const handleToggleApplicability = (unit, activity, isApplicable, currentState) => {
+  const handleToggleApplicability = (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState | string | null) => {
     const commit = () => setApplicabilityMutation.mutate({ activityId: activity.id, unitId: unit.id, isApplicable });
     if (!isApplicable && currentState && currentState !== 'none') {
       setConfirmModal({
@@ -344,7 +386,7 @@ function App() {
     }
   };
 
-  const handleBulkApplicability = (activityId, unitIds, isApplicable) => {
+  const handleBulkApplicability = (activityId: string, unitIds: string[], isApplicable: boolean) => {
     bulkApplicabilityMutation.mutate({ activityId, unitIds, isApplicable }, {
       onSuccess: () => showToast(`${unitIds.length} location(s) updated.`, 'success'),
       onError: (err) => showToast('Error updating applicability: ' + err.message, 'error')
@@ -363,7 +405,7 @@ function App() {
         const stat = currentTrackStatuses.find((s) => s.unit_id === u.id);
         const tState = stat?.temporal_state || 'completed';
         
-        if (stat && !temporalFilters.includes(tState)) {
+        if (stat && !temporalFilters.includes(tState as TemporalState)) {
           return null;
         }
 
@@ -379,7 +421,7 @@ function App() {
       })
       .filter(Boolean);
 
-    const payload = {
+    const payload: ExportPDFPayload = {
       include_data: settings.includeExportData !== false,
       polygons: polygonsPayload,
       project_name: project?.name || 'Project',
@@ -401,7 +443,9 @@ function App() {
         const log = matchingStatuses.find(s => s.activityName === name);
         return {
           name: name,
-          color: activityDef?.color || activityDef?.status_color || log?.status_color || '#cccccc'
+          // `activityDef` is an Activity (no status_color column) — dropped the dead
+          // `activityDef?.status_color` term this typing surfaced (it was always undefined).
+          color: activityDef?.color || log?.status_color || '#cccccc'
         };
       });
 
@@ -419,7 +463,7 @@ function App() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const { blob, filename: serverFilename } = await exportToPDFService(activeSheetId, payload, token);
+      const { blob, filename: serverFilename } = await exportToPDFService(activeSheetId, payload, token as string);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.style.display = 'none';
@@ -435,13 +479,13 @@ function App() {
       
       showToast('Vector PDF Exported!', 'success');
     } catch (err) {
-      showToast(err.message, 'error');
+      showToast(err instanceof Error ? err.message : String(err), 'error');
     }
   };
 
 
 
-  const handleActivityMenuSelect = (m) => {
+  const handleActivityMenuSelect = (m: Activity) => {
     if (activityMenu?.mode === 'filter') {
       setFilterActivity(m.name);
     } else if (activityMenu?.mode === 'unit') {
@@ -557,10 +601,8 @@ function App() {
             <div className="flex-1 flex flex-col min-h-0 min-w-0 h-full relative mb-5 lg:mb-0">
               {activeSheet && activeSheet.base_image_url ? (
                 <>
-                  <MapHorizontalToolbar 
-                    mapSettings={mapSettings} 
-                    toolMode={toolMode} 
-                    onToolModeChange={setToolMode}
+                  <MapHorizontalToolbar
+                    mapSettings={mapSettings}
                     triggerUndo={triggerUndo}
                     triggerRedo={triggerRedo}
                     undoStack={undoStack}
@@ -589,8 +631,6 @@ function App() {
                   onStampWithNaming={handleStampWithNaming}
                   pendingPolygonPoints={pendingPolygonPoints}
                   onPendingPolygonMove={setPendingPolygonPoints}
-                  onPendingPolygonComplete={handlePolygonComplete}
-                  showTooltip={settings.showTooltips}
                   onOpenStatusModal={(id) => setQuickStatusUnitId(id)}
                   onOpenActivityModal={(id) => setQuickActivityUnitId(id)}
                   applicabilityIndex={applicabilityIndex}
@@ -637,7 +677,7 @@ function App() {
 
             <div 
               className="w-full lg:w-[var(--sidebar-width)] h-full flex-shrink-0 group/sidebar"
-              style={{ '--sidebar-width': `${sidebarWidth}px` }}
+              style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}
             >
               <MapSidebar
               activities={activities}
@@ -720,7 +760,7 @@ function App() {
             ? (mapDisplayStatuses.find(s => s.unit_id === quickStatusUnitId && s.track === trackingMode)?.temporal_state || 'none')
             : 'none'
         }
-        onCommit={(unitId, type, val, extraProps = {}) => {
+        onCommit={(unitId: string, type: 'status' | 'activity', val: string, extraProps: Record<string, unknown> = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
              extraProps.activityObj = { id: bottleneck.activity_id, name: bottleneck.activityName, color: bottleneck.status_color, track: trackingMode };
@@ -739,7 +779,7 @@ function App() {
             : null
         }
         activities={activities.filter(m => m.track === trackingMode)}
-        onCommit={(unitId, type, val, extraProps = {}) => {
+        onCommit={(unitId: string, type: 'status' | 'activity', val: string, extraProps: Record<string, unknown> = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
              extraProps.temporal_state = bottleneck.temporal_state;

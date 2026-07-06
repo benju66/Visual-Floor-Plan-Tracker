@@ -5,6 +5,7 @@ import { useIsFetching } from '@tanstack/react-query';
 import { useCurrentUserRole } from '@/hooks/useProjectQueries';
 import type { Project, Sheet } from '@/types/domain';
 import type { ToolMode } from '@/store/useMapStore';
+import type { ActivityMenuState } from '@/store/useUIStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
 
 export interface TopHeaderProps {
@@ -14,7 +15,7 @@ export interface TopHeaderProps {
   setActiveSheetId: (id: string) => void;
   setIsModalOpen: (o: boolean) => void;
   setIsProjectMenuOpen: (o: boolean) => void;
-  setActivityMenu: (m: { mode: string }) => void;
+  setActivityMenu: (m: ActivityMenuState) => void;
   trackingMode: string;
   setTrackingMode: (m: string) => void;
   viewMode: string;

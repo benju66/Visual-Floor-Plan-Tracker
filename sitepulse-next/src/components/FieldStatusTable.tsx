@@ -39,7 +39,7 @@ interface FieldStatusTableProps {
   activeStatuses?: any[];
   rawStatuses?: any[];
   savingUnitId?: string | null;
-  onChooseStatus?: (unitId: string, activityName: string, state: string, track: string) => void;
+  onChooseStatus?: (unit: Unit, onSelect: (m: Partial<Activity>) => void) => void;
   onApplyPendingChanges?: (changes: import('@/types/domain').PendingChange[]) => Promise<void>;
   sheets?: Sheet[];
   activeSheetId: string;
