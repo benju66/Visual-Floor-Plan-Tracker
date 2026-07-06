@@ -22,7 +22,7 @@ export interface SnappingVectorLine {
  *   3. TanStack Query in-memory cache (staleTime: Infinity)
  *
  * Returns RAW JSON (`SnappingVectorLine[]`). Per AGENTS.md §5/§6 the RBush spatial
- * index is instantiated by the consumer (FloorplanCanvas) in a deferred effect and
+ * index is instantiated by the consumer (useCanvasSnapping) in a deferred effect and
  * is NEVER stored in the Query cache (it is not JSON-serializable). Snapping itself
  * is performed synchronously on the main thread via getSnappedCoordinate() — fast
  * enough for 60fps and required by Konva's synchronous dragBoundFunc.

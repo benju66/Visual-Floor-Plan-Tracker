@@ -32,16 +32,15 @@ import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { distToSegment, getCentroid, getSnappedCoordinate, isFinitePolygon, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
 import { isSelfIntersecting } from '@/utils/polygonValidity';
 import { pushSnapshot, undo as undoEditHistory, redo as redoEditHistory, seedEditHistory, emptyEditHistory, type EditHistory } from '@/utils/editHistory';
-import { tagVectorsWithGrid } from '@/utils/gridAwareSnap';
 import { computeUnitVariance, varianceFill, orderedTrackActivities } from '@/utils/progressAnalytics';
 import { unitMakeReady, makeReadyFill, slotKey } from '@/utils/activityReadiness';
 import { clampStagePosition } from '@/utils/viewport';
 import { computeLayout, computeVisibleBox, cullVisibleUnits } from '@/utils/canvasLayout';
 import { useCanvasViewport } from '@/hooks/useCanvasViewport';
+import { useCanvasSnapping } from '@/hooks/useCanvasSnapping';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
 import { warnIfUnwired } from '@/utils/wiringGuard';
-import RBush from 'rbush';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
@@ -50,7 +49,6 @@ import { useActivityDependencies } from '@/hooks/useActivityDependencies';
 import { unitsPerPxFromCalibration, parseFeetInches } from '@/utils/scale';
 import { FRACTION_LABELS, type FractionDenominator } from '@/utils/measure';
 import { loadImageDimensions } from '@/utils/imageDimensions';
-import { useSnappingVectors } from '@/hooks/useSnappingVectors';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point, Gridline, OpeningEdge, OpeningType } from '@/types/domain';
@@ -292,43 +290,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // the derived array would change identity every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lagMode, makeReadyMode, activeStatuses, rawStatuses, allActivities, trackingMode, today, units, applicabilityIndex, dependencies]);
-  // Synchronous main-thread snapping engine. The hook returns raw JSON vectors;
-  // we instantiate the RBush spatial index here in a deferred effect (never in the
-  // Query cache — see AGENTS.md §5). getSnappedCoordinate() is then called inline,
-  // synchronously, which is required by Konva's dragBoundFunc and guarantees the
-  // committed point matches the visual snap ring.
-  const { vectors: rawVectors } = useSnappingVectors(activeSheetId);
-
-  const [vectorTree, setVectorTree] = useState<RBush<any> | null>(null);
-  useEffect(() => {
-    if (!rawVectors || rawVectors.length === 0) {
-      setVectorTree(null);
-      return;
-    }
-    // Defer the heavy spatial-index build off the render path.
-    const timeoutId = setTimeout(() => {
-      const tree = new RBush();
-      // Grid-aware snapping (Phase 3c): tag the vectors that ARE confirmed grid lines
-      // so the snap engine can de-prioritize them. The aspect is read from the live
-      // layout ref (not a dep) so we tag with the freshest sheet proportions without
-      // forcing a rebuild on every resize. No confirmed grids → passthrough untagged
-      // (live map / un-gridded sheets are unchanged). The tagged TREE stays in
-      // component state; only the raw JSON lives in the Query cache (AGENTS.md §5).
-      const classifyAspect = layoutRef.current.drawH > 0
-        ? layoutRef.current.drawW / layoutRef.current.drawH
-        : 1;
-      tree.load(tagVectorsWithGrid(rawVectors, confirmedGridlines, classifyAspect));
-      setVectorTree(tree);
-    }, 10);
-    return () => clearTimeout(timeoutId);
-  }, [rawVectors, confirmedGridlines]);
-
-  // Grid-aware snapping is live only when this sheet HAS confirmed grids (so some
-  // vectors are tagged) AND the toggle is on (default on; only an explicit false is
-  // off). False on the live map (no confirmedGridlines) → snapping is untouched.
-  const gridAwareSnapping =
-    !!confirmedGridlines?.length && mapSettings?.gridAwareSnapping !== false;
-
   const [originalWidth, setOriginalWidth] = useState(1000);
   const [originalHeight, setOriginalHeight] = useState(1000);
 
@@ -461,11 +422,11 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const [isLegendSelected, setIsLegendSelected] = useState(false);
   // Magnifier loupe. Press M (or the toolbar button) to toggle it — both drive
   // the persistent `showMagnifier` setting. While it's on, magnetic snapping is
-  // suspended (`effectiveSnapping`) so node placement follows the cursor exactly;
-  // the user's toolbar snap preference is untouched and resumes when it's off.
+  // suspended (`effectiveSnapping`, derived in useCanvasSnapping below) so node
+  // placement follows the cursor exactly; the user's toolbar snap preference is
+  // untouched and resumes when it's off.
   const magnifierZoom = mapSettings?.magnifierZoom ?? 3;
   const magnifierActive = !!mapSettings?.showMagnifier;
-  const effectiveSnapping = !!mapSettings?.enableSnapping && !magnifierActive;
   const loupe = useLoupeRenderer(activeSheetId ?? null, pdfVersion ?? null, magnifierActive);
   // Refs so the keyboard handler (created once) can read the live magnifier state.
   const magnifierActiveRef = useRef(magnifierActive);
@@ -598,7 +559,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     };
   }, [openingCaptureEnabled]);
 
-  const aspect = layoutRef.current.drawW / Math.max(1, layoutRef.current.drawH);
   const lastBoxEndRef = useRef(0);
   // Tracks the last snap result from onMouseMove — consumed by handleStageClick to guarantee
   // the committed draft point matches the visual snap indicator pixel-perfectly.
@@ -933,6 +893,25 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     setContextMenu(null);
     viewportHandleZoom(direction);
   };
+
+  // The snapping engine (FloorplanCanvas Decomposition — Phase 3): the raw-vector
+  // fetch + deferred RBush build (the tree lives in hook state, never the Query
+  // cache — AGENTS.md §5), the grid-aware + magnifier-suspend flags, the
+  // render-time `aspect` ratio, and the `snapPoint` lookup. Everything below that
+  // consumes these (onMouseMove snap + snap ring, stamp anchors, the
+  // draw/calibrate/measure click branches, the overlay props) reads the hook's
+  // returns unchanged.
+  const { vectorTree, snapPoint, effectiveSnapping, gridAwareSnapping, aspect } = useCanvasSnapping({
+    activeSheetId,
+    confirmedGridlines,
+    layoutRef,
+    layoutDrawW: layout.drawW,
+    stageScale,
+    enableSnapping: mapSettings?.enableSnapping,
+    snappingStrength: mapSettings?.snappingStrength,
+    gridAwareSnappingSetting: mapSettings?.gridAwareSnapping,
+    magnifierActive,
+  });
 
   const visibleBoundingBox = useMemo(
     () => computeVisibleBox(layout, stagePosition, stageScale, dimensions),
@@ -1414,18 +1393,6 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       offsetY + p.pctY * drawH,
     ]);
   }, [layout]);
-
-  // Snap a percent-space point to the nearest detected vector — the same
-  // getSnappedCoordinate the trace tool uses. Drives the capture-line endpoints
-  // (AI Tracing Assist — Phase 3b): both the live overlay preview and the emitted
-  // grid axis. A no-op when snapping is off or the vector tree isn't built yet.
-  const snapPoint = useCallback((p: Point): Point => {
-    if (!mapSettings?.enableSnapping || !vectorTree) return p;
-    const s = getSnappedCoordinate(
-      p.pctX, p.pctY, vectorTree, aspect, layout.drawW, stageScale, mapSettings.snappingStrength || 15,
-    );
-    return { pctX: s.pctX, pctY: s.pctY };
-  }, [mapSettings?.enableSnapping, mapSettings?.snappingStrength, vectorTree, aspect, layout.drawW, stageScale]);
 
   // Keep keyboard shortcut callback refs in sync
   handleZoomRef.current = handleZoom;
