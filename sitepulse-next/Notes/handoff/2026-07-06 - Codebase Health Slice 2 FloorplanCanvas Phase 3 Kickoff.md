@@ -9,8 +9,8 @@
 > - `sitepulse-next/Notes/plans/FloorplanCanvas-Decomposition-Plan.md` (Phase 3 + the guardrails)
 > - `sitepulse-next/AGENTS.md` (esp. §3 canvas engine, **§5 snapping/RBush — hard rule**, §6 TypeScript)
 >
-> Branch `feat/codebase-health-slice2-phase-3` off `feat/codebase-health-slice2-phase-2` (or off `main`
-> if the owner confirms the slice-2 chain has merged). Build **only Phase 3**. Keep `FloorplanCanvas`'s
+> Branch `feat/codebase-health-slice2-phase-3` off `main` (the slice-2 chain — golden master + Phases
+> 1–2 — merged to main 2026-07-06, main==85b7f15). Build **only Phase 3**. Keep `FloorplanCanvas`'s
 > behavior + public prop surface byte-identical; the golden-master test
 > (`src/components/FloorplanCanvas.test.tsx`) must stay green. Don't commit or push until I say "Approved."
 
@@ -87,11 +87,9 @@ npm --prefix "C:/Users/BUrness/Dev/Visual-Floor-Plan-Tracker/sitepulse-next" run
 `scripts/restart-dev.ps1`.
 
 ## Branching
-The slice-2 chain is stacked: `main` ← `feat/codebase-health-phase-0-4` (golden master, 648a496) ←
-`feat/codebase-health-slice2-phase-1` (Phase 1, e4f9274) ← `feat/codebase-health-slice2-phase-2`
-(Phase 2, 87399e3). **Branch `feat/codebase-health-slice2-phase-3` off
-`feat/codebase-health-slice2-phase-2`** — or off `main` if the owner confirms the chain has merged.
-Confirm merge state with the owner at session start.
+The former stacked slice-2 chain (golden master 648a496 → Phase 1 e4f9274 → Phase 2 87399e3) was
+**merged to main + pushed 2026-07-06 (main == origin == 85b7f15)** and the local phase branches were
+deleted. **Branch `feat/codebase-health-slice2-phase-3` off `main`.**
 
 ## Next after this
 Phase 4 — extract the geometry-edit gestures (`useGeometryGestures`) — ★ **the phase the golden
