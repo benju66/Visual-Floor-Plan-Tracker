@@ -59,7 +59,14 @@ Framework-free, deterministic functions (no `Date.now()` inside — pass timesta
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: mouse-wheel zoom (must stay wheel-zoom, not scroll-pan — [[users-are-mouse-wheel-primary]]), smooth-glide, double-click zoom, pan, fit-to-view, mini-map drag/resize all identical · `verify-feature`.
 
-### Phase 3 — Extract snapping → `useCanvasSnapping`
+### Phase 3 — Extract snapping → `useCanvasSnapping` — ✅ DONE (6bf0402, Approved)
+> Landed as `src/hooks/useCanvasSnapping.ts` (flat hooks folder). Also returns `gridAwareSnapping`.
+> Takes the mapSettings snap fields + `magnifierActive` as primitives (same arg style as
+> useCanvasViewport); the `aspect` quirk (a per-render `layoutRef.current` read, deliberately NOT
+> a memo) moved verbatim into the hook body; RBush stays in hook `useState` (AGENTS §5). The hook
+> call sits AFTER useCanvasViewport (snapPoint needs stageScale/layout). All consumers stayed in
+> the component. AGENTS §5 + the useSnappingVectors doc comment now name the hook as the RBush
+> home. FloorplanCanvas 2,368 → 2,335 lines.
 - **Scope:** Move the `rawVectors → vectorTree` RBush build effect (307–328), `gridAwareSnapping` (333–334), `snapPoint` (1744), `effectiveSnapping` (482), and `aspect` (615) into `src/hooks/useCanvasSnapping.ts`. Returns `{ vectorTree, snapPoint, effectiveSnapping, aspect }`.
 - **Approval gates:** none. ⚠️ **AGENTS §5 hard rule:** the `RBush` index MUST stay in the hook's `useState`/`useEffect` — **NEVER** put it in TanStack Query / IDB state (it crashes the persist serializer). Only the raw JSON vectors live in the Query cache; the hook instantiates RBush locally, exactly as today.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: trace snapping + snap ring behave identically on a sheet with detected vectors · `verify-feature`.
