@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings, Folder, Trash2, AlertTriangle, Sparkles, ListChecks, Hash } from 'lucide-react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/providers/AuthProvider';
@@ -7,70 +8,121 @@ import LocationLibraryPanel from '@/components/taxonomy/LocationLibraryPanel';
 import ActivityLibraryPanel from '@/components/schedule/ActivityLibraryPanel';
 import CostCodeLibraryPanel from '@/components/costcodes/CostCodeLibraryPanel';
 import { deleteProjectService } from '@/services/api';
+import type { Profile, Project } from '@/types/domain';
 
-export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, onProjectDeleted, onProjectUpdated }) {
-  const { session } = useAuth();
+// The profile fields this modal reads — the Team Directory list and the
+// selected/searched user. Derived from `Profile` (AGENTS.md §6) but with `email`
+// narrowed to non-null: every profile has a login email, the directory sorts +
+// renders `email` unconditionally, and lookup matches by it, so it is asserted
+// non-null at the query boundary, matching the file's existing runtime assumption.
+type TeamMember = Pick<Profile, 'id' | 'display_name'> & { email: string };
+
+// The admin project rows the modal is handed. The dashboard passes full `projects`
+// rows (`projects (*)`); the modal only reads this subset — derive it from `Project`
+// rather than re-declaring a table shape (AGENTS.md §6).
+type AdminProject = Pick<Project, 'id' | 'name' | 'created_at' | 'ai_training_enabled'>;
+
+// Per-project assign/role staging for the Users tab. `role`/`initialRole` mirror the
+// `project_members.role` column (nullable free text — the picker offers pm/
+// superintendent/admin); `memberId` is the existing membership row id, null when the
+// user is not yet a member of that project.
+type Assignment = {
+  assigned: boolean;
+  role: string | null;
+  initialAssigned: boolean;
+  initialRole: string | null;
+  memberId: string | null;
+};
+
+// Inline success/error/info feedback shown by the save + project-action handlers.
+type StatusMessage = { type: string; message: string };
+
+type TabKey = 'users' | 'library' | 'activity-library' | 'cost-codes' | 'projects';
+
+interface GlobalSettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  adminProjects: AdminProject[];
+  onProjectDeleted?: (projectId: string) => void;
+  onProjectUpdated?: (projectId: string, patch: Partial<Project>) => void;
+}
+
+// Faithful port of the file's `err.message || fallback` pattern. Supabase throws a
+// PostgrestError object (not always an `Error` instance), so read a non-empty string
+// `message` off either an Error or a plain error object before falling back.
+function toErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (err && typeof err === 'object' && 'message' in err) {
+    const m = (err as { message: unknown }).message;
+    if (typeof m === 'string' && m) return m;
+  }
+  return fallback;
+}
+
+export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, onProjectDeleted, onProjectUpdated }: GlobalSettingsModalProps) {
+  const { session } = useAuth() as { session: Session | null };
   const queryClient = useQueryClient();
-  
+
   const [searchEmail, setSearchEmail] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [targetUser, setTargetUser] = useState(null); // { id, display_name, email }
+  const [targetUser, setTargetUser] = useState<TeamMember | null>(null); // { id, display_name, email }
   const [searchError, setSearchError] = useState('');
-  
+
   // State for the checkboxes and dropdowns
-  const [assignments, setAssignments] = useState({});
+  const [assignments, setAssignments] = useState<Record<string, Assignment>>({});
   const [isSaving, setIsSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
+  const [saveStatus, setSaveStatus] = useState<StatusMessage>({ type: '', message: '' });
 
   // Which global-settings tab is showing: cross-project user management, the
   // global Location Library (the shared sub-type dictionary + review queue), or
   // the admin Projects manager (delete a project).
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState<TabKey>('users');
 
   // Projects tab state. `confirmProject` holds the project the admin has armed
   // for deletion; the type-the-name guard (`confirmText`) prevents fat-finger
   // destruction. `deletingId` drives the per-row spinner; `projectStatus`
   // surfaces success/error inline.
-  const [confirmProject, setConfirmProject] = useState(null);
+  const [confirmProject, setConfirmProject] = useState<AdminProject | null>(null);
   const [confirmText, setConfirmText] = useState('');
-  const [deletingId, setDeletingId] = useState(null);
-  const [projectStatus, setProjectStatus] = useState({ type: '', message: '' });
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [projectStatus, setProjectStatus] = useState<StatusMessage>({ type: '', message: '' });
 
   // Per-project AI-training opt-out toggle (left of Delete). `trainingOverrides`
   // holds the optimistic per-project value while a write is in flight / since the
   // modal opened; `trainingSavingId` drives the in-flight disable + spinner.
-  const [trainingOverrides, setTrainingOverrides] = useState({});
-  const [trainingSavingId, setTrainingSavingId] = useState(null);
+  const [trainingOverrides, setTrainingOverrides] = useState<Record<string, boolean>>({});
+  const [trainingSavingId, setTrainingSavingId] = useState<string | null>(null);
 
   // New State for Global Team
-  const [globalTeam, setGlobalTeam] = useState([]);
+  const [globalTeam, setGlobalTeam] = useState<TeamMember[]>([]);
   const [loadingTeam, setLoadingTeam] = useState(false);
 
   useEffect(() => {
     async function fetchGlobalTeam() {
       if (!isOpen || !adminProjects || adminProjects.length === 0) return;
-      
+
       setLoadingTeam(true);
-      
+
       const { data, error } = await supabase
         .from('profiles')
         .select('id, email, display_name');
-        
+
       if (data && !error) {
-        // Sort alphabetically by display_name or email
-        const allUsers = data.sort((a, b) => {
+        // Sort alphabetically by display_name or email. `email` is asserted
+        // non-null here (see TeamMember) — every profile carries a login email.
+        const allUsers = (data as TeamMember[]).sort((a, b) => {
           const nameA = (a.display_name || a.email).toLowerCase();
           const nameB = (b.display_name || b.email).toLowerCase();
           return nameA.localeCompare(nameB);
         });
-        
+
         setGlobalTeam(allUsers);
       } else {
         console.error("Error fetching global team:", error);
       }
       setLoadingTeam(false);
     }
-    
+
     fetchGlobalTeam();
   }, [isOpen, adminProjects]);
 
@@ -92,7 +144,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
 
   if (!isOpen) return null;
 
-  const loadUserAssignments = async (profile) => {
+  const loadUserAssignments = async (profile: TeamMember) => {
     setSearchError('');
     setTargetUser(profile);
     setSearchEmail(profile.email);
@@ -107,7 +159,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
 
       if (memErr) throw memErr;
 
-      const newAssignments = {};
+      const newAssignments: Record<string, Assignment> = {};
       adminProjects.forEach(proj => {
         const mem = memberships?.find(m => m.project_id === proj.id);
         newAssignments[proj.id] = {
@@ -126,10 +178,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
     }
   };
 
-  const handleSearch = async (e) => {
+  const handleSearch = async (e?: React.FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
     if (!searchEmail.trim()) return;
-    
+
     setIsSearching(true);
     setSearchError('');
     setTargetUser(null);
@@ -143,14 +195,16 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
         .select('id, email, display_name')
         .eq('email', email)
         .single();
-        
+
       if (profileErr || !profile) {
         setSearchError('User not found. They must sign up to the platform first.');
         setIsSearching(false);
         return;
       }
 
-      await loadUserAssignments(profile);
+      // `email` is non-null here — the query filtered on it, so the returned row's
+      // email is the searched value (narrow to TeamMember at the boundary).
+      await loadUserAssignments(profile as TeamMember);
 
     } catch (err) {
       console.error("Error searching user:", err);
@@ -160,7 +214,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
     }
   };
 
-  const handleToggleAssign = (projectId) => {
+  const handleToggleAssign = (projectId: string) => {
     setAssignments(prev => ({
       ...prev,
       [projectId]: {
@@ -170,7 +224,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
     }));
   };
 
-  const handleRoleChange = (projectId, role) => {
+  const handleRoleChange = (projectId: string, role: string) => {
     setAssignments(prev => ({
       ...prev,
       [projectId]: {
@@ -191,7 +245,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
     for (const proj of adminProjects) {
       const current = assignments[proj.id];
       if (!current) continue;
-      
+
       if (current.assigned && !current.initialAssigned) {
         hasChanges = true;
         promises.push(
@@ -225,7 +279,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
     try {
       const results = await Promise.allSettled(promises);
       const failures = results.filter(r => r.status === 'rejected');
-      
+
       queryClient.invalidateQueries({ queryKey: ['project_members'] });
 
       if (failures.length > 0) {
@@ -233,7 +287,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
         setSaveStatus({ type: 'error', message: `Saved with ${failures.length} errors. Please refresh.` });
       } else {
         setSaveStatus({ type: 'success', message: 'All assignments updated successfully!' });
-        
+
         // Add new user to global team list instantly if they aren't there
         setGlobalTeam(prev => {
           if (!prev.find(u => u.id === targetUser.id)) {
@@ -251,9 +305,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
         .from('project_members')
         .select('id, project_id, role')
         .eq('user_id', targetUser.id);
-        
+
       if (newMemberships) {
-         const updatedAssignments = {};
+         const updatedAssignments: Record<string, Assignment> = {};
          adminProjects.forEach(proj => {
            const mem = newMemberships.find(m => m.project_id === proj.id);
            updatedAssignments[proj.id] = {
@@ -279,7 +333,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
   // override immediately, write to `projects.ai_training_enabled` (RLS allows the
   // owner/admin who can see this tab), and revert on failure. Default-ON, so the
   // displayed state is `override ?? (flag !== false)`.
-  const handleToggleTraining = async (project) => {
+  const handleToggleTraining = async (project: AdminProject) => {
     const currentOn = trainingOverrides[project.id] ?? (project.ai_training_enabled !== false);
     const next = !currentOn;
     setTrainingSavingId(project.id);
@@ -301,13 +355,13 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
     } catch (err) {
       console.error('AI-training toggle failed:', err);
       setTrainingOverrides(prev => ({ ...prev, [project.id]: currentOn })); // revert
-      setProjectStatus({ type: 'error', message: err.message || 'Failed to update AI-training setting.' });
+      setProjectStatus({ type: 'error', message: toErrorMessage(err, 'Failed to update AI-training setting.') });
     } finally {
       setTrainingSavingId(null);
     }
   };
 
-  const handleDeleteProject = async (project) => {
+  const handleDeleteProject = async (project: AdminProject) => {
     setDeletingId(project.id);
     setProjectStatus({ type: '', message: '' });
     try {
@@ -325,7 +379,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
       onProjectDeleted?.(project.id); // let the dashboard drop it from the grid
     } catch (err) {
       console.error('Project delete failed:', err);
-      setProjectStatus({ type: 'error', message: err.message || 'Failed to delete project.' });
+      setProjectStatus({ type: 'error', message: toErrorMessage(err, 'Failed to delete project.') });
     } finally {
       setDeletingId(null);
     }
@@ -336,7 +390,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose}>
       <div className="w-full max-w-5xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-        
+
         <div className="flex justify-between items-start p-5 pb-0 border-b border-slate-100 dark:border-white/5 shrink-0">
           <div>
             <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
@@ -520,7 +574,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
 
         {activeTab === 'users' && (
         <div className="flex flex-1 overflow-hidden min-h-0">
-          
+
           {/* Left Column: Team Directory */}
           <div className="w-1/3 border-r border-slate-100 dark:border-white/5 flex flex-col bg-slate-50/50 dark:bg-slate-800/30">
             <div className="p-4 border-b border-slate-100 dark:border-white/5 shrink-0">
@@ -546,8 +600,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
                       key={member.id}
                       onClick={() => loadUserAssignments(member)}
                       className={`w-full text-left p-3 rounded-xl flex items-center gap-3 transition-colors ${
-                        targetUser?.id === member.id 
-                          ? 'bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800' 
+                        targetUser?.id === member.id
+                          ? 'bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800'
                           : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'
                       }`}
                     >
@@ -635,7 +689,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
                         adminProjects.map(proj => {
                           const current = assignments[proj.id];
                           if (!current) return null;
-                          
+
                           return (
                             <div key={proj.id} className="p-4 px-5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                               <div className="flex items-center gap-3">
@@ -653,18 +707,18 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
                                   {proj.name}
                                 </span>
                               </div>
-                              
+
                               <select
-                                value={current.role}
+                                value={current.role ?? ''}
                                 onChange={(e) => handleRoleChange(proj.id, e.target.value)}
                                 disabled={!current.assigned || isSelfModifying}
                                 className={`pl-3 pr-8 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider outline-none cursor-pointer border-r-4 border-transparent ${
                                   !current.assigned || isSelfModifying
-                                    ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed opacity-50' 
-                                    : current.role === 'admin' 
-                                      ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30' 
-                                      : current.role === 'pm' 
-                                        ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30' 
+                                    ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed opacity-50'
+                                    : current.role === 'admin'
+                                      ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30'
+                                      : current.role === 'pm'
+                                        ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30'
                                         : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30'
                                 }`}
                               >
