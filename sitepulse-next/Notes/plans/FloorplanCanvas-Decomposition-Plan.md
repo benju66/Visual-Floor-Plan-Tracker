@@ -71,12 +71,31 @@ Framework-free, deterministic functions (no `Date.now()` inside — pass timesta
 - **Approval gates:** none. ⚠️ **AGENTS §5 hard rule:** the `RBush` index MUST stay in the hook's `useState`/`useEffect` — **NEVER** put it in TanStack Query / IDB state (it crashes the persist serializer). Only the raw JSON vectors live in the Query cache; the hook instantiates RBush locally, exactly as today.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: trace snapping + snap ring behave identically on a sheet with detected vectors · `verify-feature`.
 
-### Phase 4 — Extract geometry-edit gestures → `useGeometryGestures`  ★ golden-master phase
+### Phase 4 — Extract geometry-edit gestures → `useGeometryGestures`  ★ golden-master phase — ✅ DONE (c299a6e, Approved)
+> Landed as `src/hooks/useGeometryGestures.ts` (384 lines). All gesture handlers + the
+> pending-edit history (seed/record/apply) moved verbatim; the window keydown effect
+> reaches `nudgeSelected`/`undoRedoPendingEdit` through the component's callback refs;
+> the refs passed in stay owned + synced by the component. Golden master 15/15 untouched.
+> FloorplanCanvas 2,336 → 2,156 lines. (Note added at the Phase 5 close — the P4 close
+> commit archived its kickoff but missed this annotation.)
 - **Scope:** Move `handleFlip`, `handleRotatePolygon`, `handlePolygonDragEnd`, `handleAnchorDragEnd`, `handleAnchorClick`, the `add_node` branch of `handlePolygonClick`, `handleInsertPendingVertex`, `handleDeletePendingVertex`, `handleInsertSavedVertex`, `handlePendingPolygonEdit` + the `editHistory` seed/undo/redo wiring, and the arrow-nudge invocation into `src/hooks/useGeometryGestures.ts`. **The 4 callback prop signatures stay identical** (`onUpdateUnitPolygon`/`onPolygonComplete`/`onInstantStamp`/`onPendingPolygonMove`). Preserve every ref (`onUpdateUnitPolygonRef`, `unitsRef`, `selectedUnitIdsRef`, `pendingPolygonPointsRef`, `layoutRef`) and its sync effect verbatim.
 - **Approval gates:** none. **This is the phase the Phase 0.4 golden master exists for** — it is the tripwire; treat any red as a real regression, not a test to edit.
 - **Exit criteria:** gate green · **golden master green (all 15 gestures + the two guards)** · `dev:3010`: node move / whole-drag / arrow-nudge / flip / rotate / add-node / delete-node / insert-vertex all persist correctly on both map + workbench · `verify-feature`.
 
-### Phase 5 — Extract the trace + box tool → `useTraceTool`
+### Phase 5 — Extract the trace + box tool → `useTraceTool` — ✅ DONE (815d3e6, Approved)
+> Landed as `src/hooks/useTraceTool.ts` (300 lines): draft state + sync refs, the draw
+> click as `handleDrawClick(e, pctX, pctY)` — the `toolMode==='draw' && !isEditingPending`
+> ROUTING gate stays in handleStageClick's else-if chain (preserves the final-else
+> legend-deselect fallthrough) — `finishDrawing` + a separate `finishDrawingViaEnter`
+> (keeps the distinct `:draw-enter` guard label; internal onPolygonCompleteRef, same
+> pattern as Phase 4's onPendingPolygonMoveRef), stable `clearDraft`/`undoLastDraftVertex`
+> for the keyboard, the box pointer handlers (full gates inside; `:box` stays a single-arg
+> onPolygonComplete call), the opening hold-key effect + `armedOpeningType`, and the
+> leave-draw reset. Seams: `boxOrigin`/`lastBoxEndRef`/`lastSnapRef` stay component-owned
+> (shared with capture_box/capture_line/calibrate/measure); the window keydown EFFECT
+> stays in the component but moved BELOW the tool-hook calls (deps byte-identical) so its
+> draft branches consume the hook returns directly — extracting it is still Phase 8's job.
+> FloorplanCanvas 2,156 → 2,063 lines.
 - **Scope:** Move `draftPoints`/`draftOpeningEdges` state + refs, the `draw` branch of `handleStageClick`, `finishDrawing`, the box `onPointerDown`/`onPointerUp` handlers, the draw-Enter handling, and the opening hold-key effect (582–613) into `src/hooks/useTraceTool.ts`. `onPolygonComplete` args stay identical (golden master guards `:finish` / `:draw-enter` / `:box`). `DraftPolygon` stays a child, fed from the hook.
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: click-trace → Enter/Finish, Shift-ortho, box-drag room, opening tags (workbench) all identical · `verify-feature`.
