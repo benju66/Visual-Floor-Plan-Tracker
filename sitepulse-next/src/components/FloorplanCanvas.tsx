@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react';
-import { Stage, Layer, Image as KonvaImage } from 'react-konva';
+import { Stage } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
 import { Check, AlertTriangle } from 'lucide-react';
@@ -8,27 +8,22 @@ import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 import ViewportControls from '@/components/canvas/ViewportControls';
 import ContextActionDock from '@/components/canvas/ContextActionDock';
 import CanvasContextMenu from '@/components/CanvasContextMenu';
-import MappedUnit from '@/components/canvas/MappedUnit';
-import DraftPolygon from '@/components/canvas/DraftPolygon';
 import MeasureReadout from '@/components/canvas/MeasureReadout';
-import StampPreview from '@/components/canvas/StampPreview';
 import StampDrawer from '@/components/canvas/StampDrawer';
 import type { StampDef } from '@/utils/stampLibrary';
-import PendingPolygon from '@/components/canvas/PendingPolygon';
-import CaptureBoxOverlay from '@/components/canvas/CaptureBoxOverlay';
-import CaptureLineOverlay from '@/components/canvas/CaptureLineOverlay';
-import GridlineOverlay, { type GridlineOverlayItem } from '@/components/canvas/GridlineOverlay';
-import OpeningEdgeOverlay, { type OpeningOverlayUnit, type OpeningEditTarget } from '@/components/canvas/OpeningEdgeOverlay';
-import { OPENING_TYPE_RGB } from '@/utils/openingEdges';
-import MapLegend from '@/components/canvas/MapLegend';
+import CanvasPdfStatus from '@/components/canvas/CanvasPdfStatus';
+import CanvasBaseLayer from '@/components/canvas/CanvasBaseLayer';
+import CanvasUnitsLayer from '@/components/canvas/CanvasUnitsLayer';
+import CanvasOverlayLayer from '@/components/canvas/CanvasOverlayLayer';
+import type { GridlineOverlayItem } from '@/components/canvas/GridlineOverlay';
+import type { OpeningOverlayUnit, OpeningEditTarget } from '@/components/canvas/OpeningEdgeOverlay';
 import CrosshairOverlay from '@/components/canvas/CrosshairOverlay';
 import LoupeOverlay from '@/components/canvas/LoupeOverlay';
 import MiniMapOverlay from '@/components/canvas/MiniMapOverlay';
 import { useLoupeRenderer } from '@/hooks/useLoupeRenderer';
 import { withVersion } from '@/utils/pdfSource';
-import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
-import { getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
+import { getCentroid, getSnappedCoordinate, nearestCentroidWithin } from '@/utils/geometry';
 import { isSelfIntersecting } from '@/utils/polygonValidity';
 import { recolorForLag, recolorForMakeReady } from '@/utils/canvasRecolor';
 import { clampStagePosition } from '@/utils/viewport';
@@ -48,7 +43,6 @@ import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import { useUnits, useActivities, useUpdateWalkSequence, useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
 import { useActivityDependencies } from '@/hooks/useActivityDependencies';
 import { FRACTION_LABELS } from '@/utils/measure';
-import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point, Gridline, OpeningEdge, OpeningType } from '@/types/domain';
 import type { ApplicabilityIndex } from '@/utils/applicability';
@@ -263,8 +257,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   const stageRef = useRef<any>(null);
   // The 3rd (interactive-overlays) Konva layer — DraftPolygon's trace line,
-  // placed nodes, and snap ring. Handed to LoupeOverlay so the magnifier can
-  // composite the in-progress trace on top of its sharp PDF crop (Phase 4).
+  // placed nodes, and snap ring. Attached to the real Layer node inside
+  // CanvasOverlayLayer (Phase 10) and handed to LoupeOverlay so the magnifier
+  // can composite the in-progress trace on top of its sharp PDF crop (Phase 4).
   const overlayLayerRef = useRef<Konva.Layer | null>(null);
   // (spaceWasPanRef — the tool space-pan restores on release/blur — moved into
   // useCanvasKeyboard, the only reader — Phase 8.)
@@ -588,9 +583,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // branches of the stage click (armed-drawer + selected-room source), and the
   // leave-stamp reset. The branch CONDITIONS stay in handleStageClick's else-if
   // chain below (preserving the final-else legend-deselect fallthrough) and call
-  // the returned handlers; the R/H/V keydown branch below and the StampPreview /
-  // ContextActionDock wiring consume the hook's returns; StampDrawer talks to
-  // the store itself.
+  // the returned handlers; the R/H/V keydown branch below and the StampPreview
+  // (mounted in CanvasOverlayLayer — Phase 10) / ContextActionDock wiring
+  // consume the hook's returns; StampDrawer talks to the store itself.
   const {
     stampTransform,
     rotateStamp,
@@ -621,8 +616,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // `useUpdateSheetScale` write — the canvas's only direct write — is
   // byte-identical inside). The branch CONDITIONS stay in handleStageClick's
   // else-if chain below; the keydown Esc ladder consumes the returned refs +
-  // stable cancelCalibrate/clearMeasureRun; the calibrate popover, measure
-  // panel and both DraftPolygon mounts stay in the JSX, fed from these returns.
+  // stable cancelCalibrate/clearMeasureRun; the calibrate popover + measure
+  // panel stay in this JSX and both DraftPolygon mounts live in
+  // CanvasOverlayLayer (Phase 10), all fed from these returns.
   // useSheetById/useUpdateSheetScale stay mounted above (the panel/popover read
   // scale_units_per_px/isPending); lastSnapRef stays component-owned (shared
   // with draw).
@@ -956,44 +952,13 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
         boxShadow: 'var(--glass-shadow)',
       }}
     >
-      {/* PDF Loading overlay — shown during initial download+render */}
-      {pdfLoading && !pdfError && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <div className="flex items-center gap-3 bg-white/85 dark:bg-slate-900/85 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm border border-slate-200/60 dark:border-white/10">
-            <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full" />
-            <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Loading drawing...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Sharpening chip — preview visible and interactive, base LOD still rendering */}
-      {!pdfLoading && !pdfError && pdfSharpening && (
-        <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
-          <div className="flex items-center gap-2 bg-white/85 dark:bg-slate-900/85 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-sm border border-slate-200/60 dark:border-white/10">
-            <div className="animate-spin h-3.5 w-3.5 border-2 border-blue-500 border-t-transparent rounded-full" />
-            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Sharpening…</span>
-          </div>
-        </div>
-      )}
-
-      {/* PDF Error overlay — shown when download/render fails */}
-      {pdfError && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="flex flex-col items-center gap-3 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm px-6 py-4 rounded-xl shadow-lg border border-red-200/30 dark:border-red-900/30">
-            <p className="text-sm text-red-500 font-bold">Failed to load drawing</p>
-            <p className="text-xs text-slate-500 max-w-64 text-center">{pdfError}</p>
-            {pdfRetry && (
-              <button 
-                type="button"
-                onClick={pdfRetry}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-1.5 rounded-lg shadow-sm font-medium transition-all"
-              >
-                Retry
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      {/* PDF pipeline status chrome: loading overlay, sharpening chip, error card. */}
+      <CanvasPdfStatus
+        pdfLoading={pdfLoading}
+        pdfSharpening={pdfSharpening}
+        pdfError={pdfError}
+        pdfRetry={pdfRetry}
+      />
 
       {/* Drawing Tool Excellence — Phase 2: non-blocking self-intersection warning.
           Appears while naming a freshly-traced room whose shape overlaps itself (a
@@ -1425,275 +1390,137 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             }
           }}
         >
-          {/* Base layer: the giant PDF bitmap lives alone here, excluded from the
-              hit graph (listening=false) and never redrawn by overlay/hover churn
-              on the layers above. imageSmoothingEnabled=false keeps construction
-              drawing lines crisp at deep zoom (persisted by Konva across resizes,
-              replacing the old per-commit ref hack). */}
-          <Layer listening={false} imageSmoothingEnabled={false}>
-            {/* Background: PDF vector layer, or standard Image fallback */}
-            {layout.drawW > 0 && layout.drawH > 0 && (
-              activeSheetId ? (
-                <PdfBaseLayer
-                  sheetId={activeSheetId}
-                  baseImageUrl={imageUrl}
-                  pdfVersion={pdfVersion}
-                  offsetX={layout.offsetX}
-                  offsetY={layout.offsetY}
-                  drawW={layout.drawW}
-                  drawH={layout.drawH}
-                  stageScale={stageScale}
-                  onLoadingChange={setPdfLoading}
-                  onSharpeningChange={setPdfSharpening}
-                  onError={(err, retry) => { setPdfError(err); setPdfRetry(() => retry); }}
-                  onDimensionsReady={(w, h) => { setOriginalWidth(w); setOriginalHeight(h); }}
-                  viewportRect={visibleBoundingBox}
-                />
-              ) : image && (
-                <KonvaImage
-                  image={image}
-                  x={layout.offsetX}
-                  y={layout.offsetY}
-                  width={layout.drawW}
-                  height={layout.drawH}
-                  listening={false}
-                  perfectDrawEnabled={false}
-                />
-              )
-            )}
-          </Layer>
+          {/* Base layer: the PDF bitmap (or legacy raster fallback), alone and
+              non-interactive so overlay/hover churn never redraws it. */}
+          <CanvasBaseLayer
+            layout={layout}
+            activeSheetId={activeSheetId}
+            imageUrl={imageUrl}
+            pdfVersion={pdfVersion}
+            stageScale={stageScale}
+            image={image}
+            visibleBoundingBox={visibleBoundingBox}
+            onLoadingChange={setPdfLoading}
+            onSharpeningChange={setPdfSharpening}
+            onError={(err, retry) => { setPdfError(err); setPdfRetry(() => retry); }}
+            onDimensionsReady={(w, h) => { setOriginalWidth(w); setOriginalHeight(h); }}
+          />
 
-          {/* Units layer: interactive content (unit polygons, status icons, legend). */}
-          <Layer>
-            {visibleUnits &&
-              visibleUnits.map((unit) => (
-                <MappedUnit
-                  key={unit.id}
-                  unit={unit}
-                  isRouteDropTarget={routeDropTarget === unit.id || (toolMode === 'route' && routeSubMode === 'add' && hoveredUnit === unit.id && !pendingRoute.includes(unit.id))}
-                  activeStatuses={displayStatuses}
-                  lagMode={lagMode || makeReadyMode}
-                  legendFilter={legendFilter}
-                  isSelected={selectedUnitIds?.includes(unit.id)}
-                  isHovered={hoveredUnit === unit.id}
-                  temporalFilters={temporalFilters}
-                  toolMode={toolMode}
-                  shadeUnstatused={!!mapSettings?.shadeLocations}
-                  layout={layout}
-                  stageScale={stageScale}
-                  vectorTree={vectorTree}
-                  aspect={aspect}
-                  enableSnapping={effectiveSnapping}
-                  snappingStrength={mapSettings?.snappingStrength || 15}
-                  isZoomedOut={isZoomedOut}
-                  settings={settings}
-                  activeDragNode={activeDragNode}
-                  activeDragPolygon={activeDragPolygon}
-                  isShiftDown={isShiftDown}
-                  mixAlpha={mixAlpha}
-                  toPixels={toPixels}
-                  setHoveredUnit={setHoveredUnit}
-                  setActiveDragPolygon={setActiveDragPolygon}
-                  handlePolygonDragEnd={handlePolygonDragEnd}
-                  handlePolygonClick={handlePolygonClick}
-                  onSelectUnit={onSelectUnit}
-                  onToolModeChange={onToolModeChange}
-                  setContextMenu={setContextMenu}
-                  onUpdateUnitIconOffset={onUpdateUnitIconOffset}
-                  onAnchorEnter={handleAnchorEnter}
-                  onAnchorLeave={handleAnchorLeave}
-                  setHoveredIcon={setHoveredIcon}
-                  setActiveDragNode={setActiveDragNode}
-                  handleAnchorDragEnd={handleAnchorDragEnd}
-                  handleAnchorClick={handleAnchorClick}
-                  onInsertVertex={handleInsertSavedVertex}
-                />
-              ))}
-          </Layer>
+          {/* Units layer: interactive content (unit polygons, status icons). */}
+          <CanvasUnitsLayer
+            visibleUnits={visibleUnits}
+            routeDropTarget={routeDropTarget}
+            toolMode={toolMode}
+            routeSubMode={routeSubMode}
+            hoveredUnit={hoveredUnit}
+            pendingRoute={pendingRoute}
+            displayStatuses={displayStatuses}
+            lagMode={lagMode}
+            makeReadyMode={makeReadyMode}
+            legendFilter={legendFilter}
+            selectedUnitIds={selectedUnitIds}
+            temporalFilters={temporalFilters}
+            mapSettings={mapSettings}
+            layout={layout}
+            stageScale={stageScale}
+            vectorTree={vectorTree}
+            aspect={aspect}
+            effectiveSnapping={effectiveSnapping}
+            isZoomedOut={isZoomedOut}
+            settings={settings}
+            activeDragNode={activeDragNode}
+            activeDragPolygon={activeDragPolygon}
+            isShiftDown={isShiftDown}
+            toPixels={toPixels}
+            setHoveredUnit={setHoveredUnit}
+            setActiveDragPolygon={setActiveDragPolygon}
+            handlePolygonDragEnd={handlePolygonDragEnd}
+            handlePolygonClick={handlePolygonClick}
+            onSelectUnit={onSelectUnit}
+            onToolModeChange={onToolModeChange}
+            setContextMenu={setContextMenu}
+            onUpdateUnitIconOffset={onUpdateUnitIconOffset}
+            onAnchorEnter={handleAnchorEnter}
+            onAnchorLeave={handleAnchorLeave}
+            setHoveredIcon={setHoveredIcon}
+            setActiveDragNode={setActiveDragNode}
+            handleAnchorDragEnd={handleAnchorDragEnd}
+            handleAnchorClick={handleAnchorClick}
+            onInsertVertex={handleInsertSavedVertex}
+          />
 
-          {/* Overlay layer: ephemeral, high-churn previews and editing chrome.
-              Per-frame redraws here never touch the units or PDF layers.
-              Ref'd so the magnifier loupe can composite the live trace (this
-              layer's DraftPolygon) onto its sharp PDF crop. */}
-          <Layer ref={overlayLayerRef}>
-            {/* Pointer-following previews are mounted only in their tool mode, so
-                the pointer store has zero subscribers during plain pan/zoom. */}
-            {toolMode === 'draw' && (
-              <DraftPolygon
-                draftPoints={draftPoints}
-                pointerStore={pointerStore}
-                boxOrigin={boxOrigin}
-                stageScale={stageScale}
-                layout={layout}
-                enableSnapping={effectiveSnapping}
-                isShiftDown={isShiftDown}
-                toPixels={toPixels}
-                openingEdges={openingCaptureEnabled ? draftOpeningEdges : undefined}
-                openingArmed={!!armedOpeningType}
-                activeOpeningRGB={OPENING_TYPE_RGB[armedOpeningType ?? activeOpeningType ?? 'door']}
-              />
-            )}
-
-            {/* Calibration line (Phase 2b) — reuse the draft preview: cursor ghost +
-                snap ring until the 2nd point, then the frozen 2-point line while the
-                length prompt is open. */}
-            {toolMode === 'calibrate' && (
-              <DraftPolygon
-                draftPoints={calibratePoints}
-                pointerStore={pointerStore}
-                boxOrigin={null}
-                stageScale={stageScale}
-                layout={layout}
-                enableSnapping={effectiveSnapping && !calibratePrompt}
-                isShiftDown={isShiftDown}
-                toPixels={toPixels}
-              />
-            )}
-
-            {/* Measure polyline (Phase 4) — reuse the draft preview: cursor ghost +
-                snap ring while dropping the 2..N points of an ephemeral measurement. */}
-            {toolMode === 'measure' && (
-              <DraftPolygon
-                draftPoints={measurePoints}
-                pointerStore={pointerStore}
-                boxOrigin={null}
-                stageScale={stageScale}
-                layout={layout}
-                enableSnapping={effectiveSnapping}
-                isShiftDown={isShiftDown}
-                toPixels={toPixels}
-              />
-            )}
-
-            {toolMode === 'capture_box' && (
-              <CaptureBoxOverlay
-                pointerStore={pointerStore}
-                boxOrigin={boxOrigin}
-                stageScale={stageScale}
-                layout={layout}
-                toPixels={toPixels}
-              />
-            )}
-
-            {toolMode === 'capture_line' && (
-              <CaptureLineOverlay
-                pointerStore={pointerStore}
-                lineOrigin={boxOrigin}
-                stageScale={stageScale}
-                layout={layout}
-                toPixels={toPixels}
-                snap={snapPoint}
-              />
-            )}
-
-            {gridlineOverlays && gridlineOverlays.length > 0 && (
-              <GridlineOverlay
-                items={gridlineOverlays}
-                stageScale={stageScale}
-                layout={layout}
-                toPixels={toPixels}
-                editable={editableGridlines}
-                selectMode={toolMode === 'select'}
-                selectedSavedIndex={selectedGridlineIndex}
-                onSelectGridline={onSelectGridline}
-                onAdjustSavedGridline={onAdjustGridline}
-                snap={snapPoint}
-              />
-            )}
-
-            {/* Opening edges (Phase 4a): saved rooms' tagged passages + edit-after. */}
-            {((openingOverlays && openingOverlays.length > 0) || openingEditTarget) && (
-              <OpeningEdgeOverlay
-                items={openingOverlays ?? []}
-                stageScale={stageScale}
-                layout={layout}
-                toPixels={toPixels}
-                editTarget={openingEditTarget ?? null}
-                onToggleEdge={onToggleOpeningEdge}
-              />
-            )}
-
-            {toolMode === 'stamp' && (
-              <StampPreview
-                selectedUnitId={selectedUnitIds?.length === 1 ? selectedUnitIds[0] : null}
-                armedPoints={armedStamp?.points ?? null}
-                pointerStore={pointerStore}
-                stageScale={stageScale}
-                units={units}
-                activeStatuses={activeStatuses}
-                toPixels={toPixels}
-                transform={stampTransform}
-                aspect={aspect}
-                snap={snapPoint}
-              />
-            )}
-
-            <PendingPolygon
-              pendingPolygonPoints={pendingPolygonPoints ?? null}
-              activeDragNode={activeDragNode}
-              activeDragPolygon={activeDragPolygon}
-              settings={settings}
-              stageScale={stageScale}
-              layout={layout}
-              isShiftDown={isShiftDown}
-              vectorTree={vectorTree}
-              aspect={aspect}
-              enableSnapping={effectiveSnapping}
-              snappingStrength={mapSettings?.snappingStrength || 15}
-              isSelfIntersecting={pendingSelfIntersects}
-              toPixels={toPixels}
-              setActiveDragPolygon={setActiveDragPolygon}
-              onPendingPolygonMove={handlePendingPolygonEdit}
-              onInsertVertex={handleInsertPendingVertex}
-              onDeleteVertex={handleDeletePendingVertex}
-              setActiveDragNode={setActiveDragNode}
-              onAnchorEnter={handleAnchorEnter}
-              onAnchorLeave={handleAnchorLeave}
-              setHoveredPendingPolygon={setHoveredPendingPolygon}
-            />
-
-            {(toolMode === 'route' || mapSettings?.showWalkSequence) && (
-              <WalkRouteOverlay
-                units={units}
-                pendingRoute={pendingRoute}
-                setPendingRoute={setPendingRoute}
-                toolMode={toolMode}
-                routeSubMode={routeSubMode}
-                showWalkSequence={!!mapSettings?.showWalkSequence}
-                layout={layout}
-                stageScale={stageScale}
-                hoveredRouteNode={hoveredRouteNode}
-                setHoveredRouteNode={setHoveredRouteNode}
-                setHoveredRouteSegment={setHoveredRouteSegment}
-                setIsDraggingRouteNode={setIsDraggingRouteNode}
-                activeRouteDrag={activeRouteDrag}
-                setActiveRouteDrag={setActiveRouteDrag}
-                routeDropTarget={routeDropTarget}
-                setRouteDropTarget={setRouteDropTarget}
-                pointerStore={pointerStore}
-              />
-            )}
-
-            <MapLegend
-              isVisible={legendPosition?.isVisible}
-              pctX={legendPosition?.pctX}
-              pctY={legendPosition?.pctY}
-              scaleX={legendPosition?.scaleX}
-              scaleY={legendPosition?.scaleY}
-              rotation={legendPosition?.rotation}
-              layout={layout}
-              units={units}
-              activities={activities}
-              activeStatuses={activeStatuses}
-              lagMode={lagMode}
-              makeReadyMode={makeReadyMode}
-              isSelected={isLegendSelected}
-              onSelect={() => setIsLegendSelected(true)}
-              onUpdate={(payload: any) => {
-                onLegendDragEnd?.(payload);
-              }}
-            />
-          </Layer>
+          {/* Overlay layer: ephemeral, high-churn previews and editing chrome
+              (draft/calibrate/measure previews, capture overlays, gridlines,
+              openings, stamp ghost, pending polygon, walk route, legend).
+              overlayLayerRef reaches the real Konva Layer inside so the
+              magnifier loupe can composite the live trace onto its crop. */}
+          <CanvasOverlayLayer
+            layerRef={overlayLayerRef}
+            toolMode={toolMode}
+            layout={layout}
+            stageScale={stageScale}
+            pointerStore={pointerStore}
+            effectiveSnapping={effectiveSnapping}
+            isShiftDown={isShiftDown}
+            toPixels={toPixels}
+            snapPoint={snapPoint}
+            mapSettings={mapSettings}
+            draftPoints={draftPoints}
+            boxOrigin={boxOrigin}
+            openingCaptureEnabled={openingCaptureEnabled}
+            draftOpeningEdges={draftOpeningEdges}
+            armedOpeningType={armedOpeningType}
+            activeOpeningType={activeOpeningType}
+            calibratePoints={calibratePoints}
+            calibratePrompt={calibratePrompt}
+            measurePoints={measurePoints}
+            gridlineOverlays={gridlineOverlays}
+            editableGridlines={editableGridlines}
+            selectedGridlineIndex={selectedGridlineIndex}
+            onSelectGridline={onSelectGridline}
+            onAdjustGridline={onAdjustGridline}
+            openingOverlays={openingOverlays}
+            openingEditTarget={openingEditTarget}
+            onToggleOpeningEdge={onToggleOpeningEdge}
+            selectedUnitIds={selectedUnitIds}
+            armedStamp={armedStamp}
+            units={units}
+            activeStatuses={activeStatuses}
+            stampTransform={stampTransform}
+            aspect={aspect}
+            pendingPolygonPoints={pendingPolygonPoints}
+            activeDragNode={activeDragNode}
+            activeDragPolygon={activeDragPolygon}
+            settings={settings}
+            vectorTree={vectorTree}
+            pendingSelfIntersects={pendingSelfIntersects}
+            setActiveDragPolygon={setActiveDragPolygon}
+            handlePendingPolygonEdit={handlePendingPolygonEdit}
+            handleInsertPendingVertex={handleInsertPendingVertex}
+            handleDeletePendingVertex={handleDeletePendingVertex}
+            setActiveDragNode={setActiveDragNode}
+            onAnchorEnter={handleAnchorEnter}
+            onAnchorLeave={handleAnchorLeave}
+            setHoveredPendingPolygon={setHoveredPendingPolygon}
+            pendingRoute={pendingRoute}
+            setPendingRoute={setPendingRoute}
+            routeSubMode={routeSubMode}
+            hoveredRouteNode={hoveredRouteNode}
+            setHoveredRouteNode={setHoveredRouteNode}
+            setHoveredRouteSegment={setHoveredRouteSegment}
+            setIsDraggingRouteNode={setIsDraggingRouteNode}
+            activeRouteDrag={activeRouteDrag}
+            setActiveRouteDrag={setActiveRouteDrag}
+            routeDropTarget={routeDropTarget}
+            setRouteDropTarget={setRouteDropTarget}
+            legendPosition={legendPosition}
+            activities={activities}
+            lagMode={lagMode}
+            makeReadyMode={makeReadyMode}
+            isLegendSelected={isLegendSelected}
+            setIsLegendSelected={setIsLegendSelected}
+            onLegendDragEnd={onLegendDragEnd}
+          />
         </Stage>
         </>
       )}
