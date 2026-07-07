@@ -182,7 +182,26 @@ Framework-free, deterministic functions (no `Date.now()` inside — pass timesta
 - **Approval gates:** none. **AGENTS §3 hard rule:** recolor happens ONLY on the display copies passed to renderers — never recolor `mapDisplayStatuses` and never write `status_logs.status_color`. The extracted fns return new objects; they must not mutate inputs.
 - **Exit criteria:** gate green · golden master green · `canvasRecolor.test.ts` pins N/A handling + passthrough + no-mutation · `dev:3010`: Lag Mode + Make-Ready Mode recolor identically, and write paths (bulk dock / quick modals) still see the ORIGINAL colors · `verify-feature`.
 
-### Phase 10 — Render split + final thinning (re-measure and stop)
+### Phase 10 — Render split + final thinning (re-measure and stop) — ✅ DONE (f73f725, Approved) — SLICE 2 TARGET 1 COMPLETE
+> Landed as four components in `src/components/canvas/`: `CanvasBaseLayer` (76
+> lines — the listening=false PDF/raster layer), `CanvasUnitsLayer` (147 — the
+> culled visibleUnits → MappedUnit mount, prop list passed through unchanged
+> incl. `activeStatuses={displayStatuses}` + `lagMode={lagMode || makeReadyMode}`),
+> `CanvasOverlayLayer` (345 — all ephemeral previews/editing chrome; the parent's
+> `overlayLayerRef` attaches to the real Konva Layer inside — trace-in-loupe
+> compositing verified live), and `CanvasPdfStatus` (62 — the loading/sharpening/
+> error chrome, the one clean outside-Stage lift). Mount order base → units →
+> overlay preserved. Per the kickoff's "bias to less": the Stage inline handlers,
+> calibrate popover and measure panel stayed in the component (routing over
+> component-owned state). Props typed by deriving from the child components'
+> exported prop interfaces (no `any`). Full dev:3010 regression pass done
+> (draw/edit/stamp/measure/calibrate-to-prompt, pan/zoom/mini-map/loupe,
+> lag ↔ make-ready ↔ off pixel-histogram delta 0, workbench trace with a
+> D-held opening tag); golden master untouched, 1,054 tests green.
+> FloorplanCanvas 1,771 → **1,499 lines** (from 2,749 at Slice 2 start).
+> Oversized-hook flag for the re-evaluation: useGeometryGestures (384) and
+> useCanvasKeyboard (354) are the largest hooks — both cohesive, recommend
+> leaving them. AGENTS.md §3 now documents the coordinator + layer structure.
 - **Scope:** Split the JSX `<Stage>` layers into small sub-components (e.g. `CanvasBaseLayer` / `CanvasUnitsLayer` / `CanvasOverlayLayer`) and group the outside-Stage chrome, leaving `FloorplanCanvas` a thin coordinator that composes the Phase 2–9 hooks + the layer components. Re-measure the line count; if a hook is still oversized, split it. Confirm the prop surface and `useImperativeHandle` are unchanged.
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `FloorplanCanvas.tsx` down to a thin coordinator · full `dev:3010` regression pass (draw, edit, stamp, measure, pan/zoom, lag/make-ready, workbench) · `verify-feature`. **Then Slice 2 re-evaluates whether to proceed to `useProjectQueries` / `SettingsMenu` or return to features.**
