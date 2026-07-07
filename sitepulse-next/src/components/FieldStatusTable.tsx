@@ -276,18 +276,20 @@ export default function FieldStatusTable({
   };
 
   // --- Empty state guard ---
-  if (!units || units.length === 0) {
-    return (
-      <div
-        className="p-8 text-center text-slate-600 rounded-2xl border shadow-lg backdrop-blur-md"
-        style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
-      >
-        {scope === 'all'
-          ? 'Loading all levels…'
-          : 'No locations mapped on this level yet. Switch to Map view to draw locations.'}
-      </div>
-    );
-  }
+  // Desktop keeps the ManageToolbar (incl. the This-level/All-levels scope switch) above the
+  // message — an empty level must still let you widen scope. Mobile keeps the bare message.
+  const isEmpty = !units || units.length === 0;
+  const emptyState = isEmpty ? (
+    <div
+      className="p-8 text-center text-slate-600 rounded-2xl border shadow-lg backdrop-blur-md"
+      style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
+    >
+      {scope === 'all'
+        ? 'Loading all levels…'
+        : 'No locations mapped on this level yet. Switch to Map view to draw locations.'}
+    </div>
+  ) : null;
+  if (isEmpty && !isDesktop) return emptyState;
 
   // --- Shared presenter props ---
   const sharedSelectionProps = {
@@ -308,7 +310,7 @@ export default function FieldStatusTable({
   return (
     <div className="w-full h-full flex flex-col pb-2 md:pb-6">
       {/* ── All-levels banner (unmistakable, so building-wide edits are never accidental) ── */}
-      {isDesktop && scope === 'all' && (
+      {isDesktop && scope === 'all' && !isEmpty && (
         <div className="mb-3 flex items-center gap-2 rounded-lg border-2 border-amber-400 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-500/60 px-3.5 py-2 text-amber-800 dark:text-amber-200 text-sm font-bold shadow-sm">
           <Layers size={16} className="shrink-0" />
           Editing ALL LEVELS — {sheets.length} levels · {allUnits.length} locations. Bulk changes apply across every floor.
@@ -336,6 +338,9 @@ export default function FieldStatusTable({
           setDensity={setListDensity}
         />
       )}
+
+      {/* Empty level: message below the still-reachable toolbar */}
+      {isDesktop && emptyState}
 
       {/* ── View routing ── */}
       {!isDesktop && (
@@ -372,7 +377,7 @@ export default function FieldStatusTable({
         />
       )}
 
-      {isDesktop && (
+      {isDesktop && !isEmpty && (
         <div className="flex-1 min-h-0 overflow-y-auto pb-6">
           <StatusTable
             visible={manageVisible}
@@ -421,7 +426,7 @@ export default function FieldStatusTable({
       )}
 
       {/* ── Bulk status bar (desktop) ── */}
-      {isDesktop && (
+      {isDesktop && !isEmpty && (
         <BulkStatusBar
           selectedCount={selectedUnitIds.length}
           matchingCount={manageVisible.length}
