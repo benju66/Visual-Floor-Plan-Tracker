@@ -4,7 +4,7 @@ import { X, ArrowDownToLine, Save } from 'lucide-react';
 import { useUpdateSheetSchedule, useBulkInsertStatusLogs } from '@/hooks/useProjectQueries';
 import { useUIStore } from '@/store/useUIStore';
 import { orderedTrackActivities } from '@/utils/progressAnalytics';
-import { cascadeLevelToLocations, deriveDuration } from '@/utils/ganttMath';
+import { cascadeLevelToLocations, cascadeFillCounts, deriveDuration } from '@/utils/ganttMath';
 import type { DistributionMode } from '@/utils/scheduleReconcile';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Sheet, Activity, Unit, StatusLog, ActivitySchedules } from '@/types/domain';
@@ -88,6 +88,24 @@ export default function CascadePanel({
 
   const affectedUnits = useMemo(() => new Set(writes.map((w) => w.unit_id)).size, [writes]);
 
+  // Per-activity "already dated vs could be filled" counts (Phase 2) — makes the
+  // two layers legible: the level plan above, what it lands on below.
+  const fillCounts = useMemo(() => {
+    return cascadeFillCounts({
+      units: units.map((u) => ({
+        id: u.id,
+        unit_type: u.unit_type,
+        unit_number: u.unit_number,
+        walk_sequence: u.walk_sequence,
+        computed_area: u.computed_area,
+      })),
+      activities,
+      track,
+      existing,
+      applicabilityIndex,
+    });
+  }, [units, activities, track, existing, applicabilityIndex]);
+
   if (!open) return null;
 
   const updateDraft = (name: string, field: 'start_date' | 'end_date', value: string) => {
@@ -126,8 +144,10 @@ export default function CascadePanel({
       <div className="w-full max-w-2xl rounded-2xl border p-6 shadow-2xl glass-panel max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-1">
           <div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">Level schedule — {sheet?.sheet_name || '—'}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Set default dates per activity, then apply them down to this level’s locations.</p>
+            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">Level plan — {sheet?.sheet_name || '—'}</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Plan each activity&rsquo;s window here → it flows down to this level&rsquo;s {units.length} location{units.length === 1 ? '' : 's'}.
+            </p>
           </div>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500">
             <X size={18} />
@@ -145,12 +165,16 @@ export default function CascadePanel({
                   <th className="py-1.5 font-semibold">Start</th>
                   <th className="py-1.5 font-semibold">End</th>
                   <th className="py-1.5 font-semibold pl-2">Duration</th>
+                  <th className="py-1.5 font-semibold pl-2">Locations</th>
                 </tr>
               </thead>
               <tbody>
                 {trackMs.map((m) => {
                   const entry = draft[m.name] || {};
                   const duration = deriveDuration(entry.start_date, entry.end_date);
+                  const fill = fillCounts[m.name];
+                  const willFill = fill ? (overrideExisting ? fill.applicable : fill.applicable - fill.dated) : 0;
+                  const hasWindow = !!(entry.start_date || entry.end_date);
                   return (
                     <tr key={m.id} className="border-t border-slate-100 dark:border-white/5">
                       <td className="py-1.5 pr-3">
@@ -168,6 +192,18 @@ export default function CascadePanel({
                       {/* Derived, never typed: end − start IS the duration (inclusive days). */}
                       <td className="py-1.5 pl-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
                         {duration != null ? `${duration} day${duration === 1 ? '' : 's'}` : '—'}
+                      </td>
+                      {/* The lower layer made visible: how many locations already carry
+                          their own dates, and how many this window would fill. */}
+                      <td className="py-1.5 pl-2 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
+                        {fill && fill.applicable > 0 ? (
+                          <>
+                            {fill.dated}/{fill.applicable} dated
+                            {hasWindow && willFill > 0 && (
+                              <span className="text-sky-600 dark:text-sky-400 font-semibold"> · fills {willFill}</span>
+                            )}
+                          </>
+                        ) : '—'}
                       </td>
                     </tr>
                   );
@@ -226,8 +262,10 @@ export default function CascadePanel({
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <button type="button" onClick={saveDefaults} className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-600 text-xs font-semibold py-1.5 px-3 hover:bg-slate-100 dark:hover:bg-white/10">
-                <Save size={14} /> Save level dates
+              {/* Quiet secondary (owner decision, Phase 2): persist the level plan
+                  WITHOUT touching any location dates — for drafting ahead. */}
+              <button type="button" onClick={saveDefaults} className="inline-flex items-center gap-1.5 rounded-md text-xs font-medium py-1.5 px-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-white/10">
+                <Save size={13} /> Save dates only
               </button>
               <span className="text-xs text-slate-400 mr-auto">
                 {writes.length === 0 ? 'Nothing to apply yet' : `${writes.length} date${writes.length === 1 ? '' : 's'} · ${affectedUnits} location${affectedUnits === 1 ? '' : 's'}`}
@@ -238,7 +276,7 @@ export default function CascadePanel({
                 onClick={() => setConfirming(true)}
                 className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3 disabled:opacity-50"
               >
-                <ArrowDownToLine size={14} /> Apply to locations
+                <ArrowDownToLine size={14} /> Save &amp; apply to locations
               </button>
             </div>
           )}

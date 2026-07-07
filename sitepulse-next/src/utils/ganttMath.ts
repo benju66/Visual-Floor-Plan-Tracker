@@ -397,6 +397,50 @@ export interface CascadeParams {
  * ALL applicable locations — a hand-dated location still consumes its slice of
  * the crew's walk — with the non-destructive skip applied at write time.
  */
+export interface CascadeFillCounts {
+  /** Locations this activity applies to on the level (N/A excluded). */
+  applicable: number;
+  /** Applicable locations that already carry their own planned dates. */
+  dated: number;
+}
+
+/**
+ * Per-activity "already dated vs could be filled" counts for the level panel
+ * (Unified Schedule Engine Phase 2) — pure presenter math, keyed by activity
+ * name. `applicable − dated` is what a non-destructive apply would fill;
+ * `applicable` is what an overriding apply would write. Read-only: shares the
+ * cascade's slot-keying (track-filtered, `unit_id_activityName`) so the counts
+ * always agree with what `cascadeLevelToLocations` would do.
+ */
+export function cascadeFillCounts({
+  units,
+  activities,
+  track,
+  existing,
+  applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
+}: Pick<CascadeParams, 'units' | 'activities' | 'track' | 'existing' | 'applicabilityIndex'>): Record<string, CascadeFillCounts> {
+  const trackActivities = orderedTrackActivities(activities, track);
+  const existingByKey = new Map<string, StatusLike>();
+  for (const s of existing) {
+    if (s.track !== track || !s.unit_id) continue;
+    existingByKey.set(`${s.unit_id}_${s.activityName}`, s);
+  }
+
+  const out: Record<string, CascadeFillCounts> = {};
+  for (const a of trackActivities) {
+    let applicable = 0;
+    let dated = 0;
+    for (const unit of units) {
+      if (!isActivityApplicable(a, unit, applicabilityIndex)) continue;
+      applicable++;
+      const prior = existingByKey.get(`${unit.id}_${a.name}`);
+      if (prior?.planned_start_date || prior?.planned_end_date) dated++;
+    }
+    out[a.name] = { applicable, dated };
+  }
+  return out;
+}
+
 export function cascadeLevelToLocations({
   levelSchedule,
   units,

@@ -14,6 +14,7 @@ import {
   clampEndAfterStart,
   checkDependencies,
   deriveDuration,
+  cascadeFillCounts,
   cascadeLevelToLocations,
   type BuildScheduleRowsParams,
 } from '@/utils/ganttMath';
@@ -236,6 +237,31 @@ describe('cascadeLevelToLocations', () => {
     const u1Framing = writes.find(w => w.activity_id === 'm_Framing' && w.unit_id === 'u1');
     expect(u1Framing?.planned_start_date).toBe('2026-07-01'); // overwritten
     expect(u1Framing?.temporal_state).toBe('planned'); // prior state preserved
+  });
+});
+
+describe('cascadeFillCounts', () => {
+  const activities = [mkMs('Framing', 0), mkMs('Drywall', 1)];
+  const units = [mkUnit('u1'), mkUnit('u2'), mkUnit('u3')];
+
+  it('counts applicable locations and how many already carry their own dates', () => {
+    const existing = [
+      mkLog({ unit_id: 'u1', activityName: 'Framing', planned_start_date: '2026-06-01' }),
+      mkLog({ unit_id: 'u2', activityName: 'Framing', planned_end_date: '2026-06-09' }), // one-sided still counts as dated
+      mkLog({ unit_id: 'u3', activityName: 'Drywall', temporal_state: 'ongoing' }), // undated -> not counted
+    ];
+    const counts = cascadeFillCounts({ units, activities, track: 'Construction', existing });
+    expect(counts['Framing']).toEqual({ applicable: 3, dated: 2 });
+    expect(counts['Drywall']).toEqual({ applicable: 3, dated: 0 });
+  });
+
+  it('excludes N/A locations from applicable and ignores other tracks', () => {
+    const index: ApplicabilityIndex = { rules: {}, overrides: { 'm_Framing_u3': false } };
+    const existing = [
+      mkLog({ unit_id: 'u1', activityName: 'Framing', planned_start_date: '2026-06-01', track: 'Closeout' }), // other track -> ignored
+    ];
+    const counts = cascadeFillCounts({ units, activities, track: 'Construction', existing, applicabilityIndex: index });
+    expect(counts['Framing']).toEqual({ applicable: 2, dated: 0 });
   });
 });
 
