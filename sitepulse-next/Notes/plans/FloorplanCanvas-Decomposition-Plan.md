@@ -115,12 +115,27 @@ Framework-free, deterministic functions (no `Date.now()` inside — pass timesta
 > consuming the hook's returned rotateStamp/flipStamp; StampPreview +
 > ContextActionDock stay mounted in the component fed from hook returns;
 > StampDrawer untouched (talks to the store itself). FloorplanCanvas
-> 2,063 → 1,917 lines.
+> 2,063 → 2,051 lines (corrected at the Phase 7 close — this note originally
+> said 1,917, a miscount).
 - **Scope:** Move the `armedStamp`/`stampTransform` wiring, the two `stamp` branches of `handleStageClick` (armed-drawer + selected-room source), and the `StampPreview` wiring into `src/hooks/useStampTool.ts`. `onInstantStamp`/`onInstantStampShape`/`onStampWithNaming` args stay identical (golden master guards `:stamp`).
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: stamp a selected room + an armed drawer stamp, rotate/flip-before-drop, "name each stamp" flow all identical · `verify-feature`.
 
-### Phase 7 — Extract scale-calibration + measure → `useMeasureTools`
+### Phase 7 — Extract scale-calibration + measure → `useMeasureTools` — ✅ DONE (8b293b0, Approved)
+> Landed as `src/hooks/useMeasureTools.ts` (264 lines): the calibrate state (2-point
+> line, length prompt/input/error + sync refs), the measure state (ephemeral polyline,
+> fraction precision kept across runs, natural-pixel basis), both stage-click branches
+> as `handleCalibrateClick`/`handleMeasureClick` — the branch CONDITIONS stayed in the
+> component's else-if chain (same routing seam as Phases 5/6) — the tool-change resets
+> as `[toolMode]` effects, the measure-basis load effect, and cancelCalibrate/
+> submitCalibrate (the `useUpdateSheetScale` write byte-identical). Seams: the keydown
+> Esc ladder stays in the component (Phase 8's job), consuming the returned refs +
+> stable `cancelCalibrate`/`clearMeasureRun` (the clearDraft pattern; effect deps
+> unchanged); `useSheetById`/`useUpdateSheetScale` stay MOUNTED in the component (its
+> JSX reads `scale_units_per_px`/`isPending`) and are passed in; `lastSnapRef` stays
+> component-owned (shared with draw); the calibrate popover, measure panel and both
+> DraftPolygon mounts stay in the JSX, fed from hook returns. FloorplanCanvas
+> 2,051 → 1,984 lines.
 - **Scope:** Move `calibratePoints`/`calibratePrompt`/`calibrateInput`/`calibrateError` + `submitCalibrate`/`cancelCalibrate`, `measurePoints`/`measureDenom`/`measureBasis` + the `calibrate`/`measure` branches of `handleStageClick`, and the `MeasureReadout` + calibrate-popover wiring into `src/hooks/useMeasureTools.ts`. **The `useUpdateSheetScale` write inside `submitCalibrate` stays byte-identical** (a `sheets` update, not a status write).
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: set scale via calibration line → real length prompt → SF recomputes; fractional measure tool reads correctly · `verify-feature`.
