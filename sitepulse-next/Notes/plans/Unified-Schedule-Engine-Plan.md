@@ -98,7 +98,28 @@ becomes just another way to *fill those level windows* rather than a rival date-
 
 ## Sub-phasing (ship + verify each)
 
-### Phase 1 — Stagger the cascade (crew-flow dates for one level)
+### Phase 1 — Stagger the cascade (crew-flow dates for one level) — ✅ DONE (fbcbfbc, Approved)
+> Landed: `cascadeLevelToLocations` gains `flowMode: 'subdivide' | 'envelope'`
+> ('envelope' default = pre-Phase-1 behavior byte-identical). 'subdivide'
+> delegates to the importer's `subdivideTaskWindow` and mirrors
+> `buildImportWrites` exactly — subdivision spans ALL applicable units (a
+> hand-dated location still consumes its slice of the walk), the
+> non-destructive skip applies at write time, one-sided windows coalesce to a
+> same-day window. `CascadeParams.units` widened to the importer's
+> `TargetUnit` shape (walk_sequence/unit_number/computed_area ride along).
+> `deriveDuration(start, end)` (inclusive days, null-safe, normalizes reversed
+> windows) added to ganttMath; CascadePanel gains the Spread/Same-window
+> segmented toggle (labels + default 'subdivide' mirroring MspImportPanel), the
+> area-vs-even explainer, and a live Duration column. The
+> scheduleReconcile↔ganttMath import cycle is deliberate + safe (hoisted
+> function declarations only; commented). 11 new tests (1,065 total) pin exact
+> slice boundaries, walk-order, skip-not-redistribute, override, N/A exclusion,
+> area weighting, coalesce, progress preservation, envelope default. Live
+> dev:3010 (Test project): L4 Framing Aug 3–12 staggered area-weighted across
+> 5 locations (Aug 3–5 · 6 · 7–8 · 9–10 · 11–12), 65 dated slots skipped,
+> re-open shows nothing-to-apply, override previews 65 without writing; L2
+> all-dated shows nothing-to-apply. (The staggered L4 Framing dates remain on
+> the Test project as legitimate output.)
 - **Scope:** Give `CascadePanel` a "Spread across locations (crew flow)" vs "Same window
   everywhere" toggle (mirroring the importer's `DistributionMode`). Route the write
   through the generalized `ganttMath` flow function that delegates to `subdivideTaskWindow`
