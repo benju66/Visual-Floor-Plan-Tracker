@@ -134,7 +134,18 @@ becomes just another way to *fill those level windows* rather than a rival date-
   order) and that a hand-dated location is skipped unless override is on · close with
   `verify-feature` (DoD → stop; do not commit/push until owner says "Approved").
 
-### Phase 2 — Make the two layers legible + fix the Save/Apply confusion
+### Phase 2 — Make the two layers legible + fix the Save/Apply confusion — ✅ DONE (d8a89fc, Approved)
+> Landed: header reframed ("Level plan — {level}" + "flows down to this level's N
+> locations"); per-activity Locations column ("{dated}/{applicable} dated · fills N",
+> override-aware) via new pure `cascadeFillCounts` in ganttMath (+2 tests, 1,067
+> total — shares the cascade's slot-keying so counts always agree with a real
+> apply); buttons collapsed to primary "Save & apply to locations" + quiet
+> secondary "Save dates only" (OWNER DECISION: keep the draft-only save).
+> Global override checkbox KEPT (per-activity override passed on — the per-row
+> counts give the visibility). Write payloads byte-identical. Live-verified on
+> Test L4: MEP Rough-ins showed 0/5 dated · fills 5 → Save & apply → same
+> two-step confirm → 5 staggered area-weighted slices (Aug 13–15·16·17–18·
+> 19–20·21–22) chaining after Framing; all-dated rows read 5/5 dated.
 - **Scope:** Reframe `CascadePanel` around the model: a visible "Level plan → these N
   locations" framing; collapse the confusing dual buttons (recall "Apply to locations"
   already saves the level defaults, so standalone "Save level dates" is nearly redundant)
