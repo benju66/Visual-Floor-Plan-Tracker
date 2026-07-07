@@ -17,6 +17,17 @@ export interface MapHorizontalToolbarProps {
   onUpdateSettings?: (s: any) => void;
 }
 
+// Shared button treatments (Nav plan Phase 5). Selected state reuses the app's
+// ONE blue accent (TopHeader switcher / scope tabs / mobile tab bar) — except
+// where color encodes meaning: Lag Mode stays amber and Make-Ready stays green
+// (each mirrors the legend palette it switches the map to), and the route
+// sub-mode's insert/remove keep emerald/rose (add vs delete semantics).
+const BTN = 'p-2 rounded-full flex items-center justify-center transition-all';
+const ON_ACCENT = 'bg-blue-600/90 text-white dark:bg-blue-500/90 shadow-sm scale-110';
+const OFF = 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white';
+
+const Divider = () => <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" aria-hidden />;
+
 export default function MapHorizontalToolbar({
   mapSettings,
   triggerUndo,
@@ -64,6 +75,14 @@ export default function MapHorizontalToolbar({
     }
   }
 
+  // Two jobs, two groups (Nav plan Phase 5): MODES = "what I'm doing" (one
+  // active at a time, left of the divider) vs SETTINGS = "what's shown"
+  // (independent on/off toggles, right of it). Pinned undo/redo are actions and
+  // lead the bar; a pinned crosshair is an on/off setting and joins that group.
+  const actionTools: string[] = toolsToRender.filter((t: string) => t === 'undo' || t === 'redo');
+  const modeTools: string[] = toolsToRender.filter((t: string) => t !== 'undo' && t !== 'redo' && t !== 'crosshair');
+  const crosshairPinned = toolsToRender.includes('crosshair');
+
   return (
     <>
       <div
@@ -75,49 +94,34 @@ export default function MapHorizontalToolbar({
           backdropFilter: 'blur(12px)'
         }}
       >
-      {toolsToRender.map((toolId: string, idx: number) => {
+      {actionTools.map((toolId: string, idx: number) => {
+        const Icon = toolIcons[toolId];
+        const isEmpty = toolId === 'undo' ? isUndoEmpty : isRedoEmpty;
+        const handler = toolId === 'undo' ? triggerUndo : triggerRedo;
+        return (
+          <button
+            key={`${toolId}-${idx}`}
+            type="button"
+            onClick={handler}
+            disabled={isEmpty}
+            className={`${BTN} ${
+              isEmpty
+                ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500'
+                : OFF
+            }`}
+            title={toolId === 'undo' ? 'Undo' : 'Redo'}
+          >
+            <Icon size={18} />
+          </button>
+        );
+      })}
+      {actionTools.length > 0 && <Divider />}
+
+      {/* ── Modes — what I'm doing (one active at a time) ── */}
+      <div className="flex items-center gap-1" role="group" aria-label="Map modes">
+      {modeTools.map((toolId: string, idx: number) => {
         const Icon = toolIcons[toolId];
         if (!Icon) return null;
-
-        if (toolId === 'undo' || toolId === 'redo') {
-          const isEmpty = toolId === 'undo' ? isUndoEmpty : isRedoEmpty;
-          const handler = toolId === 'undo' ? triggerUndo : triggerRedo;
-
-          return (
-            <button
-              key={`${toolId}-${idx}`}
-              type="button"
-              onClick={handler}
-              disabled={isEmpty}
-              className={`p-2 rounded-full flex items-center justify-center transition-all ${
-                isEmpty 
-                  ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' 
-                  : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-              }`}
-              title={toolId === 'undo' ? 'Undo' : 'Redo'}
-            >
-              <Icon size={18} />
-            </button>
-          );
-        }
-
-        if (toolId === 'crosshair') {
-          return (
-            <button
-              key={`${toolId}-${idx}`}
-              type="button"
-              onClick={() => onUpdateMapSettings?.({ ...mapSettings, showCrosshair: !mapSettings?.showCrosshair })}
-              className={`p-2 rounded-full flex items-center justify-center transition-all ${
-                mapSettings?.showCrosshair 
-                  ? 'bg-blue-500 text-white shadow-sm scale-110' 
-                  : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-              }`}
-              title="Toggle Crosshairs"
-            >
-              <Icon size={18} />
-            </button>
-          );
-        }
 
         if (toolId === 'route') {
           return (
@@ -126,9 +130,7 @@ export default function MapHorizontalToolbar({
               type="button"
               onClick={() => onToolModeChange(toolMode === 'route' ? 'pan' : 'route')}
               className={`hidden md:flex p-2 rounded-full items-center justify-center transition-all ${
-                toolMode === 'route'
-                  ? 'bg-blue-500 text-white shadow-sm scale-110'
-                  : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
+                toolMode === 'route' ? ON_ACCENT : OFF
               }`}
               title="Draw Walking Route"
             >
@@ -143,11 +145,7 @@ export default function MapHorizontalToolbar({
             key={`${toolId}-${idx}`}
             type="button"
             onClick={() => onToolModeChange(isActive ? 'pan' : toolId as any)}
-            className={`p-2 rounded-full flex items-center justify-center transition-all ${
-              isActive 
-                ? 'bg-blue-500 text-white shadow-sm scale-110' 
-                : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-            }`}
+            className={`${BTN} ${isActive ? ON_ACCENT : OFF}`}
             title={(() => {
               const shortcuts: Record<string, string> = { select: '1', pan: '2', draw: '3' };
               const label = toolId.charAt(0).toUpperCase() + toolId.slice(1).replace('_', ' ');
@@ -158,8 +156,22 @@ export default function MapHorizontalToolbar({
           </button>
         );
       })}
+      </div>
 
-      <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
+      <Divider />
+
+      {/* ── Settings — what's shown (independent on/off toggles) ── */}
+      <div className="flex items-center gap-1" role="group" aria-label="Map display settings">
+      {crosshairPinned && (
+        <button
+          type="button"
+          onClick={() => onUpdateMapSettings?.({ ...mapSettings, showCrosshair: !mapSettings?.showCrosshair })}
+          className={`${BTN} ${mapSettings?.showCrosshair ? ON_ACCENT : OFF}`}
+          title="Toggle Crosshairs"
+        >
+          <Crosshair size={18} />
+        </button>
+      )}
 
       {isSnappingLoading ? (
         <div className="p-2 rounded-full flex items-center justify-center text-blue-500 animate-spin" title="Building Smart Grid...">
@@ -169,11 +181,7 @@ export default function MapHorizontalToolbar({
         <button
           type="button"
           onClick={() => onUpdateMapSettings?.({ ...mapSettings, enableSnapping: !mapSettings?.enableSnapping })}
-          className={`p-2 rounded-full flex items-center justify-center transition-all ${
-            mapSettings?.enableSnapping
-              ? 'bg-blue-500 text-white shadow-sm scale-110'
-              : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-          }`}
+          className={`${BTN} ${mapSettings?.enableSnapping ? ON_ACCENT : OFF}`}
           title={`${mapSettings?.enableSnapping ? 'Disable' : 'Enable'} Magnetic Snapping`}
         >
           <Magnet size={18} />
@@ -186,11 +194,7 @@ export default function MapHorizontalToolbar({
       <button
         type="button"
         onClick={() => onUpdateMapSettings?.({ ...mapSettings, showMagnifier: !mapSettings?.showMagnifier })}
-        className={`p-2 rounded-full flex items-center justify-center transition-all ${
-          mapSettings?.showMagnifier
-            ? 'bg-blue-500 text-white shadow-sm scale-110'
-            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-        }`}
+        className={`${BTN} ${mapSettings?.showMagnifier ? ON_ACCENT : OFF}`}
         title={`${mapSettings?.showMagnifier ? 'Hide' : 'Show'} Magnifier (M) — suspends snapping while up; [ / ] to zoom`}
       >
         <Search size={18} />
@@ -201,11 +205,7 @@ export default function MapHorizontalToolbar({
       <button
         type="button"
         onClick={() => onUpdateMapSettings?.({ ...mapSettings, showMiniMap: !mapSettings?.showMiniMap })}
-        className={`p-2 rounded-full flex items-center justify-center transition-all ${
-          mapSettings?.showMiniMap
-            ? 'bg-blue-500 text-white shadow-sm scale-110'
-            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-        }`}
+        className={`${BTN} ${mapSettings?.showMiniMap ? ON_ACCENT : OFF}`}
         title={`${mapSettings?.showMiniMap ? 'Hide' : 'Show'} Mini-map`}
       >
         <Map size={18} />
@@ -216,11 +216,7 @@ export default function MapHorizontalToolbar({
       <button
         type="button"
         onClick={() => onUpdateMapSettings?.({ ...mapSettings, shadeLocations: !mapSettings?.shadeLocations })}
-        className={`p-2 rounded-full flex items-center justify-center transition-all ${
-          mapSettings?.shadeLocations
-            ? 'bg-blue-500 text-white shadow-sm scale-110'
-            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 active:scale-95 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-        }`}
+        className={`${BTN} ${mapSettings?.shadeLocations ? ON_ACCENT : OFF}`}
         title={mapSettings?.shadeLocations ? 'Hide location shading' : 'Shade locations (show un-statused locations)'}
       >
         <Highlighter size={18} />
@@ -229,37 +225,29 @@ export default function MapHorizontalToolbar({
       <button
         type="button"
         onClick={() => onUpdateMapSettings?.({ ...mapSettings, showWalkSequence: !mapSettings?.showWalkSequence })}
-        className={`p-2 rounded-full flex items-center justify-center transition-all ${
-          mapSettings?.showWalkSequence 
-            ? 'bg-blue-500 text-white shadow-sm scale-110' 
-            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-        }`}
+        className={`${BTN} ${mapSettings?.showWalkSequence ? ON_ACCENT : OFF}`}
         title={`${mapSettings?.showWalkSequence ? 'Hide' : 'Show'} Route Path`}
       >
         <Footprints size={18} />
       </button>
 
+      {/* Lag Mode keeps its amber ON state — the color IS the information (the
+          map recolors to the variance scale). */}
       <button
         type="button"
         onClick={() => onUpdateMapSettings?.({ ...mapSettings, colorByVariance: !mapSettings?.colorByVariance, colorByMakeReady: false })}
-        className={`p-2 rounded-full flex items-center justify-center transition-all ${
-          mapSettings?.colorByVariance
-            ? 'bg-amber-500 text-white shadow-sm scale-110'
-            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-        }`}
+        className={`${BTN} ${mapSettings?.colorByVariance ? 'bg-amber-500 text-white shadow-sm scale-110' : OFF}`}
         title={mapSettings?.colorByVariance ? 'Lag Mode on — coloring by schedule variance' : 'Lag Mode — color by schedule variance'}
       >
         <Gauge size={18} />
       </button>
 
+      {/* Make-Ready keeps its green ON state — mirrors the ready/blocked scale
+          it switches the map to. */}
       <button
         type="button"
         onClick={() => onUpdateMapSettings?.({ ...mapSettings, colorByMakeReady: !mapSettings?.colorByMakeReady, colorByVariance: false })}
-        className={`p-2 rounded-full flex items-center justify-center transition-all ${
-          mapSettings?.colorByMakeReady
-            ? 'bg-green-500 text-white shadow-sm scale-110'
-            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-        }`}
+        className={`${BTN} ${mapSettings?.colorByMakeReady ? 'bg-green-500 text-white shadow-sm scale-110' : OFF}`}
         title={mapSettings?.colorByMakeReady ? 'Make-Ready on — coloring by what’s ready vs. blocked' : 'Make-Ready — color by what’s ready to work vs. blocked'}
       >
         <Workflow size={18} />
@@ -268,11 +256,7 @@ export default function MapHorizontalToolbar({
       <button
         type="button"
         onClick={onToggleLegend}
-        className={`p-2 rounded-full flex items-center justify-center transition-all ${
-          legendIsVisible 
-            ? 'bg-emerald-500 text-white shadow-sm scale-110' 
-            : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-        }`}
+        className={`${BTN} ${legendIsVisible ? ON_ACCENT : OFF}`}
         title={`${legendIsVisible ? 'Hide' : 'Show'} Legend`}
       >
         <List size={18} />
@@ -282,20 +266,17 @@ export default function MapHorizontalToolbar({
         <button
           type="button"
           onClick={() => onUpdateSettings({ ...settings, showHistoryHover: !settings?.showHistoryHover })}
-          className={`p-2 rounded-full flex items-center justify-center transition-all ${
-            settings?.showHistoryHover 
-              ? 'bg-purple-500 text-white shadow-sm scale-110' 
-              : 'text-slate-700 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/50 dark:hover:text-white'
-          }`}
+          className={`${BTN} ${settings?.showHistoryHover ? ON_ACCENT : OFF}`}
           title={`${settings?.showHistoryHover ? 'Hide' : 'Show'} Hover History`}
         >
           <History size={18} />
         </button>
       )}
+      </div>
     </div>
 
     {toolMode === 'route' && (
-      <div 
+      <div
         className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-1.5 p-1.5 rounded-full shadow-lg z-20 animate-in slide-in-from-top-2 fade-in duration-200"
         style={{
           background: 'var(--glass-bg, rgba(255, 255, 255, 0.7))',
@@ -309,7 +290,7 @@ export default function MapHorizontalToolbar({
           title="Move Node"
           onClick={() => setRouteSubMode('move')}
           className={`p-2 rounded-full flex items-center justify-center transition-all ${
-            routeSubMode === 'move' ? 'bg-blue-500 text-white shadow-sm scale-110' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+            routeSubMode === 'move' ? ON_ACCENT : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
           }`}
         >
           <Move size={18} />
