@@ -159,7 +159,25 @@ Framework-free, deterministic functions (no `Date.now()` inside — pass timesta
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: every shortcut above fires identically; Esc ladder (magnifier → draft → tool → pan) intact; arrow-nudge + Ctrl+Z on a pending polygon work · `verify-feature`.
 
-### Phase 9 — Extract the lag / make-ready recolor → `src/utils/canvasRecolor.ts`
+### Phase 9 — Extract the lag / make-ready recolor → `src/utils/canvasRecolor.ts` — ✅ DONE (22a6fcf, Approved)
+> Landed as `src/utils/canvasRecolor.ts` (102 lines, pure — no React, `today`
+> passed in): the `displayStatuses` memo BODY moved verbatim into
+> `recolorForMakeReady(activeStatuses, rawStatuses, units, allActivities,
+> trackingMode, dependencies, applicabilityIndex)` and `recolorForLag(
+> activeStatuses, rawStatuses, units, activities, trackingMode,
+> applicabilityIndex, today)`; each builds its own `unitById` (only one branch
+> ran per memo call, so behavior-identical). The memo stays in the component
+> and just dispatches (passthrough → make-ready → lag); its dep array + the
+> deliberate `activities`-not-a-dep eslint-disable note are byte-identical;
+> `lagMode`/`makeReadyMode` derivation and the lifetime-stable `today` stayed
+> in the component. Co-located `canvasRecolor.test.ts` (12 tests) pins N/A
+> handling (an inapplicable slot can't become the bottleneck/blocked slot),
+> empty-input + unknown-unit passthrough (same object identity), and
+> no-mutation (sources keep `status_color`; only the copies differ). All 8
+> recolor-math imports pruned from FloorplanCanvas (each verified single-use).
+> Verified live: lag red ↔ make-ready green ↔ modes-off pixel-histogram
+> restored EXACTLY to baseline; quick status panel shows ORIGINAL colors.
+> FloorplanCanvas 1,814 → 1,771 lines.
 - **Scope:** Move the `displayStatuses` memo body (248–298) into pure `recolorForLag` / `recolorForMakeReady` in `canvasRecolor.ts` (+ co-located test). The memo in `FloorplanCanvas` just calls them. Import `progressAnalytics` / `activityReadiness` / `applicability` — **never fork**; respect the `ApplicabilityIndex` (N/A slots excluded) exactly as today.
 - **Approval gates:** none. **AGENTS §3 hard rule:** recolor happens ONLY on the display copies passed to renderers — never recolor `mapDisplayStatuses` and never write `status_logs.status_color`. The extracted fns return new objects; they must not mutate inputs.
 - **Exit criteria:** gate green · golden master green · `canvasRecolor.test.ts` pins N/A handling + passthrough + no-mutation · `dev:3010`: Lag Mode + Make-Ready Mode recolor identically, and write paths (bulk dock / quick modals) still see the ORIGINAL colors · `verify-feature`.
