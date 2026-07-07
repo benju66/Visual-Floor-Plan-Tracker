@@ -29,6 +29,19 @@ export interface TopHeaderProps {
   redoStack?: UndoAction[];
 }
 
+// The 5-view switcher, in canonical order (matches VIEW_MODES in utils/viewRouting).
+// Labels render at xl:+ next to the icons; below that the buttons stay icon-only
+// (tooltips carry the name). xl, not the plan's example lg: at 1024–1150 the busiest
+// header (map view: Level + Activities + scopes + Export) clips Settings off-screen
+// with labels on — measured live, ~70px over at 1050px.
+const VIEW_BUTTONS = [
+  { mode: 'dashboard', label: 'Dashboard', title: 'Dashboard View', Icon: LayoutDashboard },
+  { mode: 'list', label: 'List', title: 'Field List View', Icon: List },
+  { mode: 'schedule', label: 'Schedule', title: 'Schedule View', Icon: GanttChartSquare },
+  { mode: 'map', label: 'Map', title: 'Interactive Map View', Icon: MapIcon },
+  { mode: 'lookahead', label: 'Look-Ahead', title: 'Look-Ahead View', Icon: CalendarRange },
+] as const;
+
 function TopHeader({
   project, sheets, activeSheetId, setActiveSheetId,
   setIsModalOpen, setIsProjectMenuOpen,
@@ -104,87 +117,67 @@ function TopHeader({
         </div>
       </div>
 
-      {/* 2. RIGHT SIDE: Tools, Scopes, and Settings */}
-      <div className={`flex items-center gap-2 overflow-x-auto pb-1 xl:pb-0 ${hideScrollbar}`}>
+      {/* 2. RIGHT SIDE: three families, divider-separated — Scope/Track ("what am I
+          tracking", scrolls internally if cramped) | Views ("where am I", pinned
+          outside the scroll region so it can never slide off-screen) | utilities. */}
+      <div className="flex items-center gap-2 min-w-0">
 
-        {/* Activities Button */}
-        <button
-          type="button"
-          onClick={() => setActivityMenu({ mode: 'filter' })}
-          className="hide-in-swipe-view flex-shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
-        >
-          Activities (Ctrl+K)
-        </button>
+        <div className={`flex items-center gap-2 overflow-x-auto pb-1 xl:pb-0 ${hideScrollbar}`}>
+          {/* Activities Button */}
+          <button
+            type="button"
+            onClick={() => setActivityMenu({ mode: 'filter' })}
+            className="hide-in-swipe-view flex-shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-300/80 dark:border-white/15 bg-white/50 dark:bg-black/20 text-xs font-semibold shadow-sm hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            Activities (Ctrl+K)
+          </button>
 
-        {/* Scope Tabs - Flex None to prevent squishing */}
-        <div className="hide-in-swipe-view flex flex-shrink-0 flex-nowrap rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
-          {activeSheet?.active_scopes && (activeSheet.active_scopes as string[]).length > 0 ? (
-            (activeSheet.active_scopes as string[]).map((scope, index) => (
-              <button
-                key={scope}
-                type="button"
-                onClick={() => setTrackingMode(scope)}
-                className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${index > 0 ? 'border-l border-slate-300/80 dark:border-white/10' : ''} ${trackingMode === scope
-                    ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
-                    : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-                  }`}
-              >
-                {scope}
-              </button>
-            ))
-          ) : (
-            <span className="px-3 py-1.5 text-xs font-semibold text-slate-500 italic whitespace-nowrap">No Scopes Assigned</span>
-          )}
+          {/* Scope Tabs - Flex None to prevent squishing */}
+          <div className="hide-in-swipe-view flex flex-shrink-0 flex-nowrap rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm bg-white/50 dark:bg-black/20">
+            {activeSheet?.active_scopes && (activeSheet.active_scopes as string[]).length > 0 ? (
+              (activeSheet.active_scopes as string[]).map((scope, index) => (
+                <button
+                  key={scope}
+                  type="button"
+                  onClick={() => setTrackingMode(scope)}
+                  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${index > 0 ? 'border-l border-slate-300/80 dark:border-white/10' : ''} ${trackingMode === scope
+                      ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
+                      : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+                    }`}
+                >
+                  {scope}
+                </button>
+              ))
+            ) : (
+              <span className="px-3 py-1.5 text-xs font-semibold text-slate-500 italic whitespace-nowrap">No Scopes Assigned</span>
+            )}
+          </div>
         </div>
 
-        {/* View Mode Toggle */}
+        <div className="hidden md:block h-6 w-px bg-slate-300/80 dark:bg-white/15 flex-shrink-0" aria-hidden="true" />
+
+        {/* View Mode Toggle — icon + label at lg:+, icon-only md:–lg: (tooltips kept) */}
         <div className="hidden md:flex flex-shrink-0 rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm">
-          <button
-            type="button"
-            title="Dashboard View"
-            onClick={() => navigateToView('dashboard')}
-            className={`hidden md:flex px-3 py-1.5 cursor-pointer transition-colors ${viewMode === 'dashboard' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-          >
-            <LayoutDashboard size={16} />
-          </button>
-          <button
-            type="button"
-            title="Field List View"
-            onClick={() => navigateToView('list')}
-            className={`px-3 py-1.5 cursor-pointer md:border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'list' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-          >
-            <List size={16} />
-          </button>
-          <button
-            type="button"
-            title="Schedule View"
-            onClick={() => navigateToView('schedule')}
-            className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'schedule' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-          >
-            <GanttChartSquare size={16} />
-          </button>
-          <button
-            type="button"
-            title="Interactive Map View"
-            onClick={() => navigateToView('map')}
-            className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'map' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-          >
-            <MapIcon size={16} />
-          </button>
-          <button
-            type="button"
-            title="Look-Ahead View"
-            onClick={() => navigateToView('lookahead')}
-            className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'lookahead' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
-              }`}
-          >
-            <CalendarRange size={16} />
-          </button>
+          {VIEW_BUTTONS.map(({ mode, label, title, Icon }, index) => (
+            <button
+              key={mode}
+              type="button"
+              title={title}
+              onClick={() => navigateToView(mode)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 cursor-pointer transition-colors ${index > 0 ? 'border-l border-slate-300/80 dark:border-white/10' : ''} ${viewMode === mode
+                  ? 'bg-blue-600/90 text-white dark:bg-blue-500/90'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
+                }`}
+            >
+              <Icon size={16} />
+              <span className="hidden xl:inline text-xs font-semibold whitespace-nowrap">{label}</span>
+            </button>
+          ))}
         </div>
+
+        {((viewMode === 'map' && activeSheet?.base_image_url) || currentUserRole !== 'superintendent') && (
+          <div className="hidden md:block h-6 w-px bg-slate-300/80 dark:bg-white/15 flex-shrink-0" aria-hidden="true" />
+        )}
 
         {viewMode === 'map' && activeSheet?.base_image_url && (
           <button
