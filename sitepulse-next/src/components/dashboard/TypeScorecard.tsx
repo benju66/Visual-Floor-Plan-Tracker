@@ -32,7 +32,11 @@ interface TypeRow {
   rollup: GroupRollup;
 }
 
-function VarianceChip({ avg }: { avg: number | null }) {
+function VarianceChip({ avg, planless }: { avg: number | null; planless: boolean }) {
+  // When the whole project has no planned dates, ONE unlock hint above the table
+  // explains it — so per-row cells stay blank instead of a column of dead "no
+  // plan dates" chips (Data Storytelling P2).
+  if (planless) return null;
   if (avg === null) {
     return <span className="text-[10px] text-slate-400 font-medium" title="No planned dates on this group's bottleneck activities — nothing to measure variance against.">no plan dates</span>;
   }
@@ -175,6 +179,9 @@ export default function TypeScorecard({ allUnits, statuses, activities, track, h
 
   if (rows.length <= 1) return null; // a single type has nothing to compare
 
+  // Project-wide: are there ANY planned dates to measure variance against?
+  const hasPlannedDates = statuses.some(s => s.track === track && s.planned_end_date);
+
   return (
     <div className="glass-panel rounded-2xl border shadow-sm overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-200/60 dark:border-white/10">
@@ -186,6 +193,12 @@ export default function TypeScorecard({ allUnits, statuses, activities, track, h
           sorted by <span className="text-red-500">schedule risk</span>
         </span>
       </div>
+
+      {!hasPlannedDates && (
+        <div className="px-5 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-900/15 border-b border-amber-200/60 dark:border-amber-600/30">
+          No planned dates yet — set them (Schedule → Level dates or Import) to unlock plan-vs-actual variance.
+        </div>
+      )}
 
       <div className="hidden sm:grid grid-cols-[minmax(120px,170px)_1fr_104px_130px_90px_28px] gap-x-4 px-5 py-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200/60 dark:border-white/5">
         <span>Type</span><span>Completion vs plan</span><span>Variance</span><span>Trend</span><span>Stalled</span><span />
@@ -214,7 +227,7 @@ export default function TypeScorecard({ allUnits, statuses, activities, track, h
                       <span className="text-[8px] font-bold text-red-600 border border-red-400 rounded px-1 py-px tracking-widest shrink-0">RISK 1</span>
                     )}
                   </div>
-                  <div className="text-[10px] text-slate-400 font-medium tracking-wide">{row.units.length} LOCATIONS</div>
+                  <div className="text-[10px] text-slate-400 font-medium tracking-wide">{row.units.length} {row.units.length === 1 ? 'LOCATION' : 'LOCATIONS'}</div>
                 </div>
 
                 <div className="relative h-5 self-center">
@@ -240,7 +253,7 @@ export default function TypeScorecard({ allUnits, statuses, activities, track, h
                   </span>
                 </div>
 
-                <div className="hidden sm:block"><VarianceChip avg={r.avgBehindDays} /></div>
+                <div className="hidden sm:block"><VarianceChip avg={r.avgBehindDays} planless={!hasPlannedDates} /></div>
                 <div className="hidden sm:block"><Sparkline weekly={r.weekly} suppressed={suppressSpark} /></div>
                 <div className="hidden sm:block">
                   {r.stalledUnitIds.length > 0 ? (

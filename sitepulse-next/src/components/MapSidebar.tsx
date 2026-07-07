@@ -196,7 +196,8 @@ function MapSidebar({
           <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono tabular-nums leading-none">
             {sheetProgress.percentComplete}%
           </span>
-          <span className="text-[11px] text-slate-400 dark:text-slate-500">complete</span>
+          {/* Slot-based (tasks), distinct from the by-location buckets below. */}
+          <span className="text-[11px] text-slate-400 dark:text-slate-500">of tasks complete</span>
         </div>
         {/* segmented bar by current stage */}
         <div className="flex h-2 mt-2 rounded-full overflow-hidden bg-slate-200/70 dark:bg-white/10">
@@ -206,10 +207,13 @@ function MapSidebar({
             return <div key={k} className={STAGE_DOT[k]} style={{ width: `${w}%` }} />;
           })}
         </div>
+        {/* Counts are by LOCATION (they sum to the unit count) — labeled to
+            distinguish them from the task-% headline above (Data Storytelling P2). */}
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-          <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS.completed}`} />{sheetProgress.buckets.done} done</span>
+          <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS.completed}`} />{sheetProgress.buckets.done} locations done</span>
           <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS.ongoing}`} />{sheetProgress.buckets.ongoing} ongoing</span>
           <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS.planned}`} />{sheetProgress.buckets.planned} planned</span>
+          <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS.none}`} />{sheetProgress.buckets.none} not started</span>
         </div>
       </div>
 

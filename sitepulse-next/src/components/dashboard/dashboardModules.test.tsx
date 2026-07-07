@@ -117,4 +117,18 @@ describe('TypeScorecard', () => {
     );
     expect(container.firstChild).toBeNull();
   });
+
+  it('collapses per-row "no plan dates" into one unlock hint when the project is planless', () => {
+    const planless = STATUSES.map(s => ({ ...s, planned_end_date: null }));
+    render(<TypeScorecard {...baseProps} statuses={planless} />);
+    // ONE hint above the table (not a column of dead cells)...
+    expect(screen.getByText(/set them \(Schedule/i)).toBeTruthy();
+    // ...and no per-row "no plan dates" chips.
+    expect(screen.queryByText(/no plan dates/i)).toBeNull();
+  });
+
+  it('keeps per-row variance chips when the project has any planned dates', () => {
+    render(<TypeScorecard {...baseProps} />); // STATUSES has a planned_end_date on u2
+    expect(screen.queryByText(/set them \(Schedule/i)).toBeNull();
+  });
 });

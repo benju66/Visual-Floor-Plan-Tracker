@@ -2,13 +2,13 @@
 import React, { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { eachDayOfInterval, parseISO, format, startOfWeek } from 'date-fns';
-import { Target, CalendarClock, Info, TrendingUp, ChevronUp, ChevronDown } from 'lucide-react';
+import { Target, CalendarClock, Info, TrendingUp, ChevronUp, ChevronDown, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/hooks/useProjectQueries';
 import { useMapStore } from '@/store/useMapStore';
 import {
   summarizeGroup, parseDay, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS,
-  scopePlannedFinish, clampProjectForecast, planVsProjected,
+  scopePlannedFinish, clampProjectForecast, planVsProjected, isStalledSwarm,
 } from '@/utils/progressAnalytics';
 import type { GroupRollup } from '@/utils/progressAnalytics';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
@@ -161,6 +161,14 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     units: allProjectUnits, statuses: allProjectStatuses, activities,
     track: trackingMode, history: trackHistory, today, applicabilityIndex,
   }), [allProjectUnits, allProjectStatuses, activities, trackingMode, trackHistory, today, applicabilityIndex]);
+
+  // Stalled "swarm": when most of the whole project has had no logged movement in
+  // 2+ weeks, the data itself is likely stale — collapse the per-level stalled
+  // chips + the hero stalled line into ONE honest banner (Data Storytelling P2).
+  const stalledSwarm = useMemo(
+    () => isStalledSwarm(buildingRollup.stalledUnitIds.length, buildingRollup.unitCount),
+    [buildingRollup.stalledUnitIds.length, buildingRollup.unitCount],
+  );
 
   // Planned finish for the current scope (latest planned_end_date), and the hero
   // projection clamped to no earlier than the slowest in-scope level forecast.
@@ -354,6 +362,25 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
         )}
       </div>
 
+      {/* ── Stalled swarm: one honest "data may be stale" banner instead of a
+          shout of per-level chips (Data Storytelling P2) ── */}
+      {stalledSwarm && (
+        <div
+          className="flex items-start gap-3 glass-panel rounded-2xl border border-amber-300/70 dark:border-amber-500/40 bg-amber-50/80 dark:bg-amber-900/20 p-4 shadow-sm"
+          title={`"Stalled" = a started location with no logged status change in ${STALL_THRESHOLD_DAYS}+ days. When most of the project is stalled, the tracker data itself is likely out of date.`}
+        >
+          <AlertTriangle size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+              No work logged in 2+ weeks across most of this project — the data may be out of date.
+            </p>
+            <p className="text-xs text-amber-700/90 dark:text-amber-300/80 mt-0.5">
+              {buildingRollup.stalledUnitIds.length} of {buildingRollup.unitCount} locations have no status update in {STALL_THRESHOLD_DAYS}+ days. Log recent progress to restore an accurate forecast.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Floor Pulse — per-level rollup rail (also the dashboard's scope control) ── */}
       <FloorPulse
         sheets={sheets}
@@ -368,6 +395,7 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
         onOpenMap={openMap}
         levelRollups={levelRollups}
         buildingRollup={buildingRollup}
+        stalledSwarm={stalledSwarm}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -422,7 +450,8 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
                 Set planned dates (Schedule → <span className="font-medium">Level dates</span> or <span className="font-medium">Import</span>) to see plan vs actual.
               </p>
             )}
-            {scopeRollup.stalledUnitIds.length > 0 && (
+            {/* Suppressed when the swarm banner already explains the stall project-wide. */}
+            {!stalledSwarm && scopeRollup.stalledUnitIds.length > 0 && (
               <p
                 className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-0.5"
                 title={`No movement in ${STALL_THRESHOLD_DAYS}+ days on started locations. Needs attention — distinct from "behind plan" (red).`}
@@ -447,7 +476,7 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               {chartData.length > 0
-                ? `${chartData[0].label} → ${chartData[chartData.length - 1].label} · ${chartData.length > 90 ? 'Weekly view' : 'Daily view'} · dashed = planned`
+                ? `${chartData[0].label} → ${chartData[chartData.length - 1].label} · ${chartData.length > 90 ? 'Weekly view' : 'Daily view'} · ${plannedFinish ? 'dashed = planned' : 'set planned dates to see the planned line'}`
                 : 'Mark activities as Completed to see trends'}
             </p>
           </div>

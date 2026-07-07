@@ -37,6 +37,11 @@ export interface FloorPulseProps {
   levelRollups?: Record<string, GroupRollup>;
   /** All-levels rollup, lifted alongside `levelRollups`. Same fallback rule. */
   buildingRollup?: GroupRollup;
+  /**
+   * When the whole project is a stalled swarm, the per-level stalled chips are
+   * suppressed — one project-level banner explains the stale data instead (P2).
+   */
+  stalledSwarm?: boolean;
 }
 
 function fmtWeek(iso: string): string {
@@ -117,7 +122,7 @@ function PaceCell({ pace }: { pace: Pace }) {
 
 export default function FloorPulse({
   sheets, allUnits, statuses, activities, track, history, applicabilityIndex,
-  scope, onScopeChange, onOpenMap, levelRollups, buildingRollup,
+  scope, onScopeChange, onOpenMap, levelRollups, buildingRollup, stalledSwarm = false,
 }: FloorPulseProps) {
   const today = useMemo(() => new Date(), []);
 
@@ -240,7 +245,10 @@ export default function FloorPulse({
               <div className="hidden sm:block"><ForecastChip r={rollup} /></div>
 
               <div className="hidden sm:block">
-                {rollup.stalledUnitIds.length > 0 ? (
+                {stalledSwarm ? (
+                  // The project-wide swarm banner already explains the stall.
+                  <span className="text-[10px] text-slate-300 dark:text-slate-600">—</span>
+                ) : rollup.stalledUnitIds.length > 0 ? (
                   <span
                     className="inline-block text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-400/70 rounded-full px-2 py-0.5"
                     title={`No movement in ${STALL_THRESHOLD_DAYS}+ days on started locations. Needs attention — distinct from "behind plan" (red).`}

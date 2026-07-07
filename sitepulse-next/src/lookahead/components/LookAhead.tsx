@@ -878,6 +878,9 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
         }
         const taskTd = stickyTd(0, effTaskW);
         if (leftAccent) taskTd.boxShadow = "inset 3px 0 0 " + leftAccent;
+        // A seed / untouched row (blank task + sub + no cells) is styled as a faded
+        // placeholder so it can't read as real look-ahead data (Data Storytelling P2).
+        const isSeedRow = !r.task?.trim() && !r.sub?.trim() && Object.keys(r.cells || {}).length === 0;
         const carryTitle = cf
           ? cf.state === "completed"
             ? "Completed last week"
@@ -896,7 +899,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
           <tr
             key={"r-" + wkKey + "-" + r.id}
             data-row-reorder={r.id}
-            style={{ opacity: s.draggingRowId === r.id ? 0.4 : 1 }}
+            style={{ opacity: s.draggingRowId === r.id ? 0.4 : isSeedRow ? 0.6 : 1 }}
           >
             <td style={taskTd}>
               <div style={taskFlexStyle}>
@@ -913,7 +916,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
                 <input
                   ref={r.id === s.focusTaskRowId ? focusTaskInputRef : undefined}
                   defaultValue={r.task}
-                  placeholder="Task description"
+                  placeholder={isSeedRow ? "Describe the task…" : "Task description"}
                   onChange={(e) => s.setField(r.id, "task", e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -924,7 +927,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
                     }
                   }}
                   onBlur={() => s.persistData()}
-                  style={{ ...fieldInput(500, 12.5, t.fg), flex: 1, minWidth: 0, width: "auto" }}
+                  style={{ ...fieldInput(500, 12.5, isSeedRow ? t.faintFg : t.fg), flex: 1, minWidth: 0, width: "auto", fontStyle: isSeedRow ? "italic" : undefined }}
                 />
                 {carryBadge && (
                   <span title={carryTitle} style={{ flex: "none", fontSize: "9px", fontWeight: 700, lineHeight: 1, padding: "2px 5px", borderRadius: "4px", whiteSpace: "nowrap", color: carryBadge.color, background: carryBadge.bg }}>
@@ -940,7 +943,7 @@ export default function LookAhead({ palette = [] }: LookAheadProps = {}) {
                 list="la-subs"
                 onChange={(e) => s.setField(r.id, "sub", e.target.value)}
                 onBlur={() => s.persistData()}
-                style={{ ...fieldInput(600, 10.5, t.mutedFg), textTransform: "uppercase", letterSpacing: ".03em" }}
+                style={{ ...fieldInput(600, 10.5, isSeedRow ? t.faintFg : t.mutedFg), textTransform: "uppercase", letterSpacing: ".03em", fontStyle: isSeedRow ? "italic" : undefined }}
               />
             </td>
             {cellNodes}
