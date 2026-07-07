@@ -1,9 +1,10 @@
 "use client";
 import React from 'react';
-import { Search, X, ArrowUp, ArrowDown, ListChecks, Layers } from 'lucide-react';
+import { Search, X, ArrowUp, ArrowDown, ListChecks, Layers, Rows2, Rows4 } from 'lucide-react';
 import type { Activity } from '@/types/domain';
 import type { Updater } from '@/types/utils';
 import type { ManageScope } from '@/store/useManageStore';
+import type { ListDensity } from '@/store/useSettingsStore';
 import {
   type ManageFilters,
   type StateFacet,
@@ -33,6 +34,9 @@ interface ManageToolbarProps {
   sortDirection: 'asc' | 'desc';
   onRouteSort: () => void;
   onEditRoute: () => void;
+  /** Row density for the desktop table (UI Polish plan, Phase 4). */
+  density: ListDensity;
+  setDensity: (d: ListDensity) => void;
 }
 
 const chip = (active: boolean) =>
@@ -57,6 +61,8 @@ export default function ManageToolbar({
   sortDirection,
   onRouteSort,
   onEditRoute,
+  density,
+  setDensity,
 }: ManageToolbarProps) {
   const toggleState = (s: StateFacet) =>
     setFilters((f) => ({
@@ -149,6 +155,38 @@ export default function ManageToolbar({
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
+          <div
+            className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden shadow-sm shrink-0"
+            role="group"
+            aria-label="Row density"
+          >
+            <button
+              type="button"
+              title="Comfortable rows"
+              aria-pressed={density === 'comfortable'}
+              onClick={() => setDensity('comfortable')}
+              className={`px-2.5 py-1.5 transition-colors ${
+                density === 'comfortable'
+                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
+            >
+              <Rows2 size={14} />
+            </button>
+            <button
+              type="button"
+              title="Compact rows"
+              aria-pressed={density === 'compact'}
+              onClick={() => setDensity('compact')}
+              className={`px-2.5 py-1.5 border-l border-slate-300/80 dark:border-white/10 transition-colors ${
+                density === 'compact'
+                  ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                  : 'bg-white/70 dark:bg-black/20 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10'
+              }`}
+            >
+              <Rows4 size={14} />
+            </button>
+          </div>
           <button
             type="button"
             onClick={onRouteSort}

@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation';
 import { Layers } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
+import { useSettingsStore, useHydratedStore, type ListDensity } from '@/store/useSettingsStore';
 import { useManageStore } from '@/store/useManageStore';
 import { useFieldData } from '@/hooks/useFieldData';
 import { useActivities, useAllProjectUnits, useAllProjectStatuses, useUpdateUnitFields, useProjectMembers, useProject } from '@/hooks/useProjectQueries';
@@ -74,6 +74,9 @@ export default function FieldStatusTable({
   const trackingMode = useMapStore((s) => s.trackingMode);
   const setHistoryModalUnitId = useUIStore((s) => s.setHistoryModalUnitId);
   const statusFilter = useSettingsStore((s) => s.filterActivity);
+  // Persisted row density (UI Polish P4) — hydrated read to avoid SSR mismatch.
+  const listDensity = useHydratedStore<ListDensity>((s) => s.listDensity, 'comfortable');
+  const setListDensity = useSettingsStore((s) => s.setListDensity);
   const filters = useManageStore((s) => s.filters);
   const setFilters = useManageStore((s) => s.setFilters);
   const scope = useManageStore((s) => s.scope);
@@ -329,6 +332,8 @@ export default function FieldStatusTable({
           sortDirection={sortDirection}
           onRouteSort={handleRouteSort}
           onEditRoute={() => setIsSequenceModalOpen(true)}
+          density={listDensity}
+          setDensity={setListDensity}
         />
       )}
 
@@ -397,6 +402,7 @@ export default function FieldStatusTable({
             onDeleteLocation={onDeleteUnit}
             members={members}
             onAssignUnit={onAssignUnit}
+            density={listDensity}
             {...sharedSelectionProps}
           />
         </div>

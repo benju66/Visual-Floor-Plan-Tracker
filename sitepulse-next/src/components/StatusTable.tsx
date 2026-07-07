@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegments } from '@/components/ui/FieldStatusAtoms';
@@ -7,6 +7,8 @@ import StatusTrigger, { type StatusTriggerProps } from '@/components/ui/StatusTr
 import RowActionsMenu from './manage/RowActionsMenu';
 import AssigneeCell from './manage/AssigneeCell';
 import { isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
+import { formatPlannedDate } from '@/utils/formatPlannedDate';
+import type { ListDensity } from '@/store/useSettingsStore';
 import type { LocationRow } from '@/utils/locationFilters';
 import type { TaxonomyResult } from '@/utils/subtypes';
 import type { MemberLike } from './manage/assignee';
@@ -20,6 +22,98 @@ import type {
   TrackingMode,
   PendingChangesMap,
 } from '@/types/domain';
+
+/**
+ * DateChipCell — quiet date cell (UI Polish plan, Phase 4). At rest it renders
+ * the date as a flat text chip ("—" when unset); click / Enter / Space swaps in
+ * the native `<input type="date">` (auto-focused, picker opened), which reverts
+ * to the chip on blur. Purely presentational: `value` and `onChange` are the
+ * exact value/handler the always-visible input used before — zero
+ * mutation-path changes, the offline `pendingChanges` flow is untouched.
+ */
+function DateChipCell({
+  value,
+  pending,
+  disabled,
+  onChange,
+  ariaLabel,
+  compact,
+  completedTone,
+  stopClickPropagation,
+}: {
+  /** Current display value (`''` when unset) — pending-aware, computed by the caller. */
+  value: string;
+  /** A pending (unapplied) change exists for this date field → amber treatment. */
+  pending: boolean;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  ariaLabel: string;
+  compact: boolean;
+  /** Emerald text for the "Actual Completed" column (matches the old input). */
+  completedTone?: boolean;
+  /** The logged-date cell stops row-click propagation today — preserved. */
+  stopClickPropagation?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) return;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    try {
+      el.showPicker?.();
+    } catch {
+      // showPicker needs user activation in some browsers; focus alone still works.
+    }
+  }, [editing]);
+
+  const pad = compact ? 'py-1' : 'py-1.5';
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="date"
+        value={value}
+        onClick={stopClickPropagation ? (e) => e.stopPropagation() : undefined}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => setEditing(false)}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={`bg-transparent border ${
+          pending
+            ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
+            : 'border-slate-300 dark:border-white/10'
+        } rounded px-2 ${pad} text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => { if (stopClickPropagation) e.stopPropagation(); setEditing(true); }}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      title={`${ariaLabel} — click to edit`}
+      className={`rounded border px-2 ${pad} text-xs font-medium whitespace-nowrap transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default ${
+        pending
+          ? 'border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+          : `border-transparent hover:border-slate-300 dark:hover:border-white/10 hover:bg-slate-100 dark:hover:bg-slate-800 ${
+              value
+                ? completedTone
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-300'
+                : 'text-slate-400 italic'
+            }`
+      }`}
+    >
+      {formatPlannedDate(value || null)}
+    </button>
+  );
+}
 
 /**
  * StatusTable — the desktop data table presenter (isDesktop).
@@ -83,6 +177,9 @@ interface StatusTableProps {
   onDeleteLocation?: (unitId: string) => void;
   members?: MemberLike[];
   onAssignUnit?: (unitId: string, userId: string | null) => void;
+  /** Row density (UI Polish plan, Phase 4). Persisted in useSettingsStore;
+   *  the container reads it via useHydratedStore. Default comfortable. */
+  density?: ListDensity;
 }
 
 export default function StatusTable({
@@ -118,9 +215,16 @@ export default function StatusTable({
   onDeleteLocation,
   members,
   onAssignUnit,
+  density = 'comfortable',
 }: StatusTableProps) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
+
+  // Density-conditional paddings (comfortable keeps today's exact metrics).
+  const isCompact = density === 'compact';
+  const headPad = isCompact ? 'px-5 py-2' : 'px-5 py-3';
+  const cellPad = isCompact ? 'px-5 py-1.5' : 'px-5 py-3';
+  const cellPadTight = isCompact ? 'px-5 py-1' : 'px-5 py-2';
 
   // Clear expansions when activities change (e.g., track changes)
   React.useEffect(() => {
@@ -212,10 +316,10 @@ export default function StatusTable({
   return (
     <>
       <div className="w-full h-full overflow-auto rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/15 shadow-sm relative">
-      <table className="w-full text-left border-collapse text-sm text-slate-800 dark:text-slate-200 relative">
+      <table className={`w-full text-left border-collapse ${isCompact ? 'text-xs' : 'text-sm'} text-slate-800 dark:text-slate-200 relative`}>
         <thead ref={theadRef} className="sticky top-0 z-20 bg-white dark:bg-slate-900 shadow-sm after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-slate-300 dark:after:border-white/10">
           <tr>
-            <th className="px-5 py-3 w-10">
+            <th className={`${headPad} w-10`}>
               <input
                 type="checkbox"
                 checked={allVisibleSelected}
@@ -225,7 +329,7 @@ export default function StatusTable({
             </th>
             <th
               onClick={() => handleSort('unit')}
-              className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+              className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 w-1/4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
             >
               <div className="flex items-center gap-2">
                 <button
@@ -240,31 +344,31 @@ export default function StatusTable({
             </th>
             <th
               onClick={() => handleSort('unit_type')}
-              className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+              className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
             >
               Type / Assignee {renderSortIcon('unit_type')}
             </th>
             <th
               onClick={() => handleSort('status')}
-              className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[200px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+              className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 min-w-[200px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
             >
               Activity &amp; Status {renderSortIcon('status')}
             </th>
-            <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>
               Planned Start
             </th>
-            <th className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>
               Planned Completion
             </th>
             <th
               onClick={() => handleSort('updated')}
-              className="px-5 py-3 font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors"
+              className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
             >
               <div className="flex justify-end items-center gap-1">
                 Actual Completed {renderSortIcon('updated')}
               </div>
             </th>
-            <th className="px-5 py-3 w-10" />
+            <th className={`${headPad} w-10`} />
           </tr>
         </thead>
         {visible.map(({ unit, log }, index) => {
@@ -301,7 +405,7 @@ export default function StatusTable({
                       : ''
                 }`}
               >
-                <td className="px-5 py-3 align-middle text-center">
+                <td className={`${cellPad} align-middle text-center`}>
                   <input
                     type="checkbox"
                     checked={selectedUnitIds.includes(unit.id)}
@@ -309,7 +413,7 @@ export default function StatusTable({
                     className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                   />
                 </td>
-                <td className="px-5 py-3 font-bold text-slate-900 dark:text-slate-100 align-middle">
+                <td className={`${cellPad} font-bold text-slate-900 dark:text-slate-100 align-middle`}>
                   <div className="flex items-center gap-2 relative">
                     <button
                       type="button"
@@ -330,7 +434,7 @@ export default function StatusTable({
                     {savingUnitId === unit.id && <UpdatingRing />}
                   </div>
                 </td>
-                <td className="px-5 py-2 align-middle text-slate-600 dark:text-slate-400" onClick={(e) => e.stopPropagation()}>
+                <td className={`${cellPadTight} align-middle text-slate-600 dark:text-slate-400`} onClick={(e) => e.stopPropagation()}>
                   <div className="flex flex-col gap-1.5 items-start">
                     <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
                       {unit.unit_type || 'Unknown'}
@@ -342,7 +446,7 @@ export default function StatusTable({
                     />
                   </div>
                 </td>
-                <td className="px-5 py-2 align-middle">
+                <td className={`${cellPadTight} align-middle`}>
                   <StatusTrigger
                     unit={unit}
                     baseLog={dLog}
@@ -368,89 +472,79 @@ export default function StatusTable({
                     }
                   />
                 </td>
-                <td className="px-5 py-2 align-middle">
+                <td className={`${cellPadTight} align-middle`}>
                   {log ? (
-                    <input
-                      type="date"
+                    <DateChipCell
                       value={
                         pending?.extraProps?.startDate !== undefined
                           ? pending.extraProps.startDate ?? ''
                           : log?.planned_start_date || ''
                       }
-                      onChange={(e) =>
+                      pending={pending?.extraProps?.startDate !== undefined}
+                      onChange={(val) =>
                         handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
-                          startDate: e.target.value,
+                          startDate: val,
                           endDate: log.planned_end_date,
                         })
                       }
                       disabled={isApplying}
-                      className={`bg-transparent border ${
-                        pending?.extraProps?.startDate !== undefined
-                          ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                          : 'border-slate-300 dark:border-white/10'
-                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
+                      ariaLabel={`Planned start — ${unit.unit_number}`}
+                      compact={isCompact}
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
                   )}
                 </td>
-                <td className="px-5 py-2 align-middle">
+                <td className={`${cellPadTight} align-middle`}>
                   {log ? (
-                    <input
-                      type="date"
+                    <DateChipCell
                       value={
                         pending?.extraProps?.endDate !== undefined
                           ? pending.extraProps.endDate ?? ''
                           : log?.planned_end_date || ''
                       }
-                      onChange={(e) =>
+                      pending={pending?.extraProps?.endDate !== undefined}
+                      onChange={(val) =>
                         handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
                           startDate: log.planned_start_date,
-                          endDate: e.target.value,
+                          endDate: val,
                         })
                       }
                       disabled={isApplying}
-                      className={`bg-transparent border ${
-                        pending?.extraProps?.endDate !== undefined
-                          ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                          : 'border-slate-300 dark:border-white/10'
-                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
+                      ariaLabel={`Planned completion — ${unit.unit_number}`}
+                      compact={isCompact}
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
                   )}
                 </td>
-                <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
+                <td className={`${cellPad} text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium`}>
                   {(pending?.state || log?.temporal_state) === 'completed' ? (
-                    <input
-                      type="date"
+                    <DateChipCell
                       value={
                         pending?.extraProps?.loggedDate !== undefined
                           ? pending.extraProps.loggedDate ?? ''
                           : log?.logged_date || ''
                       }
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) =>
+                      pending={pending?.extraProps?.loggedDate !== undefined}
+                      onChange={(val) =>
                         handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log!.temporal_state as TemporalState) || 'none', {
                           startDate: log!.planned_start_date,
                           endDate: log!.planned_end_date,
-                          loggedDate: e.target.value,
+                          loggedDate: val,
                         })
                       }
                       disabled={isApplying}
-                      className={`bg-transparent border ${
-                        pending?.extraProps?.loggedDate !== undefined
-                          ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                          : 'border-slate-300 dark:border-white/10'
-                      } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40 ${
-                        !pending?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''
-                      } transition`}
+                      ariaLabel={`Actual completed — ${unit.unit_number}`}
+                      compact={isCompact}
+                      completedTone
+                      stopClickPropagation
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
                   )}
                 </td>
-                <td className="px-5 py-3 align-middle text-right" onClick={(e) => e.stopPropagation()}>
+                <td className={`${cellPad} align-middle text-right`} onClick={(e) => e.stopPropagation()}>
                   <RowActionsMenu
                     unitNumber={unit.unit_number}
                     currentSubtypeId={unit.subtype_id}
@@ -471,15 +565,15 @@ export default function StatusTable({
                 if (notApplicable) {
                   return (
                     <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 opacity-60">
-                      <td className="px-5 py-2"></td>
-                      <td className="px-5 py-2 text-sm font-medium text-slate-500 dark:text-slate-400 align-middle pl-10">
+                      <td className={cellPadTight}></td>
+                      <td className={`${cellPadTight} font-medium text-slate-500 dark:text-slate-400 align-middle pl-10`}>
                         <div className="flex items-center gap-2 italic">
                           <span className="text-slate-400 font-bold">↳</span>
                           {activity.name}
                         </div>
                       </td>
-                      <td className="px-5 py-2"></td>
-                      <td className="px-5 py-2 align-middle">
+                      <td className={cellPadTight}></td>
+                      <td className={`${cellPadTight} align-middle`}>
                         <div className="flex items-center gap-2">
                           <span className={`inline-block rounded-lg border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider italic ${getTemporalStateStyle('none')}`}>
                             N/A
@@ -498,10 +592,10 @@ export default function StatusTable({
                           )}
                         </div>
                       </td>
-                      <td className="px-5 py-2 align-middle"><span className="text-slate-400 text-xs italic">—</span></td>
-                      <td className="px-5 py-2 align-middle"><span className="text-slate-400 text-xs italic">—</span></td>
-                      <td className="px-5 py-3 text-xs text-right align-middle"><span className="text-slate-400 italic">—</span></td>
-                      <td className="px-5 py-3 align-middle text-right"></td>
+                      <td className={`${cellPadTight} align-middle`}><span className="text-slate-400 text-xs italic">—</span></td>
+                      <td className={`${cellPadTight} align-middle`}><span className="text-slate-400 text-xs italic">—</span></td>
+                      <td className={`${cellPad} text-xs text-right align-middle`}><span className="text-slate-400 italic">—</span></td>
+                      <td className={`${cellPad} align-middle text-right`}></td>
                     </tr>
                   );
                 }
@@ -520,15 +614,15 @@ export default function StatusTable({
 
                 return (
                   <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
-                    <td className="px-5 py-2"></td>
-                    <td className="px-5 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 align-middle pl-10">
+                    <td className={cellPadTight}></td>
+                    <td className={`${cellPadTight} font-medium text-slate-700 dark:text-slate-300 align-middle pl-10`}>
                       <div className="flex items-center gap-2">
                         <span className="text-slate-400 font-bold">↳</span>
                         {activity.name}
                       </div>
                     </td>
-                    <td className="px-5 py-2"></td>
-                    <td className="px-5 py-2 align-middle">
+                    <td className={cellPadTight}></td>
+                    <td className={`${cellPadTight} align-middle`}>
                       <div className="flex items-center gap-2">
                         <StatusSegments
                           value={(dChildLog.temporal_state as TemporalState) || 'none'}
@@ -552,92 +646,82 @@ export default function StatusTable({
                         )}
                       </div>
                     </td>
-                    <td className="px-5 py-2 align-middle">
+                    <td className={`${cellPadTight} align-middle`}>
                       {childLog ? (
-                        <input
-                          type="date"
+                        <DateChipCell
                           value={
                             childPending?.extraProps?.startDate !== undefined
                               ? childPending.extraProps.startDate ?? ''
                               : childLog.planned_start_date || ''
                           }
-                          onChange={(e) =>
+                          pending={childPending?.extraProps?.startDate !== undefined}
+                          onChange={(val) =>
                             handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                              startDate: e.target.value,
+                              startDate: val,
                               endDate: childLog.planned_end_date,
                               activityObj: activity
                             })
                           }
                           disabled={isApplying}
-                          className={`bg-transparent border ${
-                            childPending?.extraProps?.startDate !== undefined
-                              ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                              : 'border-slate-300 dark:border-white/10'
-                          } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
+                          ariaLabel={`Planned start — ${activity.name}, ${unit.unit_number}`}
+                          compact={isCompact}
                         />
                       ) : (
                         <span className="text-slate-400 text-xs italic">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-2 align-middle">
+                    <td className={`${cellPadTight} align-middle`}>
                       {childLog ? (
-                        <input
-                          type="date"
+                        <DateChipCell
                           value={
                             childPending?.extraProps?.endDate !== undefined
                               ? childPending.extraProps.endDate ?? ''
                               : childLog.planned_end_date || ''
                           }
-                          onChange={(e) =>
+                          pending={childPending?.extraProps?.endDate !== undefined}
+                          onChange={(val) =>
                             handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
                               startDate: childLog.planned_start_date,
-                              endDate: e.target.value,
+                              endDate: val,
                               activityObj: activity
                             })
                           }
                           disabled={isApplying}
-                          className={`bg-transparent border ${
-                            childPending?.extraProps?.endDate !== undefined
-                              ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                              : 'border-slate-300 dark:border-white/10'
-                          } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
+                          ariaLabel={`Planned completion — ${activity.name}, ${unit.unit_number}`}
+                          compact={isCompact}
                         />
                       ) : (
                         <span className="text-slate-400 text-xs italic">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium">
+                    <td className={`${cellPad} text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium`}>
                       {(childPending?.state || childLog.temporal_state) === 'completed' ? (
-                        <input
-                          type="date"
+                        <DateChipCell
                           value={
                             childPending?.extraProps?.loggedDate !== undefined
                               ? childPending.extraProps.loggedDate ?? ''
                               : childLog.logged_date || ''
                           }
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) =>
+                          pending={childPending?.extraProps?.loggedDate !== undefined}
+                          onChange={(val) =>
                             handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
                               startDate: childLog.planned_start_date,
                               endDate: childLog.planned_end_date,
-                              loggedDate: e.target.value,
+                              loggedDate: val,
                               activityObj: activity
                             })
                           }
                           disabled={isApplying}
-                          className={`bg-transparent border ${
-                            childPending?.extraProps?.loggedDate !== undefined
-                              ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-                              : 'border-slate-300 dark:border-white/10'
-                          } rounded px-2 py-1.5 text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40 ${
-                            !childPending?.extraProps?.loggedDate ? 'text-emerald-600 dark:text-emerald-400' : ''
-                          } transition`}
+                          ariaLabel={`Actual completed — ${activity.name}, ${unit.unit_number}`}
+                          compact={isCompact}
+                          completedTone
+                          stopClickPropagation
                         />
                       ) : (
                         <span className="text-slate-400 text-xs italic">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 align-middle text-right"></td>
+                    <td className={`${cellPad} align-middle text-right`}></td>
                   </tr>
                 );
               })}

@@ -75,6 +75,8 @@ export interface MapSettings {
   shadeLocations?: boolean;
 }
 
+export type ListDensity = 'comfortable' | 'compact';
+
 export interface SettingsState {
   temporalFilters: TemporalState[];
   setTemporalFilters: (filters: Updater<TemporalState[]>) => void;
@@ -93,6 +95,11 @@ export interface SettingsState {
 
   colorMode: 'light' | 'dark' | 'system';
   setColorMode: (modeFn: Updater<'light' | 'dark' | 'system'>) => void;
+
+  /** Desktop list (StatusTable) row density (UI Polish plan, Phase 4). Persisted;
+   *  read via `useHydratedStore`. The mobile swipe deck ignores it. */
+  listDensity: ListDensity;
+  setListDensity: (val: Updater<ListDensity>) => void;
 
   // Stamp & Fast Markup — Phase 2: the persisted stamp drawer (this browser only). Plain
   // JSON `StampDef` objects; the pure ops live in `@/utils/stampLibrary`. Read via
@@ -133,6 +140,11 @@ export const useSettingsStore = create<SettingsState>()(
         colorMode: typeof modeFn === 'function' ? modeFn(state.colorMode) : modeFn
       })),
 
+      listDensity: 'comfortable',
+      setListDensity: (val) => set((state) => ({
+        listDensity: typeof val === 'function' ? val(state.listDensity) : val
+      })),
+
       stampLibrary: EMPTY_STAMP_LIBRARY,
       pushRecentStamp: (stamp) => set((state) => ({
         stampLibrary: { ...state.stampLibrary, recents: pushRecent(state.stampLibrary.recents, stamp) },
@@ -154,6 +166,7 @@ export const useSettingsStore = create<SettingsState>()(
         mapSettings: state.mapSettings,
         legendPosition: state.legendPosition,
         colorMode: state.colorMode,
+        listDensity: state.listDensity,
         stampLibrary: state.stampLibrary,
       }),
       // Default shallow merge, but the magnifier loupe is forced OFF on every
