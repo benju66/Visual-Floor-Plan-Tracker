@@ -62,8 +62,8 @@ density for PM screens.
 | Batch | Contents (in build order) | Plan phases |
 |-------|---------------------------|-------------|
 | **1** ✅ shipped 2026-07-07 | View in the URL (`?view=`) · Theme unification · Empty states + stalled→amber | Nav P1 · Polish P1 · Polish P3 |
-| **2** | Switcher labels + accent · Context-aware header (matrix locked above) · List date chips + compact density | Nav P2 · Nav P3 · Polish P4 |
-| **3** | Shared status-color module (ongoing=blue) · Mobile bottom tab bar · Map toolbar split | Polish P2 · Nav P4 · Nav P5 |
+| **2** ✅ shipped 2026-07-07 | Switcher labels + accent · Context-aware header (matrix locked above) · List date chips + compact density | Nav P2 · Nav P3 · Polish P4 |
+| **3** | Shared status-color module (ongoing=blue) · Mobile bottom tab bar · Map toolbar split (+ owner-noted empty-level toolbar fix) | Polish P2 · Nav P4 · Nav P5 |
 
 Batch ordering notes: Batch 2 builds on Batch 1's `viewRouting.ts` (adds
 `controlVisibility`); Batch 3's tab bar reuses Batch 1's `navigateToView`. Codebase
@@ -209,6 +209,15 @@ It writes nothing to Supabase and adds no columns, RPCs, or policies.
   banner; dashes have tooltips · `verify-feature` → STOP.
 
 ### Phase 4 — List-view polish (date chips + compact density)
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 2, main `7d6359c`). Notes: `DateChipCell`
+> (local to StatusTable) covers all SIX date cells — planned start/completion AND the
+> conditional "Actual Completed" cell (same ghost-input pattern; emerald tone kept).
+> Compact metrics picked: cells py-1/py-1.5, header py-2, table text-xs (~35% shorter
+> rows). Density toggle = Rows2/Rows4 segmented control in ManageToolbar.
+> ⚠ **Owner-noted follow-up (2026-07-07, approved as later work):** when a level has
+> zero locations, `FieldStatusTable`'s empty-state early-return renders BEFORE
+> ManageToolbar, so the whole list toolbar (incl. the "All levels" scope switch) is
+> unreachable from an empty level. Queued as a small standalone fix in Batch 3.
 - **Scope:**
   - **Quiet date cells** in `StatusTable.tsx` (main rows + expanded child rows): render
     `formatPlannedDate(...)` as a flat text chip ("—" when unset); clicking/focusing the

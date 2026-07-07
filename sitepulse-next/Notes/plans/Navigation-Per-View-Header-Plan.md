@@ -156,6 +156,12 @@ correctness lives — keep `Date.now()`/`window` out of these.
   then STOP.
 
 ### Phase 2 — Desktop view switcher: labels + unified accent + family separation
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 2, main `20d245f`). Notes: labels render at
+> **`xl:`+ (1280px), not the drafted `lg:`+** — measured live, with labels on the busiest
+> header (map view) overflowed ~70px at 1050px and pushed Settings off-screen; icon-only
+> `md:`–`xl:` with tooltips. The switcher was MOVED OUT of the `overflow-x-auto` cluster
+> (pinned, can never scroll off); the Scope/Track group still scrolls internally. Families
+> separated by `w-px` dividers that collapse with their hidden groups (Phase 3).
 - **Scope:** `TopHeader.tsx` visuals only (no behavior change).
   - Add **icon + text label** to each of the 5 switcher buttons; collapse to icon-only below a
     breakpoint (e.g. labels show `lg:`+, icons-only `md:`–`lg:`). Keep tooltips.
@@ -170,6 +176,13 @@ correctness lives — keep `Date.now()`/`window` out of these.
   widths · `verify-feature` → STOP.
 
 ### Phase 3 — Per-view context-aware header + re-source Dashboard track selector
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 2, main `45d411a`). Notes: the matrix key for
+> the plan's "Milestones button" is **`activities`** (terminology sweep); unknown/invalid
+> mode → all controls visible (pre-P3 fallback). Dashboard scope tabs read `projectTracks`
+> (deduped `activities[].track`, derived in page.tsx and threaded as a prop). The clamp
+> took the STRONGER option: on Dashboard it clamps to the project track set (not skipped),
+> so a stale deep link still lands on a valid track. Invariant documented in AGENTS.md §2
+> — edit the matrix in `viewRouting.ts` + its test, never ad-hoc hide header controls.
 - **Scope:** the behavioral core.
   - Add `controlVisibility(viewMode)` to `viewRouting.ts` (+ tests) implementing the matrix.
   - In `TopHeader.tsx`, gate the Level selector, Scope tabs, Milestones button, and Export per
