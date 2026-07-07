@@ -6,7 +6,11 @@ import { Target, CalendarClock, Info, TrendingUp, ChevronUp, ChevronDown } from 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/hooks/useProjectQueries';
 import { useMapStore } from '@/store/useMapStore';
-import { summarizeGroup, parseDay, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS } from '@/utils/progressAnalytics';
+import {
+  summarizeGroup, parseDay, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS,
+  scopePlannedFinish, clampProjectForecast, planVsProjected,
+} from '@/utils/progressAnalytics';
+import type { GroupRollup } from '@/utils/progressAnalytics';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import FloorPulse from '@/components/dashboard/FloorPulse';
@@ -137,6 +141,43 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     applicabilityIndex,
   }), [displayUnits, allProjectStatuses, activities, trackingMode, trackHistory, today, applicabilityIndex]);
 
+  // Per-level + all-levels rollups, computed ONCE here and threaded down to
+  // FloorPulse (which no longer recomputes them). The hero card clamps its
+  // aggregate forecast against these level forecasts so it can never contradict
+  // its own slowest level (Data Storytelling P1).
+  const levelRollups = useMemo(() => {
+    const map: Record<string, GroupRollup> = {};
+    for (const sheet of sheets) {
+      const sheetUnits = allProjectUnits.filter(u => u.sheet_id === sheet.id);
+      map[sheet.id] = summarizeGroup({
+        units: sheetUnits, statuses: allProjectStatuses, activities,
+        track: trackingMode, history: trackHistory, today, applicabilityIndex,
+      });
+    }
+    return map;
+  }, [sheets, allProjectUnits, allProjectStatuses, activities, trackingMode, trackHistory, today, applicabilityIndex]);
+
+  const buildingRollup = useMemo(() => summarizeGroup({
+    units: allProjectUnits, statuses: allProjectStatuses, activities,
+    track: trackingMode, history: trackHistory, today, applicabilityIndex,
+  }), [allProjectUnits, allProjectStatuses, activities, trackingMode, trackHistory, today, applicabilityIndex]);
+
+  // Planned finish for the current scope (latest planned_end_date), and the hero
+  // projection clamped to no earlier than the slowest in-scope level forecast.
+  const plannedFinish = useMemo(
+    () => scopePlannedFinish(displayStatuses, trackingMode),
+    [displayStatuses, trackingMode],
+  );
+  const clampedForecast = useMemo(() => {
+    const scopedLevelForecasts = (scope === 'all' ? sheets.map(s => s.id) : [scope])
+      .map(id => levelRollups[id]?.forecastDate ?? null);
+    return clampProjectForecast(scopeRollup.forecastDate, scopedLevelForecasts);
+  }, [scope, sheets, levelRollups, scopeRollup.forecastDate]);
+  const planDelta = useMemo(
+    () => planVsProjected(plannedFinish, clampedForecast.date),
+    [plannedFinish, clampedForecast.date],
+  );
+
   const { overallProgress, activityStats, totalUnits, totalCompletedTasks, totalPossibleTasks } = useMemo(() => {
     if (!displayUnits || displayUnits.length === 0) {
       return { overallProgress: 0, activityStats: [] as any[], totalUnits: 0, totalCompletedTasks: 0, totalPossibleTasks: 0 };
@@ -264,12 +305,17 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     );
   }
 
-  const forecastLabel = scopeRollup.forecastDate
-    ? `~wk of ${parseDay(scopeRollup.forecastDate)?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+  const fmtFinish = (iso: string) => parseDay(iso)?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  // Projected finish = the CLAMPED aggregate (never earlier than the slowest in-scope level).
+  const projectedDate = clampedForecast.date;
+  const forecastLabel = projectedDate
+    ? `~wk of ${fmtFinish(projectedDate)}`
     : scopeRollup.forecastSuppressed === 'complete' ? 'Complete'
     : '—';
-  const forecastHint = scopeRollup.forecastDate
-    ? `At the median weekly completion pace of the last ${FORECAST_WINDOW_WEEKS} weeks. A pace projection, not a commitment.`
+  const forecastHint = projectedDate
+    ? (clampedForecast.clampedToLevel
+        ? `Pinned to the slowest level's pace — an all-levels projection can't finish before its slowest level. Based on the median weekly completion pace of the last ${FORECAST_WINDOW_WEEKS} weeks; a pace projection, not a commitment.`
+        : `At the median weekly completion pace of the last ${FORECAST_WINDOW_WEEKS} weeks. A pace projection, not a commitment.`)
     : scopeRollup.forecastSuppressed === 'small-sample' ? `Too few tasks in this scope to project a finish — forecasts need at least ${SMALL_SAMPLE_SLOTS} tracked tasks.`
     : scopeRollup.forecastSuppressed === 'no-pace' ? `No completions in the last ${FORECAST_WINDOW_WEEKS} weeks — no pace to project from.`
     : scopeRollup.forecastSuppressed === 'complete' ? 'All tracked tasks in this scope are complete.'
@@ -279,6 +325,12 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     scopeRollup.forecastSuppressed === 'small-sample' ? 'too few tasks to project'
     : scopeRollup.forecastSuppressed === 'no-pace' ? 'no recent pace'
     : null;
+  // Planned vs Projected: whole-day delta wording (positive = projected late).
+  const planComparison =
+    planDelta === null ? null
+    : planDelta > 0 ? { text: `${planDelta}d late`, cls: 'text-amber-600 dark:text-amber-400' }
+    : planDelta < 0 ? { text: `${Math.abs(planDelta)}d ahead`, cls: 'text-emerald-600 dark:text-emerald-400' }
+    : { text: 'on plan', cls: 'text-slate-500 dark:text-slate-400' };
 
   return (
     <div className="w-full pb-6 space-y-6 overflow-y-auto h-full pr-2 p-2">
@@ -314,6 +366,8 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
         scope={scope}
         onScopeChange={setScope}
         onOpenMap={openMap}
+        levelRollups={levelRollups}
+        buildingRollup={buildingRollup}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -340,9 +394,9 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
           <div className="p-4 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full mr-4">
             <CalendarClock size={28} />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-1.5 cursor-help">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Projected Finish</h3>
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Planned vs Projected</h3>
               <Info size={14} className="text-slate-400" />
             </div>
             <p
@@ -350,9 +404,23 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
               title={forecastHint}
             >
               {forecastLabel}
+              <span className="text-xs font-medium text-slate-400 ml-2">projected</span>
             </p>
             {forecastSuppressedCaption && (
               <p className="text-[10px] text-slate-400 mt-0.5" title={forecastHint}>{forecastSuppressedCaption}</p>
+            )}
+            {clampedForecast.clampedToLevel && projectedDate && (
+              <p className="text-[10px] text-slate-400 mt-0.5" title={forecastHint}>pinned to a level&apos;s pace</p>
+            )}
+            {plannedFinish ? (
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
+                vs planned <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtFinish(plannedFinish)}</span>
+                {planComparison && <> · <span className={`font-bold ${planComparison.cls}`}>{planComparison.text}</span></>}
+              </p>
+            ) : (
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 leading-snug">
+                Set planned dates (Schedule → <span className="font-medium">Level dates</span> or <span className="font-medium">Import</span>) to see plan vs actual.
+              </p>
             )}
             {scopeRollup.stalledUnitIds.length > 0 && (
               <p
@@ -364,7 +432,7 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
             )}
           </div>
           <div className="absolute left-6 bottom-full mb-3 hidden group-hover:block w-64 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20 z-50">
-            {forecastHint}
+            {forecastHint} Planned finish is the latest planned end date across this scope.
           </div>
         </div>
       </div>

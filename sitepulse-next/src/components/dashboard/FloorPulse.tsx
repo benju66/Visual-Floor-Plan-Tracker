@@ -29,6 +29,14 @@ export interface FloorPulseProps {
   scope: string;
   onScopeChange: (scope: string) => void;
   onOpenMap: (sheetId: string) => void;
+  /**
+   * Per-sheet rollups lifted to the parent so they are computed ONCE (the hero
+   * card clamps against them). Keyed by sheet id. When omitted, FloorPulse
+   * computes its own — keeps the component standalone + unit-testable.
+   */
+  levelRollups?: Record<string, GroupRollup>;
+  /** All-levels rollup, lifted alongside `levelRollups`. Same fallback rule. */
+  buildingRollup?: GroupRollup;
 }
 
 function fmtWeek(iso: string): string {
@@ -109,22 +117,28 @@ function PaceCell({ pace }: { pace: Pace }) {
 
 export default function FloorPulse({
   sheets, allUnits, statuses, activities, track, history, applicabilityIndex,
-  scope, onScopeChange, onOpenMap,
+  scope, onScopeChange, onOpenMap, levelRollups, buildingRollup,
 }: FloorPulseProps) {
   const today = useMemo(() => new Date(), []);
 
   const rows = useMemo(() => {
     const ordered = [...sheets].sort((a, b) => (b.sequence_order || 0) - (a.sequence_order || 0));
     return ordered.map(sheet => {
-      const sheetUnits = allUnits.filter(u => u.sheet_id === sheet.id);
-      const rollup = summarizeGroup({ units: sheetUnits, statuses, activities, track, history, today, applicabilityIndex });
+      // Prefer the parent-computed rollup (computed once); fall back to our own
+      // so FloorPulse stays a self-contained, testable component.
+      const rollup = levelRollups?.[sheet.id]
+        ?? summarizeGroup({ units: allUnits.filter(u => u.sheet_id === sheet.id), statuses, activities, track, history, today, applicabilityIndex });
       return { sheet, rollup, pace: paceOf(rollup) };
     });
-  }, [sheets, allUnits, statuses, activities, track, history, today, applicabilityIndex]);
+  }, [sheets, allUnits, statuses, activities, track, history, today, applicabilityIndex, levelRollups]);
 
-  const building = useMemo(() => {
-    return summarizeGroup({ units: allUnits, statuses, activities, track, history, today, applicabilityIndex });
-  }, [allUnits, statuses, activities, track, history, today, applicabilityIndex]);
+  // Only compute the all-levels rollup when the parent didn't hand one down —
+  // avoids double-computing it in the real dashboard (the memo short-circuits).
+  const computedBuilding = useMemo(
+    () => (buildingRollup ? null : summarizeGroup({ units: allUnits, statuses, activities, track, history, today, applicabilityIndex })),
+    [buildingRollup, allUnits, statuses, activities, track, history, today, applicabilityIndex],
+  );
+  const building = buildingRollup ?? computedBuilding!;
 
   if (sheets.length === 0) return null;
 

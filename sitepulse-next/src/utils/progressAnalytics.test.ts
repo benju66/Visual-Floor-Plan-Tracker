@@ -8,6 +8,10 @@ import {
   varianceFill,
   varianceLabel,
   summarizeGroup,
+  scopePlannedFinish,
+  planVsProjected,
+  clampProjectForecast,
+  isStalledSwarm,
   VARIANCE_COLORS,
 } from './progressAnalytics';
 import { buildApplicabilityIndex } from './applicability';
@@ -320,5 +324,72 @@ describe('projectForecastDate', () => {
     expect(projectForecastDate({ remaining: 0, totalSlots: 20, fullWeekCounts: [4], today }).forecastSuppressed).toBe('complete');
     expect(projectForecastDate({ remaining: 5, totalSlots: 8, fullWeekCounts: [4], today }).forecastSuppressed).toBe('small-sample');
     expect(projectForecastDate({ remaining: 5, totalSlots: 20, fullWeekCounts: [0, 0, 0], today }).forecastSuppressed).toBe('no-pace');
+  });
+});
+
+// --- Dashboard presentation helpers (Data Storytelling P1/P2) ---
+describe('scopePlannedFinish', () => {
+  it('returns the latest planned_end_date on the track', () => {
+    const statuses = [
+      log({ track: 'Production', planned_end_date: '2026-06-10' }),
+      log({ track: 'Production', planned_end_date: '2026-07-01' }),
+      log({ track: 'Production', planned_end_date: null }),
+      log({ track: 'Closeout', planned_end_date: '2026-12-01' }), // other track ignored
+    ];
+    expect(scopePlannedFinish(statuses, 'Production')).toBe('2026-07-01');
+  });
+  it('is null when no slot on the track carries a planned end', () => {
+    expect(scopePlannedFinish([log({ track: 'Production', planned_end_date: null })], 'Production')).toBeNull();
+    expect(scopePlannedFinish([], 'Production')).toBeNull();
+  });
+});
+
+describe('planVsProjected', () => {
+  it('is positive when the projection lands after the plan (late)', () => {
+    expect(planVsProjected('2026-06-01', '2026-06-15')).toBe(14);
+  });
+  it('is negative when the projection beats the plan (ahead)', () => {
+    expect(planVsProjected('2026-06-15', '2026-06-01')).toBe(-14);
+  });
+  it('is null when either date is missing', () => {
+    expect(planVsProjected(null, '2026-06-01')).toBeNull();
+    expect(planVsProjected('2026-06-01', null)).toBeNull();
+  });
+});
+
+describe('clampProjectForecast', () => {
+  it('pushes the hero later when a level finishes after it', () => {
+    expect(clampProjectForecast('2026-06-10', ['2026-06-01', '2026-07-04', null]))
+      .toEqual({ date: '2026-07-04', clampedToLevel: true });
+  });
+  it('never pulls the hero earlier than its own date', () => {
+    expect(clampProjectForecast('2026-08-01', ['2026-06-01', '2026-07-04']))
+      .toEqual({ date: '2026-08-01', clampedToLevel: false });
+  });
+  it('keeps a suppressed (null) hero null — never fabricates a date from a level', () => {
+    expect(clampProjectForecast(null, ['2026-07-04'])).toEqual({ date: null, clampedToLevel: false });
+  });
+  it('is a no-op when no level has a forecast', () => {
+    expect(clampProjectForecast('2026-06-10', [null, null])).toEqual({ date: '2026-06-10', clampedToLevel: false });
+  });
+  it('does not clamp on an equal level date', () => {
+    expect(clampProjectForecast('2026-07-04', ['2026-07-04'])).toEqual({ date: '2026-07-04', clampedToLevel: false });
+  });
+});
+
+describe('isStalledSwarm', () => {
+  it('is true at/above the 60% default', () => {
+    expect(isStalledSwarm(6, 10)).toBe(true);
+    expect(isStalledSwarm(3, 5)).toBe(true); // exactly 60%
+  });
+  it('is false below the threshold', () => {
+    expect(isStalledSwarm(5, 10)).toBe(false);
+  });
+  it('guards an empty scope', () => {
+    expect(isStalledSwarm(0, 0)).toBe(false);
+    expect(isStalledSwarm(3, 0)).toBe(false);
+  });
+  it('honors a custom threshold', () => {
+    expect(isStalledSwarm(5, 10, 0.5)).toBe(true);
   });
 });

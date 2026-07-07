@@ -401,3 +401,73 @@ export function summarizeGroup({
     forecastSuppressed,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard presentation helpers (planned-vs-projected · hero clamp · swarm)
+//
+// Presentation-only derivations layered AROUND the pace math above — they never
+// change a forecast, only compare / clamp / label existing values. All take dates
+// as ISO 'YYYY-MM-DD' strings and are `Date.now()`-free so they stay testable
+// (Data Storytelling P1/P2).
+// ---------------------------------------------------------------------------
+
+/**
+ * The scope's planned finish: the latest `planned_end_date` among its slots on
+ * one track. Null when no slot carries a planned end date — that null drives both
+ * the planned-vs-projected delta AND its "no planned dates" nudge state. ISO
+ * 'YYYY-MM-DD' strings sort lexicographically, so a plain string max is correct.
+ */
+export function scopePlannedFinish(
+  statuses: Pick<StatusLog, 'track' | 'planned_end_date'>[],
+  track: string,
+): string | null {
+  let max: string | null = null;
+  for (const s of statuses) {
+    if (s.track !== track || !s.planned_end_date) continue;
+    if (max === null || s.planned_end_date > max) max = s.planned_end_date;
+  }
+  return max;
+}
+
+/**
+ * Whole-day delta between a planned finish and a projected finish — positive when
+ * the projection lands LATER than the plan (the scope is trending late), negative
+ * when it beats the plan. Null when either date is missing. Pure; pass ISO strings.
+ */
+export function planVsProjected(planned: string | null, projected: string | null): number | null {
+  const p = parseDay(planned);
+  const q = parseDay(projected);
+  return p && q ? dayDiff(p, q) : null;
+}
+
+/**
+ * Clamp an aggregate forecast so it can never fall EARLIER than the latest of its
+ * own per-level forecasts — an all-levels median pace can otherwise project a
+ * finish that contradicts the project's slowest level. Only ever pushes the date
+ * LATER (never earlier), and never fabricates a date when the aggregate honestly
+ * suppressed its own (a null hero stays null — forecast honesty, AGENTS.md §3).
+ * `clampedToLevel` reports when a level pinned it so the UI can explain the basis.
+ */
+export function clampProjectForecast(
+  heroForecast: string | null,
+  levelForecasts: (string | null)[],
+): { date: string | null; clampedToLevel: boolean } {
+  let latest: string | null = null;
+  for (const f of levelForecasts) {
+    if (f && (latest === null || f > latest)) latest = f;
+  }
+  if (heroForecast === null || latest === null || latest <= heroForecast) {
+    return { date: heroForecast, clampedToLevel: false };
+  }
+  return { date: latest, clampedToLevel: true };
+}
+
+/**
+ * True when a stalled-location count is a "swarm" — at/above `threshold` (default
+ * 60%) of the tracked locations. Past this, per-level stalled chips collapse into
+ * ONE "data may be stale" banner (P2). An empty/zero scope guards to false.
+ */
+export function isStalledSwarm(stalledCount: number, trackedCount: number, threshold = 0.6): boolean {
+  if (trackedCount <= 0) return false;
+  return stalledCount / trackedCount >= threshold;
+}
