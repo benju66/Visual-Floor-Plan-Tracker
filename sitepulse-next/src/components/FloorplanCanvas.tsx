@@ -30,8 +30,7 @@ import WalkRouteOverlay from '@/components/canvas/WalkRouteOverlay';
 import HoverHistoryTooltip from '@/components/HoverHistoryTooltip';
 import { getCentroid, getSnappedCoordinate, mixAlpha, nearestCentroidWithin } from '@/utils/geometry';
 import { isSelfIntersecting } from '@/utils/polygonValidity';
-import { computeUnitVariance, varianceFill, orderedTrackActivities } from '@/utils/progressAnalytics';
-import { unitMakeReady, makeReadyFill, slotKey } from '@/utils/activityReadiness';
+import { recolorForLag, recolorForMakeReady } from '@/utils/canvasRecolor';
 import { clampStagePosition } from '@/utils/viewport';
 import { computeLayout, computeVisibleBox, cullVisibleUnits } from '@/utils/canvasLayout';
 import { useCanvasViewport } from '@/hooks/useCanvasViewport';
@@ -52,7 +51,6 @@ import { FRACTION_LABELS } from '@/utils/measure';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point, Gridline, OpeningEdge, OpeningType } from '@/types/domain';
-import { applicableActivities, isActivityApplicable } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
@@ -231,51 +229,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const today = useMemo(() => new Date(), []);
   const displayStatuses = useMemo(() => {
     if (!lagMode && !makeReadyMode) return activeStatuses;
-    const unitById = new Map(units.map(u => [u.id, u]));
-
     if (makeReadyMode) {
-      // Completed slots + applicable slots for the active track (N/A slots respected —
-      // AGENTS.md §3). Both are plain slot-key sets keyed `${unitId}_${activityId}`.
-      const orderedActs = orderedTrackActivities(allActivities, trackingMode);
-      const completed = new Set<string>();
-      for (const log of rawStatuses) {
-        if (log.track === trackingMode && log.unit_id && log.activity_id && log.temporal_state === 'completed') {
-          completed.add(slotKey(log.unit_id, log.activity_id));
-        }
-      }
-      const hasIndex = !!applicabilityIndex;
-      const applicable = new Set<string>();
-      if (hasIndex) {
-        for (const u of units) for (const a of orderedActs) {
-          if (isActivityApplicable(a, u, applicabilityIndex)) applicable.add(slotKey(u.id, a.id));
-        }
-      }
-      return activeStatuses.map(s => {
-        const unit = unitById.get(s.unit_id as string);
-        if (!unit) return s;
-        const appActs = hasIndex ? applicableActivities(orderedActs, unit, applicabilityIndex) : orderedActs;
-        const info = unitMakeReady(unit.id, appActs, dependencies, completed, hasIndex ? applicable : undefined);
-        return { ...s, status_color: makeReadyFill(info) };
-      });
+      return recolorForMakeReady(activeStatuses, rawStatuses, units, allActivities, trackingMode, dependencies, applicabilityIndex);
     }
-
-    // Lag Mode: schedule-variance recolor.
-    const logsByUnit = new Map<string, StatusLog[]>();
-    for (const log of rawStatuses) {
-      if (log.track !== trackingMode || !log.unit_id) continue;
-      const arr = logsByUnit.get(log.unit_id);
-      if (arr) arr.push(log);
-      else logsByUnit.set(log.unit_id, [log]);
-    }
-    return activeStatuses.map(s => {
-      // Variance skips activities that are N/A for this unit, matching the bottleneck.
-      const unit = unitById.get(s.unit_id as string);
-      const unitActivities = unit && applicabilityIndex
-        ? applicableActivities(activities, unit, applicabilityIndex)
-        : activities;
-      const info = computeUnitVariance(logsByUnit.get(s.unit_id as string) || [], unitActivities, today);
-      return { ...s, status_color: varianceFill(info) };
-    });
+    return recolorForLag(activeStatuses, rawStatuses, units, activities, trackingMode, applicabilityIndex, today);
   // `activities` is derived from allActivities+trackingMode (both in deps); listing
   // the derived array would change identity every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
