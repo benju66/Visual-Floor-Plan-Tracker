@@ -16,6 +16,7 @@ import {
   deriveDuration,
   cascadeFillCounts,
   cascadeLevelToLocations,
+  reflowLevelToLocations,
   type BuildScheduleRowsParams,
 } from '@/utils/ganttMath';
 
@@ -237,6 +238,99 @@ describe('cascadeLevelToLocations', () => {
     const u1Framing = writes.find(w => w.activity_id === 'm_Framing' && w.unit_id === 'u1');
     expect(u1Framing?.planned_start_date).toBe('2026-07-01'); // overwritten
     expect(u1Framing?.temporal_state).toBe('planned'); // prior state preserved
+  });
+});
+
+describe('reflowLevelToLocations (Phase 3 — re-flow with hand-edit preservation)', () => {
+  const activities = [mkMs('Drywall', 0, '#0f0')];
+  const units = [mkUnit('u1'), mkUnit('u2'), mkUnit('u3')];
+  const savedSchedule = { Drywall: { start_date: '2026-07-01', end_date: '2026-07-10' } };
+  // What the saved plan produced under 'subdivide' for 3 even units:
+  // u1 07-01..03, u2 07-04..07, u3 07-08..10 (pinned by the subdivide suite).
+  const cascadeOwned = [
+    mkLog({ unit_id: 'u1', activityName: 'Drywall', planned_start_date: '2026-07-01', planned_end_date: '2026-07-03' }),
+    mkLog({ unit_id: 'u2', activityName: 'Drywall', planned_start_date: '2026-07-04', planned_end_date: '2026-07-07' }),
+    mkLog({ unit_id: 'u3', activityName: 'Drywall', planned_start_date: '2026-07-08', planned_end_date: '2026-07-10' }),
+  ];
+  const movedSchedule = { Drywall: { start_date: '2026-07-06', end_date: '2026-07-15' } }; // +5 days
+
+  it('re-flows cascade-owned slots when the level window moves', () => {
+    const { writes, preservedHandEdits } = reflowLevelToLocations({
+      levelSchedule: movedSchedule, savedSchedule, units, activities,
+      track: 'Construction', existing: cascadeOwned, flowMode: 'subdivide',
+    });
+    expect(preservedHandEdits).toBe(0);
+    expect(writes).toHaveLength(3);
+    const byUnit = Object.fromEntries(writes.map(w => [w.unit_id, w]));
+    expect([byUnit.u1.planned_start_date, byUnit.u1.planned_end_date]).toEqual(['2026-07-06', '2026-07-08']);
+    expect([byUnit.u3.planned_start_date, byUnit.u3.planned_end_date]).toEqual(['2026-07-13', '2026-07-15']);
+  });
+
+  it('preserves a hand-edited slot (and counts it) unless override forces it', () => {
+    const existing = [
+      cascadeOwned[0],
+      mkLog({ unit_id: 'u2', activityName: 'Drywall', planned_start_date: '2026-06-20', planned_end_date: '2026-06-21' }), // hand-edit
+      cascadeOwned[2],
+    ];
+    const { writes, preservedHandEdits } = reflowLevelToLocations({
+      levelSchedule: movedSchedule, savedSchedule, units, activities,
+      track: 'Construction', existing, flowMode: 'subdivide',
+    });
+    expect(preservedHandEdits).toBe(1);
+    expect(writes.map(w => w.unit_id).sort()).toEqual(['u1', 'u3']);
+
+    const forced = reflowLevelToLocations({
+      levelSchedule: movedSchedule, savedSchedule, units, activities,
+      track: 'Construction', existing, flowMode: 'subdivide', overrideExisting: true,
+    });
+    expect(forced.preservedHandEdits).toBe(0);
+    expect(forced.writes).toHaveLength(3);
+  });
+
+  it('fills empty slots and drops no-op writes (unchanged plan → zero writes)', () => {
+    const { writes } = reflowLevelToLocations({
+      levelSchedule: savedSchedule, savedSchedule, units, activities,
+      track: 'Construction', existing: cascadeOwned, flowMode: 'subdivide',
+    });
+    expect(writes).toHaveLength(0); // everything already matches — honest count
+
+    const partial = reflowLevelToLocations({
+      levelSchedule: savedSchedule, savedSchedule, units, activities,
+      track: 'Construction', existing: [cascadeOwned[0], cascadeOwned[1]], flowMode: 'subdivide',
+    });
+    expect(partial.writes.map(w => w.unit_id)).toEqual(['u3']); // fills the empty slot only
+  });
+
+  it('never re-flows an UNTOUCHED activity — even when its slots are cascade-owned', () => {
+    const activities2 = [mkMs('Drywall', 0, '#0f0'), mkMs('Paint', 1, '#00f')];
+    const saved2 = {
+      Drywall: { start_date: '2026-07-01', end_date: '2026-07-10' },
+      Paint: { start_date: '2026-07-11', end_date: '2026-07-20' },
+    };
+    // Paint's slots carry envelope dates from the saved plan (cascade-owned).
+    const existing = [
+      ...cascadeOwned,
+      ...units.map(u => mkLog({ unit_id: u.id, activityName: 'Paint', planned_start_date: '2026-07-11', planned_end_date: '2026-07-20' })),
+    ];
+    // Only Drywall's window moves; Paint is untouched.
+    const { writes, preservedHandEdits } = reflowLevelToLocations({
+      levelSchedule: { ...saved2, Drywall: movedSchedule.Drywall }, savedSchedule: saved2,
+      units, activities: activities2, track: 'Construction', existing, flowMode: 'subdivide',
+    });
+    expect(writes.every(w => w.activity_id === 'm_Drywall')).toBe(true); // Paint untouched
+    expect(writes).toHaveLength(3);
+    expect(preservedHandEdits).toBe(0); // untouched-activity slots are not "kept hand-edits"
+  });
+
+  it('recognizes envelope-produced dates as cascade-owned too (either-mode provenance)', () => {
+    const envelopeOwned = units.map(u =>
+      mkLog({ unit_id: u.id, activityName: 'Drywall', planned_start_date: '2026-07-01', planned_end_date: '2026-07-10' }));
+    const { writes, preservedHandEdits } = reflowLevelToLocations({
+      levelSchedule: movedSchedule, savedSchedule, units, activities,
+      track: 'Construction', existing: envelopeOwned, flowMode: 'subdivide',
+    });
+    expect(preservedHandEdits).toBe(0);
+    expect(writes).toHaveLength(3); // envelope-dated slots re-flow into the new stagger
   });
 });
 

@@ -2,9 +2,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, ArrowDownToLine, Save } from 'lucide-react';
 import { useUpdateSheetSchedule, useBulkInsertStatusLogs } from '@/hooks/useProjectQueries';
+import { useActivityDependencies } from '@/hooks/useActivityDependencies';
 import { useUIStore } from '@/store/useUIStore';
 import { orderedTrackActivities } from '@/utils/progressAnalytics';
-import { cascadeLevelToLocations, cascadeFillCounts, deriveDuration } from '@/utils/ganttMath';
+import { reflowLevelToLocations, cascadeFillCounts, deriveDuration } from '@/utils/ganttMath';
+import { chainLevelSchedule } from '@/utils/dateRipple';
 import type { DistributionMode } from '@/utils/scheduleReconcile';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Sheet, Activity, Unit, StatusLog, ActivitySchedules } from '@/types/domain';
@@ -43,6 +45,8 @@ export default function CascadePanel({
   const setToast = useUIStore((s) => s.setToast);
   const updateSheetSchedule = useUpdateSheetSchedule(projectId);
   const bulkInsert = useBulkInsertStatusLogs(sheet?.id || '');
+  // FS edges — only ripple_dates-opted links chain level windows (Phase 3).
+  const { data: dependencies = [] } = useActivityDependencies(projectId);
 
   const [draft, setDraft] = useState<ActivitySchedules>({});
   const [overrideExisting, setOverrideExisting] = useState(false);
@@ -50,8 +54,18 @@ export default function CascadePanel({
   // 'subdivide' = crew-flow stagger (default, mirroring the importer's default);
   // 'envelope' = the pre-Phase-1 behavior (same window everywhere).
   const [flowMode, setFlowMode] = useState<DistributionMode>('subdivide');
+  // Activities whose level window was PUSHED by a predecessor edit (Phase 3) —
+  // flagged in their rows so the chain is visible before confirming.
+  const [chainedNames, setChainedNames] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // The level's SAVED plan — the provenance baseline for the re-flow (a slot
+  // matching what THIS plan produced is cascade-owned and safe to re-stagger).
+  const savedSchedule = useMemo(
+    () => ((sheet?.activity_schedules as ActivitySchedules) || {}) as ActivitySchedules,
+    [sheet]
+  );
 
   // Seed the draft from the level's saved defaults whenever it opens / changes level.
   useEffect(() => {
@@ -60,14 +74,16 @@ export default function CascadePanel({
     setConfirming(false);
     setOverrideExisting(false);
     setFlowMode('subdivide');
+    setChainedNames(new Set());
   }, [open, sheet]);
 
   const trackMs = useMemo(() => orderedTrackActivities(activities, track), [activities, track]);
 
-  const writes = useMemo(() => {
-    if (!sheet) return [];
-    return cascadeLevelToLocations({
+  const { writes, preservedHandEdits } = useMemo(() => {
+    if (!sheet) return { writes: [], preservedHandEdits: 0 };
+    return reflowLevelToLocations({
       levelSchedule: draft,
+      savedSchedule,
       // Crew-flow fields ride along so 'subdivide' can order (walk_sequence →
       // numeric unit_number) and weight (computed_area) the stagger.
       units: units.map((u) => ({
@@ -84,7 +100,7 @@ export default function CascadePanel({
       applicabilityIndex,
       flowMode,
     });
-  }, [sheet, draft, units, activities, track, existing, overrideExisting, applicabilityIndex, flowMode]);
+  }, [sheet, draft, savedSchedule, units, activities, track, existing, overrideExisting, applicabilityIndex, flowMode]);
 
   const affectedUnits = useMemo(() => new Set(writes.map((w) => w.unit_id)).size, [writes]);
 
@@ -109,7 +125,18 @@ export default function CascadePanel({
   if (!open) return null;
 
   const updateDraft = (name: string, field: 'start_date' | 'end_date', value: string) => {
-    setDraft((prev) => ({ ...prev, [name]: { ...prev[name], [field]: value || null } }));
+    const next = { ...draft, [name]: { ...draft[name], [field]: value || null } };
+    // Chain FS successors' level windows (ripple_dates-opted edges only) so
+    // dependent rows visibly move BEFORE the count-confirm (Phase 3).
+    const { schedule, chained } = chainLevelSchedule({
+      saved: savedSchedule,
+      draft: next,
+      activities,
+      track,
+      edges: dependencies,
+    });
+    setDraft(schedule);
+    setChainedNames(new Set(chained.map((c) => c.name)));
     setConfirming(false);
   };
 
@@ -181,6 +208,11 @@ export default function CascadePanel({
                         <span className="inline-flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: m.color }} />
                           <span className="font-semibold text-slate-700 dark:text-slate-200">{m.name}</span>
+                          {chainedNames.has(m.name) && (
+                            <span className="text-[10px] font-semibold text-sky-600 dark:text-sky-400" title="This window was pushed by its predecessor's change (Finish-to-Start link with date ripple on)">
+                              ↳ chained
+                            </span>
+                          )}
                         </span>
                       </td>
                       <td className="py-1.5 pr-2">
@@ -269,6 +301,9 @@ export default function CascadePanel({
               </button>
               <span className="text-xs text-slate-400 mr-auto">
                 {writes.length === 0 ? 'Nothing to apply yet' : `${writes.length} date${writes.length === 1 ? '' : 's'} · ${affectedUnits} location${affectedUnits === 1 ? '' : 's'}`}
+                {preservedHandEdits > 0 && (
+                  <span className="text-emerald-600 dark:text-emerald-400"> · {preservedHandEdits} hand-edited kept</span>
+                )}
               </span>
               <button
                 type="button"

@@ -27,8 +27,8 @@
  *    left as sequencing/make-ready only (the default) shows blocked/ready but
  *    never moves dates. Make-ready (`activityReadiness`) still uses ALL edges.
  */
-import type { ActivityDependency, StatusLog, StatusLogInsert } from '@/types/domain';
-import { parseDay, dayDiff } from '@/utils/progressAnalytics';
+import type { Activity, ActivityDependency, ActivitySchedules, StatusLog, StatusLogInsert } from '@/types/domain';
+import { parseDay, dayDiff, orderedTrackActivities } from '@/utils/progressAnalytics';
 import { addDays, toDayString } from '@/utils/ganttMath';
 
 /** A slot's current planned window (either endpoint may be absent). */
@@ -111,6 +111,78 @@ export function rippleForward(
 
   walk(slippedId, startFinish, new Set([slippedId]));
   return [...deltas.values()];
+}
+
+/** One successor level window pushed by a predecessor's window change. */
+export interface LevelChainShift {
+  /** Activity NAME (level schedules are name-keyed). */
+  name: string;
+  start: string;
+  end: string;
+  shiftedDays: number;
+}
+
+/**
+ * Chain FS dependencies across the LEVEL layer (Unified Schedule Engine
+ * Phase 3): when an activity's level window changed (draft vs saved), push the
+ * opted-in (`ripple_dates`) successors' LEVEL windows via `rippleForward` — the
+ * level plan is treated as one "location" whose planned-window map is the
+ * schedule itself. Inherits rippleForward's semantics wholesale: FS + lag,
+ * push-only (never pulls earlier), duration preserved, only already-dated
+ * successors move, transitive, cycle-safe.
+ *
+ * Returns a NEW schedule (draft + chained successor windows; inputs untouched)
+ * plus the list of chained shifts for the UI's count-confirm.
+ */
+export function chainLevelSchedule({
+  saved,
+  draft,
+  activities,
+  track,
+  edges,
+}: {
+  saved: ActivitySchedules;
+  draft: ActivitySchedules;
+  activities: Activity[];
+  track: string;
+  edges: ActivityDependency[];
+}): { schedule: ActivitySchedules; chained: LevelChainShift[] } {
+  const trackActivities = orderedTrackActivities(activities, track);
+  const nameById = new Map<string, string>();
+  for (const a of trackActivities) nameById.set(a.id, a.name);
+
+  const result: ActivitySchedules = { ...draft };
+  const windowsById = (): Map<string, PlannedWindow> => {
+    const m = new Map<string, PlannedWindow>();
+    for (const a of trackActivities) {
+      const e = result[a.name];
+      if (e && (e.start_date || e.end_date)) m.set(a.id, { start: e.start_date ?? null, end: e.end_date ?? null });
+    }
+    return m;
+  };
+
+  // An activity "changed" when its draft window differs from the saved plan and
+  // it has an end date to ripple from. Processed in sequence order so upstream
+  // pushes land before downstream ones are evaluated.
+  const chained = new Map<string, LevelChainShift>();
+  for (const a of trackActivities) {
+    const d = result[a.name];
+    const s = saved[a.name];
+    if (!d?.end_date) continue;
+    const changedStart = (s?.start_date ?? null) !== (d.start_date ?? null);
+    const changedEnd = (s?.end_date ?? null) !== (d.end_date ?? null);
+    if (!changedStart && !changedEnd) continue;
+
+    const deltas = rippleForward(edges, windowsById(), a.id, d.end_date);
+    for (const delta of deltas) {
+      const name = nameById.get(delta.activityId);
+      if (!name) continue;
+      result[name] = { start_date: delta.start, end_date: delta.end };
+      chained.set(name, { name, start: delta.start, end: delta.end, shiftedDays: delta.shiftedDays });
+    }
+  }
+
+  return { schedule: result, chained: [...chained.values()] };
 }
 
 type PriorSlot = Pick<

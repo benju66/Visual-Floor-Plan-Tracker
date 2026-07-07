@@ -397,6 +397,112 @@ export interface CascadeParams {
  * ALL applicable locations — a hand-dated location still consumes its slice of
  * the crew's walk — with the non-destructive skip applied at write time.
  */
+export interface ReflowResult {
+  writes: StatusLogInsert[];
+  /** Dated slots whose dates did NOT come from the saved level plan — hand-edits, kept. */
+  preservedHandEdits: number;
+}
+
+/**
+ * Re-flow a level plan down to its locations (Unified Schedule Engine Phase 3).
+ *
+ * Same write posture as `cascadeLevelToLocations`, plus provenance-aware
+ * re-distribution: a dated slot is rewritten only when (a) its activity's level
+ * window CHANGED (vs `savedSchedule` — untouched activities never re-flow, they
+ * only fill empty slots) and (b) its CURRENT dates match what the SAVED level
+ * plan would have produced (under either flow mode) — i.e. the cascade owns
+ * those dates — so editing a level window re-staggers its locations while true
+ * hand-edits survive. `overrideExisting` still forces everything. Writes whose
+ * dates already equal the slot's current dates are dropped, so the
+ * count-confirm reflects real changes only.
+ */
+export function reflowLevelToLocations({
+  levelSchedule,
+  savedSchedule,
+  units,
+  activities,
+  track,
+  existing,
+  overrideExisting = false,
+  applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
+  flowMode = 'envelope',
+}: CascadeParams & { savedSchedule: ActivitySchedules }): ReflowResult {
+  const nameById = new Map<string, string>();
+  for (const a of activities) nameById.set(a.id, a.name);
+
+  // Activities whose level window differs from the saved plan — only these
+  // re-flow their dated slots; untouched activities just fill empty ones.
+  const changedNames = new Set<string>();
+  for (const name of new Set([...Object.keys(levelSchedule), ...Object.keys(savedSchedule)])) {
+    const d = levelSchedule[name];
+    const s = savedSchedule[name];
+    if ((d?.start_date ?? null) !== (s?.start_date ?? null) || (d?.end_date ?? null) !== (s?.end_date ?? null)) {
+      changedNames.add(name);
+    }
+  }
+
+  const existingByKey = new Map<string, StatusLike>();
+  for (const s of existing) {
+    if (s.track !== track || !s.unit_id) continue;
+    existingByKey.set(`${s.unit_id}_${s.activityName}`, s);
+  }
+
+  // What the SAVED plan would have written per slot, under both flow modes —
+  // a slot matching either is cascade-owned and safe to re-flow.
+  const ownedDates = new Map<string, Set<string>>();
+  for (const mode of ['envelope', 'subdivide'] as const) {
+    const expected = cascadeLevelToLocations({
+      levelSchedule: savedSchedule,
+      units,
+      activities,
+      track,
+      existing,
+      overrideExisting: true,
+      applicabilityIndex,
+      flowMode: mode,
+    });
+    for (const w of expected) {
+      const key = `${w.unit_id}_${nameById.get(w.activity_id ?? '') ?? ''}`;
+      let set = ownedDates.get(key);
+      if (!set) { set = new Set(); ownedDates.set(key, set); }
+      set.add(`${w.planned_start_date}|${w.planned_end_date}`);
+    }
+  }
+
+  const full = cascadeLevelToLocations({
+    levelSchedule,
+    units,
+    activities,
+    track,
+    existing,
+    overrideExisting: true,
+    applicabilityIndex,
+    flowMode,
+  });
+
+  const writes: StatusLogInsert[] = [];
+  let preservedHandEdits = 0;
+  for (const w of full) {
+    const name = nameById.get(w.activity_id ?? '') ?? '';
+    const key = `${w.unit_id}_${name}`;
+    const prior = existingByKey.get(key);
+    const hasOwnDates = !!(prior?.planned_start_date || prior?.planned_end_date);
+    if (!hasOwnDates) {
+      writes.push(w); // fills an empty slot
+      continue;
+    }
+    const current = `${prior?.planned_start_date ?? null}|${prior?.planned_end_date ?? null}`;
+    if (current === `${w.planned_start_date}|${w.planned_end_date}`) continue; // no-op
+    if (overrideExisting || (changedNames.has(name) && ownedDates.get(key)?.has(current))) {
+      writes.push(w); // changed window + cascade-owned (or forced): re-flow it
+    } else if (changedNames.has(name)) {
+      preservedHandEdits++; // its window moved but this slot is a hand-edit — keep it
+    }
+    // untouched activity + dated slot: silently left alone (not a "kept hand-edit")
+  }
+  return { writes, preservedHandEdits };
+}
+
 export interface CascadeFillCounts {
   /** Locations this activity applies to on the level (N/A excluded). */
   applicable: number;

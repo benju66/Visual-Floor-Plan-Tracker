@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { rippleForward, buildRippleWrites, type PlannedWindow, type RippleDelta } from '@/utils/dateRipple';
-import type { ActivityDependency, StatusLog } from '@/types/domain';
+import { rippleForward, buildRippleWrites, chainLevelSchedule, type PlannedWindow, type RippleDelta } from '@/utils/dateRipple';
+import type { Activity, ActivityDependency, StatusLog } from '@/types/domain';
 
 function edge(predecessor: string, successor: string, lag_days = 0, ripple_dates = true): ActivityDependency {
   return {
@@ -164,5 +164,79 @@ describe('buildRippleWrites', () => {
     // 'other' row must not leak into u1's write.
     expect(writes[0].status_color).toBe('#3b82f6');
     expect(writes[0].temporal_state).toBe('planned');
+  });
+});
+
+describe('chainLevelSchedule (level-layer chaining — Unified Schedule Engine Phase 3)', () => {
+  const act = (name: string, sequence_order: number): Activity => ({
+    id: `m_${name}`,
+    project_id: 'p1',
+    sequence_order,
+    name,
+    color: '#111',
+    track: 'Construction',
+    type: 'task',
+    applies_to_unit_types: null,
+    dictionary_id: null,
+    subcontractor_id: null,
+    created_at: null,
+  });
+  const activities = [act('Framing', 0), act('Drywall', 1), act('Paint', 2)];
+
+  it('pushes an opted-in successor level window when the predecessor window moves later', () => {
+    const saved = {
+      Framing: { start_date: '2026-07-01', end_date: '2026-07-10' },
+      Drywall: { start_date: '2026-07-11', end_date: '2026-07-20' },
+    };
+    // Framing slips 5 days → Drywall (10-day window) must start 07-16.
+    const draft = { ...saved, Framing: { start_date: '2026-07-01', end_date: '2026-07-15' } };
+    const { schedule, chained } = chainLevelSchedule({
+      saved, draft, activities, track: 'Construction', edges: [edge('m_Framing', 'm_Drywall')],
+    });
+    expect(schedule['Drywall']).toEqual({ start_date: '2026-07-16', end_date: '2026-07-25' });
+    expect(chained).toEqual([{ name: 'Drywall', start: '2026-07-16', end: '2026-07-25', shiftedDays: 5 }]);
+    // Inputs untouched (pure).
+    expect(draft['Drywall'].end_date).toBe('2026-07-20');
+  });
+
+  it('chains transitively and skips non-opted edges', () => {
+    const saved = {
+      Framing: { start_date: '2026-07-01', end_date: '2026-07-10' },
+      Drywall: { start_date: '2026-07-11', end_date: '2026-07-12' },
+      Paint: { start_date: '2026-07-13', end_date: '2026-07-14' },
+    };
+    const draft = { ...saved, Framing: { start_date: '2026-07-01', end_date: '2026-07-15' } };
+    const rippled = chainLevelSchedule({
+      saved, draft, activities, track: 'Construction',
+      edges: [edge('m_Framing', 'm_Drywall'), edge('m_Drywall', 'm_Paint')],
+    });
+    expect(rippled.schedule['Drywall'].start_date).toBe('2026-07-16');
+    expect(rippled.schedule['Paint'].start_date).toBe('2026-07-18');
+
+    const sequencingOnly = chainLevelSchedule({
+      saved, draft, activities, track: 'Construction',
+      edges: [edge('m_Framing', 'm_Drywall', 0, false)],
+    });
+    expect(sequencingOnly.schedule['Drywall']).toEqual(saved['Drywall']);
+    expect(sequencingOnly.chained).toEqual([]);
+  });
+
+  it('is push-only at the level layer and no-ops when nothing changed', () => {
+    const saved = {
+      Framing: { start_date: '2026-07-01', end_date: '2026-07-10' },
+      Drywall: { start_date: '2026-07-20', end_date: '2026-07-25' },
+    };
+    // Framing PULLED earlier — Drywall already starts late enough, no shift.
+    const draft = { ...saved, Framing: { start_date: '2026-07-01', end_date: '2026-07-05' } };
+    const pulled = chainLevelSchedule({
+      saved, draft, activities, track: 'Construction', edges: [edge('m_Framing', 'm_Drywall')],
+    });
+    expect(pulled.schedule['Drywall']).toEqual(saved['Drywall']);
+    expect(pulled.chained).toEqual([]);
+
+    const unchanged = chainLevelSchedule({
+      saved, draft: { ...saved }, activities, track: 'Construction', edges: [edge('m_Framing', 'm_Drywall')],
+    });
+    expect(unchanged.chained).toEqual([]);
   });
 });
