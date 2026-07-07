@@ -230,6 +230,8 @@ npm --prefix "C:/Users/BUrness/Dev/Visual-Floor-Plan-Tracker/sitepulse-next" run
 - **Don't commit or push until the owner says "Approved."** One branch per batch.
 
 ## Open decisions
-None blocking. Delegated to the implementing sessions (owner adjusts at batch review):
-banner/nudge exact wording; "Owner" cell layout (stacked vs badge); where the age chip
-sits in the row (suggest: under the location name, right-aligned).
+None blocking. Owner-locked at Batch A review (2026-07-07): hero "late" delta = **amber**
+(red stays reserved for the 15+-day variance tiers); swarm banner trips at **≥60% of ALL
+locations** stalled; Batch B "Owner" cell = **stacked** (person over muted sub, not a badge
+or hover); Batch B age cue = **compact chip under the location name**, right-aligned, muted,
+hover = exact date. Still delegated to the implementing session: banner/nudge exact wording.

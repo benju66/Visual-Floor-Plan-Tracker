@@ -37,19 +37,20 @@ the same data where its card already shows the equivalent. Full scope in the pla
   ("today" / "3d" / "2w" / "—"). Pass dates IN — no `Date.now()`. Tests pin the age
   boundaries + null behavior. (`progressAnalytics.lastActivityAt` already does the max as a
   `Date`; `staleness` is the display-string layer — reuse, don't fork the parsing idea.)
-- **Age chip** per row from `lastActivityIso`/`formatAge` (muted; tooltip = exact date). No
-  new queries — `client_timestamp` is already loaded. Suggested spot: under the location
-  name, right-aligned (owner adjusts at review).
+- **Age chip (layout owner-locked 2026-07-07):** a **compact** `3d`/`2w` chip from
+  `lastActivityIso`/`formatAge`, **muted, right-aligned under the location name**; hover /
+  tooltip = the exact date. No new queries — `client_timestamp` is already loaded.
 - **"By whom" in the Unit History modal:** resolve `status_audit_log.user_id` → name via a
   `useProjectMembers` map (the modal already has the audit rows; the hook doesn't join
   `profiles`, so build the name map client-side there). Not a list column.
 - **Days-behind number** next to the variance color: render the signed day count already
   inside `VarianceInfo` (e.g. "6d late"). Colors stay Polish-owned (`statusColors.ts` /
   `VARIANCE_COLORS`) — this adds a *number*, never a new color.
-- **Ownership cell:** one "Owner" cell = `assigned_to` (person, via the existing
-  `AssigneeCell` / `useProjectMembers`) and, when the bottleneck activity has a
-  `subcontractor_id`, the company name (via `useCompanies`) as a secondary line/badge.
-  Display of existing data only — no writes.
+- **Ownership cell (layout owner-locked 2026-07-07 = STACKED):** one "Owner" cell with the
+  `assigned_to` **person on top** (via the existing `AssigneeCell` / `useProjectMembers`)
+  and, when the bottleneck activity has a `subcontractor_id`, the company name **muted
+  underneath** (via `useCompanies`) — not an inline badge, not hover-only. Display of
+  existing data only — no writes.
 - **Completed-fold:** remove the "Actual Completed" column; when a row (main OR expanded
   child) is completed, its `logged_date` renders as the **same editable date-chip pattern
   Polish P4 established** (`DateChipCell`, local to StatusTable — reuse it, don't invent a
