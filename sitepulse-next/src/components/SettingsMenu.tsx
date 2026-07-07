@@ -6,7 +6,6 @@ import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
-import { useUIStore } from '@/store/useUIStore';
 import type { Activity, Sheet, ProjectContact } from '@/types/domain';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
@@ -389,6 +388,8 @@ interface SettingsMenuProps {
   onUpdateMapSettings: (settings: MapSettings) => void;
   sheets?: Sheet[];
   projectId: string;
+  /** URL-first view switch from the page (pushes `?view=` + mirrors the UI store). */
+  navigateToView: (mode: string) => void;
 }
 
 export default function SettingsMenu({
@@ -403,7 +404,8 @@ export default function SettingsMenu({
   mapSettings,
   onUpdateMapSettings,
   sheets = [],
-  projectId
+  projectId,
+  navigateToView
 }: SettingsMenuProps) {
   const { session } = useAuth() as any;
   const queryClient = useQueryClient();
@@ -431,8 +433,6 @@ export default function SettingsMenu({
   if (uniqueScopes.length === 0) uniqueScopes.push('Production');
 
   const [newUnitTypeAdd, setNewUnitTypeAdd] = useState('');
-
-  const setViewMode = useUIStore((s) => s.setViewMode);
 
   const updateSheetScopesMutation = useUpdateSheetScopes(projectId);
   const updateSheetScaleMutation = useUpdateSheetScale(projectId);
@@ -737,7 +737,7 @@ export default function SettingsMenu({
                 </p>
                 <button
                   type="button"
-                  onClick={() => { setViewMode('schedule'); onClose(); }}
+                  onClick={() => { navigateToView('schedule'); onClose(); }}
                   className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3 shadow-sm"
                 >
                   <Calendar size={13} /> Open Schedule
@@ -1067,7 +1067,7 @@ export default function SettingsMenu({
               </div>
               <button
                 type="button"
-                onClick={() => { setViewMode('schedule'); onClose(); }}
+                onClick={() => { navigateToView('schedule'); onClose(); }}
                 className="inline-flex items-center gap-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold py-2 px-4 shadow-sm"
               >
                 <Calendar size={16} /> Open the Schedule view

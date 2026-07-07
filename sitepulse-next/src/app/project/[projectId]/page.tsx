@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { Settings, FolderEdit, Trash2, Pencil, X, GripVertical } from 'lucide-react';
 import FloorplanCanvas from '@/components/FloorplanCanvas';
 import FieldStatusTable from '@/components/FieldStatusTable';
@@ -22,7 +22,8 @@ import { deriveBottleneckStatuses } from '@/utils/bottleneck';
 import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { isValidViewMode, resolveInitialView } from '@/utils/viewRouting';
 
 import TopHeader from '@/components/TopHeader';
 import MapSidebar from '@/components/MapSidebar';
@@ -106,14 +107,55 @@ function App() {
 
   useEffect(() => {
     setIsMounted(true);
-    if (typeof window !== 'undefined') {
-      if (window.innerWidth < 768) {
-        setViewMode('list');
-      } else if (!sessionStorage.getItem('sitepulse-ui-session')) {
-        setViewMode(useSettingsStore.getState().settings?.defaultViewMode || 'list');
-      }
+  }, []);
+
+  // ── View-in-the-URL (Navigation plan, Phase 1) ──
+  // `?view=<mode>` is the source of truth for the active view; useUIStore.viewMode
+  // stays as the in-memory mirror. navigateToView pushes a history entry (Back walks
+  // views); the effect below resolves the first load and syncs Back/Forward.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const didResolveInitialView = useRef(false);
+
+  const navigateToView = useCallback((mode: string) => {
+    if (!isValidViewMode(mode)) return;
+    setViewMode(mode);
+    setToolMode('pan');
+    if (searchParams?.get('view') !== mode) {
+      router.push(`${pathname}?view=${mode}`, { scroll: false });
     }
-  }, [setViewMode]);
+  }, [searchParams, pathname, router, setViewMode, setToolMode]);
+
+  useEffect(() => {
+    const param = searchParams?.get('view') ?? null;
+    if (!didResolveInitialView.current) {
+      didResolveInitialView.current = true;
+      const resolved = resolveInitialView({
+        urlParam: param,
+        isMobile: window.innerWidth < 768,
+        defaultViewMode: useSettingsStore.getState().settings?.defaultViewMode,
+        // Phase 1 keeps the hard force-to-list for phones WITHOUT a ?view= param
+        // (the header switcher is hidden on mobile, so other views would strand).
+        // A valid deep link still wins above. Nav Phase 4 (bottom tab bar) widens
+        // this to MOBILE_VIEWS.
+        mobileAllowed: ['list'],
+      });
+      setViewMode(resolved);
+      // Stamp the resolved view onto the entry URL (replace, not push) so the
+      // first Back after a view switch returns here instead of appearing dead.
+      if (param !== resolved) {
+        router.replace(`${pathname}?view=${resolved}`, { scroll: false });
+      }
+      return;
+    }
+    // Back/Forward (and any external URL change): reconcile a valid param into the
+    // store. No-op when they already match — the guard against push/update loops.
+    if (isValidViewMode(param) && param !== useUIStore.getState().viewMode) {
+      setViewMode(param);
+      setToolMode('pan');
+    }
+  }, [searchParams, pathname, router, setViewMode, setToolMode]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -530,8 +572,7 @@ function App() {
         trackingMode={trackingMode}
         setTrackingMode={setTrackingMode}
         viewMode={viewMode}
-        setViewMode={setViewMode}
-        setToolMode={setToolMode}
+        navigateToView={navigateToView}
         activeSheet={activeSheet}
         exportToPDF={exportToPDF}
         setIsSettingsOpen={setIsSettingsOpen}
@@ -552,6 +593,7 @@ function App() {
               sheets={sheets}
               activeSheet={activeSheet}
               applicabilityIndex={applicabilityIndex}
+              navigateToView={navigateToView}
             />
           </div>
         ) : viewMode === 'list' ? (
@@ -571,7 +613,7 @@ function App() {
               setActiveSheetId={setActiveSheetId}
               applicabilityIndex={applicabilityIndex}
               onToggleApplicability={handleToggleApplicability}
-              onLocateUnit={(unitId) => { setViewMode('map'); setTimeout(() => floorplanRef.current?.zoomToFit?.(unitId), 350); }}
+              onLocateUnit={(unitId) => { navigateToView('map'); setTimeout(() => floorplanRef.current?.zoomToFit?.(unitId), 350); }}
               onDeleteUnit={handleDeleteUnit}
               onDeleteUnits={handleDeleteUnits}
             />
@@ -832,6 +874,7 @@ function App() {
         onUpdateMapSettings={setMapSettings}
         sheets={sheets}
         projectId={projectId}
+        navigateToView={navigateToView}
       />
 
       <ProjectManagementMenu
@@ -846,6 +889,15 @@ function App() {
   );
 }
 
-export default App;
+// useSearchParams needs a Suspense boundary above it during prerendering
+// (node_modules/next/dist/docs — missing-suspense-with-csr-bailout). App renders
+// null until mounted anyway, so a null fallback is visually identical.
+export default function ProjectPage() {
+  return (
+    <Suspense fallback={null}>
+      <App />
+    </Suspense>
+  );
+}
 
 

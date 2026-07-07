@@ -6,7 +6,6 @@ import { Target, CalendarClock, Info, TrendingUp, ChevronUp, ChevronDown } from 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/hooks/useProjectQueries';
 import { useMapStore } from '@/store/useMapStore';
-import { useUIStore } from '@/store/useUIStore';
 import { summarizeGroup, parseDay } from '@/utils/progressAnalytics';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
@@ -89,15 +88,16 @@ interface ProjectDashboardProps {
   sheets?: Sheet[];
   activeSheet?: Sheet | null;
   applicabilityIndex?: ApplicabilityIndex;
+  /** URL-first view switch from the page (pushes `?view=` + mirrors the UI store). */
+  navigateToView: (mode: string) => void;
 }
 
-export default function ProjectDashboard({ activities, trackingMode, sheets = [], applicabilityIndex = EMPTY_APPLICABILITY_INDEX }: ProjectDashboardProps) {
+export default function ProjectDashboard({ activities, trackingMode, sheets = [], applicabilityIndex = EMPTY_APPLICABILITY_INDEX, navigateToView }: ProjectDashboardProps) {
   // Scope replaces the old Active Level / All Levels toggle: Floor Pulse rows set it.
   const [scope, setScope] = useState<string>('all');
   const [isChartExpanded, setIsChartExpanded] = useState(true);
 
   const setActiveSheetId = useMapStore(s => s.setActiveSheetId);
-  const setViewMode = useUIStore(s => s.setViewMode);
 
   const sheetIds = useMemo(() => sheets.map(s => s.id), [sheets]);
   const { data: allProjectUnits = [] } = useAllProjectUnits(sheetIds);
@@ -253,7 +253,7 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
 
   const openMap = (sheetId: string) => {
     setActiveSheetId(sheetId);
-    setViewMode('map');
+    navigateToView('map');
   };
 
   if (!sheets || sheets.length === 0) {

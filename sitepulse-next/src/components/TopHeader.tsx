@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useIsFetching } from '@tanstack/react-query';
 import { useCurrentUserRole } from '@/hooks/useProjectQueries';
 import type { Project, Sheet } from '@/types/domain';
-import type { ToolMode } from '@/store/useMapStore';
 import type { ActivityMenuState } from '@/store/useUIStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
 
@@ -19,8 +18,8 @@ export interface TopHeaderProps {
   trackingMode: string;
   setTrackingMode: (m: string) => void;
   viewMode: string;
-  setViewMode: (m: string) => void;
-  setToolMode: (m: ToolMode) => void;
+  /** URL-first view switch (pushes `?view=<mode>` + mirrors into the UI store). */
+  navigateToView: (m: string) => void;
   activeSheet?: Sheet | null;
   exportToPDF?: () => void;
   setIsSettingsOpen: (o: boolean) => void;
@@ -34,7 +33,7 @@ function TopHeader({
   project, sheets, activeSheetId, setActiveSheetId,
   setIsModalOpen, setIsProjectMenuOpen,
   setActivityMenu, trackingMode, setTrackingMode,
-  viewMode, setViewMode, setToolMode,
+  viewMode, navigateToView,
   activeSheet, exportToPDF, setIsSettingsOpen,
   triggerUndo, triggerRedo, undoStack, redoStack
 }: TopHeaderProps) {
@@ -143,7 +142,7 @@ function TopHeader({
           <button
             type="button"
             title="Dashboard View"
-            onClick={() => { setViewMode('dashboard'); setToolMode('pan'); }}
+            onClick={() => navigateToView('dashboard')}
             className={`hidden md:flex px-3 py-1.5 cursor-pointer transition-colors ${viewMode === 'dashboard' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
           >
@@ -152,7 +151,7 @@ function TopHeader({
           <button
             type="button"
             title="Field List View"
-            onClick={() => { setViewMode('list'); setToolMode('pan'); }}
+            onClick={() => navigateToView('list')}
             className={`px-3 py-1.5 cursor-pointer md:border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'list' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
           >
@@ -161,7 +160,7 @@ function TopHeader({
           <button
             type="button"
             title="Schedule View"
-            onClick={() => { setViewMode('schedule'); setToolMode('pan'); }}
+            onClick={() => navigateToView('schedule')}
             className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'schedule' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
           >
@@ -170,7 +169,7 @@ function TopHeader({
           <button
             type="button"
             title="Interactive Map View"
-            onClick={() => setViewMode('map')}
+            onClick={() => navigateToView('map')}
             className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'map' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
           >
@@ -179,7 +178,7 @@ function TopHeader({
           <button
             type="button"
             title="Look-Ahead View"
-            onClick={() => { setViewMode('lookahead'); setToolMode('pan'); }}
+            onClick={() => navigateToView('lookahead')}
             className={`hidden md:flex px-3 py-1.5 cursor-pointer border-l border-slate-300/80 dark:border-white/10 transition-colors ${viewMode === 'lookahead' ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'bg-white/70 dark:bg-black/20 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10'
               }`}
           >
