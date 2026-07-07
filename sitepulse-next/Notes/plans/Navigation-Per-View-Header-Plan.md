@@ -125,6 +125,14 @@ correctness lives — keep `Date.now()`/`window` out of these.
 ## Sub-phasing (ship + verify each)
 
 ### Phase 1 — View in the URL + clean view-resolution precedence (foundation)
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 1, main `ead4958`). Notes for later phases:
+> `resolveInitialView` takes a `mobileAllowed` arg; page.tsx passes `['list']` for now
+> (hard force-to-list kept for the no-param mobile case) — **Phase 4 widens it to
+> `MOBILE_VIEWS`** when the tab bar makes other views reachable. `navigateToView` is
+> threaded as a prop to TopHeader / ProjectDashboard / SettingsMenu. The page is
+> wrapped in `<Suspense>` (Next 16 `useSearchParams` prerender requirement). Bundled
+> Next docs DO exist at `node_modules/next/dist/docs/` (the Batch 1 kickoff said
+> otherwise — corrected).
 - **Scope:** Make `?view=<mode>` the source of truth for the active view.
   - Add `src/utils/viewRouting.ts` (+ test) with `VIEW_MODES`, `isValidViewMode`,
     `resolveInitialView`, `MOBILE_VIEWS`.

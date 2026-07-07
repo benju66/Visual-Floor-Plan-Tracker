@@ -61,7 +61,7 @@ density for PM screens.
 ## Roadmap (3 autonomous batches across both plans)
 | Batch | Contents (in build order) | Plan phases |
 |-------|---------------------------|-------------|
-| **1** | View in the URL (`?view=`) · Theme unification · Empty states + stalled→amber | Nav P1 · Polish P1 · Polish P3 |
+| **1** ✅ shipped 2026-07-07 | View in the URL (`?view=`) · Theme unification · Empty states + stalled→amber | Nav P1 · Polish P1 · Polish P3 |
 | **2** | Switcher labels + accent · Context-aware header (matrix locked above) · List date chips + compact density | Nav P2 · Nav P3 · Polish P4 |
 | **3** | Shared status-color module (ongoing=blue) · Mobile bottom tab bar · Map toolbar split | Polish P2 · Nav P4 · Nav P5 |
 
@@ -133,6 +133,10 @@ It writes nothing to Supabase and adds no columns, RPCs, or policies.
 ## Sub-phasing (ship + verify each)
 
 ### Phase 1 — Theme unification (root-layout wiring + dark audit)
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 1, main `23f4ed7`). Bonus taken: `'system'`
+> now follows `prefers-color-scheme` live via a matchMedia listener in ThemeApplier
+> (plan-authorized as trivial); explicit Light/Dark unchanged. Dark audit of
+> /dashboard, /workbench, /workbench/<id> found no stragglers.
 - **Scope:**
   - New client component `src/components/ThemeApplier.tsx`: reads `colorMode` via
     `useHydratedStore`, sets/removes `data-theme` on `document.documentElement` in an
@@ -175,6 +179,11 @@ It writes nothing to Supabase and adds no columns, RPCs, or policies.
   zoom · `verify-feature` → STOP.
 
 ### Phase 3 — Empty states + dashboard color calibration
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 1, main `4d122c9`). Stalled→amber in all
+> three consumers; Gantt empty-plan banner (pinned by `GanttTimeline.test.tsx`; live
+> case verified on Orchard Level 1 — Mill Pond never reaches the timeline, it has no
+> activities); `—` cells got muted captions + tooltips reading the now-exported
+> `progressAnalytics` constants (values unchanged).
 - **Scope:**
   - **Stalled → amber** (locked decision): the "N stalled locations" text in
     `ProjectDashboard.tsx` and the stalled chips in `FloorPulse.tsx` /
