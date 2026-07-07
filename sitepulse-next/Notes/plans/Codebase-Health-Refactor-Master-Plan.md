@@ -187,6 +187,16 @@ Framework-free helpers already named by the absorbed Robustness plan (build in S
 > Break the oversized files into focused pieces + extracted, tested pure helpers. Behavior-
 > preserving, proven by Slice 0 (esp. 0.4). Open each target with `/plan-phases`; each target is
 > itself several phases.
+>
+> **STATUS 2026-07-07: Target 1 (FloorplanCanvas) ✅ COMPLETE** — all 10 phases of
+> `Notes/plans/FloorplanCanvas-Decomposition-Plan.md` merged to main (2,749 → 1,499 lines;
+> thin coordinator = 9 hooks/utils + CanvasBase/Units/OverlayLayer + CanvasPdfStatus; golden
+> master never edited). **The re-evaluation below is now the live decision:** continue to
+> `useProjectQueries` / `SettingsMenu`, or close the workstream and return to features
+> (recommendation at the Phase 10 DoD: return to features; both remaining files are flat /
+> low-tangle and can be split opportunistically). Independent leftovers noted at close:
+> the Robustness-Trust P2 save-status badge, and the StatusTable Actual-Completed null-log
+> latent crash (small standalone fix).
 - **Order:** `FloorplanCanvas.tsx` (2,704 — biggest, most central; **requires Phase 0.4 done
   first**) → `useProjectQueries.ts` (1,503 — every view depends on it) → `SettingsMenu.tsx`
   (1,230). **Re-evaluate after FloorplanCanvas** — decomposition is high-effort and can hit
