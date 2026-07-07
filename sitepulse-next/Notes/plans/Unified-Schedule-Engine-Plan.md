@@ -157,7 +157,26 @@ becomes just another way to *fill those level windows* rather than a rival date-
 - **Exit criteria:** typecheck + test + build green · live click-through confirming the
   relabeled flow writes exactly as before · `verify-feature` → stop.
 
-### Phase 3 — Re-flow on change + dependency chaining within a level
+### Phase 3 — Re-flow on change + dependency chaining within a level — ✅ DONE (Approved; built in-session after P2, no separate kickoff)
+> Landed: `chainLevelSchedule` in dateRipple.ts — reuses `rippleForward` VERBATIM
+> on the level layer (the level plan is one "location's" window map): FS+lag,
+> push-only, duration preserved, `ripple_dates` opt-in, transitive, cycle-safe.
+> `reflowLevelToLocations` in ganttMath.ts — provenance-aware re-distribution: a
+> dated slot rewrites only when (a) its activity's level window CHANGED vs the
+> saved plan AND (b) its current dates match what the saved plan would have
+> produced under EITHER flow mode (cascade-owned); hand-edits preserved +
+> counted ("N hand-edited kept" in the footer); untouched activities only fill
+> empty slots; no-op writes dropped (honest confirm counts); override forces
+> all. CascadePanel chains successors into the draft at edit time ("↳ chained"
+> row tag) — re-flow trigger stays the explicit button + two-step confirm (the
+> plan's lean). +8 tests (1,075 total). Live on Test L4: moved Framing
+> Aug 3–12 → Aug 5–14 without override → 5 owned slots re-staggered; caught a
+> real bug live (untouched envelope-dated activities re-staggering — 25 writes
+> instead of 5), fixed with the changed-activity guard + pinning test; post-fix
+> idle=nothing-to-apply, 1-day nudge=4 honest writes. ⚠️ Side effect of the
+> pre-fix apply: Test L4's other four dated activities now carry STAGGERED (not
+> envelope) dates within their same windows. Chaining is unit-test-proven +
+> wired but NOT live-exercised (Test has no ripple_dates FS edge configured).
 - **Scope:** When a level×activity window changes, re-distribute its locations and let FS
   dependencies + lag chain the next activity's window (reusing `dateRipple.rippleForward`
   + `buildRippleWrites`, opt-in per edge via `ripple_dates`). Preserve hand-edits;
