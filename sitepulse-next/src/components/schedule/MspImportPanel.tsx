@@ -1,14 +1,14 @@
 "use client";
 import React, { useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { X, FileUp, Flag, CheckCircle2, AlertTriangle, ArrowRight, Plus, ListPlus } from 'lucide-react';
+import { X, FileUp, Flag, CheckCircle2, AlertTriangle, ArrowRight, Plus, ListPlus, Trash2 } from 'lucide-react';
 import {
   useAllProjectUnits,
   useAllProjectStatuses,
   useBulkInsertStatusLogs,
   useUpdateSheetSchedule,
 } from '@/hooks/useProjectQueries';
-import { useScheduleBaselines, useSetScheduleBaseline } from '@/hooks/useScheduleBaselines';
+import { useScheduleBaselines, useSetScheduleBaseline, useDeleteScheduleBaseline } from '@/hooks/useScheduleBaselines';
 import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows } from '@/utils/scheduleBaseline';
 import { isScheduleBaselineSnapshot } from '@/types/domain';
 import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
@@ -84,6 +84,8 @@ export default function MspImportPanel({
   // Baselines + Layer-1 anchoring (Unified Schedule Engine Phase 4).
   const { data: baselines = [] } = useScheduleBaselines(open ? projectId : '');
   const setBaseline = useSetScheduleBaseline(projectId);
+  const deleteBaseline = useDeleteScheduleBaseline(projectId);
+  const [confirmingDeleteBaseline, setConfirmingDeleteBaseline] = useState(false);
   const updateSheetSchedule = useUpdateSheetSchedule(projectId);
   // Newest baseline, narrowed at the boundary — a malformed snapshot degrades to
   // "no baseline" rather than a crash.
@@ -251,6 +253,20 @@ export default function MspImportPanel({
     }
   };
 
+  // Remove the current baseline (privileged) — for a mis-captured snapshot.
+  // Two-click confirm; the table is append-only so this only drops reference data.
+  const handleDeleteBaseline = async () => {
+    if (!latestSnapshot) return;
+    try {
+      await deleteBaseline.mutateAsync(latestSnapshot.row.id);
+      setToast({ message: 'Baseline removed.', type: 'success' });
+    } catch (err) {
+      setToast({ message: (err as Error)?.message || 'Could not remove the baseline.', type: 'error' });
+    } finally {
+      setConfirmingDeleteBaseline(false);
+    }
+  };
+
   // The Phase 4 "vs baseline" verdict for one reconciled row (null = nothing to
   // compare: no baseline yet, no sheet/activity picked, or an All-levels target).
   const rowDelta = (t: MspTask, row: RowState) => {
@@ -379,6 +395,37 @@ export default function MspImportPanel({
           >
             {setBaseline.isPending ? 'Capturing…' : latestSnapshot ? 'Set new baseline' : 'Set baseline'}
           </button>
+          {latestSnapshot && (
+            confirmingDeleteBaseline ? (
+              <span className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={deleteBaseline.isPending}
+                  onClick={handleDeleteBaseline}
+                  className="inline-flex items-center gap-1 rounded-md border border-rose-300 dark:border-rose-500/50 text-rose-600 dark:text-rose-400 text-[11px] font-bold py-1 px-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-50"
+                >
+                  {deleteBaseline.isPending ? 'Removing…' : 'Remove baseline?'}
+                </button>
+                <button
+                  type="button"
+                  disabled={deleteBaseline.isPending}
+                  onClick={() => setConfirmingDeleteBaseline(false)}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 py-1 px-1"
+                >
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                title="Remove the current baseline"
+                onClick={() => setConfirmingDeleteBaseline(true)}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-300 dark:border-slate-600 text-[11px] font-semibold py-1 px-2 hover:bg-slate-100 dark:hover:bg-white/10"
+              >
+                <Trash2 size={12} /> Remove
+              </button>
+            )
+          )}
         </div>
 
         {/* ── First-run explainer (before a file is chosen) ── */}
