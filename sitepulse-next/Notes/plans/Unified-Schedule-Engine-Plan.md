@@ -188,7 +188,29 @@ becomes just another way to *fill those level windows* rather than a rival date-
   click-through: moving one activity's level window flows the dependent activity and
   re-staggers locations, hand-edits preserved · `verify-feature` → stop.
 
-### Phase 4 — Import as anchor-loading + baseline / re-import diff ⛔
+### Phase 4 — Import as anchor-loading + baseline / re-import diff ⛔ — ✅ DONE (50c0c2a, Approved; migration APPLIED to prod with owner sign-off)
+> Landed: `20260710_schedule_baselines.sql` (applied + verified live: RLS on,
+> exactly 3 policies — read=member, insert/delete=owner/admin/pm, NO update
+> policy = immutable; isolated, FK-only; granularity resolved WITH the owner =
+> whole-project JSONB snapshot of BOTH layers, plan-only, never progress
+> fields). Types: generator-style hand-added table block + versioned
+> `ScheduleBaselineSnapshot` + null-safe `isScheduleBaselineSnapshot`
+> (malformed snapshot degrades to "no baseline", never a crash). Hooks:
+> `useScheduleBaselines`/`useSetScheduleBaseline`/`useDeleteScheduleBaseline`
+> (online-first, new `scheduleBaselines` query key). Pure math in
+> `scheduleBaseline.ts` (+6 tests, 1,081 total): `buildBaselineSnapshot`,
+> `baselineDelta` (new/moved±Nd/unchanged), `mergeLevelWindows`. Importer:
+> baseline strip + Set-baseline capture, per-task vs-baseline badges on the
+> date line, accept/reject = the EXISTING include checkboxes, and
+> anchor-loading — applied imports also write their windows into each target
+> sheet's `activity_schedules` ("All levels" rows skipped), so Phase 3's
+> provenance re-flow recognizes imported dates as plan-owned. README
+> migrations row added. Live-verified END-TO-END on Test: set baseline (real
+> insert) → synthesized MSPDI re-import → "+5d vs baseline" (L4 Framing
+> Aug 5–14 → 10–19) + "new vs baseline" (L2) → rejected L2 / accepted L4
+> w/ override → 5 writes, L4 level window ANCHORED to Aug 10–19, slots
+> re-staggered, L2 untouched; zero console errors. Test-project residue: one
+> baseline row + L4 Framing at Aug 10–19 (legitimate output).
 - **Scope:** Align `MspImportPanel` output into **Layer 1** (level×activity windows) so
   import and manual entry feed the same engine; add a "Set baseline" snapshot and
   re-import **diff-and-approve** (highlight what moved, accept/reject) that **never
