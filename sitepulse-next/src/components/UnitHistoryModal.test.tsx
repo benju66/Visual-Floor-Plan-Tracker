@@ -14,6 +14,11 @@ const auditRows = [
 
 vi.mock('@/hooks/useProjectQueries', () => ({
   useUnitHistory: () => ({ data: auditRows, isPending: false }),
+  useProjectMembers: () => ({ data: [] }),
+}));
+
+vi.mock('next/navigation', () => ({
+  useParams: () => ({ projectId: 'p1' }),
 }));
 
 function ms(name: string, order: number): Activity {
@@ -59,6 +64,7 @@ describe('UnitHistoryModal — Journey view', () => {
     render(<UnitHistoryModal {...baseProps} />);
     fireEvent.click(screen.getByRole('button', { name: 'Log' }));
     expect(screen.getByText('Planned Start')).toBeTruthy();
+    expect(screen.getByText('By')).toBeTruthy(); // "by whom" column (P3)
     expect(screen.getAllByText(/Framing|Drywall/).length).toBeGreaterThan(1);
   });
 

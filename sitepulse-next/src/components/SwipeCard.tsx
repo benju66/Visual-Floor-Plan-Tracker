@@ -4,6 +4,7 @@ import { motion, useMotionValue, useTransform, AnimatePresence, animate } from '
 import { ArrowRight, X, ListTodo, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import type { Unit, StatusLog, Activity, PendingChange, TemporalState, StatusLogAugmented, BottleneckSequence } from '@/types/domain';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
+import { lastActivityIso } from '@/utils/staleness';
 import { useUIStore } from '@/store/useUIStore';
 import { isActivityApplicable } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
@@ -129,6 +130,9 @@ const SwipeCard = ({
 
   const pendingState = (log?.temporal_state as TemporalState) || 'none';
   const unitRawLogs = rawStatuses?.filter((s) => s.unit_id === unit.id) || [];
+  // Age signal parity with the desktop list (P3): the "Updated" line reflects the
+  // unit's most recent activity (max client_timestamp), not just its completed date.
+  const lastActivity = lastActivityIso(unitRawLogs);
 
   const handleOverlayStateSelect = (e: React.MouseEvent, state: TemporalState, m: Activity) => {
     e.stopPropagation();
@@ -245,9 +249,9 @@ const SwipeCard = ({
               <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
                 {log?.activityName || 'Unassigned'}
               </p>
-              {log?.logged_date && (
+              {lastActivity && (
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Updated {formatRelativeTime(log.logged_date)}
+                  Updated {formatRelativeTime(lastActivity)}
                 </p>
               )}
             </div>

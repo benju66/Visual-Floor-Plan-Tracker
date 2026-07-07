@@ -8,6 +8,7 @@ import { useSettingsStore, useHydratedStore, type ListDensity } from '@/store/us
 import { useManageStore } from '@/store/useManageStore';
 import { useFieldData } from '@/hooks/useFieldData';
 import { useActivities, useAllProjectUnits, useAllProjectStatuses, useUpdateUnitFields, useProjectMembers, useProject } from '@/hooks/useProjectQueries';
+import { useCompanies } from '@/hooks/useCompanies';
 import { useSubtypes, useProposePendingSubtype } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult } from '@/utils/subtypes';
 import WalkSequenceModal from './WalkSequenceModal';
@@ -207,6 +208,13 @@ export default function FieldStatusTable({
   // --- Per-location management (rename / change type) via the existing field mutation ---
   const updateUnitFields = useUpdateUnitFields(activeSheetId);
   const { data: members = [] } = useProjectMembers(projectId);
+  const { data: companies = [] } = useCompanies();
+  // subcontractor_id → company name, for the Owner cell's muted sub line (P3).
+  const companyNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of companies) map[c.id] = c.name;
+    return map;
+  }, [companies]);
   const { data: subtypes = [] } = useSubtypes();
   const { data: project } = useProject(projectId);
   const projectType = (project?.project_type as ProjectType | null) ?? null;
@@ -408,6 +416,7 @@ export default function FieldStatusTable({
             members={members}
             onAssignUnit={onAssignUnit}
             density={listDensity}
+            companyNameById={companyNameById}
             {...sharedSelectionProps}
           />
         </div>

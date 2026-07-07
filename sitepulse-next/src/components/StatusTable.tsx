@@ -6,7 +6,9 @@ import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegment
 import StatusTrigger, { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
 import RowActionsMenu from './manage/RowActionsMenu';
 import AssigneeCell from './manage/AssigneeCell';
-import { isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
+import { applicableActivities, isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
+import { computeUnitVariance, orderedTrackActivities, varianceFill, varianceLabel, type VarianceInfo } from '@/utils/progressAnalytics';
+import { lastActivityIso, formatAge } from '@/utils/staleness';
 import { formatPlannedDate } from '@/utils/formatPlannedDate';
 import type { ListDensity } from '@/store/useSettingsStore';
 import type { LocationRow } from '@/utils/locationFilters';
@@ -180,6 +182,8 @@ interface StatusTableProps {
   /** Row density (UI Polish plan, Phase 4). Persisted in useSettingsStore;
    *  the container reads it via useHydratedStore. Default comfortable. */
   density?: ListDensity;
+  /** subcontractor_id → company name, for the Owner cell's muted sub line (Data Storytelling P3). */
+  companyNameById?: Record<string, string>;
 }
 
 export default function StatusTable({
@@ -216,6 +220,7 @@ export default function StatusTable({
   members,
   onAssignUnit,
   density = 'comfortable',
+  companyNameById,
 }: StatusTableProps) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
@@ -255,6 +260,48 @@ export default function StatusTable({
     }
     return map;
   }, [rawStatuses]);
+
+  // Display-only "now" — stable for this mount so the age + variance derivations
+  // memoize (no Date.now() in the pure utils; this is presentation chrome).
+  const today = React.useMemo(() => new Date(), []);
+  const todayIso = React.useMemo(() => today.toISOString(), [today]);
+
+  // Per-unit last-activity ISO (max client_timestamp across ALL the unit's rows,
+  // any track) → drives the age chip. Uses already-loaded rawStatuses, no query.
+  const staleByUnitId = React.useMemo(() => {
+    const byUnit = new Map<string, StatusLog[]>();
+    for (const s of rawStatuses || []) {
+      if (!s.unit_id) continue;
+      const arr = byUnit.get(s.unit_id);
+      if (arr) arr.push(s);
+      else byUnit.set(s.unit_id, [s]);
+    }
+    const out = new Map<string, string | null>();
+    byUnit.forEach((logs, uid) => out.set(uid, lastActivityIso(logs)));
+    return out;
+  }, [rawStatuses]);
+
+  // Per-unit schedule variance (bottleneck-based, applicability-respecting) →
+  // drives the days-behind number. Reuses the single-source-of-truth pace math.
+  const varianceByUnitId = React.useMemo(() => {
+    const trackActs = orderedTrackActivities(currentActivities || [], trackingMode);
+    const byUnit = new Map<string, StatusLog[]>();
+    for (const s of rawStatuses || []) {
+      if (!s.unit_id || s.track !== trackingMode) continue;
+      const arr = byUnit.get(s.unit_id);
+      if (arr) arr.push(s);
+      else byUnit.set(s.unit_id, [s]);
+    }
+    const out = new Map<string, VarianceInfo>();
+    for (const { unit } of visible) {
+      if (out.has(unit.id)) continue;
+      const appActs = applicabilityIndex
+        ? applicableActivities(trackActs, unit, applicabilityIndex)
+        : trackActs;
+      out.set(unit.id, computeUnitVariance(byUnit.get(unit.id) || [], appActs, today));
+    }
+    return out;
+  }, [visible, rawStatuses, currentActivities, trackingMode, applicabilityIndex, today]);
 
   const isAllExpanded = expandedUnitIds.size === visible.length && visible.length > 0;
 
@@ -360,14 +407,6 @@ export default function StatusTable({
             <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>
               Planned Completion
             </th>
-            <th
-              onClick={() => handleSort('updated')}
-              className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
-            >
-              <div className="flex justify-end items-center gap-1">
-                Actual Completed {renderSortIcon('updated')}
-              </div>
-            </th>
             <th className={`${headPad} w-10`} />
           </tr>
         </thead>
@@ -386,6 +425,14 @@ export default function StatusTable({
               : null;
             const isExpanded = expandedUnitIds.has(unit.id);
             const isSelected = selectedUnitIds.includes(unit.id);
+
+            // Data Storytelling P3 — the three at-a-glance accountability cues.
+            const variance = varianceByUnitId.get(unit.id);
+            const showVariance = !!variance && (variance.kind === 'behind' || variance.kind === 'ahead');
+            const lastIso = staleByUnitId.get(unit.id) ?? null;
+            const age = formatAge(lastIso, todayIso);
+            const subId = activeActivity?.subcontractor_id ?? null;
+            const subName = subId ? companyNameById?.[subId] : undefined;
 
             return (
               // Each location is its own <tbody> so an expanded row's sticky pin is
@@ -414,24 +461,50 @@ export default function StatusTable({
                   />
                 </td>
                 <td className={`${cellPad} font-bold text-slate-900 dark:text-slate-100 align-middle`}>
-                  <div className="flex items-center gap-2 relative">
+                  <div className="flex items-start gap-2 relative">
                     <button
                       type="button"
                       onClick={(e) => toggleRowExpanded(e, unit.id)}
-                      className="p-0.5 rounded text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      className="mt-0.5 p-0.5 rounded text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                     >
                       {expandedUnitIds.has(unit.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </button>
-                    {unit.unit_number}
-                    {levelByUnitId?.[unit.id] && (
-                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">· {levelByUnitId[unit.id]}</span>
-                    )}
-                    <BottleneckIndicator
-                      unit={unit}
-                      outOfSequence={log?.outOfSequence as unknown as React.ComponentProps<typeof BottleneckIndicator>['outOfSequence']}
-                      onUpdateStatus={handleTimelineUpdate as unknown as React.ComponentProps<typeof BottleneckIndicator>['onUpdateStatus']}
-                    />
-                    {savingUnitId === unit.id && <UpdatingRing />}
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <div className="flex items-center gap-2">
+                        {unit.unit_number}
+                        {levelByUnitId?.[unit.id] && (
+                          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">· {levelByUnitId[unit.id]}</span>
+                        )}
+                        <BottleneckIndicator
+                          unit={unit}
+                          outOfSequence={log?.outOfSequence as unknown as React.ComponentProps<typeof BottleneckIndicator>['outOfSequence']}
+                          onUpdateStatus={handleTimelineUpdate as unknown as React.ComponentProps<typeof BottleneckIndicator>['onUpdateStatus']}
+                        />
+                        {savingUnitId === unit.id && <UpdatingRing />}
+                      </div>
+                      {(showVariance || age !== '—') && (
+                        <div className="flex items-center gap-2 text-[10px] font-medium">
+                          {showVariance && variance && (
+                            <span
+                              className="inline-flex items-center gap-1 whitespace-nowrap"
+                              style={{ color: varianceFill(variance) }}
+                              title={varianceLabel(variance)}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: varianceFill(variance) }} />
+                              {variance.days}d {variance.kind === 'behind' ? 'late' : 'early'}
+                            </span>
+                          )}
+                          {age !== '—' && (
+                            <span
+                              className="ml-auto text-slate-400 dark:text-slate-500 font-normal whitespace-nowrap"
+                              title={lastIso ? `Last update ${new Date(lastIso).toLocaleString()}` : undefined}
+                            >
+                              {age}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </td>
                 <td className={`${cellPadTight} align-middle text-slate-600 dark:text-slate-400`} onClick={(e) => e.stopPropagation()}>
@@ -444,33 +517,67 @@ export default function StatusTable({
                       members={members || []}
                       onAssign={(userId) => onAssignUnit?.(unit.id, userId)}
                     />
+                    {subName && (
+                      <span
+                        className="max-w-[150px] truncate text-[10px] text-slate-400 dark:text-slate-500 pl-1.5"
+                        title={`Subcontractor on ${activeActivity?.name ?? 'current activity'}: ${subName}`}
+                      >
+                        {subName}
+                      </span>
+                    )}
                   </div>
                 </td>
                 <td className={`${cellPadTight} align-middle`}>
-                  <StatusTrigger
-                    unit={unit}
-                    baseLog={dLog}
-                    pendingChange={pending}
-                    onChooseStatus={onChooseStatus}
-                    onLocalUpdate={handleLocalUpdate}
-                    isApplying={isApplying}
-                    savingUnitId={savingUnitId}
-                    large={false}
-                    statusTrailing={
-                      onToggleApplicability && activeActivity ? (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activeActivity, false, dLog?.temporal_state); }}
-                          disabled={savingUnitId === unit.id || isApplying}
-                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                          title="Mark current activity Not Applicable for this location"
-                          aria-label={`Mark ${log?.activityName} not applicable for this location`}
-                        >
-                          <Ban size={14} />
-                        </button>
-                      ) : null
-                    }
-                  />
+                  <div className="flex flex-col gap-1.5 items-start">
+                    <StatusTrigger
+                      unit={unit}
+                      baseLog={dLog}
+                      pendingChange={pending}
+                      onChooseStatus={onChooseStatus}
+                      onLocalUpdate={handleLocalUpdate}
+                      isApplying={isApplying}
+                      savingUnitId={savingUnitId}
+                      large={false}
+                      statusTrailing={
+                        onToggleApplicability && activeActivity ? (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activeActivity, false, dLog?.temporal_state); }}
+                            disabled={savingUnitId === unit.id || isApplying}
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                            title="Mark current activity Not Applicable for this location"
+                            aria-label={`Mark ${log?.activityName} not applicable for this location`}
+                          >
+                            <Ban size={14} />
+                          </button>
+                        ) : null
+                      }
+                    />
+                    {/* Completed-fold (P3): the "Actual Completed" column collapsed here.
+                        Same DateChipCell + handler as before — no write-path change. */}
+                    {log && (pending?.state || log?.temporal_state) === 'completed' && (
+                      <DateChipCell
+                        value={
+                          pending?.extraProps?.loggedDate !== undefined
+                            ? pending.extraProps.loggedDate ?? ''
+                            : log?.logged_date || ''
+                        }
+                        pending={pending?.extraProps?.loggedDate !== undefined}
+                        onChange={(val) =>
+                          handleLocalUpdate(unit, log, pending?.state || (log.temporal_state as TemporalState) || 'none', {
+                            startDate: log.planned_start_date,
+                            endDate: log.planned_end_date,
+                            loggedDate: val,
+                          })
+                        }
+                        disabled={isApplying}
+                        ariaLabel={`Actual completed — ${unit.unit_number}`}
+                        compact={isCompact}
+                        completedTone
+                        stopClickPropagation
+                      />
+                    )}
+                  </div>
                 </td>
                 <td className={`${cellPadTight} align-middle`}>
                   {log ? (
@@ -513,32 +620,6 @@ export default function StatusTable({
                       disabled={isApplying}
                       ariaLabel={`Planned completion — ${unit.unit_number}`}
                       compact={isCompact}
-                    />
-                  ) : (
-                    <span className="text-slate-400 text-xs italic">—</span>
-                  )}
-                </td>
-                <td className={`${cellPad} text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium`}>
-                  {(pending?.state || log?.temporal_state) === 'completed' ? (
-                    <DateChipCell
-                      value={
-                        pending?.extraProps?.loggedDate !== undefined
-                          ? pending.extraProps.loggedDate ?? ''
-                          : log?.logged_date || ''
-                      }
-                      pending={pending?.extraProps?.loggedDate !== undefined}
-                      onChange={(val) =>
-                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log!.temporal_state as TemporalState) || 'none', {
-                          startDate: log!.planned_start_date,
-                          endDate: log!.planned_end_date,
-                          loggedDate: val,
-                        })
-                      }
-                      disabled={isApplying}
-                      ariaLabel={`Actual completed — ${unit.unit_number}`}
-                      compact={isCompact}
-                      completedTone
-                      stopClickPropagation
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
@@ -594,7 +675,6 @@ export default function StatusTable({
                       </td>
                       <td className={`${cellPadTight} align-middle`}><span className="text-slate-400 text-xs italic">—</span></td>
                       <td className={`${cellPadTight} align-middle`}><span className="text-slate-400 text-xs italic">—</span></td>
-                      <td className={`${cellPad} text-xs text-right align-middle`}><span className="text-slate-400 italic">—</span></td>
                       <td className={`${cellPad} align-middle text-right`}></td>
                     </tr>
                   );
@@ -623,26 +703,52 @@ export default function StatusTable({
                     </td>
                     <td className={cellPadTight}></td>
                     <td className={`${cellPadTight} align-middle`}>
-                      <div className="flex items-center gap-2">
-                        <StatusSegments
-                          value={(dChildLog.temporal_state as TemporalState) || 'none'}
-                          onChange={(s) => handleTimelineUpdate(unit, childLog, s, { activityObj: activity })}
-                          disabled={savingUnitId === unit.id || isApplying}
-                          pending={!!(childPending?.state && childPending.state !== childLog.temporal_state)}
-                          ariaLabel={`Status for ${activity.name}`}
-                          size="sm"
-                        />
-                        {onToggleApplicability && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activity, false, dChildLog.temporal_state); }}
+                      <div className="flex flex-col gap-1.5 items-start">
+                        <div className="flex items-center gap-2">
+                          <StatusSegments
+                            value={(dChildLog.temporal_state as TemporalState) || 'none'}
+                            onChange={(s) => handleTimelineUpdate(unit, childLog, s, { activityObj: activity })}
                             disabled={savingUnitId === unit.id || isApplying}
-                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                            title="Mark Not Applicable for this location"
-                            aria-label={`Mark ${activity.name} not applicable for this location`}
-                          >
-                            <Ban size={14} />
-                          </button>
+                            pending={!!(childPending?.state && childPending.state !== childLog.temporal_state)}
+                            ariaLabel={`Status for ${activity.name}`}
+                            size="sm"
+                          />
+                          {onToggleApplicability && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activity, false, dChildLog.temporal_state); }}
+                              disabled={savingUnitId === unit.id || isApplying}
+                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                              title="Mark Not Applicable for this location"
+                              aria-label={`Mark ${activity.name} not applicable for this location`}
+                            >
+                              <Ban size={14} />
+                            </button>
+                          )}
+                        </div>
+                        {/* Completed-fold (P3) — child activity's completed date. */}
+                        {(childPending?.state || childLog.temporal_state) === 'completed' && (
+                          <DateChipCell
+                            value={
+                              childPending?.extraProps?.loggedDate !== undefined
+                                ? childPending.extraProps.loggedDate ?? ''
+                                : childLog.logged_date || ''
+                            }
+                            pending={childPending?.extraProps?.loggedDate !== undefined}
+                            onChange={(val) =>
+                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                                startDate: childLog.planned_start_date,
+                                endDate: childLog.planned_end_date,
+                                loggedDate: val,
+                                activityObj: activity,
+                              })
+                            }
+                            disabled={isApplying}
+                            ariaLabel={`Actual completed — ${activity.name}, ${unit.unit_number}`}
+                            compact={isCompact}
+                            completedTone
+                            stopClickPropagation
+                          />
                         )}
                       </div>
                     </td>
@@ -689,33 +795,6 @@ export default function StatusTable({
                           disabled={isApplying}
                           ariaLabel={`Planned completion — ${activity.name}, ${unit.unit_number}`}
                           compact={isCompact}
-                        />
-                      ) : (
-                        <span className="text-slate-400 text-xs italic">—</span>
-                      )}
-                    </td>
-                    <td className={`${cellPad} text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium`}>
-                      {(childPending?.state || childLog.temporal_state) === 'completed' ? (
-                        <DateChipCell
-                          value={
-                            childPending?.extraProps?.loggedDate !== undefined
-                              ? childPending.extraProps.loggedDate ?? ''
-                              : childLog.logged_date || ''
-                          }
-                          pending={childPending?.extraProps?.loggedDate !== undefined}
-                          onChange={(val) =>
-                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                              startDate: childLog.planned_start_date,
-                              endDate: childLog.planned_end_date,
-                              loggedDate: val,
-                              activityObj: activity
-                            })
-                          }
-                          disabled={isApplying}
-                          ariaLabel={`Actual completed — ${activity.name}, ${unit.unit_number}`}
-                          compact={isCompact}
-                          completedTone
-                          stopClickPropagation
                         />
                       ) : (
                         <span className="text-slate-400 text-xs italic">—</span>

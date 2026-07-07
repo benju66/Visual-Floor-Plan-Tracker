@@ -1,7 +1,8 @@
 "use client";
 import React, { useMemo, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { X, Clock, HelpCircle } from 'lucide-react';
-import { useUnitHistory } from '@/hooks/useProjectQueries';
+import { useUnitHistory, useProjectMembers } from '@/hooks/useProjectQueries';
 import {
   computeUnitVariance,
   varianceFill,
@@ -68,6 +69,20 @@ export default function UnitHistoryModal({
 }: UnitHistoryModalProps) {
   const { data: rawLogs, isPending } = useUnitHistory(unitId || '');
   const [tab, setTab] = useState<'journey' | 'log'>('journey');
+
+  // "By whom" (P3): the audit rows carry user_id but no profile join, so resolve
+  // display names client-side via the already-cached project members map.
+  const params = useParams();
+  const projectId = (params?.projectId as string) || '';
+  const { data: members = [] } = useProjectMembers(projectId);
+  const nameByUserId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) {
+      const label = m.profiles?.display_name || m.profiles?.email || null;
+      if (m.user_id && label) map.set(m.user_id, label);
+    }
+    return map;
+  }, [members]);
 
   // --- Log tab: dedupe identical consecutive audit entries (existing behavior) ---
   const logs = useMemo(() => {
@@ -386,6 +401,7 @@ export default function UnitHistoryModal({
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Planned Finish</th>
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Actual Completion</th>
                     <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300 text-right">Date Logged</th>
+                    <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300 text-right">By</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -419,6 +435,9 @@ export default function UnitHistoryModal({
                         </td>
                         <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-400 font-medium">
                           {date.toLocaleDateString()} <span className="text-xs ml-1 opacity-60">{date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-400">
+                          {log.user_id ? (nameByUserId.get(log.user_id) || 'Unknown') : '—'}
                         </td>
                       </tr>
                     );
