@@ -386,13 +386,8 @@ function App() {
   }, [selectedUnitIds]);
 
 
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (colorMode === 'system') root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', colorMode);
-  }, [colorMode]);
-
+  // data-theme wiring moved to the root layout's <ThemeApplier /> (Polish P1)
+  // so home + project + workbench all follow the one Light/Dark/System setting.
 
 
   useEffect(() => {
