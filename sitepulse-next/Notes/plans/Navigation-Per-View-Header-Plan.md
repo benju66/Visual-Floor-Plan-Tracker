@@ -46,6 +46,14 @@ the Map toolbar is **split into "what I'm doing" (modes) vs "what's shown" (on/o
   — e.g. amber Lag Mode stays amber because there the color is information, not decoration.
 - **Dashboard keeps a track/scope selector** — it is NOT dead — but it must be **re-sourced
   from project-level milestone tracks**, not from `activeSheet.active_scopes`.
+- **(2026-07-06) All four `?` matrix cells resolved: HIDE.** Schedule hides the
+  Milestones button and Export; Look-Ahead hides the Level selector and Scope tabs.
+  Phase 3 no longer needs in-phase owner confirmation.
+- **(2026-07-06) Batched autonomous execution.** This plan's phases run inside the
+  3-batch roadmap in `Notes/plans/UI-Polish-Design-Consistency-Plan.md` (§ Roadmap):
+  Batch 1 = P1 · Batch 2 = P2+P3 · Batch 3 = P4+P5. One branch per batch, one commit
+  per phase, single owner review per batch. Phase 5 takes the conservative default:
+  group with dividers, do NOT hide tools behind an overflow menu.
 
 ## The three control families (the mental model this whole plan serves)
 Make the header read as three distinct jobs, visually separated:
@@ -54,15 +62,15 @@ Make the header read as three distinct jobs, visually separated:
 3. **Level** = "which floor/sheet" → the `activeSheetId` dropdown.
 
 ## Per-view control matrix (the heart of the context-aware header)
-Proposed default — **the Phase 3 session must confirm the uncertain cells (?) with the owner
-before hiding anything.** "Show" = the control appears for that view; "—" = hidden.
+**All cells owner-confirmed 2026-07-06** (the former `?` cells were resolved to hidden —
+see Locked decisions). "Show" = the control appears for that view; "—" = hidden.
 
 | Control                         | Dashboard | List | Schedule | Map | Look-Ahead |
 |---------------------------------|:---------:|:----:|:--------:|:---:|:----------:|
-| **Level** selector (`activeSheetId`) | — (dead) | show | show | show | — (?) |
-| **Scope/Track** tabs            | show¹     | show | show     | show| — (?) |
-| **Milestones** filter button    | —         | show | — (?)    | show| — |
-| **Export PDF** button           | —         | —    | — (?)    | show²| — |
+| **Level** selector (`activeSheetId`) | — (dead) | show | show | show | — |
+| **Scope/Track** tabs            | show¹     | show | show     | show| — |
+| **Milestones** filter button    | —         | show | —        | show| — |
+| **Export PDF** button           | —         | —    | —        | show²| — |
 | **Add / Manage Levels** buttons | show      | show | show     | show| show |
 
 ¹ Dashboard track selector re-sourced from project milestone tracks (see Phase 3).
@@ -157,8 +165,8 @@ correctness lives — keep `Date.now()`/`window` out of these.
 - **Scope:** the behavioral core.
   - Add `controlVisibility(viewMode)` to `viewRouting.ts` (+ tests) implementing the matrix.
   - In `TopHeader.tsx`, gate the Level selector, Scope tabs, Milestones button, and Export per
-    `controlVisibility(viewMode)`. **Confirm the uncertain (?) matrix cells with the owner
-    before hiding them.**
+    `controlVisibility(viewMode)`. The matrix is fully owner-confirmed (2026-07-06) —
+    implement it as written, no in-phase confirmation needed.
   - **Re-source the track/scope selector**: when `viewMode === 'dashboard'`, the Scope tabs'
     options come from project-level tracks (`[...new Set(milestones.map(m => m.track))]`), not
     `activeSheet.active_scopes`. Other views keep current behavior.
@@ -222,8 +230,10 @@ npm --prefix "C:/Users/BUrness/Dev/Visual-Floor-Plan-Tracker/sitepulse-next" run
 - **Don't commit or push until the owner says "Approved."** Branch off `main` per phase.
 
 ## Open decisions (resolve in-phase)
-- Exact per-view matrix cells marked `?` (Schedule's Milestones/Export, Look-Ahead's
-  Level/Scope) — confirm with owner in **Phase 3** before hiding.
+- ~~Exact per-view matrix cells marked `?`~~ — **RESOLVED 2026-07-06: hide all four**
+  (see Locked decisions).
 - Whether the desktop switcher physically relocates (out of the scrolling cluster) or just
-  gets a divider — decide visually in **Phase 2** with a `dev:3010` preview.
-- Bottom-tab visual treatment (filled vs underline active) — settle in **Phase 4** preview.
+  gets a divider — implementing session picks (divider is the default); owner adjusts at
+  batch review.
+- Bottom-tab visual treatment (filled vs underline active) — implementing session picks;
+  owner adjusts at batch review.
