@@ -9,6 +9,7 @@ import { summarizeUnit } from '@/utils/unitProgress';
 import { formatArea } from '@/utils/scale';
 import { useUnitHistory, useProjectMembers } from '@/hooks/useProjectQueries';
 import type { Activity, StatusLog, TemporalState, Unit } from '@/types/domain';
+import { STATUS_DOT_CLASS } from '@/utils/statusColors';
 
 export interface UnitInspectorProps {
   unit: Unit;
@@ -27,12 +28,13 @@ export interface UnitInspectorProps {
   onOpenHistory: (unitId: string) => void;
 }
 
+// Stage keys → the canonical dot classes (UI Polish P2 — single status-color language).
 const STAGE_DOT: Record<string, string> = {
-  done: 'bg-emerald-500',
-  completed: 'bg-emerald-500',
-  ongoing: 'bg-blue-500',
-  planned: 'bg-amber-500',
-  none: 'bg-slate-300 dark:bg-slate-600',
+  done: STATUS_DOT_CLASS.completed,
+  completed: STATUS_DOT_CLASS.completed,
+  ongoing: STATUS_DOT_CLASS.ongoing,
+  planned: STATUS_DOT_CLASS.planned,
+  none: STATUS_DOT_CLASS.none,
 };
 
 const shortDate = (iso: string | null | undefined): string => {

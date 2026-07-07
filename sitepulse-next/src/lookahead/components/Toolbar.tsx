@@ -62,6 +62,12 @@ export default function Toolbar() {
 
   const savedLabel = savedCount + (savedCount === 1 ? " week saved" : " weeks saved");
 
+  // Platform-aware undo hint: ⌘Z reads as noise on the Windows/Android field
+  // hardware this app mostly runs on. Computed here (client component) — kept
+  // out of pure utils on purpose (it reads `navigator`).
+  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
+  const undoHint = isMac ? "⌘Z undo" : "Ctrl+Z undo";
+
   return (
     // Phase 2 (UI convergence): frosted-glass, rounded sub-toolbar that floats
     // under the TopHeader + the context strip (matching their inset). Inner
@@ -127,7 +133,7 @@ export default function Toolbar() {
         <span className={SWATCH_CLASS} style={swatch(t.st.done)}>Done</span>
         {/* Phase 5: keyboard/mouse guidance — hidden below `lg` (it's desktop hint
             text and would force awkward wraps on a narrow iPad portrait legend row). */}
-        <span className="hidden lg:inline" style={hintStyle}>click selects · click again to cycle · dbl-click types · ←↑↓→ move · s/x/d to mark · ⌘Z undo</span>
+        <span className="hidden lg:inline" style={hintStyle}>{`click selects · click again to cycle · dbl-click types · ←↑↓→ move · s/x/d to mark · ${undoHint}`}</span>
       </div>
     </div>
   );

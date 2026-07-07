@@ -2,6 +2,7 @@
 // converged onto SitePulse's design system (slate palette + app font vars).
 import type { CSSProperties } from "react";
 import type { Theme, Accent, Flag } from "./types";
+import { STATUS_INLINE } from "@/utils/statusColors";
 
 // Centralized font stacks — wired to the app's loaded fonts (`src/app/layout.js`
 // exposes Outfit as `--font-outfit` and Roboto Mono as `--font-roboto-mono`).
@@ -43,7 +44,9 @@ export interface AccentTok {
 // straight to the app CSS vars (`--bg`/`--text-h`/`--text`/`--border`) so they
 // always track the live theme; the rest are slate hexes that fill the gaps the
 // app vars don't name (panels, group/head rows, hover, the dark action bar).
-// Status palettes (start/ongoing/done) and flag tints are intentionally kept.
+// Status palettes wire to the canonical status-color language (UI Polish P2,
+// `src/utils/statusColors.ts`): start → planned (amber) · ongoing → ongoing
+// (blue) · done → completed (emerald). Flag tints are intentionally kept.
 export function getTokens(theme: Theme): Tokens {
   if (theme === "dark")
     return {
@@ -51,9 +54,9 @@ export function getTokens(theme: Theme): Tokens {
       fg: "var(--text-h)", mutedFg: "var(--text)", faintFg: "#64748b",
       headBg: "#1e293b", stickyBg: "#0f172a", groupBg: "#1e293b", addBg: "#0b1120", barBg: "#0f172a", hover: "#1e293b",
       st: {
-        start: { bg: "rgba(59,130,246,.17)", color: "#93c5fd" },
-        ongoing: { bg: "rgba(249,115,22,.18)", color: "#fdba74" },
-        done: { bg: "rgba(16,185,129,.16)", color: "#6ee7b7" },
+        start: STATUS_INLINE.dark.planned,
+        ongoing: STATUS_INLINE.dark.ongoing,
+        done: STATUS_INLINE.dark.completed,
       },
       flag: { weekend: "rgba(255,255,255,.045)", holiday: "rgba(244,63,94,.16)", closed: "rgba(255,255,255,.10)" },
     };
@@ -62,9 +65,9 @@ export function getTokens(theme: Theme): Tokens {
     fg: "var(--text-h)", mutedFg: "var(--text)", faintFg: "#94a3b8",
     headBg: "#f1f5f9", stickyBg: "#ffffff", groupBg: "#f1f5f9", addBg: "#f8fafc", barBg: "#0f172a", hover: "#f1f5f9",
     st: {
-      start: { bg: "#eff6ff", color: "#1d4ed8" },
-      ongoing: { bg: "#fff7ed", color: "#c2410c" },
-      done: { bg: "#ecfdf5", color: "#047857" },
+      start: STATUS_INLINE.light.planned,
+      ongoing: STATUS_INLINE.light.ongoing,
+      done: STATUS_INLINE.light.completed,
     },
     flag: { weekend: "rgba(113,113,122,.08)", holiday: "rgba(244,63,94,.10)", closed: "rgba(113,113,122,.20)" },
   };

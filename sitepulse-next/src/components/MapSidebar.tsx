@@ -11,6 +11,7 @@ import {
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import UnitInspector from './UnitInspector';
 import type { Activity, Unit, Sheet, StatusLog, TemporalState } from '@/types/domain';
+import { STATUS_DOT_CLASS } from '@/utils/statusColors';
 
 export interface MapSidebarProps {
   activities?: Activity[];
@@ -30,12 +31,14 @@ export interface MapSidebarProps {
   onOpenHistory: (unitId: string) => void;
 }
 
+// Stage keys ('done' from unitProgress summaries + raw temporal states) → the
+// canonical dot classes (UI Polish P2 — single status-color language).
 const STAGE_DOT: Record<string, string> = {
-  done: 'bg-emerald-500',
-  completed: 'bg-emerald-500',
-  ongoing: 'bg-blue-500',
-  planned: 'bg-amber-500',
-  none: 'bg-slate-300 dark:bg-slate-600',
+  done: STATUS_DOT_CLASS.completed,
+  completed: STATUS_DOT_CLASS.completed,
+  ongoing: STATUS_DOT_CLASS.ongoing,
+  planned: STATUS_DOT_CLASS.planned,
+  none: STATUS_DOT_CLASS.none,
 };
 
 type SortMode = 'number' | 'progress';
@@ -204,9 +207,9 @@ function MapSidebar({
           })}
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />{sheetProgress.buckets.done} done</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />{sheetProgress.buckets.ongoing} ongoing</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />{sheetProgress.buckets.planned} planned</span>
+          <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS.completed}`} />{sheetProgress.buckets.done} done</span>
+          <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS.ongoing}`} />{sheetProgress.buckets.ongoing} ongoing</span>
+          <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS.planned}`} />{sheetProgress.buckets.planned} planned</span>
         </div>
       </div>
 

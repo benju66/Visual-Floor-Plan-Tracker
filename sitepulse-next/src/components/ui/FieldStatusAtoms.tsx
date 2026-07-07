@@ -3,19 +3,11 @@ import React, { useState, useRef } from 'react';
 import { X, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Unit, TemporalState } from '@/types/domain';
+import { getTemporalStateStyle, getInvertedBadgeStyle } from '@/utils/statusColors';
 
-export const getTemporalStateStyle = (state: TemporalState | 'none') => {
-  switch (state) {
-    case 'planned':
-      return 'bg-amber-100 text-amber-800 border-amber-300/60 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-600/50';
-    case 'ongoing':
-      return 'bg-blue-100 text-blue-800 border-blue-300/60 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-600/50';
-    case 'completed':
-      return 'bg-emerald-100 text-emerald-800 border-emerald-300/60 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-600/50';
-    default:
-      return 'bg-slate-100 text-slate-600 border-slate-300/80 dark:bg-white/10 dark:text-slate-300 dark:border-white/20';
-  }
-};
+// Chip + inverted-badge styles come from the canonical palette module (UI Polish P2).
+// Re-exported so existing consumers keep importing from this file.
+export { getTemporalStateStyle };
 
 /** Ordered temporal-state segments shared by the desktop table and the swipe deck. */
 export const STATUS_SEGMENTS: ReadonlyArray<{ key: TemporalState | 'none'; label: string; title: string }> = [
@@ -121,31 +113,6 @@ export function StatusSegments({
   );
 }
 
-const getInvertedBadgeStyle = (state: TemporalState | 'none') => {
-  switch (state) {
-    case 'planned':
-      return {
-        wrapper: 'bg-amber-900/40 text-amber-300 border border-amber-600/50 dark:bg-amber-100 dark:text-amber-800 dark:border-amber-300/60',
-        dot: 'bg-amber-500',
-      };
-    case 'ongoing':
-      return {
-        wrapper: 'bg-blue-900/40 text-blue-300 border border-blue-600/50 dark:bg-blue-100 dark:text-blue-800 dark:border-blue-300/60',
-        dot: 'bg-blue-500',
-      };
-    case 'completed':
-      return {
-        wrapper: 'bg-emerald-900/40 text-emerald-300 border border-emerald-600/50 dark:bg-emerald-100 dark:text-emerald-800 dark:border-emerald-300/60',
-        dot: 'bg-emerald-500',
-      };
-    default:
-      return {
-        wrapper: 'bg-white/10 text-slate-300 border border-white/20 dark:bg-slate-200 dark:text-slate-600 dark:border-slate-300/80',
-        dot: 'bg-slate-400',
-      };
-  }
-};
-
 export function UpdatingRing() {
   return (
     <svg className="h-7 w-7 shrink-0 animate-spin text-blue-600" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -204,6 +171,8 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }: Bot
     >
       <div
         className="w-2.5 h-2.5 rounded-full bg-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_8px_rgba(239,68,68,0.6)] cursor-pointer ring-2 ring-red-500/20"
+        title="Out of sequence — a later step started before an earlier one finished"
+        aria-label="Out of sequence — a later step started before an earlier one finished"
         onClick={(e) => {
           e.stopPropagation();
           setIsOpen(!isOpen);
@@ -233,7 +202,7 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }: Bot
               
               {isArray ? (
                 <>
-                  <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">The following operations were logged ahead of schedule:</p>
+                  <p className="opacity-80 mb-4 text-[13px] leading-tight text-slate-300 dark:text-slate-600 relative z-10">Out of sequence — a later step started before an earlier one finished:</p>
                   <div className="flex flex-col border-t border-white/10 dark:border-black/5 relative z-10">
                     {(outOfSequence as BottleneckSequence[]).map(seq => {
                       const isExpanded = expandedSeqId === seq.id;
@@ -310,7 +279,7 @@ export const BottleneckIndicator = ({ unit, outOfSequence, onUpdateStatus }: Bot
             
             {isArray ? (
               <>
-                <p className="opacity-80 mb-3 leading-tight text-slate-300 dark:text-slate-600 relative z-10">The following operations were logged ahead of schedule:</p>
+                <p className="opacity-80 mb-3 leading-tight text-slate-300 dark:text-slate-600 relative z-10">Out of sequence — a later step started before an earlier one finished:</p>
                 <div className="flex flex-col border-t border-white/10 dark:border-black/5 relative z-10">
                   {(outOfSequence as BottleneckSequence[]).map(seq => {
                     const isExpanded = expandedSeqId === seq.id;

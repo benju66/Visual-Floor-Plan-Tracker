@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Group, Line, Circle, Path } from 'react-konva';
 import { getCentroid, getSnappedCoordinate } from '@/utils/geometry';
 import { ICON_PATHS } from '@/utils/constants';
+import { STATUS_HEX } from '@/utils/statusColors';
 import type RBush from 'rbush';
 import type { Unit, StatusLog, PercentPoint, CanvasLayout } from '@/types/domain';
 import type { ToolMode } from '@/store/useMapStore';
@@ -291,12 +292,8 @@ export const MappedUnitComponent = ({
       
       {/* The Status Icon — hidden below 0.7x scale for cleaner zoomed-out view */}
       {(activeStatus && tState !== 'none' && !isFilteredOut && stageScale > 0.7) && (() => {
-        const TEMPORAL_COLORS: Record<string, string> = {
-          planned: '#94a3b8',   // Slate Gray
-          ongoing: '#f59e0b',   // Amber
-          completed: '#10b981', // Emerald
-        };
-        const iconColor = TEMPORAL_COLORS[tState as string] || '#cbd5e1';
+        // Canonical palette (UI Polish P2): planned=amber, ongoing=BLUE, completed=emerald.
+        const iconColor = (STATUS_HEX as Record<string, string>)[tState as string] || STATUS_HEX.none;
 
         let previewPolygon = basePolygon;
         if (activeDragNode?.unitId === unit.id) {

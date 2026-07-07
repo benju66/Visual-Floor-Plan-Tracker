@@ -3,6 +3,7 @@ import { Group, Rect, Text, Transformer, Circle, Path } from 'react-konva';
 import { ICON_PATHS } from '@/utils/constants';
 import { VARIANCE_LEGEND } from '@/utils/progressAnalytics';
 import { MAKE_READY_LEGEND } from '@/utils/activityReadiness';
+import { STATUS_HEX } from '@/utils/statusColors';
 import type { Unit, StatusLog, Activity, TemporalState, CanvasLayout } from '@/types/domain';
 
 export interface MapLegendProps {
@@ -109,11 +110,8 @@ export default function MapLegend({
   const x = layout.offsetX + pctX * layout.drawW;
   const y = layout.offsetY + pctY * layout.drawH;
 
-  const TEMPORAL_COLORS: Record<string, string> = {
-    planned: '#94a3b8',
-    ongoing: '#f59e0b',
-    completed: '#10b981',
-  };
+  // Canonical palette (UI Polish P2) — must match the MappedUnit marker colors.
+  const TEMPORAL_COLORS: Record<string, string> = STATUS_HEX;
 
   return (
     <>
