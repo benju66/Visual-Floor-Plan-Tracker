@@ -228,9 +228,11 @@ export interface GroupRollup {
   forecastSuppressed: 'small-sample' | 'no-pace' | 'complete' | null;
 }
 
-const STALL_THRESHOLD_DAYS = 14;
-const SMALL_SAMPLE_SLOTS = 12;
-const FORECAST_WINDOW_WEEKS = 6;
+// Exported so dashboard tooltips/captions quote the REAL thresholds instead of
+// restating them from memory (UI Polish P3). Values are unchanged.
+export const STALL_THRESHOLD_DAYS = 14;
+export const SMALL_SAMPLE_SLOTS = 12;
+export const FORECAST_WINDOW_WEEKS = 6;
 /** Below this fraction of dated slots, the plan tick is too sparse to be trustworthy and is hidden. */
 export const PLAN_TICK_MIN_COVERAGE = 0.5;
 

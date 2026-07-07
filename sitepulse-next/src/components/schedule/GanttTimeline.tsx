@@ -1,6 +1,6 @@
 "use client";
 import React, { useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, CalendarRange } from 'lucide-react';
 import AnchoredMenu from '@/components/manage/AnchoredMenu';
 import GanttBar from './GanttBar';
 import {
@@ -115,8 +115,22 @@ export default function GanttTimeline({
     );
   }
 
+  // Empty plan: no visible bar carries a planned date, so the timeline would be
+  // silent gray rows. One banner explains it; suppressed as soon as any bar exists.
+  const hasAnyPlannedBar = rows.some((r) => r.bars.some((b) => b.plannedStart || b.plannedEnd));
+
   return (
     <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900">
+      {!hasAnyPlannedBar && (
+        <div className="sticky left-0 top-0 z-40 w-fit max-w-xl m-3 flex items-start gap-2.5 rounded-xl border border-sky-200 dark:border-sky-900/50 bg-sky-50/95 dark:bg-sky-950/70 px-3.5 py-2.5 shadow-sm">
+          <CalendarRange size={15} className="shrink-0 mt-px text-sky-500" />
+          <p className="text-xs text-slate-600 dark:text-slate-300 text-balance">
+            No planned dates yet, so there is nothing to draw on the timeline. Set them with{' '}
+            <span className="font-bold text-slate-800 dark:text-slate-100">Level dates</span> (cascade a whole level) or{' '}
+            <span className="font-bold text-slate-800 dark:text-slate-100">Import</span> (MS Project .xml) in the toolbar above.
+          </p>
+        </div>
+      )}
       <div className="relative" style={{ width: LEFT_W + timelineW }}>
         {/* ── Header / time axis (sticky top) ── */}
         <div className="sticky top-0 z-20 flex bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-white/10" style={{ height: AXIS_H }}>

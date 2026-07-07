@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo } from 'react';
 import { TrendingUp, TrendingDown, Check, Map as MapIcon } from 'lucide-react';
-import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE } from '@/utils/progressAnalytics';
+import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS } from '@/utils/progressAnalytics';
 import type { CompletionEvent, GroupRollup } from '@/utils/progressAnalytics';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Sheet, Unit, Activity, StatusLog } from '@/types/domain';
@@ -71,7 +71,12 @@ function ForecastChip({ r }: { r: GroupRollup }) {
     );
   }
   return (
-    <span className="text-xs text-slate-400 whitespace-nowrap">
+    <span
+      className="text-xs text-slate-400 whitespace-nowrap"
+      title={r.forecastSuppressed === 'small-sample'
+        ? `Forecasts are suppressed (never faked) below ${SMALL_SAMPLE_SLOTS} tracked tasks.`
+        : `No completions in the last ${FORECAST_WINDOW_WEEKS} weeks — no pace to project from.`}
+    >
       —
       <span className="block text-[9px]">
         {r.forecastSuppressed === 'small-sample' ? 'too few tasks to project' : 'no recent pace to project'}
@@ -83,7 +88,11 @@ function ForecastChip({ r }: { r: GroupRollup }) {
 function PaceCell({ pace }: { pace: Pace }) {
   if (pace.kind === 'done') return <span className="text-emerald-500"><Check size={15} /></span>;
   if (pace.kind === 'small') {
-    return <span className="text-xs text-slate-400">— <span className="block text-[9px]">too few tasks for a trend</span></span>;
+    return (
+      <span className="text-xs text-slate-400" title={`Pace trends are suppressed (never faked) below ${SMALL_SAMPLE_SLOTS} tracked tasks.`}>
+        — <span className="block text-[9px]">too few tasks for a trend</span>
+      </span>
+    );
   }
   if (pace.kind === 'idle') {
     return <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">— flat <span className="block text-[9px] font-normal text-slate-400">no movement {pace.weeks} wks</span></span>;
@@ -218,7 +227,10 @@ export default function FloorPulse({
 
               <div className="hidden sm:block">
                 {rollup.stalledUnitIds.length > 0 ? (
-                  <span className="inline-block text-[10px] font-bold text-red-600 dark:text-red-400 border border-red-400/70 rounded-full px-2 py-0.5">
+                  <span
+                    className="inline-block text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-400/70 rounded-full px-2 py-0.5"
+                    title={`No movement in ${STALL_THRESHOLD_DAYS}+ days on started locations. Needs attention — distinct from "behind plan" (red).`}
+                  >
                     {rollup.stalledUnitIds.length} stalled
                   </span>
                 ) : (

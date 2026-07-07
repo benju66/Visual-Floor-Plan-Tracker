@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE } from '@/utils/progressAnalytics';
+import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE, STALL_THRESHOLD_DAYS } from '@/utils/progressAnalytics';
 import type { CompletionEvent, GroupRollup } from '@/utils/progressAnalytics';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Unit, Activity, StatusLog } from '@/types/domain';
@@ -34,7 +34,7 @@ interface TypeRow {
 
 function VarianceChip({ avg }: { avg: number | null }) {
   if (avg === null) {
-    return <span className="text-[10px] text-slate-400 font-medium">no plan dates</span>;
+    return <span className="text-[10px] text-slate-400 font-medium" title="No planned dates on this group's bottleneck activities — nothing to measure variance against.">no plan dates</span>;
   }
   const behind = avg > 0;
   const label = `${behind ? '−' : '+'}${Math.abs(avg).toFixed(1)}d avg`;
@@ -51,7 +51,7 @@ function VarianceChip({ avg }: { avg: number | null }) {
 
 function Sparkline({ weekly, suppressed }: { weekly: { weekStart: string; count: number }[]; suppressed: boolean }) {
   if (suppressed) {
-    return <span className="text-[10px] text-slate-400">— trend suppressed (small group)</span>;
+    return <span className="text-[10px] text-slate-400" title={`Trend sparklines are suppressed (never faked) below ${SPARK_SUPPRESS_UNITS} locations in a group.`}>— trend suppressed (small group)</span>;
   }
   const max = Math.max(1, ...weekly.map(w => w.count));
   const w = 72, h = 22;
@@ -244,7 +244,10 @@ export default function TypeScorecard({ allUnits, statuses, activities, track, h
                 <div className="hidden sm:block"><Sparkline weekly={r.weekly} suppressed={suppressSpark} /></div>
                 <div className="hidden sm:block">
                   {r.stalledUnitIds.length > 0 ? (
-                    <span className="inline-block text-[10px] font-bold text-red-600 dark:text-red-400 border border-red-400/70 rounded-full px-2 py-0.5">
+                    <span
+                      className="inline-block text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-400/70 rounded-full px-2 py-0.5"
+                      title={`No movement in ${STALL_THRESHOLD_DAYS}+ days on started locations. Needs attention — distinct from "behind plan" (red).`}
+                    >
                       {r.stalledUnitIds.length} stalled
                     </span>
                   ) : (

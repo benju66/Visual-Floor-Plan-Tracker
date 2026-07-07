@@ -6,7 +6,7 @@ import { Target, CalendarClock, Info, TrendingUp, ChevronUp, ChevronDown } from 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/hooks/useProjectQueries';
 import { useMapStore } from '@/store/useMapStore';
-import { summarizeGroup, parseDay } from '@/utils/progressAnalytics';
+import { summarizeGroup, parseDay, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS } from '@/utils/progressAnalytics';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import FloorPulse from '@/components/dashboard/FloorPulse';
@@ -269,11 +269,16 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     : scopeRollup.forecastSuppressed === 'complete' ? 'Complete'
     : '—';
   const forecastHint = scopeRollup.forecastDate
-    ? 'At the median weekly completion pace of the last 6 weeks. A pace projection, not a commitment.'
-    : scopeRollup.forecastSuppressed === 'small-sample' ? 'Too few tasks in this scope to project a finish.'
-    : scopeRollup.forecastSuppressed === 'no-pace' ? 'No completions in recent weeks — no pace to project from.'
+    ? `At the median weekly completion pace of the last ${FORECAST_WINDOW_WEEKS} weeks. A pace projection, not a commitment.`
+    : scopeRollup.forecastSuppressed === 'small-sample' ? `Too few tasks in this scope to project a finish — forecasts need at least ${SMALL_SAMPLE_SLOTS} tracked tasks.`
+    : scopeRollup.forecastSuppressed === 'no-pace' ? `No completions in the last ${FORECAST_WINDOW_WEEKS} weeks — no pace to project from.`
     : scopeRollup.forecastSuppressed === 'complete' ? 'All tracked tasks in this scope are complete.'
     : 'Log completions to see a projection.';
+  // The honest '—' (suppressed, never faked): muted dash + its reason caption.
+  const forecastSuppressedCaption =
+    scopeRollup.forecastSuppressed === 'small-sample' ? 'too few tasks to project'
+    : scopeRollup.forecastSuppressed === 'no-pace' ? 'no recent pace'
+    : null;
 
   return (
     <div className="w-full pb-6 space-y-6 overflow-y-auto h-full pr-2 p-2">
@@ -340,9 +345,22 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
               <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Projected Finish</h3>
               <Info size={14} className="text-slate-400" />
             </div>
-            <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 mt-1">{forecastLabel}</p>
+            <p
+              className={`text-3xl font-bold mt-1 ${forecastSuppressedCaption ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'}`}
+              title={forecastHint}
+            >
+              {forecastLabel}
+            </p>
+            {forecastSuppressedCaption && (
+              <p className="text-[10px] text-slate-400 mt-0.5" title={forecastHint}>{forecastSuppressedCaption}</p>
+            )}
             {scopeRollup.stalledUnitIds.length > 0 && (
-              <p className="text-xs font-semibold text-red-500 mt-0.5">{scopeRollup.stalledUnitIds.length} stalled location{scopeRollup.stalledUnitIds.length === 1 ? '' : 's'}</p>
+              <p
+                className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-0.5"
+                title={`No movement in ${STALL_THRESHOLD_DAYS}+ days on started locations. Needs attention — distinct from "behind plan" (red).`}
+              >
+                {scopeRollup.stalledUnitIds.length} stalled location{scopeRollup.stalledUnitIds.length === 1 ? '' : 's'}
+              </p>
             )}
           </div>
           <div className="absolute left-6 bottom-full mb-3 hidden group-hover:block w-64 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-2xl pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-slate-700 dark:border-white/20 z-50">
