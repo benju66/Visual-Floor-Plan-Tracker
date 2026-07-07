@@ -100,7 +100,22 @@ Framework-free, deterministic functions (no `Date.now()` inside — pass timesta
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: click-trace → Enter/Finish, Shift-ortho, box-drag room, opening tags (workbench) all identical · `verify-feature`.
 
-### Phase 6 — Extract the stamp tool → `useStampTool`
+### Phase 6 — Extract the stamp tool → `useStampTool` — ✅ DONE (a43778a, Approved)
+> Landed as `src/hooks/useStampTool.ts` (153 lines): the useMapStore stamp slice
+> (stampTransform/rotate/flip/reset + armedStamp/clearArmedStamp — the hook
+> subscribes itself), both stamp branches of handleStageClick as
+> `handleArmedStampClick`/`handleUnitStampClick(pctX, pctY)` — the branch
+> CONDITIONS stayed in the component's else-if chain (preserves the final-else
+> legend-deselect fallthrough, same routing seam as Phase 5) — and the
+> leave-stamp reset as its own `[toolMode]` effect. Wiring-guard labels
+> preserved verbatim (incl. the historical `onInstantStamp:armed` on the
+> onInstantStampShape path). `nameEachStamp` passed as a primitive arg
+> (`!!mapSettings?.nameEachStamp`, same arg style as Phase 3); the R/H/V
+> keydown branch stayed in the component's keydown effect (Phase 8's job),
+> consuming the hook's returned rotateStamp/flipStamp; StampPreview +
+> ContextActionDock stay mounted in the component fed from hook returns;
+> StampDrawer untouched (talks to the store itself). FloorplanCanvas
+> 2,063 → 1,917 lines.
 - **Scope:** Move the `armedStamp`/`stampTransform` wiring, the two `stamp` branches of `handleStageClick` (armed-drawer + selected-room source), and the `StampPreview` wiring into `src/hooks/useStampTool.ts`. `onInstantStamp`/`onInstantStampShape`/`onStampWithNaming` args stay identical (golden master guards `:stamp`).
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: stamp a selected room + an armed drawer stamp, rotate/flip-before-drop, "name each stamp" flow all identical · `verify-feature`.
