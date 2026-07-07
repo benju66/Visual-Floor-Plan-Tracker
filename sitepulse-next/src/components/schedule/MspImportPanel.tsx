@@ -6,7 +6,11 @@ import {
   useAllProjectUnits,
   useAllProjectStatuses,
   useBulkInsertStatusLogs,
+  useUpdateSheetSchedule,
 } from '@/hooks/useProjectQueries';
+import { useScheduleBaselines, useSetScheduleBaseline } from '@/hooks/useScheduleBaselines';
+import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows } from '@/utils/scheduleBaseline';
+import { isScheduleBaselineSnapshot } from '@/types/domain';
 import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
 import { useActivityScopes } from '@/hooks/useActivityScopes';
 import { activeScopeNames } from '@/utils/activityScopes';
@@ -25,7 +29,7 @@ import {
   type TargetUnit,
 } from '@/utils/scheduleReconcile';
 import type { ApplicabilityIndex } from '@/utils/applicability';
-import type { Sheet, Activity, StatusLog, Unit, ActivityDictionaryEntry, ActivityType } from '@/types/domain';
+import type { ActivitySchedules, Sheet, Activity, StatusLog, Unit, ActivityDictionaryEntry, ActivityType } from '@/types/domain';
 
 interface MspImportPanelProps {
   open: boolean;
@@ -35,6 +39,8 @@ interface MspImportPanelProps {
   activities: Activity[];
   applicabilityIndex: ApplicabilityIndex;
   activeSheetId: string;
+  /** Scopes the baseline snapshot/diff + level-window writes (Phase 4). */
+  projectId: string;
   /** Add a missing activity inline (dictionary-backed), so an unmatched task can be
    *  mapped without leaving the importer. Same handler the Activities panel uses. */
   onAddActivity?: (name: string, color: string, track: string, dictionaryId?: string | null) => void;
@@ -69,11 +75,23 @@ export default function MspImportPanel({
   activities,
   applicabilityIndex,
   activeSheetId,
+  projectId,
   onAddActivity,
 }: MspImportPanelProps) {
   const setToast = useUIStore((s) => s.setToast);
   const queryClient = useQueryClient();
   const bulkInsert = useBulkInsertStatusLogs(activeSheetId);
+  // Baselines + Layer-1 anchoring (Unified Schedule Engine Phase 4).
+  const { data: baselines = [] } = useScheduleBaselines(open ? projectId : '');
+  const setBaseline = useSetScheduleBaseline(projectId);
+  const updateSheetSchedule = useUpdateSheetSchedule(projectId);
+  // Newest baseline, narrowed at the boundary — a malformed snapshot degrades to
+  // "no baseline" rather than a crash.
+  const latestSnapshot = useMemo(() => {
+    const latest = baselines[0];
+    if (!latest) return null;
+    return isScheduleBaselineSnapshot(latest.snapshot) ? { row: latest, snap: latest.snapshot } : null;
+  }, [baselines]);
   const { data: dictionary = [] } = useActivityDictionary();
   const { data: managedScopes = [] } = useActivityScopes();
   const proposePendingActivity = useProposePendingActivity();
@@ -220,11 +238,58 @@ export default function MspImportPanel({
 
   if (!open) return null;
 
+  // Capture a baseline of the CURRENT plan (both layers) — the reference the
+  // next re-import is diffed against. Append-only; snapping again just adds a
+  // newer baseline.
+  const handleSetBaseline = async () => {
+    try {
+      const snapshot = buildBaselineSnapshot({ sheets, statuses: allStatuses, track: 'all' });
+      await setBaseline.mutateAsync({ name: 'Baseline', track: 'all', snapshot });
+      setToast({ message: 'Baseline captured — the next import will show what moved.', type: 'success' });
+    } catch (err) {
+      setToast({ message: (err as Error)?.message || 'Could not capture the baseline.', type: 'error' });
+    }
+  };
+
+  // The Phase 4 "vs baseline" verdict for one reconciled row (null = nothing to
+  // compare: no baseline yet, no sheet/activity picked, or an All-levels target).
+  const rowDelta = (t: MspTask, row: RowState) => {
+    if (!latestSnapshot || !row.sheetId || row.sheetId === ALL_LEVELS || !row.activityId) return null;
+    const name = activityById.get(row.activityId)?.name;
+    if (!name || (!t.start && !t.finish)) return null;
+    return baselineDelta(latestSnapshot.snap, row.sheetId, name, t.start ?? t.finish ?? null, t.finish ?? t.start ?? null);
+  };
+
   const applyImport = async () => {
     if (plan.writes.length === 0) return;
     setBusy(true);
     try {
       await bulkInsert.mutateAsync(plan.writes as unknown as StatusLog[]);
+      // Anchor-loading (Phase 4): the confirmed task windows ALSO land in
+      // Layer 1 (each target sheet's activity_schedules), so import and manual
+      // entry feed the same level-window engine — and the Phase 3 re-flow's
+      // provenance test recognizes imported dates as plan-owned. "All levels"
+      // rows are skipped (no single level window to anchor).
+      const levelEntries = leaves
+        .filter((t) => {
+          const r = rows[t.uid];
+          return r?.include && r.activityId && r.sheetId && r.sheetId !== ALL_LEVELS;
+        })
+        .map((t) => ({
+          sheetId: rows[t.uid].sheetId as string,
+          activityName: activityById.get(rows[t.uid].activityId as string)?.name ?? '',
+          start: t.start ?? null,
+          finish: t.finish ?? null,
+        }))
+        .filter((e) => e.activityName);
+      const merged = mergeLevelWindows(levelEntries);
+      for (const [sheetId, patch] of Object.entries(merged)) {
+        const sheet = sheets.find((s) => s.id === sheetId);
+        await updateSheetSchedule.mutateAsync({
+          sheetId,
+          activity_schedules: { ...(((sheet?.activity_schedules as ActivitySchedules) ?? {})), ...patch },
+        });
+      }
       // The import can write ACROSS levels; refresh every per-sheet status cache,
       // not just the active one the hook invalidates.
       queryClient.invalidateQueries({ queryKey: ['statuses'] });
@@ -293,6 +358,27 @@ export default function MspImportPanel({
               <b>{parse.projectName || 'Untitled schedule'}</b> · {leaves.length} tasks · {matchedCount} matched automatically
             </span>
           )}
+        </div>
+
+        {/* ── Baseline strip (Phase 4): the reference a re-import is diffed against ── */}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          <Flag size={12} className="shrink-0 text-slate-400" />
+          {latestSnapshot ? (
+            <span>
+              Comparing against <b>{latestSnapshot.row.name}</b> from{' '}
+              {new Date(latestSnapshot.row.created_at).toLocaleDateString()} — changed tasks are flagged below.
+            </span>
+          ) : (
+            <span>No baseline yet — capture one so the next re-import can show what moved.</span>
+          )}
+          <button
+            type="button"
+            disabled={setBaseline.isPending}
+            onClick={handleSetBaseline}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 dark:border-slate-600 text-[11px] font-semibold py-1 px-2 hover:bg-slate-100 dark:hover:bg-white/10 disabled:opacity-50"
+          >
+            {setBaseline.isPending ? 'Capturing…' : latestSnapshot ? 'Set new baseline' : 'Set baseline'}
+          </button>
         </div>
 
         {/* ── First-run explainer (before a file is chosen) ── */}
@@ -382,6 +468,22 @@ export default function MspImportPanel({
                         <div className="text-[10px] text-slate-400">
                           {t.path.length > 0 && <span>{t.path[t.path.length - 1]} · </span>}
                           {dateless ? 'no dates' : `${t.start ?? '—'} → ${t.finish ?? '—'}`}
+                          {(() => {
+                            // Phase 4: how this task's window compares to the baseline.
+                            // Reject a change by unchecking the row — the existing
+                            // include toggle IS the accept/reject control.
+                            const d = rowDelta(t, row);
+                            if (!d) return null;
+                            if (d.kind === 'unchanged') {
+                              return <span className="ml-1.5 font-bold text-emerald-600 dark:text-emerald-400">= baseline</span>;
+                            }
+                            if (d.kind === 'new') {
+                              return <span className="ml-1.5 font-bold text-sky-600 dark:text-sky-400">new vs baseline</span>;
+                            }
+                            const days = d.endShiftDays ?? d.startShiftDays;
+                            const label = days == null ? 'moved' : days > 0 ? `+${days}d` : `${days}d`;
+                            return <span className="ml-1.5 font-bold text-amber-600 dark:text-amber-400">{label} vs baseline</span>;
+                          })()}
                         </div>
                       </td>
                       <td className="py-1.5 pr-2 align-top text-slate-300 dark:text-slate-600"><ArrowRight size={13} /></td>

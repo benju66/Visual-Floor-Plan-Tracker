@@ -60,6 +60,9 @@ export const queryKeys = {
   // project memberships), folded into a plain-JSON frequency model. Keyed globally
   // (not per-project) — learning is cross-project. Warm-cached + best-effort.
   namingVocabulary:   ()                         => ['naming_vocabulary'] as const,
+  // Named, immutable schedule-plan snapshots (Unified Schedule Engine Phase 4).
+  // Project-scoped, newest-first; invalidated by set/delete-baseline mutations.
+  scheduleBaselines:  (projectId: string)        => ['schedule_baselines', projectId] as const,
   // Location Labeling Workbench (Phase 4): the single hidden kind='workbench'
   // container and its drawings. Distinct keys keep workbench reads isolated from
   // every live-project surface (contamination guard — AGENTS.md §2).

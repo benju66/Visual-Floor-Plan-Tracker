@@ -45,6 +45,43 @@ export interface Database {
         }
         Relationships: []
       }
+      schedule_baselines: {
+        Row: {
+          id: string
+          project_id: string
+          name: string
+          track: string
+          snapshot: Json
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          name?: string
+          track?: string
+          snapshot: Json
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          name?: string
+          track?: string
+          snapshot?: Json
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_baselines_project_id_fkey"
+            columns: ["project_id"]
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       lookahead_plans: {
         Row: {
           id: string

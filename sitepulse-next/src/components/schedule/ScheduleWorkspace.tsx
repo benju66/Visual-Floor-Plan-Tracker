@@ -436,6 +436,7 @@ export default function ScheduleWorkspace({
         activities={activities}
         applicabilityIndex={applicabilityIndex}
         activeSheetId={activeSheetId}
+        projectId={projectId}
         onAddActivity={onAddActivity}
       />
 

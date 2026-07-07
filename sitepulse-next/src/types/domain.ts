@@ -66,6 +66,13 @@ export type ActivityDependency = Database['public']['Tables']['activity_dependen
 // by the vendored Look-Ahead module, not this central registry.
 export type LookaheadPlan = Database['public']['Tables']['lookahead_plans']['Row'];
 export type LookaheadPlanInsert = Database['public']['Tables']['lookahead_plans']['Insert'];
+// A named, immutable snapshot of a project's schedule PLAN (Unified Schedule
+// Engine Phase 4): both layers — level×activity windows + per-location planned
+// dates — never progress fields. `snapshot` is JSONB; keep it `Json` here and
+// narrow to `ScheduleBaselineSnapshot` at the query boundary with
+// `isScheduleBaselineSnapshot` (below).
+export type ScheduleBaseline = Database['public']['Tables']['schedule_baselines']['Row'];
+export type ScheduleBaselineInsert = Database['public']['Tables']['schedule_baselines']['Insert'];
 
 // Project Contacts — a shared project-level contact directory (one row per
 // person, grouped by company). Managed in the project Settings menu; later
@@ -274,6 +281,29 @@ export type ScaleCalibration = {
 };
 export type LegendPosition = { pctX: number; pctY: number; scaleX: number; scaleY: number; rotation: number; isVisible: boolean };
 export type ActivityScheduleEntry = { start_date?: string | null; end_date?: string | null };
+
+/** One location's planned window inside a schedule baseline (plan only — no progress fields). */
+export type BaselineLocationWindow = {
+  unit_id: string;
+  activity_id: string;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+};
+
+/**
+ * The `schedule_baselines.snapshot` JSONB payload (Unified Schedule Engine
+ * Phase 4): a versioned, whole-project capture of BOTH schedule layers.
+ * `levels` is Layer 1 (sheetId → activityName → level window, i.e. each sheet's
+ * `activity_schedules` at capture time); `locations` is Layer 2 (per-slot
+ * planned dates from `status_logs`). Deliberately excludes progress fields —
+ * baselines version the PLAN, never field actuals.
+ */
+export type ScheduleBaselineSnapshot = {
+  version: 1;
+  track: string;
+  levels: Record<string, Record<string, ActivityScheduleEntry>>;
+  locations: BaselineLocationWindow[];
+};
 export type ActivitySchedules = Record<string, ActivityScheduleEntry>;
 
 export type UnitWithStatus = Unit & { status_logs?: StatusLog[] };
@@ -337,6 +367,34 @@ export function isScaleCalibration(val: unknown): val is ScaleCalibration {
     (c.preset === null || typeof c.preset === 'string') &&
     typeof c.at === 'string'
   );
+}
+
+/**
+ * Narrows `schedule_baselines.snapshot` JSONB to {@link ScheduleBaselineSnapshot}
+ * at the query boundary (AGENTS.md §6). Null-safe throughout (the
+ * isScaleCalibration posture). Checks the version tag, the container shapes, and
+ * every location entry's field types; the per-level window entries are left to
+ * their optional-field type (objects under `levels` are validated as objects).
+ */
+export function isScheduleBaselineSnapshot(val: unknown): val is ScheduleBaselineSnapshot {
+  if (typeof val !== 'object' || val === null) return false;
+  const s = val as Record<string, unknown>;
+  if (s.version !== 1 || typeof s.track !== 'string') return false;
+  if (typeof s.levels !== 'object' || s.levels === null || Array.isArray(s.levels)) return false;
+  for (const level of Object.values(s.levels as Record<string, unknown>)) {
+    if (typeof level !== 'object' || level === null || Array.isArray(level)) return false;
+  }
+  if (!Array.isArray(s.locations)) return false;
+  return (s.locations as unknown[]).every((l) => {
+    if (typeof l !== 'object' || l === null) return false;
+    const w = l as Record<string, unknown>;
+    return (
+      typeof w.unit_id === 'string' &&
+      typeof w.activity_id === 'string' &&
+      (w.planned_start_date === null || typeof w.planned_start_date === 'string') &&
+      (w.planned_end_date === null || typeof w.planned_end_date === 'string')
+    );
+  });
 }
 
 /**
