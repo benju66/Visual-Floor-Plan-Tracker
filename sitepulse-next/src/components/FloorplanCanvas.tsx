@@ -40,6 +40,7 @@ import { useGeometryGestures } from '@/hooks/useGeometryGestures';
 import { useTraceTool } from '@/hooks/useTraceTool';
 import { useStampTool } from '@/hooks/useStampTool';
 import { useMeasureTools } from '@/hooks/useMeasureTools';
+import { useCanvasKeyboard } from '@/hooks/useCanvasKeyboard';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
 import { useMapStore } from '@/store/useMapStore';
@@ -53,7 +54,6 @@ import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point, Gridline, OpeningEdge, OpeningType } from '@/types/domain';
 import { applicableActivities, isActivityApplicable } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
-import type { ToolMode } from '@/store/useMapStore';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
 
 // Custom cursors for add/remove-node modes — static, so built once at module scope.
@@ -309,7 +309,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   // placed nodes, and snap ring. Handed to LoupeOverlay so the magnifier can
   // composite the in-progress trace on top of its sharp PDF crop (Phase 4).
   const overlayLayerRef = useRef<Konva.Layer | null>(null);
-  const spaceWasPanRef = useRef<ToolMode | null>(null);
+  // (spaceWasPanRef — the tool space-pan restores on release/blur — moved into
+  // useCanvasKeyboard, the only reader — Phase 8.)
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -455,31 +456,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
   const nudgeSelectedRef = useRef<(dx: number, dy: number) => void>(() => {});
   const undoRedoPendingEditRef = useRef<(isRedo: boolean) => void>(() => {});
 
-  // (The window keydown/keyup/blur + container-size effect now sits below the
-  // useTraceTool call, so its draw branches can read that hook's returns —
-  // same seam as the Phase 2/4 callback refs. Phase 8 extracts it wholesale.)
-
-  // Re-measure when the CONTAINER resizes (e.g. dragging the side panel), not just
-  // on window resize. Without this the Stage/layout stay stale after a container
-  // resize, so the floor plan and its markups don't refit until a refresh.
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    let raf = 0;
-    const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const width = el.offsetWidth;
-        const height = el.offsetHeight;
-        setDimensions(prev => (prev.width === width && prev.height === height ? prev : { width, height }));
-      });
-    });
-    ro.observe(el);
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-    };
-  }, []);
+  // (The window keydown/keyup/blur + checkSize/resize effect AND the container
+  // ResizeObserver re-measure — the same container-sizing concern — moved into
+  // useCanvasKeyboard, called below the tool hooks — Phase 8.)
 
   useEffect(() => {
     // (The matching leave-`draw` draft reset moved into useTraceTool — Phase 5.)
@@ -720,200 +699,51 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     onToolModeChange,
   });
 
-  // Window-level keyboard shortcuts + container sizing (checkSize/resize).
-  // Deliberately AFTER the tool hooks so the draw branches can consume
-  // useTraceTool's returns directly (same seam as the Phase 2/4 callback
-  // refs) — Phase 8 extracts this whole effect into useCanvasKeyboard.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isInputActive = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
-
-      if (e.key === 'Shift') setIsShiftDown(true);
-
-      if (e.key === 'Escape') {
-        setIsLegendSelected(false);
-        if (!isInputActive) {
-          if (magnifierActiveRef.current) {
-            // Escape dismisses the magnifier first — one transient layer at a
-            // time, like the draft/tool backout below. A second Escape then
-            // clears the draft, a third returns to pan. Mirrors the M toggle.
-            e.stopImmediatePropagation();
-            useSettingsStore.getState().setMapSettings({ showMagnifier: false });
-          } else if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
-            e.stopImmediatePropagation();
-            clearDraft();
-          } else if (toolMode === 'capture_line' && boxOriginRef.current) {
-            // Cancel a half-placed grid axis (start node dropped, no end yet) but stay
-            // in capture mode so the next click can re-place it.
-            e.stopImmediatePropagation();
-            setBoxOrigin(null);
-          } else if (toolMode === 'calibrate' && (calibratePointsRef.current.length > 0 || calibratePromptRef.current)) {
-            // Back out a half-placed / awaiting-length calibration line but stay in
-            // calibrate mode so the next click starts a fresh line. The reset body
-            // lives in useMeasureTools.cancelCalibrate.
-            e.stopImmediatePropagation();
-            cancelCalibrate();
-          } else if (toolMode === 'measure' && measurePointsRef.current.length > 0) {
-            // Clear the current measurement run but stay in measure mode; a second Esc
-            // (no points left) falls through to return to pan. The reset body lives in
-            // useMeasureTools.clearMeasureRun.
-            e.stopImmediatePropagation();
-            clearMeasureRun();
-          } else if (isEditingPendingRef.current) {
-            // Drawing Tool Excellence — Phase 1. A freshly-traced polygon is open for
-            // naming. Esc must NOT fall through to the tool backout below: switching to
-            // 'pan' here would strand the pending polygon + naming popover in a half-live
-            // state. When the naming input has focus (the default on open) the popover's
-            // own Esc handler already cancels; this branch just makes Esc a safe no-op
-            // when focus is elsewhere instead of a confusing tool switch.
-          } else if (toolMode !== 'pan') {
-            onToolModeChange('pan');
-          }
-        }
-      }
-
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedUnitIdsRef.current && selectedUnitIdsRef.current.length > 0 && !isInputActive) {
-        e.preventDefault();
-        const currentLayout = layoutRef.current;
-
-        if (currentLayout && currentLayout.drawW && currentLayout.drawH) {
-          const nudgePx = 1;
-          const dx = e.key === 'ArrowLeft' ? -nudgePx / currentLayout.drawW : e.key === 'ArrowRight' ? nudgePx / currentLayout.drawW : 0;
-          const dy = e.key === 'ArrowUp' ? -nudgePx / currentLayout.drawH : e.key === 'ArrowDown' ? nudgePx / currentLayout.drawH : 0;
-
-          // The per-unit map + persist live in useGeometryGestures.nudgeSelected.
-          nudgeSelectedRef.current(dx, dy);
-        }
-      }
-
-      // Drawing Tool Excellence — Phase 3. While a freshly-traced polygon is open for
-      // naming, Ctrl/Cmd+Z steps back through this session's local edit history and
-      // Ctrl/Cmd+Shift+Z re-applies — entirely separate from the DB-backed saved-unit
-      // undo. Gated on `isEditingPendingRef` so it takes priority over the draft-vertex
-      // undo below; `stopImmediatePropagation` keeps it from also tripping that or the
-      // parent's saved-unit `useUndoRedo`. Skipped while a text input is focused so
-      // Ctrl+Z inside the name field still does native text undo (not geometry undo).
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && isEditingPendingRef.current && !isInputActive) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        // History step + replay live in useGeometryGestures.undoRedoPendingEdit.
-        undoRedoPendingEditRef.current(e.shiftKey);
-        return;
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
-        if (toolMode === 'draw' && draftPointsRef.current.length > 0) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          // Vertex pop + stale opening-tag prune live in useTraceTool.undoLastDraftVertex.
-          undoLastDraftVertex();
-        }
-      }
-
-      if (toolMode === 'draw' && e.key === 'Enter') {
-        if (!isInputActive && draftPointsRef.current.length > 2) {
-          e.stopImmediatePropagation();
-          // The :draw-enter guard + completion + draft clear live in
-          // useTraceTool.finishDrawingViaEnter.
-          finishDrawingViaEnter();
-        }
-      }
-
-      // --- Phase 2 Keyboard Shortcuts ---
-      if (!isInputActive && !(e.metaKey || e.ctrlKey)) {
-        // Space held = temporary pan (like Figma/Photoshop)
-        if (e.key === ' ' && !spaceWasPanRef.current) {
-          e.preventDefault();
-          spaceWasPanRef.current = toolMode as ToolMode;
-          onToolModeChange('pan');
-        }
-
-        // Number keys for quick tool access
-        if (e.key === '1') onToolModeChange('select');
-        if (e.key === '2') onToolModeChange('pan');
-        if (e.key === '3') onToolModeChange('draw');
-
-        // Stamp & Fast Markup — Phase 1: rotate/flip the ghost before dropping. Gated to
-        // stamp mode so these stay free elsewhere (R = rotate CW, Shift+R = rotate CCW,
-        // H = flip horizontal, V = flip vertical; NOT F, which is "fit selection").
-        if (toolMode === 'stamp') {
-          const k = e.key.toLowerCase();
-          if (k === 'r') { e.preventDefault(); rotateStamp(e.shiftKey ? 'left' : 'right'); }
-          else if (k === 'h') { e.preventDefault(); flipStamp('horizontal'); }
-          else if (k === 'v') { e.preventDefault(); flipStamp('vertical'); }
-        }
-
-        // M = toggle the magnifier loupe on/off (unified with the toolbar button).
-        // The `e.repeat` guard means holding the key flips it once, not every frame.
-        if (e.key.toLowerCase() === 'm' && !e.repeat) {
-          const cur = useSettingsStore.getState().mapSettings.showMagnifier;
-          useSettingsStore.getState().setMapSettings({ showMagnifier: !cur });
-        }
-
-        // While the loupe is up, [ and ] adjust its magnification (2×–8×),
-        // Photoshop-style. The live "N×" readout in the lens gives feedback.
-        if (magnifierActiveRef.current && (e.key === '[' || e.key === ']')) {
-          e.preventDefault();
-          const next = Math.min(8, Math.max(2, (magnifierZoomRef.current || 3) + (e.key === ']' ? 1 : -1)));
-          useSettingsStore.getState().setMapSettings({ magnifierZoom: next });
-        }
-
-        // +/- for zoom (via ref to avoid block-scoped variable error)
-        if (e.key === '=' || e.key === '+') handleZoomRef.current(1);
-        if (e.key === '-' || e.key === '_') handleZoomRef.current(-1);
-
-        // 0 or Home = fit to view
-        if (e.key === '0' || e.key === 'Home') resetViewRef.current();
-
-        // F = fit selection to screen
-        if (e.key === 'f' && selectedUnitIdsRef.current?.length > 0) {
-          zoomToFitRef.current(selectedUnitIdsRef.current[0]);
-        }
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setIsShiftDown(false);
-      // Release space = return to previous tool
-      if (e.key === ' ' && spaceWasPanRef.current) {
-        onToolModeChange(spaceWasPanRef.current);
-        spaceWasPanRef.current = null;
-      }
-    };
-
-    // Safety: if user holds Space and switches windows, keyup never fires.
-    // Reset the temporary pan state on window blur.
-    const handleBlur = () => {
-      if (spaceWasPanRef.current) {
-        onToolModeChange(spaceWasPanRef.current);
-        spaceWasPanRef.current = null;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    window.addEventListener('keyup', handleKeyUp, true);
-    window.addEventListener('blur', handleBlur);
-
-    const checkSize = () => {
-      if (containerRef.current) {
-        setDimensions({
-          width: containerRef.current.offsetWidth,
-          height: containerRef.current.offsetHeight,
-        });
-      }
-    };
-
-    checkSize();
-    const timeouts = [100, 500, 1000].map((t) => setTimeout(checkSize, t));
-
-    window.addEventListener('resize', checkSize);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown, true);
-      window.removeEventListener('keyup', handleKeyUp, true);
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('resize', checkSize);
-      timeouts.forEach(clearTimeout);
-    };
-  }, [imageUrl, toolMode, onPolygonComplete, onToolModeChange]);
+  // Window-level keyboard shortcuts + container sizing (FloorplanCanvas
+  // Decomposition — Phase 8): the capture-phase keydown/keyup + blur listeners
+  // (Esc backout ladder, Shift tracking, arrow-nudge, both Ctrl/Cmd+Z branches,
+  // draw-Enter, space-pan, 1/2/3, stamp R/H/V, magnifier M + [ ], +/- zoom,
+  // 0/Home reset, F-fit), the checkSize/resize re-measure with its settle
+  // timeouts, and the container ResizeObserver (the HiDPI pixel-ratio effect
+  // stays above). Deliberately AFTER the tool hooks — its branches consume
+  // their returns directly. Everything it reads live goes in as refs, which
+  // stay owned + synced by this component (the callback refs per-render next
+  // to computedCursor); the state it writes (isShiftDown, dimensions,
+  // boxOrigin, isLegendSelected) stays here — the hook takes the setters.
+  // The effect's dep array is unchanged inside the hook.
+  useCanvasKeyboard({
+    imageUrl,
+    toolMode,
+    onPolygonComplete,
+    onToolModeChange,
+    setIsShiftDown,
+    setIsLegendSelected,
+    setBoxOrigin,
+    setDimensions,
+    containerRef,
+    magnifierActiveRef,
+    magnifierZoomRef,
+    boxOriginRef,
+    isEditingPendingRef,
+    selectedUnitIdsRef,
+    layoutRef,
+    handleZoomRef,
+    resetViewRef,
+    zoomToFitRef,
+    nudgeSelectedRef,
+    undoRedoPendingEditRef,
+    draftPointsRef,
+    clearDraft,
+    undoLastDraftVertex,
+    finishDrawingViaEnter,
+    rotateStamp,
+    flipStamp,
+    calibratePointsRef,
+    calibratePromptRef,
+    cancelCalibrate,
+    measurePointsRef,
+    clearMeasureRun,
+  });
 
   const visibleBoundingBox = useMemo(
     () => computeVisibleBox(layout, stagePosition, stageScale, dimensions),
