@@ -5,6 +5,8 @@ import {
   isValidViewMode,
   isMobileView,
   resolveInitialView,
+  controlVisibility,
+  type ControlVisibility,
 } from './viewRouting';
 
 describe('VIEW_MODES / isValidViewMode', () => {
@@ -94,5 +96,40 @@ describe('resolveInitialView — precedence table', () => {
     expect(
       resolveInitialView({ urlParam: null, isMobile: false, defaultViewMode: 'dashboard', mobileAllowed: ['list'] })
     ).toBe('dashboard');
+  });
+});
+
+describe('controlVisibility — the owner-confirmed per-view matrix (locked 2026-07-06)', () => {
+  // The matrix, cell by cell, exactly as recorded in the Navigation plan.
+  const MATRIX: Array<[string, ControlVisibility]> = [
+    ['dashboard', { level: false, scope: true, activities: false, export: false, levelAdmin: true }],
+    ['list', { level: true, scope: true, activities: true, export: false, levelAdmin: true }],
+    ['schedule', { level: true, scope: true, activities: false, export: false, levelAdmin: true }],
+    ['map', { level: true, scope: true, activities: true, export: true, levelAdmin: true }],
+    ['lookahead', { level: false, scope: false, activities: false, export: false, levelAdmin: true }],
+  ];
+
+  it.each(MATRIX)('%s shows exactly its matrix row', (mode, expected) => {
+    expect(controlVisibility(mode)).toEqual(expected);
+  });
+
+  it('covers every canonical view mode', () => {
+    expect(MATRIX.map(([mode]) => mode)).toEqual([...VIEW_MODES]);
+  });
+
+  it('Add/Manage Levels stays visible in every view', () => {
+    for (const mode of VIEW_MODES) expect(controlVisibility(mode).levelAdmin).toBe(true);
+  });
+
+  it('Export is map-only (TopHeader additionally gates on base_image_url)', () => {
+    for (const mode of VIEW_MODES) expect(controlVisibility(mode).export).toBe(mode === 'map');
+  });
+
+  it('an unknown or missing mode shows everything (pre-Phase-3 fallback, never hides on bad input)', () => {
+    const allVisible = { level: true, scope: true, activities: true, export: true, levelAdmin: true };
+    expect(controlVisibility('bogus')).toEqual(allVisible);
+    expect(controlVisibility('')).toEqual(allVisible);
+    expect(controlVisibility(null)).toEqual(allVisible);
+    expect(controlVisibility(undefined)).toEqual(allVisible);
   });
 });

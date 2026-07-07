@@ -53,3 +53,44 @@ export function resolveInitialView({
   if (isMobile && !mobileAllowed.includes(fallback)) return 'list';
   return fallback;
 }
+
+// ── Per-view control matrix (Navigation & Per-View Header plan, Phase 3) ──
+
+/** Which TopHeader controls the current view actually uses (true = show). */
+export interface ControlVisibility {
+  /** Level selector (`activeSheetId` dropdown). */
+  level: boolean;
+  /** Scope/Track tabs. */
+  scope: boolean;
+  /** Activities filter button (the plan's pre-rename "Milestones" button). */
+  activities: boolean;
+  /** Export PDF button. Map-only here; TopHeader ALSO keeps its existing
+   *  `activeSheet?.base_image_url` gate on top of this flag. */
+  export: boolean;
+  /** Add / Manage Levels buttons. */
+  levelAdmin: boolean;
+}
+
+/**
+ * The owner-confirmed matrix (all cells locked 2026-07-06): Dashboard hides the
+ * Level selector + Activities button; Schedule hides the Activities button +
+ * Export; Look-Ahead hides the Level selector + Scope tabs. The Dashboard's
+ * Scope tabs stay but are re-sourced from project-level tracks (see TopHeader).
+ */
+const CONTROL_MATRIX: Record<ViewMode, ControlVisibility> = {
+  dashboard: { level: false, scope: true, activities: false, export: false, levelAdmin: true },
+  list: { level: true, scope: true, activities: true, export: false, levelAdmin: true },
+  schedule: { level: true, scope: true, activities: false, export: false, levelAdmin: true },
+  map: { level: true, scope: true, activities: true, export: true, levelAdmin: true },
+  lookahead: { level: false, scope: false, activities: false, export: false, levelAdmin: true },
+};
+
+/** Everything shown — the safe fallback for an unknown/invalid mode (matches the
+ *  pre-Phase-3 unconditional header rather than hiding controls on bad input). */
+const ALL_CONTROLS_VISIBLE: ControlVisibility = {
+  level: true, scope: true, activities: true, export: true, levelAdmin: true,
+};
+
+export function controlVisibility(viewMode: string | null | undefined): ControlVisibility {
+  return isValidViewMode(viewMode) ? CONTROL_MATRIX[viewMode] : ALL_CONTROLS_VISIBLE;
+}

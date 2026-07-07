@@ -287,8 +287,23 @@ function App() {
     return () => clearTimeout(timer);
   }, [sheets, activeSheetId]);
 
-  // Auto-select valid tracking mode if the active sheet changes and doesn't contain it
+  // Project-level track list (deduped, in activity order) — the Dashboard's Scope
+  // tabs list these instead of the active sheet's scopes (Nav plan Phase 3).
+  const projectTracks = useMemo(
+    () => [...new Set(activities.map(a => a.track).filter(Boolean))],
+    [activities]
+  );
+
+  // Auto-select valid tracking mode if the active sheet changes and doesn't contain it.
+  // On the Dashboard the clamp targets the PROJECT track set instead — the sheet-scope
+  // clamp must not clobber a project-level track pick (Nav plan Phase 3).
   useEffect(() => {
+    if (viewMode === 'dashboard') {
+      if (projectTracks.length > 0 && !projectTracks.includes(trackingMode)) {
+        setTrackingMode(projectTracks[0]);
+      }
+      return;
+    }
     // active_scopes is JSONB (typed Json); narrow it to string[] at the boundary (§6).
     const scopes = activeSheet?.active_scopes;
     if (isStringArray(scopes) && scopes.length > 0) {
@@ -296,7 +311,7 @@ function App() {
         setTrackingMode(scopes[0]);
       }
     }
-  }, [activeSheet, trackingMode, setTrackingMode]);
+  }, [activeSheet, trackingMode, setTrackingMode, viewMode, projectTracks]);
 
   const {
     undoStack, triggerUndo, triggerRedo, redoStack,
@@ -568,6 +583,7 @@ function App() {
         setTrackingMode={setTrackingMode}
         viewMode={viewMode}
         navigateToView={navigateToView}
+        projectTracks={projectTracks}
         activeSheet={activeSheet}
         exportToPDF={exportToPDF}
         setIsSettingsOpen={setIsSettingsOpen}
