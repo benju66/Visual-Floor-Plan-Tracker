@@ -13,6 +13,7 @@ import {
   buildScheduleRows,
   clampEndAfterStart,
   checkDependencies,
+  deriveDuration,
   cascadeLevelToLocations,
   type BuildScheduleRowsParams,
 } from '@/utils/ganttMath';
@@ -23,12 +24,15 @@ const TODAY = day('2026-06-15'); // a Monday
 
 const mkUnit = (
   id: string,
-  unit_type: string | null = 'Apartment'
-): Pick<Unit, 'id' | 'unit_number' | 'unit_type' | 'sheet_id'> => ({
+  unit_type: string | null = 'Apartment',
+  crewFlow: { walk_sequence?: number | null; computed_area?: number | null } = {}
+): Pick<Unit, 'id' | 'unit_number' | 'unit_type' | 'sheet_id' | 'walk_sequence' | 'computed_area'> => ({
   id,
   unit_number: id,
   unit_type,
   sheet_id: 'sheet1',
+  walk_sequence: crewFlow.walk_sequence ?? null,
+  computed_area: crewFlow.computed_area ?? null,
 });
 
 const mkMs = (name: string, sequence_order: number, color = '#111'): Activity => ({
@@ -232,5 +236,139 @@ describe('cascadeLevelToLocations', () => {
     const u1Framing = writes.find(w => w.activity_id === 'm_Framing' && w.unit_id === 'u1');
     expect(u1Framing?.planned_start_date).toBe('2026-07-01'); // overwritten
     expect(u1Framing?.temporal_state).toBe('planned'); // prior state preserved
+  });
+});
+
+describe('deriveDuration', () => {
+  it('counts inclusive days (a same-day window is 1 day)', () => {
+    expect(deriveDuration('2026-07-01', '2026-07-10')).toBe(10);
+    expect(deriveDuration('2026-07-01', '2026-07-01')).toBe(1);
+  });
+  it('is null when either date is missing or unparseable', () => {
+    expect(deriveDuration(null, '2026-07-10')).toBeNull();
+    expect(deriveDuration('2026-07-01', null)).toBeNull();
+    expect(deriveDuration(undefined, undefined)).toBeNull();
+    expect(deriveDuration('not-a-date', '2026-07-10')).toBeNull();
+  });
+  it('normalizes a reversed window (matches what the cascade would write)', () => {
+    expect(deriveDuration('2026-07-10', '2026-07-01')).toBe(10);
+  });
+});
+
+describe('cascadeLevelToLocations — flowMode: subdivide (crew-flow stagger)', () => {
+  const activities = [mkMs('Drywall', 0, '#0f0')];
+  const levelSchedule = { Drywall: { start_date: '2026-07-01', end_date: '2026-07-10' } };
+
+  it('staggers the window into contiguous per-location slices in unit-number order', () => {
+    const units = [mkUnit('u1'), mkUnit('u2'), mkUnit('u3')];
+    const writes = cascadeLevelToLocations({
+      levelSchedule, units, activities, track: 'Construction', existing: [], flowMode: 'subdivide',
+    });
+    expect(writes).toHaveLength(3);
+    // 10 days over 3 even units: boundaries at round(10/3)=3, round(20/3)=7, last pinned to 10.
+    const byUnit = Object.fromEntries(writes.map(w => [w.unit_id, w]));
+    expect([byUnit.u1.planned_start_date, byUnit.u1.planned_end_date]).toEqual(['2026-07-01', '2026-07-03']);
+    expect([byUnit.u2.planned_start_date, byUnit.u2.planned_end_date]).toEqual(['2026-07-04', '2026-07-07']);
+    expect([byUnit.u3.planned_start_date, byUnit.u3.planned_end_date]).toEqual(['2026-07-08', '2026-07-10']);
+  });
+
+  it('orders by walk_sequence when set (crew flow beats unit number)', () => {
+    const units = [
+      mkUnit('u1', 'Apartment', { walk_sequence: 3 }),
+      mkUnit('u2', 'Apartment', { walk_sequence: 1 }),
+      mkUnit('u3', 'Apartment', { walk_sequence: 2 }),
+    ];
+    const writes = cascadeLevelToLocations({
+      levelSchedule, units, activities, track: 'Construction', existing: [], flowMode: 'subdivide',
+    });
+    const byUnit = Object.fromEntries(writes.map(w => [w.unit_id, w]));
+    expect(byUnit.u2.planned_start_date).toBe('2026-07-01'); // walks first
+    expect(byUnit.u1.planned_end_date).toBe('2026-07-10'); // walks last
+  });
+
+  it('a hand-dated location still consumes its slice of the walk but is not written (unless override)', () => {
+    const units = [mkUnit('u1'), mkUnit('u2'), mkUnit('u3')];
+    const existing = [
+      mkLog({ unit_id: 'u2', activityName: 'Drywall', temporal_state: 'planned', planned_start_date: '2026-06-01', planned_end_date: '2026-06-02' }),
+    ];
+    const writes = cascadeLevelToLocations({
+      levelSchedule, units, activities, track: 'Construction', existing, flowMode: 'subdivide',
+    });
+    // u2 skipped at write time, but u3 keeps the THIRD slice (u2's slice is not redistributed).
+    expect(writes.map(w => w.unit_id).sort()).toEqual(['u1', 'u3']);
+    const u3 = writes.find(w => w.unit_id === 'u3');
+    expect([u3?.planned_start_date, u3?.planned_end_date]).toEqual(['2026-07-08', '2026-07-10']);
+
+    const overridden = cascadeLevelToLocations({
+      levelSchedule, units, activities, track: 'Construction', existing, flowMode: 'subdivide', overrideExisting: true,
+    });
+    expect(overridden).toHaveLength(3);
+    const u2 = overridden.find(w => w.unit_id === 'u2');
+    expect([u2?.planned_start_date, u2?.planned_end_date]).toEqual(['2026-07-04', '2026-07-07']);
+  });
+
+  it('excludes N/A locations from the subdivision entirely (window splits across the rest)', () => {
+    const units = [mkUnit('u1'), mkUnit('u2'), mkUnit('u3')];
+    const index: ApplicabilityIndex = { rules: {}, overrides: { 'm_Drywall_u2': false } };
+    const writes = cascadeLevelToLocations({
+      levelSchedule, units, activities, track: 'Construction', existing: [], flowMode: 'subdivide', applicabilityIndex: index,
+    });
+    expect(writes.map(w => w.unit_id).sort()).toEqual(['u1', 'u3']);
+    // 10 days over TWO units: u1 gets days 1-5, u3 gets days 6-10.
+    const byUnit = Object.fromEntries(writes.map(w => [w.unit_id, w]));
+    expect([byUnit.u1.planned_start_date, byUnit.u1.planned_end_date]).toEqual(['2026-07-01', '2026-07-05']);
+    expect([byUnit.u3.planned_start_date, byUnit.u3.planned_end_date]).toEqual(['2026-07-06', '2026-07-10']);
+  });
+
+  it('area-weights the slices only when EVERY unit has a positive computed_area', () => {
+    const units = [
+      mkUnit('u1', 'Apartment', { computed_area: 300 }),
+      mkUnit('u2', 'Apartment', { computed_area: 100 }),
+    ];
+    const writes = cascadeLevelToLocations({
+      levelSchedule, units, activities, track: 'Construction', existing: [], flowMode: 'subdivide',
+    });
+    const byUnit = Object.fromEntries(writes.map(w => [w.unit_id, w]));
+    // 10 days, 3:1 weights -> boundary round(7.5)=8: u1 days 1-8, u2 days 9-10.
+    expect([byUnit.u1.planned_start_date, byUnit.u1.planned_end_date]).toEqual(['2026-07-01', '2026-07-08']);
+    expect([byUnit.u2.planned_start_date, byUnit.u2.planned_end_date]).toEqual(['2026-07-09', '2026-07-10']);
+  });
+
+  it('coalesces a one-sided window to a same-day window (the importer precedent)', () => {
+    const units = [mkUnit('u1'), mkUnit('u2')];
+    const writes = cascadeLevelToLocations({
+      levelSchedule: { Drywall: { start_date: '2026-07-01' } },
+      units, activities, track: 'Construction', existing: [], flowMode: 'subdivide',
+    });
+    expect(writes).toHaveLength(2);
+    for (const w of writes) {
+      expect(w.planned_start_date).toBe('2026-07-01');
+      expect(w.planned_end_date).toBe('2026-07-01');
+    }
+  });
+
+  it('preserves progress fields on the staggered path (never resets a location)', () => {
+    const units = [mkUnit('u1'), mkUnit('u2')];
+    const existing = [
+      mkLog({ unit_id: 'u1', activityName: 'Drywall', temporal_state: 'ongoing', logged_date: '2026-06-05', status_color: '#zzz' }),
+    ];
+    const writes = cascadeLevelToLocations({
+      levelSchedule, units, activities, track: 'Construction', existing, flowMode: 'subdivide',
+    });
+    const u1 = writes.find(w => w.unit_id === 'u1');
+    expect(u1?.temporal_state).toBe('ongoing');
+    expect(u1?.logged_date).toBe('2026-06-05');
+    expect(u1?.status_color).toBe('#zzz');
+  });
+
+  it('default flowMode stays envelope (pre-Phase-1 behavior unchanged)', () => {
+    const units = [mkUnit('u1'), mkUnit('u2')];
+    const writes = cascadeLevelToLocations({
+      levelSchedule, units, activities, track: 'Construction', existing: [],
+    });
+    for (const w of writes) {
+      expect(w.planned_start_date).toBe('2026-07-01');
+      expect(w.planned_end_date).toBe('2026-07-10');
+    }
   });
 });

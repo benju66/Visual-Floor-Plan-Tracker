@@ -6,6 +6,12 @@ import {
   EMPTY_APPLICABILITY_INDEX,
   type ApplicabilityIndex,
 } from '@/utils/applicability';
+// Deliberate (safe) import cycle: scheduleReconcile imports addDays/toDayString
+// from this module. Both sides are hoisted `export function` declarations used
+// only at call time, so module evaluation order cannot bite. The crew-flow
+// subdivision engine lives THERE (the importer built it first); the cascade
+// delegates to it rather than forking (Unified Schedule Engine Phase 1).
+import { subdivideTaskWindow, type DistributionMode, type TargetUnit } from '@/utils/scheduleReconcile';
 
 /**
  * ganttMath — framework-free, deterministic geometry + row-model + cascade math
@@ -299,6 +305,24 @@ export function clampEndAfterStart(
   return { start, end };
 }
 
+/**
+ * Inclusive day count of a planned window ('YYYY-MM-DD' strings) — the DERIVED
+ * duration the Unified Schedule Engine shows next to date inputs. Duration is
+ * never stored or typed anywhere: end − start IS the duration (owner decision,
+ * 2026-07-06). Null when either date is missing or unparseable. A reversed
+ * window is normalized (min..max) so the shown duration always matches what the
+ * cascade/subdivision would actually write.
+ */
+export function deriveDuration(
+  start: string | null | undefined,
+  end: string | null | undefined
+): number | null {
+  const s = parseDay(start);
+  const e = parseDay(end);
+  if (!s || !e) return null;
+  return Math.abs(dayDiff(s, e)) + 1;
+}
+
 export interface DependencyIssue {
   activityName: string;
   /** The earlier activity whose planned end this bar starts before. */
@@ -337,7 +361,12 @@ export function checkDependencies(bars: GanttBarModel[]): DependencyIssue[] {
 export interface CascadeParams {
   /** sheets.activity_schedules — per-activity-name level default dates. */
   levelSchedule: ActivitySchedules;
-  units: Pick<Unit, 'id' | 'unit_type'>[];
+  /**
+   * The level's locations. The crew-flow fields (walk_sequence / unit_number /
+   * computed_area) drive 'subdivide' ordering + weighting; 'envelope' only
+   * reads id + unit_type.
+   */
+  units: TargetUnit[];
   activities: Activity[];
   track: string;
   /** Existing current-state logs (any track; filtered internally). */
@@ -345,6 +374,15 @@ export interface CascadeParams {
   /** When false (default), units that already have their own planned dates are skipped. */
   overrideExisting?: boolean;
   applicabilityIndex?: ApplicabilityIndex;
+  /**
+   * How a level window lands on the locations (Unified Schedule Engine
+   * Phase 1): 'envelope' (default — today's behavior, every location gets the
+   * full window) or 'subdivide' (the window staggers across the locations in
+   * crew-flow order via `subdivideTaskWindow` — the same engine the MS Project
+   * importer uses; area-weighted only when every unit has a positive
+   * computed_area, else even).
+   */
+  flowMode?: DistributionMode;
 }
 
 /**
@@ -353,6 +391,11 @@ export interface CascadeParams {
  * for an activity keeps it (unless `overrideExisting`). N/A slots are skipped.
  * Existing temporal_state / logged_date / status_color are preserved so a
  * cascade never resets a unit's progress — it only sets the planned window.
+ *
+ * 'subdivide' mirrors the importer's `buildImportWrites` exactly: a one-sided
+ * window coalesces to a same-day window, and the window is subdivided across
+ * ALL applicable locations — a hand-dated location still consumes its slice of
+ * the crew's walk — with the non-destructive skip applied at write time.
  */
 export function cascadeLevelToLocations({
   levelSchedule,
@@ -362,6 +405,7 @@ export function cascadeLevelToLocations({
   existing,
   overrideExisting = false,
   applicabilityIndex = EMPTY_APPLICABILITY_INDEX,
+  flowMode = 'envelope',
 }: CascadeParams): StatusLogInsert[] {
   const trackActivities = orderedTrackActivities(activities, track);
   const existingByKey = new Map<string, StatusLike>();
@@ -377,6 +421,32 @@ export function cascadeLevelToLocations({
     const start = entry.start_date ?? null;
     const end = entry.end_date ?? null;
     if (!start && !end) continue;
+
+    if (flowMode === 'subdivide') {
+      const applicable = units.filter((u) => isActivityApplicable(a, u, applicabilityIndex));
+      const { windows } = subdivideTaskWindow(
+        (start ?? end) as string,
+        (end ?? start) as string,
+        applicable,
+        'subdivide'
+      );
+      for (const w of windows) {
+        const prior = existingByKey.get(`${w.unitId}_${a.name}`);
+        const hasOwnDates = !!(prior?.planned_start_date || prior?.planned_end_date);
+        if (hasOwnDates && !overrideExisting) continue;
+        out.push({
+          unit_id: w.unitId,
+          track,
+          activity_id: a.id,
+          status_color: prior?.status_color || a.color,
+          temporal_state: prior?.temporal_state || 'planned',
+          planned_start_date: w.start,
+          planned_end_date: w.end,
+          logged_date: prior?.logged_date ?? null,
+        });
+      }
+      continue;
+    }
 
     for (const unit of units) {
       if (!isActivityApplicable(a, unit, applicabilityIndex)) continue;

@@ -4,7 +4,8 @@ import { X, ArrowDownToLine, Save } from 'lucide-react';
 import { useUpdateSheetSchedule, useBulkInsertStatusLogs } from '@/hooks/useProjectQueries';
 import { useUIStore } from '@/store/useUIStore';
 import { orderedTrackActivities } from '@/utils/progressAnalytics';
-import { cascadeLevelToLocations } from '@/utils/ganttMath';
+import { cascadeLevelToLocations, deriveDuration } from '@/utils/ganttMath';
+import type { DistributionMode } from '@/utils/scheduleReconcile';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Sheet, Activity, Unit, StatusLog, ActivitySchedules } from '@/types/domain';
 
@@ -45,6 +46,10 @@ export default function CascadePanel({
 
   const [draft, setDraft] = useState<ActivitySchedules>({});
   const [overrideExisting, setOverrideExisting] = useState(false);
+  // Unified Schedule Engine Phase 1: how the level window lands on locations.
+  // 'subdivide' = crew-flow stagger (default, mirroring the importer's default);
+  // 'envelope' = the pre-Phase-1 behavior (same window everywhere).
+  const [flowMode, setFlowMode] = useState<DistributionMode>('subdivide');
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -54,6 +59,7 @@ export default function CascadePanel({
     setDraft(((sheet.activity_schedules as ActivitySchedules) || {}) as ActivitySchedules);
     setConfirming(false);
     setOverrideExisting(false);
+    setFlowMode('subdivide');
   }, [open, sheet]);
 
   const trackMs = useMemo(() => orderedTrackActivities(activities, track), [activities, track]);
@@ -62,14 +68,23 @@ export default function CascadePanel({
     if (!sheet) return [];
     return cascadeLevelToLocations({
       levelSchedule: draft,
-      units: units.map((u) => ({ id: u.id, unit_type: u.unit_type })),
+      // Crew-flow fields ride along so 'subdivide' can order (walk_sequence →
+      // numeric unit_number) and weight (computed_area) the stagger.
+      units: units.map((u) => ({
+        id: u.id,
+        unit_type: u.unit_type,
+        unit_number: u.unit_number,
+        walk_sequence: u.walk_sequence,
+        computed_area: u.computed_area,
+      })),
       activities,
       track,
       existing,
       overrideExisting,
       applicabilityIndex,
+      flowMode,
     });
-  }, [sheet, draft, units, activities, track, existing, overrideExisting, applicabilityIndex]);
+  }, [sheet, draft, units, activities, track, existing, overrideExisting, applicabilityIndex, flowMode]);
 
   const affectedUnits = useMemo(() => new Set(writes.map((w) => w.unit_id)).size, [writes]);
 
@@ -129,11 +144,13 @@ export default function CascadePanel({
                   <th className="py-1.5 font-semibold">Activity</th>
                   <th className="py-1.5 font-semibold">Start</th>
                   <th className="py-1.5 font-semibold">End</th>
+                  <th className="py-1.5 font-semibold pl-2">Duration</th>
                 </tr>
               </thead>
               <tbody>
                 {trackMs.map((m) => {
                   const entry = draft[m.name] || {};
+                  const duration = deriveDuration(entry.start_date, entry.end_date);
                   return (
                     <tr key={m.id} className="border-t border-slate-100 dark:border-white/5">
                       <td className="py-1.5 pr-3">
@@ -148,6 +165,10 @@ export default function CascadePanel({
                       <td className="py-1.5">
                         <input type="date" value={entry.end_date || ''} onChange={(e) => updateDraft(m.name, 'end_date', e.target.value)} className={inputCls} />
                       </td>
+                      {/* Derived, never typed: end − start IS the duration (inclusive days). */}
+                      <td className="py-1.5 pl-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
+                        {duration != null ? `${duration} day${duration === 1 ? '' : 's'}` : '—'}
+                      </td>
                     </tr>
                   );
                 })}
@@ -158,6 +179,33 @@ export default function CascadePanel({
 
         {/* Footer */}
         <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/10">
+          {/* Flow mode (Unified Schedule Engine Phase 1) — mirrors the importer's control. */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-3 text-xs text-slate-600 dark:text-slate-300">
+            <div className="flex rounded-lg border border-slate-300/80 dark:border-white/15 overflow-hidden">
+              {([
+                { key: 'subdivide', label: 'Spread across locations' },
+                { key: 'envelope', label: 'Same window for every location' },
+              ] as { key: DistributionMode; label: string }[]).map((m, i) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => { setFlowMode(m.key); setConfirming(false); }}
+                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    flowMode === m.key
+                      ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                      : 'bg-white/70 dark:bg-black/20 hover:bg-slate-100 dark:hover:bg-white/10'
+                  } ${i > 0 ? 'border-l border-slate-300/80 dark:border-white/10' : ''}`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {flowMode === 'subdivide' && (
+            <p className="text-[10px] text-slate-400 mb-3">
+              Each activity&rsquo;s window is divided across this level&rsquo;s locations in walk order — weighted by room area when every room has a measured area, split evenly otherwise.
+            </p>
+          )}
           <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 mb-3 cursor-pointer">
             <input type="checkbox" checked={overrideExisting} onChange={(e) => { setOverrideExisting(e.target.checked); setConfirming(false); }} />
             Overwrite locations that already have their own dates
