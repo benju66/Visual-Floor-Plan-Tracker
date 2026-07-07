@@ -83,7 +83,23 @@ describe('resolveInitialView — precedence table', () => {
     ).toBe('schedule');
   });
 
-  it("Phase-1 wiring: mobileAllowed ['list'] keeps the hard force-to-list on phones without a param, but a deep link still wins", () => {
+  it('Phase-4 wiring: mobileAllowed MOBILE_VIEWS keeps any mobile view as the fallback; only Schedule clamps to list', () => {
+    // The page passes MOBILE_VIEWS since the bottom tab bar shipped (Nav Phase 4).
+    for (const mode of MOBILE_VIEWS) {
+      expect(
+        resolveInitialView({ urlParam: null, isMobile: true, defaultViewMode: mode, mobileAllowed: MOBILE_VIEWS })
+      ).toBe(mode);
+    }
+    expect(
+      resolveInitialView({ urlParam: null, isMobile: true, defaultViewMode: 'schedule', mobileAllowed: MOBILE_VIEWS })
+    ).toBe('list');
+    // A ?view=schedule deep link still wins even on a phone.
+    expect(
+      resolveInitialView({ urlParam: 'schedule', isMobile: true, defaultViewMode: 'list', mobileAllowed: MOBILE_VIEWS })
+    ).toBe('schedule');
+  });
+
+  it("historical Phase-1 wiring: mobileAllowed ['list'] forces list on phones without a param, but a deep link still wins", () => {
     // No param → forced to list even though dashboard is a mobile view.
     expect(
       resolveInitialView({ urlParam: null, isMobile: true, defaultViewMode: 'dashboard', mobileAllowed: ['list'] })

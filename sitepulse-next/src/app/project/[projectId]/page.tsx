@@ -23,9 +23,10 @@ import { useMapActions } from '@/hooks/useMapActions';
 import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { isValidViewMode, resolveInitialView } from '@/utils/viewRouting';
+import { isValidViewMode, resolveInitialView, MOBILE_VIEWS } from '@/utils/viewRouting';
 
 import TopHeader from '@/components/TopHeader';
+import MobileViewTabBar from '@/components/MobileViewTabBar';
 import MapSidebar from '@/components/MapSidebar';
 import UnitNamingPopoverJs from '@/components/UnitNamingPopover';
 import { recentSubtypeIdsFromUnits, type TaxonomyResult } from '@/utils/subtypes';
@@ -135,11 +136,10 @@ function App() {
         urlParam: param,
         isMobile: window.innerWidth < 768,
         defaultViewMode: useSettingsStore.getState().settings?.defaultViewMode,
-        // Phase 1 keeps the hard force-to-list for phones WITHOUT a ?view= param
-        // (the header switcher is hidden on mobile, so other views would strand).
-        // A valid deep link still wins above. Nav Phase 4 (bottom tab bar) widens
-        // this to MOBILE_VIEWS.
-        mobileAllowed: ['list'],
+        // Nav Phase 4: the bottom tab bar makes every MOBILE_VIEWS view reachable
+        // on a phone, so the fallback clamps to that set (no more hard force-to-
+        // list). A valid ?view= deep link still wins above, even for Schedule.
+        mobileAllowed: MOBILE_VIEWS,
       });
       setViewMode(resolved);
       // Stamp the resolved view onto the entry URL (replace, not push) so the
@@ -753,6 +753,9 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* Phone bottom tab bar (Nav plan Phase 4) — List/Map/Look-Ahead/Dashboard. */}
+      <MobileViewTabBar viewMode={viewMode} navigateToView={navigateToView} />
 
       <ActivityCommandMenu
         open={activityMenu !== null}
