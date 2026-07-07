@@ -216,10 +216,11 @@ export default function CascadePanel({
                         </span>
                       </td>
                       <td className="py-1.5 pr-2">
-                        <input type="date" value={entry.start_date || ''} onChange={(e) => updateDraft(m.name, 'start_date', e.target.value)} className={inputCls} />
+                        {/* max/min keep the window forward-only: start can't be after end, end can't be before start. */}
+                        <input type="date" value={entry.start_date || ''} max={entry.end_date || undefined} onChange={(e) => updateDraft(m.name, 'start_date', e.target.value)} className={inputCls} />
                       </td>
                       <td className="py-1.5">
-                        <input type="date" value={entry.end_date || ''} onChange={(e) => updateDraft(m.name, 'end_date', e.target.value)} className={inputCls} />
+                        <input type="date" value={entry.end_date || ''} min={entry.start_date || undefined} onChange={(e) => updateDraft(m.name, 'end_date', e.target.value)} className={inputCls} />
                       </td>
                       {/* Derived, never typed: end − start IS the duration (inclusive days). */}
                       <td className="py-1.5 pl-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">

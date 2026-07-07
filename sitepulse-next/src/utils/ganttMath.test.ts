@@ -239,6 +239,18 @@ describe('cascadeLevelToLocations', () => {
     expect(u1Framing?.planned_start_date).toBe('2026-07-01'); // overwritten
     expect(u1Framing?.temporal_state).toBe('planned'); // prior state preserved
   });
+
+  it('normalizes a reversed level window (end before start) instead of persisting backwards dates', () => {
+    // Hand-entry typo: Framing's end is BEFORE its start. Envelope mode must not
+    // write a backwards window to status_logs — it should swap to [min, max].
+    const reversed = { Framing: { start_date: '2026-07-10', end_date: '2026-07-01' } };
+    const writes = cascadeLevelToLocations({
+      levelSchedule: reversed, units: [mkUnit('u2')], activities, track: 'Construction', existing: [],
+    });
+    const framing = writes.find(w => w.activity_id === 'm_Framing' && w.unit_id === 'u2');
+    expect(framing?.planned_start_date).toBe('2026-07-01'); // min
+    expect(framing?.planned_end_date).toBe('2026-07-10'); // max
+  });
 });
 
 describe('reflowLevelToLocations (Phase 3 — re-flow with hand-edit preservation)', () => {

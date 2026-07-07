@@ -568,9 +568,18 @@ export function cascadeLevelToLocations({
   for (const a of trackActivities) {
     const entry = levelSchedule[a.name];
     if (!entry) continue;
-    const start = entry.start_date ?? null;
-    const end = entry.end_date ?? null;
+    let start = entry.start_date ?? null;
+    let end = entry.end_date ?? null;
     if (!start && !end) continue;
+    // Guard against a reversed level window (end before start) — a hand-entry
+    // typo in CascadePanel. Normalize to [min, max] so the envelope branch
+    // never persists backwards dates to status_logs. (The subdivide branch
+    // already normalizes internally via subdivideTaskWindow's lo/hi.)
+    if (start && end && start > end) {
+      const swap = start;
+      start = end;
+      end = swap;
+    }
 
     if (flowMode === 'subdivide') {
       const applicable = units.filter((u) => isActivityApplicable(a, u, applicabilityIndex));
