@@ -201,7 +201,12 @@ correctness lives — keep `Date.now()`/`window` out of these.
   `verify-feature` → STOP.
 
 ### Phase 4 — Mobile bottom tab bar (List · Map · Look-Ahead · Dashboard)
-- **Scope:** new `src/components/MobileViewTabBar.tsx`.
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 3, main `cb4b3ae`). Notes: the bar is the LAST
+> FLEX CHILD of the project page's 100dvh column, not `position:fixed` — visually
+> identical but structurally unable to overlap the swipe deck / pending-changes UI.
+> Active tab = filled blue pill (the header accent). `mobileAllowed` widened to
+> MOBILE_VIEWS (AGENTS.md §2 updated); a phone's saved default view now sticks unless
+> it's Schedule. Verified via emulation only — real-phone safe-area check still pending.
   - Fixed bottom bar, thumb-reachable, icon + tiny label, 4 tabs (`MOBILE_VIEWS`). Hidden on
     desktop (`md:hidden`); selected state uses the unified accent. Drives `navigateToView`
     (same URL state from Phase 1).
@@ -215,7 +220,10 @@ correctness lives — keep `Date.now()`/`window` out of these.
   absent on mobile, no overlap with the swipe deck · `verify-feature` → STOP.
 
 ### Phase 5 — Map toolbar: split modes vs settings + unified accent
-- **Scope:** `MapHorizontalToolbar.tsx`.
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 3, main `8530cf7` — closes this plan; all 5
+> phases done). Notes: conservative default taken (dividers, no overflow menu). Pinned
+> undo/redo lead the bar as actions; a pinned crosshair sorts into the settings group.
+> Meaning-colors kept: amber Lag, green Make-Ready, emerald/rose route sub-modes.
   - Reorganize into two groups with a divider: **modes** (pan/draw/select/route/etc. — one
     active at a time) and **on/off settings** (snapping, magnifier, walk-sequence, legend,
     history, crosshair). Optionally tuck rarely-used toggles behind an overflow "⋯".

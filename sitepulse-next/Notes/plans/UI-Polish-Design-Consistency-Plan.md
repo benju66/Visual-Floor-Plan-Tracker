@@ -63,7 +63,11 @@ density for PM screens.
 |-------|---------------------------|-------------|
 | **1** ✅ shipped 2026-07-07 | View in the URL (`?view=`) · Theme unification · Empty states + stalled→amber | Nav P1 · Polish P1 · Polish P3 |
 | **2** ✅ shipped 2026-07-07 | Switcher labels + accent · Context-aware header (matrix locked above) · List date chips + compact density | Nav P2 · Nav P3 · Polish P4 |
-| **3** | Shared status-color module (ongoing=blue) · Mobile bottom tab bar · Map toolbar split (+ owner-noted empty-level toolbar fix) | Polish P2 · Nav P4 · Nav P5 |
+| **3** ✅ shipped 2026-07-07 | Shared status-color module (ongoing=blue) · Mobile bottom tab bar · Map toolbar split (+ owner-noted empty-level toolbar fix) | Polish P2 · Nav P4 · Nav P5 |
+
+**Workstream COMPLETE** — all 3 batches approved + on `main` (Batch 3 = `19b39e5`…`f8962c4`,
+approved 2026-07-07). This un-gates the Data Storytelling workstream (Batch A kickoff in
+`Notes/handoff/`).
 
 Batch ordering notes: Batch 2 builds on Batch 1's `viewRouting.ts` (adds
 `controlVisibility`); Batch 3's tab bar reuses Batch 1's `navigateToView`. Codebase
@@ -155,7 +159,12 @@ It writes nothing to Supabase and adds no columns, RPCs, or policies.
   regressions on hard reload · `verify-feature` → STOP.
 
 ### Phase 2 — Shared status-color module + chip/marker consistency
-- **Scope:**
+> ✅ **SHIPPED 2026-07-07** (Polish Batch 3, main `08cd617`). Notes: the plan's file map
+> had drifted — the canvas palette lived in `MappedUnit.tsx` + a second copy in
+> `MapLegend.tsx` (NOT `constants.ts`), and `UnitInspector.tsx` carried a third
+> `STAGE_DOT` copy; ALL copies were converted to `src/utils/statusColors.ts` (palette
+> pinned by `statusColors.test.ts`; invariant recorded in AGENTS.md §3). Look-ahead
+> "Start" chip went blue→amber (start = planned) and "In progress" orange→blue.
   - Add `src/utils/statusColors.ts` (+ tests) per § Pure logic.
   - Adopt it in all four sources: `FieldStatusAtoms.getTemporalStateStyle` /
     `getInvertedBadgeStyle`, `MapSidebar.STAGE_DOT`, `constants.TEMPORAL_COLORS`
