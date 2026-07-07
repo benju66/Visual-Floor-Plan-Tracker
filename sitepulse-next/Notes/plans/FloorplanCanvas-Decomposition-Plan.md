@@ -140,7 +140,21 @@ Framework-free, deterministic functions (no `Date.now()` inside — pass timesta
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: set scale via calibration line → real length prompt → SF recomputes; fractional measure tool reads correctly · `verify-feature`.
 
-### Phase 8 — Extract keyboard shortcuts → `useCanvasKeyboard`
+### Phase 8 — Extract keyboard shortcuts → `useCanvasKeyboard` — ✅ DONE (587a189, Approved)
+> Landed as `src/hooks/useCanvasKeyboard.ts` (354 lines): the whole window
+> keydown/keyup/blur effect moved VERBATIM (mechanical diff: byte-identical,
+> dep array `[imageUrl, toolMode, onPolygonComplete, onToolModeChange]`
+> unchanged, capture=true listeners + stopImmediatePropagation ordering
+> intact) plus the checkSize/resize re-measure AND the container
+> ResizeObserver effect (same sizing concern; the HiDPI pixel-ratio effect
+> stayed in the component). Seams: only `spaceWasPanRef` moved in (sole
+> reader); `isShiftDown`/`dimensions`/`boxOrigin`/`isLegendSelected` STATE
+> stayed in the component (JSX/layout/capture tools consume them) — the hook
+> takes the setters; every live-read ref (magnifier/boxOrigin/
+> isEditingPending/selectedUnitIds/layout + the 5 callback refs) stays owned
+> + synced by the component and is passed in; the Phase 5-7 hook returns
+> (draft/stamp/calibrate/measure) go in as args; the M / [ ] branches keep
+> writing useSettingsStore directly. FloorplanCanvas 1,984 → 1,814 lines.
 - **Scope:** Move the big keydown/keyup/blur effect (649–860) — Escape backout ladder, arrow-nudge, Ctrl/Cmd+Z pending-edit + draft-vertex undo/redo, Enter-to-finish, tool number keys (1/2/3), stamp R/H/V keys, magnifier M/`[`/`]` keys, `f`-to-fit, space-pan — plus the container `checkSize`/`resize` wiring into `src/hooks/useCanvasKeyboard.ts`. It CONSUMES the other hooks' refs/handlers, so it comes AFTER them. Highest-branch-count effect → deliberately late. Golden master guards `:arrow-nudge` / `:draw-enter` / the pending-undo path.
 - **Approval gates:** none.
 - **Exit criteria:** gate green · golden master green · `dev:3010`: every shortcut above fires identically; Esc ladder (magnifier → draft → tool → pan) intact; arrow-nudge + Ctrl+Z on a pending polygon work · `verify-feature`.
