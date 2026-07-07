@@ -39,6 +39,7 @@ import { useCanvasSnapping } from '@/hooks/useCanvasSnapping';
 import { useGeometryGestures } from '@/hooks/useGeometryGestures';
 import { useTraceTool } from '@/hooks/useTraceTool';
 import { useStampTool } from '@/hooks/useStampTool';
+import { useMeasureTools } from '@/hooks/useMeasureTools';
 import { createPointerStore } from '@/utils/pointerStore';
 import { getToolCursor } from '@/utils/cursor';
 import { useMapStore } from '@/store/useMapStore';
@@ -46,9 +47,7 @@ import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import { useUnits, useActivities, useUpdateWalkSequence, useSheetById, useUpdateSheetScale } from '@/hooks/useProjectQueries';
 import { useActivityDependencies } from '@/hooks/useActivityDependencies';
-import { unitsPerPxFromCalibration, parseFeetInches } from '@/utils/scale';
-import { FRACTION_LABELS, type FractionDenominator } from '@/utils/measure';
-import { loadImageDimensions } from '@/utils/imageDimensions';
+import { FRACTION_LABELS } from '@/utils/measure';
 import { PdfBaseLayer } from '@/components/canvas/PdfBaseLayer';
 import { useParams } from 'next/navigation';
 import type { StatusLog, Unit, PercentPoint as Point, Gridline, OpeningEdge, OpeningType } from '@/types/domain';
@@ -328,34 +327,10 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     return () => mediaQuery.removeEventListener?.('change', handler);
   }, []);
 
-  // ── Scale calibration (Phase 2b) ──────────────────────────────────────────
-  // A transient 2-point line the user drops across a known dimension. Isolated
-  // from `draftPoints` so it never leaks into the trace path (drawing-tool-
-  // excellence guard). Once both points are placed we freeze and prompt for the
-  // real length; on submit we set the sheet's `scale_units_per_px`.
-  const [calibratePoints, setCalibratePoints] = useState<Point[]>([]);
-  const calibratePointsRef = useRef(calibratePoints);
-  useEffect(() => { calibratePointsRef.current = calibratePoints; }, [calibratePoints]);
-  const [calibratePrompt, setCalibratePrompt] = useState<{ p1: Point; p2: Point } | null>(null);
-  const calibratePromptRef = useRef(calibratePrompt);
-  useEffect(() => { calibratePromptRef.current = calibratePrompt; }, [calibratePrompt]);
-  const [calibrateInput, setCalibrateInput] = useState('');
-  const [calibrateError, setCalibrateError] = useState(false);
-
-  // ── Standalone measure tool (Phase 4) ─────────────────────────────────────
-  // An ephemeral 2..N-point polyline the user drops on a CALIBRATED drawing to
-  // read a running length in fractional feet-inches. Isolated from `draftPoints`
-  // (like calibrate) so it never leaks into the trace path. Persists NOTHING.
-  const [measurePoints, setMeasurePoints] = useState<Point[]>([]);
-  const measurePointsRef = useRef(measurePoints);
-  useEffect(() => { measurePointsRef.current = measurePoints; }, [measurePoints]);
-  // Selected fraction precision for the readout (¼" / ⅛" / 1⁄16"). A UI preference
-  // held across measurements; defaults to ¼".
-  const [measureDenom, setMeasureDenom] = useState<FractionDenominator>(4);
-  // Base-image natural pixel dims — the SAME basis the area/calibration math uses.
-  // Loaded once on entering measure mode (falls back to the on-canvas dims only when
-  // there's no base image, where the two bases are equal anyway).
-  const [measureBasis, setMeasureBasis] = useState<{ width: number; height: number } | null>(null);
+  // (The scale-calibration + measure tool state — the 2-point calibrate line with
+  // its length prompt/input/error, and the ephemeral measure polyline with its
+  // fraction precision + natural-pixel basis — moved into useMeasureTools, called
+  // below — Phase 7.)
 
   const unitsRef = useRef(units);
   useEffect(() => { unitsRef.current = units; }, [units]);
@@ -508,12 +483,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
 
   useEffect(() => {
     // (The matching leave-`draw` draft reset moved into useTraceTool — Phase 5.)
-    // Clear any half-placed calibration line + length prompt whenever we leave the
-    // calibrate tool, so a stale point/prompt never bleeds into another mode.
-    if (toolMode !== 'calibrate') { setCalibratePoints([]); setCalibratePrompt(null); setCalibrateInput(''); setCalibrateError(false); }
-    // Drop the ephemeral measure run whenever we leave the measure tool (the fraction
-    // preference is intentionally kept). Nothing here persists.
-    if (toolMode !== 'measure') { setMeasurePoints([]); }
+    // (The matching leave-`calibrate` line/prompt reset + leave-`measure` run reset
+    // moved into useMeasureTools — Phase 7.)
     // (The matching leave-`stamp` transform reset + drawer disarm moved into
     // useStampTool — Phase 6.)
     if (!['select', 'multi_select', 'add_node', 'delete_node', 'stamp'].includes(toolMode)) {
@@ -532,21 +503,8 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolMode]);
 
-  // Load the base-image natural pixel dims once when the measure tool opens — the
-  // SAME basis calibration/area use (NOT the on-canvas pdf.js render). Falls back to
-  // the on-canvas dims only when there's no base image (raster sheets, equal bases).
-  useEffect(() => {
-    if (toolMode !== 'measure') return;
-    let cancelled = false;
-    (async () => {
-      const dims = await loadImageDimensions(activeSheet?.base_image_url);
-      if (cancelled) return;
-      setMeasureBasis(
-        dims ?? (originalWidth && originalHeight ? { width: originalWidth, height: originalHeight } : null),
-      );
-    })();
-    return () => { cancelled = true; };
-  }, [toolMode, activeSheet?.base_image_url, originalWidth, originalHeight]);
+  // (The measure-basis load effect — base-image natural dims on entering measure
+  // mode — moved into useMeasureTools, called below — Phase 7.)
 
   const layout = useMemo(
     () => computeLayout(dimensions.width, dimensions.height, originalWidth, originalHeight),
@@ -719,6 +677,49 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     onStampWithNaming,
   });
 
+  // The scale-calibration + measure tools (FloorplanCanvas Decomposition —
+  // Phase 7): the 2-point calibrate line with its length prompt/input/error and
+  // sync refs, the ephemeral measure polyline with its fraction precision +
+  // natural-pixel basis, both tools' stage-click branches, the tool-change
+  // resets, the measure-basis load, and cancel/submitCalibrate (the
+  // `useUpdateSheetScale` write — the canvas's only direct write — is
+  // byte-identical inside). The branch CONDITIONS stay in handleStageClick's
+  // else-if chain below; the keydown Esc ladder consumes the returned refs +
+  // stable cancelCalibrate/clearMeasureRun; the calibrate popover, measure
+  // panel and both DraftPolygon mounts stay in the JSX, fed from these returns.
+  // useSheetById/useUpdateSheetScale stay mounted above (the panel/popover read
+  // scale_units_per_px/isPending); lastSnapRef stays component-owned (shared
+  // with draw).
+  const {
+    calibratePoints,
+    calibratePointsRef,
+    calibratePrompt,
+    calibratePromptRef,
+    calibrateInput,
+    setCalibrateInput,
+    calibrateError,
+    setCalibrateError,
+    cancelCalibrate,
+    submitCalibrate,
+    handleCalibrateClick,
+    measurePoints,
+    measurePointsRef,
+    clearMeasureRun,
+    measureDenom,
+    setMeasureDenom,
+    measureBasis,
+    handleMeasureClick,
+  } = useMeasureTools({
+    toolMode,
+    effectiveSnapping,
+    lastSnapRef,
+    activeSheet,
+    updateSheetScale,
+    originalWidth,
+    originalHeight,
+    onToolModeChange,
+  });
+
   // Window-level keyboard shortcuts + container sizing (checkSize/resize).
   // Deliberately AFTER the tool hooks so the draw branches can consume
   // useTraceTool's returns directly (same seam as the Phase 2/4 callback
@@ -748,17 +749,16 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
             setBoxOrigin(null);
           } else if (toolMode === 'calibrate' && (calibratePointsRef.current.length > 0 || calibratePromptRef.current)) {
             // Back out a half-placed / awaiting-length calibration line but stay in
-            // calibrate mode so the next click starts a fresh line.
+            // calibrate mode so the next click starts a fresh line. The reset body
+            // lives in useMeasureTools.cancelCalibrate.
             e.stopImmediatePropagation();
-            setCalibratePoints([]);
-            setCalibratePrompt(null);
-            setCalibrateInput('');
-            setCalibrateError(false);
+            cancelCalibrate();
           } else if (toolMode === 'measure' && measurePointsRef.current.length > 0) {
             // Clear the current measurement run but stay in measure mode; a second Esc
-            // (no points left) falls through to return to pan.
+            // (no points left) falls through to return to pan. The reset body lives in
+            // useMeasureTools.clearMeasureRun.
             e.stopImmediatePropagation();
-            setMeasurePoints([]);
+            clearMeasureRun();
           } else if (isEditingPendingRef.current) {
             // Drawing Tool Excellence — Phase 1. A freshly-traced polygon is open for
             // naming. Esc must NOT fall through to the tool backout below: switching to
@@ -992,36 +992,15 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
       // lives in useTraceTool (Phase 5).
       handleDrawClick(e, pctX, pctY);
     } else if (toolMode === 'calibrate') {
-      // Drop exactly two snapped points across a known dimension. Consume the fresh
-      // snap computed by onMouseMove so the committed point matches the visual ring
-      // (same trick as the draw path). After the 2nd point, freeze and prompt.
-      if (calibratePromptRef.current) return; // already awaiting a length
-      if (effectiveSnapping && lastSnapRef.current?.snapped) {
-        pctX = lastSnapRef.current.pctX;
-        pctY = lastSnapRef.current.pctY;
-      }
-      const next = [...calibratePointsRef.current, { pctX, pctY }];
-      if (next.length >= 2) {
-        setCalibratePoints([next[0], next[1]]);
-        setCalibratePrompt({ p1: next[0], p2: next[1] });
-        setCalibrateInput('');
-        setCalibrateError(false);
-      } else {
-        setCalibratePoints(next);
-      }
+      // Drop exactly two snapped points across a known dimension, then freeze and
+      // prompt for the real length. Snapped placement (snap-consume, prompt gate)
+      // lives in useMeasureTools (Phase 7).
+      handleCalibrateClick(pctX, pctY);
     } else if (toolMode === 'measure') {
-      // Drop a snapped point onto the running measurement polyline. Consume the fresh
-      // snap from onMouseMove so the committed point matches the visual ring.
-      if (effectiveSnapping && lastSnapRef.current?.snapped) {
-        pctX = lastSnapRef.current.pctX;
-        pctY = lastSnapRef.current.pctY;
-      }
-      const pts = measurePointsRef.current;
-      const last = pts[pts.length - 1];
-      // Ignore a click that lands on essentially the last point (prevents a
-      // zero-length segment, e.g. from an accidental double-click / stutter).
-      if (last && Math.abs(last.pctX - pctX) < 1e-4 && Math.abs(last.pctY - pctY) < 1e-4) return;
-      setMeasurePoints([...pts, { pctX, pctY }]);
+      // Drop a snapped point onto the running measurement polyline. Snapped
+      // placement (snap-consume, zero-length-segment guard) lives in
+      // useMeasureTools (Phase 7).
+      handleMeasureClick(pctX, pctY);
     } else if (toolMode === 'capture_line') {
       // Two-click grid-axis placement (AI Tracing Assist — Phase 3c follow-up): the
       // first click drops the START node, the second drops the END node and emits.
@@ -1057,55 +1036,9 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
     setBoxOrigin(null);
   }, [toolMode]);
 
-  const cancelCalibrate = () => {
-    setCalibratePoints([]);
-    setCalibratePrompt(null);
-    setCalibrateInput('');
-    setCalibrateError(false);
-  };
-
-  // Turn the placed 2-point line + typed real length into `scale_units_per_px`.
-  // CRITICAL: measure against the base image's NATURAL pixel size (the converted
-  // PNG at `base_image_url`) — the exact same basis the area math uses. The
-  // on-canvas `originalWidth/originalHeight` come from the client-side pdf.js
-  // render, which is a DIFFERENT scale than the PNG, so calibrating against them
-  // made every computed area wrong by that ratio squared. Percent-space points are
-  // resolution-independent, so they map onto either image identically; only the
-  // width/height basis matters, and it must match the area path. Falls back to the
-  // on-canvas dims only when there is no base image (raster sheets, where the two
-  // bases are equal anyway). Scale math lives in scale.ts; the caller stamps `at`.
-  const submitCalibrate = async () => {
-    if (!calibratePrompt || !activeSheet) return;
-    const ft = parseFeetInches(calibrateInput);
-    if (ft === null || ft <= 0) { setCalibrateError(true); return; }
-    const dims = await loadImageDimensions(activeSheet.base_image_url);
-    const basisW = dims?.width ?? originalWidth;
-    const basisH = dims?.height ?? originalHeight;
-    const upp = unitsPerPxFromCalibration(
-      calibratePrompt.p1, calibratePrompt.p2, basisW, basisH, ft,
-    );
-    if (upp === null) { setCalibrateError(true); return; }
-    updateSheetScale.mutate({
-      sheetId: activeSheet.id,
-      // Calibration is not a preset — clear the preset dropdown, keep the legacy
-      // ratio untouched (the area path stops trusting it in Phase 3).
-      scale_preset: 'custom',
-      scale_ratio: activeSheet.scale_ratio ?? 1,
-      scale_units_per_px: upp,
-      scale_unit: 'ft',
-      scale_calibration: {
-        p1: calibratePrompt.p1,
-        p2: calibratePrompt.p2,
-        length: ft,
-        unit: 'ft',
-        source: 'calibration',
-        preset: null,
-        at: new Date().toISOString(),
-      },
-    });
-    cancelCalibrate();
-    onToolModeChange('pan');
-  };
+  // (cancelCalibrate + submitCalibrate — incl. the base-image natural-pixel basis
+  // rationale and the byte-identical useUpdateSheetScale write — moved into
+  // useMeasureTools, called above — Phase 7.)
 
   const handlePolygonClick = (e: any, unit: Unit) => {
     if (toolMode === 'route') {
@@ -1414,7 +1347,7 @@ const FloorplanCanvas = forwardRef<any, FloorplanCanvasProps>(({
                 <div className="flex gap-2 mt-2">
                   <button
                     type="button"
-                    onClick={() => setMeasurePoints([])}
+                    onClick={clearMeasureRun}
                     disabled={measurePoints.length === 0}
                     className="flex-1 text-xs font-semibold rounded-lg px-3 py-1.5 bg-slate-500/10 text-slate-600 dark:text-slate-300 hover:bg-slate-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
