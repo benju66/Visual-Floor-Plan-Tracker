@@ -4,6 +4,8 @@ import {
   simulateFinishBand,
   bandForRollup,
   activityRisk,
+  bestPaceMove,
+  MIN_MOVE_DAYS,
   FORECAST_BAND_SEED,
   type ForecastBand,
 } from './monteCarloForecast';
@@ -384,5 +386,70 @@ describe('activityRisk', () => {
   it('uses the shared FORECAST_BAND_SEED path without throwing', () => {
     const ranked = activityRisk({ ...input, seed: FORECAST_BAND_SEED });
     expect(ranked.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P4 — bestPaceMove
+// ---------------------------------------------------------------------------
+
+/** A level rollup from its FULL-week pace + slot counts (a trailing partial week is appended and later dropped). */
+function level(fullWeeks: number[], totalSlots: number, completedSlots: number): GroupRollup {
+  const weekly = [...fullWeeks, 0].map((count, i) => ({ weekStart: `w${i}`, count }));
+  return makeRollup({ totalSlots, completedSlots, weekly });
+}
+
+describe('bestPaceMove', () => {
+  it('returns null on uniform pace (no level is faster to transplant)', () => {
+    const rollups = {
+      a: level([3, 3, 3, 3, 3, 3], 40, 10),
+      b: level([3, 3, 3, 3, 3, 3], 40, 10),
+    };
+    expect(bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED })).toBeNull();
+  });
+
+  it('returns null with fewer than two unsuppressed levels', () => {
+    // One healthy level + one complete (suppressed) level → only one contender.
+    const rollups = {
+      a: level([4, 4, 4, 4, 4, 4], 40, 12),
+      done: level([4, 4, 4, 4, 4, 4], 20, 20), // remaining 0 → band 'complete', filtered out
+    };
+    expect(bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED })).toBeNull();
+    // And truly empty input.
+    expect(bestPaceMove({ levelRollups: {}, today: TODAY, seed: SEED })).toBeNull();
+  });
+
+  it('finds the transplant that pulls the project finish in the most', () => {
+    const rollups = {
+      fast: level([10, 10, 10, 10, 10, 10], 40, 34), // remaining 6, ~1 wk
+      slow: level([2, 2, 2, 2, 2, 2], 40, 4),         // remaining 36, ~18 wks — gates the project
+    };
+    const move = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
+    expect(move).not.toBeNull();
+    expect(move!.fromSheetId).toBe('fast'); // donor = the faster level
+    expect(move!.toSheetId).toBe('slow');   // recipient = the lagging level
+    expect(move!.daysSaved).toBeGreaterThanOrEqual(MIN_MOVE_DAYS);
+    expect(move!.projectedFinish).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('is deterministic — same seed yields the identical move', () => {
+    const rollups = {
+      fast: level([9, 9, 9, 9, 9, 9], 40, 30),
+      slow: level([1, 1, 1, 1, 1, 1], 40, 5),
+    };
+    const a = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
+    const b = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
+    expect(a).toEqual(b);
+  });
+
+  it('returns null when speeding up one level cannot beat a tied bottleneck', () => {
+    // Two levels tie as the slowest; a third is fast. Speeding up either tied
+    // level leaves the other gating the finish → 0 days saved → below the floor.
+    const rollups = {
+      a: level([1, 1, 1, 1, 1, 1], 40, 30), // remaining 10, ~10 wks
+      b: level([1, 1, 1, 1, 1, 1], 40, 30), // remaining 10, ~10 wks (tied)
+      c: level([10, 10, 10, 10, 10, 10], 40, 35), // fast, remaining 5, ~1 wk
+    };
+    expect(bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED })).toBeNull();
   });
 });

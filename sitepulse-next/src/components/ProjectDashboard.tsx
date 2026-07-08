@@ -11,7 +11,7 @@ import {
   scopePlannedFinish, clampProjectForecast, planVsProjected, isStalledSwarm,
 } from '@/utils/progressAnalytics';
 import type { GroupRollup } from '@/utils/progressAnalytics';
-import { bandForRollup, bandMethodSentence, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
+import { bandForRollup, bandMethodSentence, bestPaceMove, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
 import type { ForecastBand } from '@/utils/monteCarloForecast';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
@@ -222,6 +222,15 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     }
     return scopeBand;
   }, [clampedForecast.clampedToLevel, scope, sheets, levelRollups, levelBands, scopeBand]);
+
+  // ── Highest-impact move (Schedule That Thinks P4) ──
+  // The single cross-level pace transplant that pulls the PROJECT finish in the
+  // most, from the lifted level rollups (no new query). Null when nothing
+  // meaningful. Surfaced only at all-levels scope (it's inherently cross-level).
+  const bestMove = useMemo(
+    () => bestPaceMove({ levelRollups, today, seed: FORECAST_BAND_SEED }),
+    [levelRollups, today],
+  );
 
   const { overallProgress, activityStats, totalUnits, totalCompletedTasks, totalPossibleTasks } = useMemo(() => {
     if (!displayUnits || displayUnits.length === 0) {
@@ -573,7 +582,10 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
         track={trackingMode}
         history={trackHistory}
         applicabilityIndex={applicabilityIndex}
+        scope={scope}
+        sheets={sheets}
         scopeLabel={scope === 'all' ? 'all levels' : (scopedSheet?.sheet_name || 'level')}
+        paceMove={bestMove}
       />
 
       {/* ── Type Scorecard — which space type is dragging the schedule ── */}

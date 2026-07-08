@@ -1,12 +1,12 @@
 "use client";
 import React, { useMemo } from 'react';
-import { Radar, Info } from 'lucide-react';
+import { Radar, Info, Lightbulb } from 'lucide-react';
 import { parseDay, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS } from '@/utils/progressAnalytics';
 import { activityRisk, bandMethodSentence, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
-import type { ActivityRisk } from '@/utils/monteCarloForecast';
+import type { ActivityRisk, PaceMove } from '@/utils/monteCarloForecast';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { StatusHistoryEvent } from '@/hooks/useProjectQueries';
-import type { Unit, Activity, StatusLog } from '@/types/domain';
+import type { Unit, Activity, StatusLog, Sheet } from '@/types/domain';
 
 /**
  * RiskRadar — the compact "so what do I do about it?" module (Schedule That
@@ -36,8 +36,14 @@ export interface RiskRadarProps {
   /** Track-filtered completed history (carries activity_id — see useStatusHistory). */
   history: StatusHistoryEvent[];
   applicabilityIndex?: ApplicabilityIndex;
+  /** 'all' or a sheet id — the highest-impact move is cross-level, shown only at 'all'. */
+  scope: string;
+  /** All project sheets — used to resolve the move's level names. */
+  sheets: Sheet[];
   /** Human label for the current scope ("all levels" or a level name) — subtitle only. */
   scopeLabel: string;
+  /** The single highest-impact pace transplant (P4), or null when none is meaningful. */
+  paceMove: PaceMove | null;
 }
 
 const fmt = (iso: string | null): string => {
@@ -72,7 +78,7 @@ function RiskChip({ r }: { r: ActivityRisk }) {
   );
 }
 
-export default function RiskRadar({ units, statuses, activities, track, history, applicabilityIndex, scopeLabel }: RiskRadarProps) {
+export default function RiskRadar({ units, statuses, activities, track, history, applicabilityIndex, scope, sheets, scopeLabel, paceMove }: RiskRadarProps) {
   const today = useMemo(() => new Date(), []);
 
   const rows = useMemo(
@@ -92,6 +98,11 @@ export default function RiskRadar({ units, statuses, activities, track, history,
     `Ranks activities by how far their 80% likely-finish range (P90) runs past their planned finish — or, with no planned finish, by how wide that range is. ` +
     `${bandMethodSentence()} ` +
     `Activities with fewer than ${SMALL_SAMPLE_SLOTS} tracked slots or no completions in the last ${FORECAST_WINDOW_WEEKS} weeks can't be ranked — they're listed as "not enough history yet".`;
+
+  // The highest-impact move is cross-level, so it only makes sense at all-levels
+  // scope. Resolve its level names from the sheet list (falls back gracefully).
+  const sheetName = (id: string) => sheets.find(s => s.id === id)?.sheet_name || 'a level';
+  const showMove = scope === 'all' && paceMove !== null;
 
   return (
     <div className="glass-panel rounded-2xl border shadow-sm overflow-hidden">
@@ -113,6 +124,21 @@ export default function RiskRadar({ units, statuses, activities, track, history,
           </span>
         )}
       </div>
+
+      {/* ── Highest-impact move (P4) — one cross-level pace transplant, all-levels only ── */}
+      {showMove && paceMove && (
+        <div className="flex items-start gap-2 px-5 py-2.5 border-b border-slate-200/60 dark:border-white/10 bg-slate-50/70 dark:bg-white/[0.03]">
+          <Lightbulb size={15} className="text-slate-500 dark:text-slate-400 mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed">
+              If <span className="font-bold">{sheetName(paceMove.toSheetId)}</span> matched{' '}
+              <span className="font-bold">{sheetName(paceMove.fromSheetId)}</span>&apos;s pace, the projected finish moves up{' '}
+              <span className="font-bold">~{paceMove.daysSaved} days</span>.
+            </p>
+            <p className="text-[10px] text-slate-400 mt-0.5">estimate from recent pace — not crew logistics</p>
+          </div>
+        </div>
+      )}
 
       {ranked.length > 0 ? (
         <div className="divide-y divide-slate-200/60 dark:divide-white/5">

@@ -322,3 +322,98 @@ export function activityRisk({
   });
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// P4 — Highest-impact move: the single pace transplant that pulls the finish in
+// (owner may cut this at review)
+// ---------------------------------------------------------------------------
+
+/** Below this the pace transplant isn't worth surfacing (whole days pulled in). */
+export const MIN_MOVE_DAYS = 2;
+
+/** A single highest-impact pace transplant (Schedule That Thinks P4). */
+export interface PaceMove {
+  /** Donor level whose recent pace would be adopted (the faster one). */
+  fromSheetId: string;
+  /** Lagging level that would adopt the donor's pace. */
+  toSheetId: string;
+  /** Whole days the PROJECT finish is pulled in by the transplant (≥ {@link MIN_MOVE_DAYS}). */
+  daysSaved: number;
+  /** The new project P50 finish after the transplant (ISO 'YYYY-MM-DD'). */
+  projectedFinish: string;
+}
+
+export interface BestPaceMoveInput {
+  /** The lifted per-level rollups already computed in ProjectDashboard (keyed by sheet id). */
+  levelRollups: Record<string, GroupRollup>;
+  today: Date;
+  /** Seed for every band + transplant — use {@link FORECAST_BAND_SEED}. */
+  seed: number;
+}
+
+/**
+ * The single most valuable pace transplant across levels: "if {lagging level}
+ * matched {faster level}'s recent pace, the projected finish moves up ~N days."
+ *
+ * The project finish at median is the LATEST level P50 (its slowest level gates
+ * it). For every (recipient, donor) level pair, the donor's recent weekly window
+ * is transplanted onto the recipient's remaining backlog and re-simulated with
+ * the SAME bootstrap ({@link simulateFinishBand}); the recipient's own
+ * `totalSlots` is kept so small-sample parity is unchanged. Only a genuine
+ * speed-up counts, and the project finish only moves when the transplant hits
+ * the level that actually gates it — so this returns the pair that pulls the
+ * PROJECT P50 in the most.
+ *
+ * Honesty (AGENTS.md §3): only levels with an UNSUPPRESSED band (a dated P50)
+ * can be a donor or a recipient — a suppressed level has no pace to lend and no
+ * finish to pull in. Returns null when fewer than two such levels exist, or when
+ * the best move saves fewer than {@link MIN_MOVE_DAYS} days.
+ */
+export function bestPaceMove({ levelRollups, today, seed }: BestPaceMoveInput): PaceMove | null {
+  const contenders = Object.entries(levelRollups)
+    .map(([sheetId, rollup]) => ({
+      sheetId,
+      rollup,
+      band: bandForRollup(rollup, today, seed),
+      fullWeekCounts: rollup.weekly.slice(0, -1).map(w => w.count),
+      remaining: Math.max(0, rollup.totalSlots - rollup.completedSlots),
+    }))
+    .filter(c => c.band.suppressed === null && c.band.p50 !== null);
+
+  if (contenders.length < 2) return null;
+
+  // Project finish at median pace = the latest level P50.
+  const baseline = contenders.reduce<string>((m, c) => (c.band.p50! > m ? c.band.p50! : m), contenders[0].band.p50!);
+
+  let best: PaceMove | null = null;
+  for (const recipient of contenders) {
+    for (const donor of contenders) {
+      if (donor.sheetId === recipient.sheetId) continue;
+
+      // Transplant the donor's PACE onto the recipient's remaining backlog.
+      const moved = simulateFinishBand({
+        remaining: recipient.remaining,
+        totalSlots: recipient.rollup.totalSlots,
+        fullWeekCounts: donor.fullWeekCounts,
+        today,
+        seed,
+      });
+      if (moved.suppressed || !moved.p50) continue;
+      if (moved.p50 >= recipient.band.p50!) continue; // donor isn't faster for this backlog
+
+      // New project finish: recipient now at moved.p50, every other level unchanged.
+      let newProjectP50 = moved.p50;
+      for (const other of contenders) {
+        if (other.sheetId === recipient.sheetId) continue;
+        if (other.band.p50! > newProjectP50) newProjectP50 = other.band.p50!;
+      }
+
+      const daysSaved = dayDiff(parseDay(newProjectP50)!, parseDay(baseline)!); // baseline − new
+      if (daysSaved < MIN_MOVE_DAYS) continue;
+      if (best === null || daysSaved > best.daysSaved) {
+        best = { fromSheetId: donor.sheetId, toSheetId: recipient.sheetId, daysSaved, projectedFinish: newProjectP50 };
+      }
+    }
+  }
+  return best;
+}
