@@ -253,6 +253,21 @@ export function varianceFill(info: VarianceInfo): string {
   }
 }
 
+/**
+ * Color for a signed COMPLETION variance (days late to finish, + = late) — the
+ * cheap per-activity number shown on the expanded list rows (Schedule Variance
+ * Columns Phase 2). Reuses the existing lag encoding, never a new palette:
+ * late (>0) rides {@link varianceFill}'s `behind` severity ramp; early (<0)
+ * reads emerald (finished ahead); exactly on time (0) reads muted slate. `null`
+ * (no completion / no planned finish) is never rendered, so it degrades to the
+ * neutral on-pace slate rather than throwing.
+ */
+export function varianceCompletedColor(days: number | null): string {
+  if (days === null || days === 0) return VARIANCE_COLORS.onpace;
+  if (days < 0) return VARIANCE_COLORS.complete;
+  return varianceFill({ kind: 'behind', days, idleDays: null, bottleneck: null, state: 'completed' });
+}
+
 export function varianceLabel(info: VarianceInfo): string {
   switch (info.kind) {
     case 'complete': return 'Complete';

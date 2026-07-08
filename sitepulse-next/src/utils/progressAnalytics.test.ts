@@ -7,6 +7,7 @@ import {
   computeUnitVariance,
   varianceFill,
   varianceLabel,
+  varianceCompletedColor,
   summarizeGroup,
   scopePlannedFinish,
   planVsProjected,
@@ -147,6 +148,22 @@ describe('varianceFill / varianceLabel', () => {
       .toBe('8d behind plan');
     expect(varianceLabel({ kind: 'noplan', days: 0, idleDays: 12, bottleneck: 'Drywall', state: 'ongoing' }))
       .toBe('No plan dates · idle 12d');
+  });
+});
+
+describe('varianceCompletedColor', () => {
+  it('rides the behind severity ramp when finished late (reuses varianceFill, no forked ramp)', () => {
+    expect(varianceCompletedColor(2)).toBe(VARIANCE_COLORS.behind1);
+    expect(varianceCompletedColor(6)).toBe(VARIANCE_COLORS.behind4);
+    expect(varianceCompletedColor(12)).toBe(VARIANCE_COLORS.behind8);
+    expect(varianceCompletedColor(30)).toBe(VARIANCE_COLORS.behind15);
+  });
+  it('is emerald when finished early and muted slate when exactly on time', () => {
+    expect(varianceCompletedColor(-4)).toBe(VARIANCE_COLORS.complete);
+    expect(varianceCompletedColor(0)).toBe(VARIANCE_COLORS.onpace);
+  });
+  it('degrades a null (no completion / no planned finish) to neutral slate, never throws', () => {
+    expect(varianceCompletedColor(null)).toBe(VARIANCE_COLORS.onpace);
   });
 });
 

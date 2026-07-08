@@ -7,7 +7,7 @@ import StatusTrigger, { type StatusTriggerProps } from '@/components/ui/StatusTr
 import RowActionsMenu from './manage/RowActionsMenu';
 import AssigneeCell from './manage/AssigneeCell';
 import { applicableActivities, isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
-import { computeUnitVariance, orderedTrackActivities, varianceFill, varianceLabel, type VarianceInfo } from '@/utils/progressAnalytics';
+import { activitySchedule, computeUnitVariance, orderedTrackActivities, varianceCompletedColor, varianceFill, varianceLabel, type VarianceInfo } from '@/utils/progressAnalytics';
 import { lastActivityIso, formatAge } from '@/utils/staleness';
 import { formatPlannedDate } from '@/utils/formatPlannedDate';
 import type { ListDensity } from '@/store/useSettingsStore';
@@ -701,6 +701,22 @@ export default function StatusTable({
                 const childPending = pendingTimelineChanges[`${unit.id}_${activity.name}`];
                 const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
 
+                // Schedule Variance Columns Phase 2 — the two CHEAP per-activity
+                // metrics, arithmetic over the childLog dates already on this row
+                // (no new query). Planned Duration is known whenever both planned
+                // dates exist; Variance Completed stays null (blank, never a false
+                // "0d") until the slot is completed with a logged date — logged_date
+                // is null until then, so activitySchedule null-propagates it for us.
+                const childMetrics = activitySchedule({
+                  plannedStart: childLog.planned_start_date,
+                  plannedEnd: childLog.planned_end_date,
+                  actualStart: null,
+                  actualEnd: childLog.logged_date,
+                });
+                const vc = childMetrics.varianceCompleted;
+                const varianceCompletedLabel =
+                  vc === null ? null : vc > 0 ? `${vc}d late` : vc < 0 ? `${Math.abs(vc)}d early` : 'on time';
+
                 return (
                   <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
                     <td className={cellPadTight}></td>
@@ -759,56 +775,77 @@ export default function StatusTable({
                         <span className="text-slate-400 text-xs italic">—</span>
                       )}
                     </td>
-                    <td className={`${cellPadTight} align-middle`}>
-                      {childLog ? (
-                        <DateChipCell
-                          value={
-                            childPending?.extraProps?.endDate !== undefined
-                              ? childPending.extraProps.endDate ?? ''
-                              : childLog.planned_end_date || ''
-                          }
-                          pending={childPending?.extraProps?.endDate !== undefined}
-                          onChange={(val) =>
-                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                              startDate: childLog.planned_start_date,
-                              endDate: val,
-                              activityObj: activity
-                            })
-                          }
-                          disabled={isApplying}
-                          ariaLabel={`Planned completion — ${activity.name}, ${unit.unit_number}`}
-                          compact={isCompact}
-                        />
-                      ) : (
-                        <span className="text-slate-400 text-xs italic">—</span>
-                      )}
+                    <td className={`${cellPadTight} align-top`}>
+                      <div className="flex flex-col gap-0.5 items-start">
+                        {childLog ? (
+                          <DateChipCell
+                            value={
+                              childPending?.extraProps?.endDate !== undefined
+                                ? childPending.extraProps.endDate ?? ''
+                                : childLog.planned_end_date || ''
+                            }
+                            pending={childPending?.extraProps?.endDate !== undefined}
+                            onChange={(val) =>
+                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                                startDate: childLog.planned_start_date,
+                                endDate: val,
+                                activityObj: activity
+                              })
+                            }
+                            disabled={isApplying}
+                            ariaLabel={`Planned completion — ${activity.name}, ${unit.unit_number}`}
+                            compact={isCompact}
+                          />
+                        ) : (
+                          <span className="text-slate-400 text-xs italic">—</span>
+                        )}
+                        {childMetrics.plannedDuration !== null && (
+                          <span
+                            className="pl-2 text-[10px] font-normal text-slate-400 dark:text-slate-500 whitespace-nowrap"
+                            title={`Planned duration — ${childMetrics.plannedDuration} day${childMetrics.plannedDuration === 1 ? '' : 's'}`}
+                          >
+                            planned {childMetrics.plannedDuration}d
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className={`${cellPad} text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium`}>
-                      {(childPending?.state || childLog.temporal_state) === 'completed' ? (
-                        <DateChipCell
-                          value={
-                            childPending?.extraProps?.loggedDate !== undefined
-                              ? childPending.extraProps.loggedDate ?? ''
-                              : childLog.logged_date || ''
-                          }
-                          pending={childPending?.extraProps?.loggedDate !== undefined}
-                          onChange={(val) =>
-                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                              startDate: childLog.planned_start_date,
-                              endDate: childLog.planned_end_date,
-                              loggedDate: val,
-                              activityObj: activity
-                            })
-                          }
-                          disabled={isApplying}
-                          ariaLabel={`Actual completed — ${activity.name}, ${unit.unit_number}`}
-                          compact={isCompact}
-                          completedTone
-                          stopClickPropagation
-                        />
-                      ) : (
-                        <span className="text-slate-400 text-xs italic">—</span>
-                      )}
+                    <td className={`${cellPad} text-xs text-slate-500 dark:text-slate-400 text-right align-top font-medium`}>
+                      <div className="flex flex-col gap-0.5 items-end">
+                        {(childPending?.state || childLog.temporal_state) === 'completed' ? (
+                          <DateChipCell
+                            value={
+                              childPending?.extraProps?.loggedDate !== undefined
+                                ? childPending.extraProps.loggedDate ?? ''
+                                : childLog.logged_date || ''
+                            }
+                            pending={childPending?.extraProps?.loggedDate !== undefined}
+                            onChange={(val) =>
+                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                                startDate: childLog.planned_start_date,
+                                endDate: childLog.planned_end_date,
+                                loggedDate: val,
+                                activityObj: activity
+                              })
+                            }
+                            disabled={isApplying}
+                            ariaLabel={`Actual completed — ${activity.name}, ${unit.unit_number}`}
+                            compact={isCompact}
+                            completedTone
+                            stopClickPropagation
+                          />
+                        ) : (
+                          <span className="text-slate-400 text-xs italic">—</span>
+                        )}
+                        {varianceCompletedLabel && (
+                          <span
+                            className="pr-2 text-[10px] font-semibold whitespace-nowrap"
+                            style={{ color: varianceCompletedColor(vc) }}
+                            title={`Finished ${varianceCompletedLabel} vs planned completion`}
+                          >
+                            {varianceCompletedLabel}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className={`${cellPad} align-middle text-right`}></td>
                   </tr>
