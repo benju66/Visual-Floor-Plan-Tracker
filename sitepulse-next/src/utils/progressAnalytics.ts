@@ -175,31 +175,24 @@ export function firstOngoingIso(rows: AuditEventLike[]): string | null {
 }
 
 /**
- * The fully-resolved ISO "actual start" for one activity — {@link firstOngoingIso}
- * with the two fallbacks the Unit Journey has always applied: (1) an activity that
- * jumped straight to `completed` (no `ongoing` event) starts on its completion day;
- * (2) a stray late `ongoing` event that post-dates completion is clamped back to the
- * completion day. `events` are one activity's audit rows (any order); `state` +
- * `loggedDate` come from the current `status_logs` row. Returns null when the
- * activity never started and never completed. Pure — feeds {@link activitySchedule}.
+ * The trusted ISO "actual start" for one activity, in priority order:
+ *   1. `enteredStart` — a manually-entered actual-start date (Actual-Dates Capture)
+ *      WINS over everything. The field "ongoing" tap is unreliable (supers batch-log;
+ *      subs move unseen), so a date a human typed at the desk is the source of truth.
+ *   2. else the first genuine `ongoing` audit event ({@link firstOngoingIso}).
+ *   3. else `null` — no honest start signal. The caller BLANKS the start/duration
+ *      numbers rather than guessing from the completion day (a completed-but-never-
+ *      -ongoing slot would otherwise read "started <completion date> · ran 0d",
+ *      which misleads). The reliable planned-duration + finished-late/early numbers
+ *      still come straight from the planned + completion dates.
+ * `events` are one activity's audit rows (any order). Pure — feeds {@link activitySchedule}.
  */
 export function resolveActualStartIso(
   events: AuditEventLike[],
-  opts: { state?: string | null; loggedDate?: string | null },
+  opts: { enteredStart?: string | null } = {},
 ): string | null {
-  const { state, loggedDate } = opts;
-  const completed = events
-    .filter(e => e.temporal_state === 'completed')
-    .sort((a, b) => Date.parse(a.changed_at || a.created_at || '') - Date.parse(b.changed_at || b.created_at || ''));
-  const lastCompletion = completed[completed.length - 1];
-  const completionIso = state === 'completed'
-    ? (loggedDate || lastCompletion?.logged_date || lastCompletion?.changed_at || null)
-    : null;
-
-  let iso = firstOngoingIso(events);
-  if (!iso && completionIso) iso = completionIso; // jumped straight to complete
-  if (iso && completionIso && iso.slice(0, 10) > completionIso.slice(0, 10)) iso = completionIso; // clamp
-  return iso;
+  if (opts.enteredStart) return opts.enteredStart;
+  return firstOngoingIso(events);
 }
 
 export interface ActivityScheduleInput {

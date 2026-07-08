@@ -562,6 +562,13 @@ export function useMapActions(project: Project | null | undefined) {
         planned_start_date: extraProps.startDate || sheetSchedule.start_date || null,
         planned_end_date: extraProps.endDate || sheetSchedule.end_date || null,
         logged_date: extraProps.loggedDate !== undefined ? (extraProps.loggedDate || null) : (currentTemporalState === 'completed' ? new Date().toISOString().split('T')[0] : null),
+        // Manually-entered actual-start (Actual-Dates Capture). Only ever changed when
+        // this edit explicitly carries it; otherwise PRESERVE the stored value so an
+        // unrelated edit (status / planned date) can't wipe a hand-entered actual-start
+        // (there is no sheet-schedule fallback for it — it is per-slot manual).
+        actual_start_date: extraProps.actualStartDate !== undefined
+          ? (extraProps.actualStartDate || null)
+          : (oldStatus?.actual_start_date ?? null),
         // client_timestamp from PendingChange.capturedAt (offline-capture time).
         // For immediate (online) mutations this will be null/undefined; useUpdateStatus stamps it as a fallback.
         client_timestamp: extraProps.client_timestamp || null

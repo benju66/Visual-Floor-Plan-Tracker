@@ -141,10 +141,15 @@ export default function UnitHistoryModal({
         ? (parseDay(current?.logged_date) || parseDay(lastCompletion?.logged_date) || tsDay(lastCompletion?.changed_at))
         : null;
 
-      // Actual start = the single shared definition (progressAnalytics.firstOngoingIso).
-      let actualStart = tsDay(firstOngoingIso(events));
+      // Actual start: a manually-entered actual-start date (Actual-Dates Capture)
+      // WINS over the audit "ongoing" mark; else the first ongoing event
+      // (progressAnalytics.firstOngoingIso); else the completion-day fallback (kept
+      // ONLY as the swimlane's visual anchor for a jumped-straight-to-complete slot).
+      const enteredStart = parseDay(current?.actual_start_date);
+      let actualStart = enteredStart || tsDay(firstOngoingIso(events));
       if (!actualStart && completionDay) actualStart = completionDay; // jumped straight to complete
-      if (actualStart && completionDay && actualStart > completionDay) actualStart = completionDay;
+      // Clamp a stray late ongoing back to completion — but never override a date a human typed.
+      if (actualStart && completionDay && actualStart > completionDay && !enteredStart) actualStart = completionDay;
 
       const actualEnd = state === 'completed'
         ? completionDay

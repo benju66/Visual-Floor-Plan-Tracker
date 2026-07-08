@@ -332,6 +332,8 @@ export interface PendingChange {
     startDate?: string | null;
     endDate?: string | null;
     loggedDate?: string | null;
+    /** Manually-entered actual-start date (Actual-Dates Capture) — '' clears it. */
+    actualStartDate?: string | null;
     outOfSequence?: boolean;
   };
 }

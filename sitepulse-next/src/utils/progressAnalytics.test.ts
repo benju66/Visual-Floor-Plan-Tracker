@@ -448,48 +448,38 @@ describe('firstOngoingIso', () => {
 });
 
 describe('resolveActualStartIso', () => {
-  it('uses the first ongoing event when one exists', () => {
-    const events = [
-      { temporal_state: 'ongoing', client_timestamp: '2026-04-28T07:00:00Z', changed_at: '2026-04-28T07:00:00Z' },
-      { temporal_state: 'completed', client_timestamp: '2026-05-10T15:00:00Z', changed_at: '2026-05-10T15:00:00Z', logged_date: '2026-05-10' },
-    ];
-    expect(resolveActualStartIso(events, { state: 'completed', loggedDate: '2026-05-10' }))
-      .toBe('2026-04-28T07:00:00Z');
+  const ongoingEvents = [
+    { temporal_state: 'ongoing', client_timestamp: '2026-04-28T07:00:00Z', changed_at: '2026-04-28T07:00:00Z' },
+    { temporal_state: 'completed', client_timestamp: '2026-05-10T15:00:00Z', changed_at: '2026-05-10T15:00:00Z', logged_date: '2026-05-10' },
+  ];
+
+  it('a manually-entered actual-start WINS over everything, including a real ongoing mark', () => {
+    expect(resolveActualStartIso(ongoingEvents, { enteredStart: '2026-04-20' })).toBe('2026-04-20');
   });
 
-  it('falls back to the completion day when it jumped straight to complete', () => {
-    const events = [
+  it('uses the entered date even when there is no audit history at all', () => {
+    expect(resolveActualStartIso([], { enteredStart: '2026-04-20' })).toBe('2026-04-20');
+  });
+
+  it('falls back to the first genuine ongoing event when nothing is entered', () => {
+    expect(resolveActualStartIso(ongoingEvents, {})).toBe('2026-04-28T07:00:00Z');
+    // opts is optional entirely.
+    expect(resolveActualStartIso(ongoingEvents)).toBe('2026-04-28T07:00:00Z');
+  });
+
+  it('returns null (blank the guess) for a completed-but-never-ongoing slot with no entry', () => {
+    // The misleading completion-day fallback is intentionally GONE — no ongoing +
+    // no entered date → null, so the caller blanks Actual Started / Duration / Var Start.
+    const jumpedToComplete = [
       { temporal_state: 'completed', changed_at: '2026-05-10T15:00:00Z', logged_date: '2026-05-10' },
     ];
-    // No ongoing event → actual start is the current log's logged_date.
-    expect(resolveActualStartIso(events, { state: 'completed', loggedDate: '2026-05-10' }))
-      .toBe('2026-05-10');
+    expect(resolveActualStartIso(jumpedToComplete, {})).toBeNull();
+    expect(resolveActualStartIso(jumpedToComplete, { enteredStart: null })).toBeNull();
+    expect(resolveActualStartIso([], {})).toBeNull();
   });
 
-  it('clamps a stray ongoing event that post-dates completion back to the completion day', () => {
-    const events = [
-      { temporal_state: 'ongoing', client_timestamp: '2026-05-20T09:00:00Z', changed_at: '2026-05-20T09:00:00Z' },
-      { temporal_state: 'completed', changed_at: '2026-05-10T15:00:00Z', logged_date: '2026-05-10' },
-    ];
-    expect(resolveActualStartIso(events, { state: 'completed', loggedDate: '2026-05-10' }))
-      .toBe('2026-05-10');
-  });
-
-  it('returns null for an activity that never started (no ongoing, not completed)', () => {
-    expect(resolveActualStartIso([], { state: 'none', loggedDate: null })).toBeNull();
-    // A lone planned/ongoing-less slot with no completion also yields null.
-    expect(resolveActualStartIso(
-      [{ temporal_state: 'planned', changed_at: '2026-05-01T00:00:00Z' }],
-      { state: 'planned', loggedDate: null },
-    )).toBeNull();
-  });
-
-  it('still finds the ongoing start for an in-progress activity', () => {
-    const events = [
-      { temporal_state: 'ongoing', client_timestamp: '2026-06-01T08:00:00Z', changed_at: '2026-06-01T08:00:00Z' },
-    ];
-    expect(resolveActualStartIso(events, { state: 'ongoing', loggedDate: null }))
-      .toBe('2026-06-01T08:00:00Z');
+  it('an empty-string entered date is treated as no entry (falls through)', () => {
+    expect(resolveActualStartIso(ongoingEvents, { enteredStart: '' })).toBe('2026-04-28T07:00:00Z');
   });
 });
 

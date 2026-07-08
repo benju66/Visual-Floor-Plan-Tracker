@@ -853,6 +853,7 @@ export interface Database {
           planned_start_date: string | null
           planned_end_date: string | null
           logged_date: string | null
+          actual_start_date: string | null
           client_timestamp: string | null
           created_at: string | null
         }
@@ -866,6 +867,7 @@ export interface Database {
           planned_start_date?: string | null
           planned_end_date?: string | null
           logged_date?: string | null
+          actual_start_date?: string | null
           client_timestamp?: string | null
           created_at?: string | null
         }
@@ -879,6 +881,7 @@ export interface Database {
           planned_start_date?: string | null
           planned_end_date?: string | null
           logged_date?: string | null
+          actual_start_date?: string | null
           client_timestamp?: string | null
           created_at?: string | null
         }

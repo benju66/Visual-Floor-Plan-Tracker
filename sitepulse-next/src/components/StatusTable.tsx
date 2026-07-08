@@ -711,9 +711,19 @@ export default function StatusTable({
                 // needs the location's audit timeline, loaded lazily by the enclosing
                 // <ExpandedActivityAudit> (per-location, no level-wide prefetch).
                 const childState = (childLog.temporal_state as string) || 'none';
+                // Actual-Dates Capture — the manually-entered actual-start is the
+                // trusted source and WINS over the audit "ongoing" fallback; reflect
+                // any pending (unsaved) edit so the metrics + chip update live. When
+                // neither an entered date nor a genuine "ongoing" mark exists,
+                // resolveActualStartIso returns null → the start/duration cells blank
+                // (no misleading completion-day guess).
+                const pendingActualStart = childPending?.extraProps?.actualStartDate;
+                const enteredActualStart = pendingActualStart !== undefined
+                  ? (pendingActualStart || null)
+                  : (childLog.actual_start_date || null);
                 const actualStartIso = resolveActualStartIso(
                   auditByActivity.get(activity.name) || [],
-                  { state: childState, loggedDate: childLog.logged_date },
+                  { enteredStart: enteredActualStart },
                 );
                 // Ongoing → count the actual duration to today; completed → to its
                 // logged completion day. (Variance Completed stays gated on completion
@@ -738,7 +748,6 @@ export default function StatusTable({
 
                 // Audit-backed set. Each null-propagates → a blank, never a false 0d.
                 const isChildOngoing = childState === 'ongoing';
-                const actualStartText = actualStartIso ? formatPlannedDate(actualStartIso) : null;
                 const vs = childMetrics.varianceStart;
                 const varianceStartLabel =
                   vs === null ? null : vs > 0 ? `${vs}d late` : vs < 0 ? `${Math.abs(vs)}d early` : 'on time';
@@ -809,14 +818,25 @@ export default function StatusTable({
                         ) : (
                           <span className="text-slate-400 text-xs italic">—</span>
                         )}
-                        {actualStartText && (
-                          <span
-                            className="pl-2 text-[10px] font-normal text-slate-400 dark:text-slate-500 whitespace-nowrap"
-                            title={`Actually started ${actualStartText}`}
-                          >
-                            started {actualStartText}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <span className="pl-2 text-[10px] font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">started</span>
+                          <DateChipCell
+                            value={(actualStartIso || '').slice(0, 10)}
+                            pending={pendingActualStart !== undefined}
+                            onChange={(val) =>
+                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                                startDate: childLog.planned_start_date,
+                                endDate: childLog.planned_end_date,
+                                loggedDate: childLog.logged_date,
+                                actualStartDate: val,
+                                activityObj: activity
+                              })
+                            }
+                            disabled={isApplying}
+                            ariaLabel={`Actual start — ${activity.name}, ${unit.unit_number}`}
+                            compact={isCompact}
+                          />
+                        </div>
                         {varianceStartLabel && (
                           <span
                             className="pl-2 text-[10px] font-semibold whitespace-nowrap"
