@@ -11,6 +11,8 @@ import {
   scopePlannedFinish, clampProjectForecast, planVsProjected, isStalledSwarm,
 } from '@/utils/progressAnalytics';
 import type { GroupRollup } from '@/utils/progressAnalytics';
+import { bandForRollup, bandMethodSentence, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
+import type { ForecastBand } from '@/utils/monteCarloForecast';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import FloorPulse from '@/components/dashboard/FloorPulse';
@@ -185,6 +187,41 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     [plannedFinish, clampedForecast.date],
   );
 
+  // ── Confidence bands (Schedule That Thinks P1/P2) ──
+  // The honest spread around each projected finish, computed ONCE here (fixed
+  // seed → stable numbers) and threaded down. Additive: the point forecasts
+  // above are untouched; a suppressed forecast carries a suppressed band.
+  const scopeBand = useMemo(
+    () => bandForRollup(scopeRollup, today, FORECAST_BAND_SEED),
+    [scopeRollup, today],
+  );
+  const levelBands = useMemo(() => {
+    const map: Record<string, ForecastBand> = {};
+    for (const sheet of sheets) {
+      const rollup = levelRollups[sheet.id];
+      if (rollup) map[sheet.id] = bandForRollup(rollup, today, FORECAST_BAND_SEED);
+    }
+    return map;
+  }, [sheets, levelRollups, today]);
+  // Basis rule (consistency): the hero band matches whatever basis the clamp
+  // chose. When the clamp pinned the hero to a level's forecast, show THAT
+  // level's band (the pinning level is the one with the latest level forecast —
+  // by construction the date the clamp landed on); otherwise the scope band.
+  // One basis, one story — never two contradictory ranges.
+  const heroBand = useMemo(() => {
+    if (clampedForecast.clampedToLevel) {
+      const scopedIds = scope === 'all' ? sheets.map(s => s.id) : [scope];
+      let pinId: string | null = null;
+      let latest: string | null = null;
+      for (const id of scopedIds) {
+        const f = levelRollups[id]?.forecastDate ?? null;
+        if (f && (latest === null || f > latest)) { latest = f; pinId = id; }
+      }
+      if (pinId && levelBands[pinId]) return levelBands[pinId];
+    }
+    return scopeBand;
+  }, [clampedForecast.clampedToLevel, scope, sheets, levelRollups, levelBands, scopeBand]);
+
   const { overallProgress, activityStats, totalUnits, totalCompletedTasks, totalPossibleTasks } = useMemo(() => {
     if (!displayUnits || displayUnits.length === 0) {
       return { overallProgress: 0, activityStats: [] as any[], totalUnits: 0, totalCompletedTasks: 0, totalPossibleTasks: 0 };
@@ -338,6 +375,12 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     : planDelta > 0 ? { text: `${planDelta}d late`, cls: 'text-amber-600 dark:text-amber-400' }
     : planDelta < 0 ? { text: `${Math.abs(planDelta)}d ahead`, cls: 'text-emerald-600 dark:text-emerald-400' }
     : { text: 'on plan', cls: 'text-slate-500 dark:text-slate-400' };
+  // The confidence range under the projected date — shown ONLY when there is a
+  // point date and the band isn't suppressed (no band where there's no date).
+  const heroBandRange =
+    projectedDate && !heroBand.suppressed && heroBand.p10 && heroBand.p90
+      ? { text: `${fmtFinish(heroBand.p10)}–${fmtFinish(heroBand.p90)}`, p50: heroBand.p50 }
+      : null;
 
   return (
     <div className="w-full pb-6 space-y-6 overflow-y-auto h-full pr-2 p-2">
@@ -393,6 +436,7 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
         onScopeChange={setScope}
         onOpenMap={openMap}
         levelRollups={levelRollups}
+        levelBands={levelBands}
         buildingRollup={buildingRollup}
         stalledSwarm={stalledSwarm}
       />
@@ -433,6 +477,14 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
               {forecastLabel}
               <span className="text-xs font-medium text-slate-400 ml-2">projected</span>
             </p>
+            {heroBandRange && (
+              <p
+                className="text-xs text-slate-500 dark:text-slate-400 mt-0.5"
+                title={`Likely finish ${heroBandRange.text}${heroBandRange.p50 ? ` · median ${fmtFinish(heroBandRange.p50)}` : ''}. ${bandMethodSentence()}`}
+              >
+                likely <span className="font-semibold text-slate-600 dark:text-slate-300">{heroBandRange.text}</span>
+              </p>
+            )}
             {forecastSuppressedCaption && (
               <p className="text-[10px] text-slate-400 mt-0.5" title={forecastHint}>{forecastSuppressedCaption}</p>
             )}

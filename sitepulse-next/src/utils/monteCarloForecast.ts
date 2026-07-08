@@ -28,6 +28,15 @@ const DAY_MS = 86_400_000;
 export const BAND_LOW_PERCENTILE = 0.1;
 export const BAND_HIGH_PERCENTILE = 0.9;
 /**
+ * The one fixed app-side seed the dashboard passes to every band. A constant
+ * seed means the shown numbers are stable across re-renders (no jitter), and any
+ * component that falls back to computing its own band uses the SAME one — so the
+ * hero and the FloorPulse rows never disagree for the same scope.
+ */
+export const FORECAST_BAND_SEED = 20260707;
+/** Iterations behind the fixed 80% band — quoted in the tooltip method sentence. */
+export const BAND_ITERATIONS = 1000;
+/**
  * If more than this fraction of iterations never finish within `maxWeeks`, the
  * project's pace is too erratic to bound honestly — the band suppresses as
  * 'no-pace' rather than reporting a censored (and misleadingly wide) range.
@@ -121,7 +130,7 @@ export function simulateFinishBand({
   totalSlots,
   fullWeekCounts,
   today,
-  iterations = 1000,
+  iterations = BAND_ITERATIONS,
   seed,
   maxWeeks = 520,
 }: SimulateFinishBandInput): ForecastBand {
@@ -181,4 +190,13 @@ export function bandForRollup(rollup: GroupRollup, today: Date, seed: number): F
     today,
     seed,
   });
+}
+
+/**
+ * The one-sentence method note shown in every band tooltip — calibrated, not
+ * falsely precise. Quotes the REAL pace window + iteration count so the copy can
+ * never drift from the constants the simulation actually uses.
+ */
+export function bandMethodSentence(): string {
+  return `80% confidence range from ${FORECAST_WINDOW_WEEKS} weeks of this project's actual pace, simulated ${BAND_ITERATIONS.toLocaleString('en-US')} times.`;
 }

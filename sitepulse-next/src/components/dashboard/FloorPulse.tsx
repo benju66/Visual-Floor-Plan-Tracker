@@ -3,6 +3,8 @@ import React, { useMemo } from 'react';
 import { TrendingUp, TrendingDown, Check, Map as MapIcon } from 'lucide-react';
 import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS } from '@/utils/progressAnalytics';
 import type { CompletionEvent, GroupRollup } from '@/utils/progressAnalytics';
+import { bandForRollup, bandMethodSentence, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
+import type { ForecastBand } from '@/utils/monteCarloForecast';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Sheet, Unit, Activity, StatusLog } from '@/types/domain';
 
@@ -35,6 +37,13 @@ export interface FloorPulseProps {
    * computes its own — keeps the component standalone + unit-testable.
    */
   levelRollups?: Record<string, GroupRollup>;
+  /**
+   * Per-sheet confidence bands, lifted alongside `levelRollups` so they are
+   * simulated ONCE (fixed seed). Keyed by sheet id. When omitted, FloorPulse
+   * derives each row's band from its rollup with the SAME shared seed — so the
+   * standalone fallback matches what the parent would have passed.
+   */
+  levelBands?: Record<string, ForecastBand>;
   /** All-levels rollup, lifted alongside `levelRollups`. Same fallback rule. */
   buildingRollup?: GroupRollup;
   /**
@@ -70,16 +79,29 @@ function paceOf(r: GroupRollup): Pace {
   return { kind, perWeek: r.paceThisWeek, trailing: r.trailingAvg };
 }
 
-function ForecastChip({ r }: { r: GroupRollup }) {
+function ForecastChip({ r, band }: { r: GroupRollup; band?: ForecastBand }) {
   if (r.forecastSuppressed === 'complete') {
     return <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><Check size={13} /> complete</span>;
   }
   if (r.forecastDate) {
+    // Muted 80% range under the point date — the honest spread. Falls back to the
+    // plain "at current pace" caption when the band is suppressed (e.g. pace too
+    // erratic to bound) so a row never contradicts its own forecast.
+    const hasBand = band && !band.suppressed && band.p10 && band.p90;
     return (
       <span className="text-xs whitespace-nowrap">
         <span className="text-slate-400">→ </span>
         <span className="font-semibold text-slate-700 dark:text-slate-200">~wk of {fmtWeek(r.forecastDate)}</span>
-        <span className="block text-[9px] text-slate-400">at current pace</span>
+        {hasBand ? (
+          <span
+            className="block text-[9px] text-slate-400"
+            title={`Likely finish ${fmtWeek(band!.p10!)}–${fmtWeek(band!.p90!)}${band!.p50 ? ` · median ${fmtWeek(band!.p50)}` : ''}. ${bandMethodSentence()}`}
+          >
+            likely {fmtWeek(band!.p10!)}–{fmtWeek(band!.p90!)}
+          </span>
+        ) : (
+          <span className="block text-[9px] text-slate-400">at current pace</span>
+        )}
       </span>
     );
   }
@@ -122,7 +144,7 @@ function PaceCell({ pace }: { pace: Pace }) {
 
 export default function FloorPulse({
   sheets, allUnits, statuses, activities, track, history, applicabilityIndex,
-  scope, onScopeChange, onOpenMap, levelRollups, buildingRollup, stalledSwarm = false,
+  scope, onScopeChange, onOpenMap, levelRollups, levelBands, buildingRollup, stalledSwarm = false,
 }: FloorPulseProps) {
   const today = useMemo(() => new Date(), []);
 
@@ -133,9 +155,11 @@ export default function FloorPulse({
       // so FloorPulse stays a self-contained, testable component.
       const rollup = levelRollups?.[sheet.id]
         ?? summarizeGroup({ units: allUnits.filter(u => u.sheet_id === sheet.id), statuses, activities, track, history, today, applicabilityIndex });
-      return { sheet, rollup, pace: paceOf(rollup) };
+      // Same fallback + shared seed for the band, so standalone == lifted.
+      const band = levelBands?.[sheet.id] ?? bandForRollup(rollup, today, FORECAST_BAND_SEED);
+      return { sheet, rollup, pace: paceOf(rollup), band };
     });
-  }, [sheets, allUnits, statuses, activities, track, history, today, applicabilityIndex, levelRollups]);
+  }, [sheets, allUnits, statuses, activities, track, history, today, applicabilityIndex, levelRollups, levelBands]);
 
   // Only compute the all-levels rollup when the parent didn't hand one down —
   // avoids double-computing it in the real dashboard (the memo short-circuits).
@@ -175,7 +199,7 @@ export default function FloorPulse({
       </div>
 
       <div className="divide-y divide-slate-200/60 dark:divide-white/5">
-        {rows.map(({ sheet, rollup, pace }) => {
+        {rows.map(({ sheet, rollup, pace, band }) => {
           const isScoped = scope === sheet.id;
           const completedPct = rollup.completionPct;
           const ongoingPct = rollup.totalSlots > 0 ? (rollup.ongoingSlots / rollup.totalSlots) * 100 : 0;
@@ -242,7 +266,7 @@ export default function FloorPulse({
 
               <div className="hidden sm:block"><PaceCell pace={pace} /></div>
 
-              <div className="hidden sm:block"><ForecastChip r={rollup} /></div>
+              <div className="hidden sm:block"><ForecastChip r={rollup} band={band} /></div>
 
               <div className="hidden sm:block">
                 {stalledSwarm ? (
