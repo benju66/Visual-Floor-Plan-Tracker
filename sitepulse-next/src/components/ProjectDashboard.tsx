@@ -16,6 +16,7 @@ import type { ForecastBand } from '@/utils/monteCarloForecast';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import FloorPulse from '@/components/dashboard/FloorPulse';
+import RiskRadar from '@/components/dashboard/RiskRadar';
 import TypeScorecard from '@/components/dashboard/TypeScorecard';
 import ProductionRates from '@/components/dashboard/ProductionRates';
 import type { Unit, Activity, StatusLog, Sheet, TrackingMode } from '@/types/domain';
@@ -563,6 +564,17 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── Risk Radar — activities whose 80% finish range runs latest past plan ── */}
+      <RiskRadar
+        units={displayUnits}
+        statuses={allProjectStatuses}
+        activities={activities}
+        track={trackingMode}
+        history={trackHistory}
+        applicabilityIndex={applicabilityIndex}
+        scopeLabel={scope === 'all' ? 'all levels' : (scopedSheet?.sheet_name || 'level')}
+      />
 
       {/* ── Type Scorecard — which space type is dragging the schedule ── */}
       <TypeScorecard

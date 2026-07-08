@@ -1,8 +1,16 @@
 import {
   projectForecastDate,
   FORECAST_WINDOW_WEEKS,
+  summarizeGroup,
+  scopePlannedFinish,
+  orderedTrackActivities,
+  parseDay,
+  dayDiff,
 } from '@/utils/progressAnalytics';
-import type { GroupRollup } from '@/utils/progressAnalytics';
+import type { GroupRollup, CompletionEvent } from '@/utils/progressAnalytics';
+import { isActivityApplicable, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
+import type { ApplicabilityIndex } from '@/utils/applicability';
+import type { Activity, StatusLog, Unit } from '@/types/domain';
 
 /**
  * monteCarloForecast — the honest confidence band around the point forecast
@@ -199,4 +207,118 @@ export function bandForRollup(rollup: GroupRollup, today: Date, seed: number): F
  */
 export function bandMethodSentence(): string {
   return `80% confidence range from ${FORECAST_WINDOW_WEEKS} weeks of this project's actual pace, simulated ${BAND_ITERATIONS.toLocaleString('en-US')} times.`;
+}
+
+// ---------------------------------------------------------------------------
+// P3 — Risk Radar: which activities put the finish date most at risk
+// ---------------------------------------------------------------------------
+
+/**
+ * One activity's schedule-risk row for the Risk Radar (Schedule That Thinks P3).
+ * `band` is the activity's OWN confidence band; it is suppressed exactly as the
+ * point forecast would be (thin history / no pace / complete), and a suppressed
+ * activity is never ranked — only listed as "not enough history yet".
+ */
+export interface ActivityRisk {
+  activityId: string;
+  name: string;
+  /** Applicable slots still open for this activity in the current scope. */
+  remainingSlots: number;
+  /** The activity's own finish band (suppressed when its pace history is too thin). */
+  band: ForecastBand;
+  /** Latest planned finish across the activity's applicable slots (ISO), or null. */
+  plannedFinish: string | null;
+  /**
+   * The worst-first ranking key. With a planned finish AND an honest band it is
+   * P90 vs that planned finish (+ = the 80% range ends AFTER the plan → at risk,
+   * − = the whole range beats the plan). With no planned finish it falls back to
+   * the band width (p10→p90) — wider = more uncertain. NULL when the band is
+   * suppressed: such activities are listed, never fake-ranked (AGENTS.md §3).
+   */
+  riskDays: number | null;
+}
+
+export interface ActivityRiskInput {
+  activities: Activity[];
+  /** In-scope units (`unit_type` needed for applicability). */
+  units: Pick<Unit, 'id' | 'unit_type'>[];
+  /** Current-state logs (scoped internally by the `units` set). */
+  statuses: StatusLog[];
+  /** Completed audit events; must carry `activity_id` for per-activity pace. */
+  history: (CompletionEvent & { activity_id?: string | null })[];
+  applicabilityIndex?: ApplicabilityIndex;
+  track: string;
+  today: Date;
+  /** Seed for the per-activity bootstrap — use {@link FORECAST_BAND_SEED}. */
+  seed: number;
+}
+
+/**
+ * Rank the track's activities by how much they threaten their planned finish.
+ *
+ * Each activity's band is computed by REUSING the tested rollup + bootstrap
+ * ({@link summarizeGroup} → {@link bandForRollup}) scoped to that one activity:
+ * `history` is pre-filtered to the activity's completions so `weekly` is the
+ * activity's own pace, and a single-activity list makes `totalSlots` the count
+ * of its APPLICABLE (unit × activity) slots — N/A slots never enter any count
+ * (AGENTS.md §3). Nothing here forks the simulation or the point-forecast math.
+ *
+ * Ranked worst-first: rankable activities (dated band) by descending
+ * `riskDays`, then the suppressed ones in sequence order (stable). The caller
+ * shows the top few and lists the suppressed group as "not enough history yet".
+ */
+export function activityRisk({
+  activities, units, statuses, history,
+  applicabilityIndex = EMPTY_APPLICABILITY_INDEX, track, today, seed,
+}: ActivityRiskInput): ActivityRisk[] {
+  const trackActivities = orderedTrackActivities(activities, track);
+  const out: ActivityRisk[] = [];
+
+  for (const activity of trackActivities) {
+    // Applicable in-scope units for THIS activity.
+    const applicableUnitIds = new Set<string>();
+    for (const u of units) {
+      if (isActivityApplicable(activity, u, applicabilityIndex)) applicableUnitIds.add(u.id);
+    }
+    if (applicableUnitIds.size === 0) continue; // applies to nothing in scope
+
+    // Per-activity rollup + band via the shared math. History filtered to this
+    // activity's completions so the pace window is the activity's own.
+    const historyForActivity = history.filter(h => h.activity_id === activity.id);
+    const rollup = summarizeGroup({
+      units, statuses, activities: [activity], track, history: historyForActivity, today, applicabilityIndex,
+    });
+    const band = bandForRollup(rollup, today, seed);
+    const remainingSlots = Math.max(0, rollup.totalSlots - rollup.completedSlots);
+
+    // Latest planned finish across the applicable A-slots (max planned_end_date).
+    const aStatuses = statuses.filter(
+      s => s.track === track && s.activityName === activity.name && s.unit_id && applicableUnitIds.has(s.unit_id),
+    );
+    const plannedFinish = scopePlannedFinish(aStatuses, track);
+
+    let riskDays: number | null = null;
+    if (!band.suppressed && band.p90) {
+      const p90 = parseDay(band.p90);
+      const planned = parseDay(plannedFinish);
+      if (p90 && planned) {
+        riskDays = dayDiff(planned, p90); // + = the 80% range ends past the plan
+      } else if (p90 && band.p10) {
+        const p10 = parseDay(band.p10);
+        riskDays = p10 ? dayDiff(p10, p90) : null; // no plan → band width
+      }
+    }
+
+    out.push({ activityId: activity.id, name: activity.name, remainingSlots, band, plannedFinish, riskDays });
+  }
+
+  // Worst-first: rankable (riskDays !== null) by descending riskDays; suppressed
+  // rows keep their sequence order after them (Array.sort is stable).
+  out.sort((a, b) => {
+    if (a.riskDays !== null && b.riskDays !== null) return b.riskDays - a.riskDays;
+    if (a.riskDays !== null) return -1;
+    if (b.riskDays !== null) return 1;
+    return 0;
+  });
+  return out;
 }

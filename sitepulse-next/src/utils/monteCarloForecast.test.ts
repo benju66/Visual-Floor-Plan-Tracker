@@ -3,6 +3,8 @@ import {
   mulberry32,
   simulateFinishBand,
   bandForRollup,
+  activityRisk,
+  FORECAST_BAND_SEED,
   type ForecastBand,
 } from './monteCarloForecast';
 import {
@@ -11,6 +13,8 @@ import {
   SMALL_SAMPLE_SLOTS,
   type GroupRollup,
 } from './progressAnalytics';
+import { buildApplicabilityIndex } from './applicability';
+import type { Activity, StatusLog, Unit } from '@/types/domain';
 
 const TODAY = parseDay('2026-06-29') as Date;
 const SEED = 1337;
@@ -246,5 +250,139 @@ describe('bandForRollup', () => {
     const band: ForecastBand = bandForRollup(rollup, TODAY, SEED);
     expect(band.suppressed).toBe('complete');
     expect(band.p50).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3 — activityRisk
+// ---------------------------------------------------------------------------
+
+/** An Activity fixture; `appliesTo` null = applies to every unit type. */
+function act(name: string, order: number, appliesTo: string[] | null = null): Activity {
+  return {
+    id: `ms-${name}`,
+    project_id: 'p1',
+    name,
+    color: '#123456',
+    track: 'Production',
+    sequence_order: order,
+    created_at: '2026-01-01T00:00:00Z',
+    applies_to_unit_types: appliesTo,
+  } as Activity;
+}
+
+/** A current-state StatusLog for one unit × activity. */
+function stat(unit_id: string, activityName: string, extra: Partial<StatusLog> = {}): StatusLog {
+  return {
+    id: `s-${unit_id}-${activityName}`,
+    unit_id,
+    activityName,
+    status_color: '#123456',
+    temporal_state: 'none',
+    track: 'Production',
+    planned_start_date: null,
+    planned_end_date: null,
+    logged_date: null,
+    client_timestamp: null,
+    created_at: '2026-06-01T08:00:00Z',
+    ...extra,
+  } as StatusLog;
+}
+
+/** ISO 'YYYY-MM-DD' `n` days before TODAY (2026-06-29). */
+function isoBefore(n: number): string {
+  return new Date(TODAY.getTime() - n * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** `perWeek` completed events for `activityId` in each of the last `weeks` full weeks. */
+function weeklyHistory(
+  activityId: string,
+  perWeek: number,
+  unitIds: string[],
+  weeks = 6,
+): { unit_id: string; activity_id: string; logged_date: string; track: string }[] {
+  const out: { unit_id: string; activity_id: string; logged_date: string; track: string }[] = [];
+  let idx = 0;
+  for (let w = 1; w <= weeks; w++) {
+    for (let k = 0; k < perWeek; k++) {
+      out.push({ unit_id: unitIds[idx % unitIds.length], activity_id: activityId, logged_date: isoBefore(w * 7), track: 'Production' });
+      idx++;
+    }
+  }
+  return out;
+}
+
+describe('activityRisk', () => {
+  const UNITS: Pick<Unit, 'id' | 'unit_type'>[] = Array.from({ length: 15 }, (_, i) => ({ id: `u${i + 1}`, unit_type: 'Apartment' }));
+  const UNIT_IDS = UNITS.map(u => u.id);
+  const ACTS = [act('Framing', 1), act('Drywall', 2), act('Paint', 3)];
+
+  // Drywall: 12 open + a planned finish already in the past → its 80% range ends
+  //   well AFTER plan (high positive riskDays). Framing: nearly done + a far-future
+  //   planned finish → range ends before plan (negative). Paint: no pace history at
+  //   all → suppressed, listed but never ranked.
+  const STATUSES: StatusLog[] = [
+    ...UNIT_IDS.map((u, i) => stat(u, 'Drywall', { temporal_state: i < 3 ? 'completed' : 'none', planned_end_date: '2026-06-15' })),
+    ...UNIT_IDS.map((u, i) => stat(u, 'Framing', { temporal_state: i < 12 ? 'completed' : 'none', planned_end_date: '2026-12-31' })),
+    // Paint: no status rows → all not-started, no planned dates.
+  ];
+  const HISTORY = [
+    ...weeklyHistory('ms-Drywall', 3, UNIT_IDS),
+    ...weeklyHistory('ms-Framing', 3, UNIT_IDS),
+    // Paint: none.
+  ];
+
+  const input = { activities: ACTS, units: UNITS, statuses: STATUSES, history: HISTORY, track: 'Production', today: TODAY, seed: SEED };
+
+  it('is deterministic — same seed yields an identical ranking', () => {
+    expect(activityRisk(input)).toEqual(activityRisk(input));
+  });
+
+  it('ranks the genuinely-behind activity first (worst-first by riskDays)', () => {
+    const ranked = activityRisk(input);
+    expect(ranked).toHaveLength(3);
+    expect(ranked[0].name).toBe('Drywall');
+    expect(ranked[0].riskDays).not.toBeNull();
+    expect(ranked[0].riskDays as number).toBeGreaterThan(0);
+    // Drywall's planned finish is the max across its dated slots.
+    expect(ranked[0].plannedFinish).toBe('2026-06-15');
+    expect(ranked[0].remainingSlots).toBe(12);
+
+    const framing = ranked.find(r => r.name === 'Framing');
+    expect(framing?.riskDays as number).toBeLessThan(0); // comfortably ahead of a far-future plan
+  });
+
+  it('lists thin-history activities as suppressed — never fake-ranked', () => {
+    const paint = activityRisk(input).find(r => r.name === 'Paint');
+    expect(paint).toBeDefined();
+    expect(paint?.band.suppressed).not.toBeNull();
+    expect(paint?.riskDays).toBeNull();
+    // ...and it sorts to the bottom, below every rankable activity.
+    const ranked = activityRisk(input);
+    expect(ranked[ranked.length - 1].name).toBe('Paint');
+  });
+
+  it('respects applicability — N/A units never enter the slot count', () => {
+    const mixedUnits: Pick<Unit, 'id' | 'unit_type'>[] = [
+      ...Array.from({ length: 12 }, (_, i) => ({ id: `a${i + 1}`, unit_type: 'Apartment' })),
+      ...Array.from({ length: 3 }, (_, i) => ({ id: `r${i + 1}`, unit_type: 'Retail' })),
+    ];
+    const dry = act('Drywall', 1, ['Apartment']); // applies to Apartment only
+    const index = buildApplicabilityIndex([dry], []);
+    const apartmentIds = mixedUnits.filter(u => u.unit_type === 'Apartment').map(u => u.id);
+    const statuses = apartmentIds.map(u => stat(u, 'Drywall'));
+    const history = weeklyHistory('ms-Drywall', 2, apartmentIds);
+
+    const [risk] = activityRisk({
+      activities: [dry], units: mixedUnits, statuses, history, applicabilityIndex: index,
+      track: 'Production', today: TODAY, seed: SEED,
+    });
+    // 12 Apartment slots — the 3 Retail units are N/A and excluded.
+    expect(risk.remainingSlots).toBe(12);
+  });
+
+  it('uses the shared FORECAST_BAND_SEED path without throwing', () => {
+    const ranked = activityRisk({ ...input, seed: FORECAST_BAND_SEED });
+    expect(ranked.length).toBeGreaterThan(0);
   });
 });
