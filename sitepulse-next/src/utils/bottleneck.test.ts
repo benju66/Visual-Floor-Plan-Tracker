@@ -48,6 +48,9 @@ describe('deriveBottleneckStatuses', () => {
     expect(out[0].activityName).toBe('B');
     expect(out[0].temporal_state).toBe('planned');
     expect(out[0].status_color).toBe('#B'); // activity B's color
+    // The synthetic placeholder feeds write paths (a swipe-deck tap stages it as the
+    // current log) and status_logs.activity_id is NOT NULL — it must carry the real id.
+    expect(out[0].activity_id).toBe('m_B'); // activity B's id
   });
 
   it('when every activity is completed, the bottleneck is the last one', () => {

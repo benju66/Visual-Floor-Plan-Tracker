@@ -61,10 +61,15 @@ export function deriveBottleneckStatuses({
     const existingLog = unitStatuses.find((s) => s.activityName === primaryActivity.name);
     // When the bottleneck activity has no log yet, synthesize a 'planned' placeholder.
     // (Mirrors page.jsx's original mapDisplayStatuses, where this branch always yielded 'planned'.)
+    // Carry the real `activity_id`: this placeholder feeds write paths (a swipe-deck tap on a
+    // never-logged location stages it as the current log), and status_logs.activity_id is NOT
+    // NULL — stamping the exact id here pins the write to the right activity instead of leaving
+    // the apply path to recover it by name (see resolveActivityId).
     const primaryStatus: StatusLog =
       existingLog ??
       ({
         unit_id: unit.id,
+        activity_id: primaryActivity.id,
         activityName: primaryActivity.name,
         status_color: primaryActivity.color,
         temporal_state: 'planned',
