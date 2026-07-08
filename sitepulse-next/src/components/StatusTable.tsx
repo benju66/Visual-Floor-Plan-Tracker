@@ -8,9 +8,8 @@ import RowActionsMenu from './manage/RowActionsMenu';
 import AssigneeCell from './manage/AssigneeCell';
 import ExpandedActivityAudit from './manage/ExpandedActivityAudit';
 import { applicableActivities, isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
-import { activitySchedule, computeUnitVariance, orderedTrackActivities, resolveActualStartIso, varianceCompletedColor, varianceFill, varianceLabel, type VarianceInfo } from '@/utils/progressAnalytics';
+import { activitySchedule, computeUnitVariance, orderedTrackActivities, resolveActualStartIso, varianceCompletedColor, varianceFill, varianceLabel, type VarianceInfo, type AuditEventLike } from '@/utils/progressAnalytics';
 import { lastActivityIso, formatAge } from '@/utils/staleness';
-import { formatPlannedDate } from '@/utils/formatPlannedDate';
 import type { ListDensity } from '@/store/useSettingsStore';
 import type { LocationRow } from '@/utils/locationFilters';
 import type { TaxonomyResult } from '@/utils/subtypes';
@@ -27,95 +26,98 @@ import type {
 } from '@/types/domain';
 
 /**
- * DateChipCell — quiet date cell (UI Polish plan, Phase 4). At rest it renders
- * the date as a flat text chip ("—" when unset); click / Enter / Space swaps in
- * the native `<input type="date">` (auto-focused, picker opened), which reverts
- * to the chip on blur. Purely presentational: `value` and `onChange` are the
- * exact value/handler the always-visible input used before — zero
- * mutation-path changes, the offline `pendingChanges` flow is untouched.
+ * DateInputCell — an always-visible native date box with the browser's calendar
+ * picker (matching the app's other date inputs, e.g. QuickStatusModal), used for
+ * the schedule grid's editable date columns (Schedule Variance Columns — owner
+ * asked for real date boxes, not the quiet click-to-edit chips). Pending
+ * (unapplied) edits get the amber treatment; `completedTone` tints the value
+ * emerald for the Actual Completion column.
  */
-function DateChipCell({
-  value,
-  pending,
-  disabled,
-  onChange,
-  ariaLabel,
-  compact,
-  completedTone,
-  stopClickPropagation,
+function DateInputCell({
+  value, pending, disabled, onChange, ariaLabel, completedTone, stopClickPropagation,
 }: {
-  /** Current display value (`''` when unset) — pending-aware, computed by the caller. */
   value: string;
-  /** A pending (unapplied) change exists for this date field → amber treatment. */
   pending: boolean;
   disabled?: boolean;
   onChange: (value: string) => void;
   ariaLabel: string;
-  compact: boolean;
-  /** Emerald text for the "Actual Completed" column (matches the old input). */
   completedTone?: boolean;
-  /** The logged-date cell stops row-click propagation today — preserved. */
   stopClickPropagation?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!editing) return;
-    const el = inputRef.current;
-    if (!el) return;
-    el.focus();
-    try {
-      el.showPicker?.();
-    } catch {
-      // showPicker needs user activation in some browsers; focus alone still works.
-    }
-  }, [editing]);
-
-  const pad = compact ? 'py-1' : 'py-1.5';
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        type="date"
-        value={value}
-        onClick={stopClickPropagation ? (e) => e.stopPropagation() : undefined}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={() => setEditing(false)}
-        disabled={disabled}
-        aria-label={ariaLabel}
-        className={`bg-transparent border ${
-          pending
-            ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-            : 'border-slate-300 dark:border-white/10'
-        } rounded px-2 ${pad} text-xs font-medium w-[125px] outline-none hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-2 focus:ring-blue-500/40`}
-      />
-    );
-  }
-
   return (
-    <button
-      type="button"
-      onClick={(e) => { if (stopClickPropagation) e.stopPropagation(); setEditing(true); }}
+    <input
+      type="date"
+      value={value}
+      onClick={stopClickPropagation ? (e) => e.stopPropagation() : undefined}
+      onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
       aria-label={ariaLabel}
-      title={`${ariaLabel} — click to edit`}
-      className={`rounded border px-2 ${pad} text-xs font-medium whitespace-nowrap transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default ${
+      className={`bg-white dark:bg-black/20 border rounded-md px-2 py-1 text-xs font-medium w-[132px] outline-none transition-colors focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 ${
         pending
-          ? 'border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
-          : `border-transparent hover:border-slate-300 dark:hover:border-white/10 hover:bg-slate-100 dark:hover:bg-slate-800 ${
-              value
-                ? completedTone
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-slate-600 dark:text-slate-300'
-                : 'text-slate-400 italic'
+          ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
+          : `border-slate-300 dark:border-white/15 hover:border-slate-400 dark:hover:border-white/25 ${
+              completedTone ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-300'
             }`
       }`}
-    >
-      {formatPlannedDate(value || null)}
-    </button>
+    />
   );
+}
+
+/** A read-only duration cell — "13d" (or "13d →" while counting to today); blank when null. */
+function DurationCell({ days, ongoing }: { days: number | null; ongoing?: boolean }) {
+  if (days === null) return <span className="text-slate-300 dark:text-slate-600">—</span>;
+  return <span className="tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">{days}d{ongoing ? ' →' : ''}</span>;
+}
+
+/** A read-only signed-variance cell, colored off the existing lag scale; blank when null. */
+function VarianceCell({ days, pos, neg, zero }: { days: number | null; pos: string; neg: string; zero: string }) {
+  if (days === null) return <span className="text-slate-300 dark:text-slate-600">—</span>;
+  const label = days > 0 ? `${days}d ${pos}` : days < 0 ? `${Math.abs(days)}d ${neg}` : zero;
+  return (
+    <span className="tabular-nums font-semibold whitespace-nowrap" style={{ color: varianceCompletedColor(days) }}>
+      {label}
+    </span>
+  );
+}
+
+/**
+ * The per-activity schedule story for one row (Planned/Actual Duration + the three
+ * signed variances), from pending-aware dates + the trusted actual-start. `events`
+ * (a location's audit rows) supply the "ongoing" actual-start fallback on expanded
+ * rows; the location row passes none, so it uses the ENTERED actual-start only (no
+ * level-wide audit prefetch). Finish variance is gated on completion; ongoing actual
+ * duration counts to `todayIso`. Reuses the pure progressAnalytics helpers.
+ */
+function deriveSchedule(opts: {
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  enteredStart: string | null;
+  loggedDate: string | null;
+  state: string;
+  events?: AuditEventLike[];
+  todayIso: string;
+}) {
+  const actualStartIso = resolveActualStartIso(opts.events || [], { enteredStart: opts.enteredStart });
+  const actualEndIso = opts.state === 'completed'
+    ? opts.loggedDate
+    : opts.state === 'ongoing' && actualStartIso ? opts.todayIso : null;
+  const m = activitySchedule({
+    plannedStart: opts.plannedStart,
+    plannedEnd: opts.plannedEnd,
+    actualStart: actualStartIso,
+    actualEnd: actualEndIso,
+  });
+  return {
+    plannedDuration: m.plannedDuration,
+    actualDuration: m.actualDuration,
+    varianceStart: m.varianceStart,
+    varianceDuration: m.varianceDuration,
+    // Finish variance only reads once the slot is actually completed (an ongoing
+    // slot's end is today, which must not surface as "finished N late").
+    varianceCompleted: opts.state === 'completed' ? m.varianceCompleted : null,
+    ongoing: opts.state === 'ongoing',
+    actualStartIso,
+  };
 }
 
 /**
@@ -231,6 +233,12 @@ export default function StatusTable({
   const headPad = isCompact ? 'px-5 py-2' : 'px-5 py-3';
   const cellPad = isCompact ? 'px-5 py-1.5' : 'px-5 py-3';
   const cellPadTight = isCompact ? 'px-5 py-1' : 'px-5 py-2';
+  // Frozen identity columns (checkbox + Location) stay put while the wide schedule
+  // grid scrolls sideways. Fixed checkbox width (w-12 / !px-3) keeps the Location
+  // sticky offset (left-12) aligned; the column backgrounds are passed per row so the
+  // frozen cells stay opaque over the scrolling content. Header frozen cells sit above.
+  const FZ_CHECK = '!px-3 w-12 sticky left-0';
+  const FZ_LOC = 'sticky left-12';
 
   // Clear expansions when activities change (e.g., track changes)
   React.useEffect(() => {
@@ -367,7 +375,7 @@ export default function StatusTable({
       <table className={`w-full text-left border-collapse ${isCompact ? 'text-xs' : 'text-sm'} text-slate-800 dark:text-slate-200 relative`}>
         <thead ref={theadRef} className="sticky top-0 z-20 bg-white dark:bg-slate-900 shadow-sm after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-slate-300 dark:after:border-white/10">
           <tr>
-            <th className={`${headPad} w-10`}>
+            <th className={`${headPad} ${FZ_CHECK} z-30 bg-white dark:bg-slate-900`}>
               <input
                 type="checkbox"
                 checked={allVisibleSelected}
@@ -377,7 +385,7 @@ export default function StatusTable({
             </th>
             <th
               onClick={() => handleSort('unit')}
-              className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 w-1/4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
+              className={`${headPad} ${FZ_LOC} z-30 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-white/10 font-semibold text-slate-900 dark:text-slate-100 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
             >
               <div className="flex items-center gap-2">
                 <button
@@ -402,20 +410,20 @@ export default function StatusTable({
             >
               Activity &amp; Status {renderSortIcon('status')}
             </th>
-            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>
-              Planned Start
-            </th>
-            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>
-              Planned Completion
-            </th>
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>Planned Start</th>
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>Planned Completion</th>
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap text-right`}>Planned Duration</th>
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>Actual Start</th>
             <th
               onClick={() => handleSort('updated')}
-              className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 w-1/4 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
+              className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 select-none transition-colors`}
             >
-              <div className="flex justify-end items-center gap-1">
-                Actual Completed {renderSortIcon('updated')}
-              </div>
+              Actual Completion {renderSortIcon('updated')}
             </th>
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap text-right`}>Actual Duration</th>
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap text-right`}>Start Var.</th>
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap text-right`}>Finish Var.</th>
+            <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap text-right`}>Duration Var.</th>
             <th className={`${headPad} w-10`} />
           </tr>
         </thead>
@@ -443,6 +451,21 @@ export default function StatusTable({
             const subId = activeActivity?.subcontractor_id ?? null;
             const subName = subId ? companyNameById?.[subId] : undefined;
 
+            // Schedule grid (owner's per-activity columns) for the location's CURRENT
+            // activity — pending-aware date values + derived durations/variances. Actual
+            // start uses the ENTERED value only here (no per-row audit prefetch); the
+            // "ongoing" fallback appears on the expanded rows, which load the audit.
+            const rState = (pending?.state || log?.temporal_state || 'none') as string;
+            const rStart = pending?.extraProps?.startDate !== undefined ? (pending.extraProps.startDate ?? '') : (log?.planned_start_date || '');
+            const rEnd = pending?.extraProps?.endDate !== undefined ? (pending.extraProps.endDate ?? '') : (log?.planned_end_date || '');
+            const rLogged = pending?.extraProps?.loggedDate !== undefined ? (pending.extraProps.loggedDate ?? '') : (log?.logged_date || '');
+            const rActualStart = pending?.extraProps?.actualStartDate !== undefined ? (pending.extraProps.actualStartDate ?? '') : (log?.actual_start_date || '');
+            const rSched = deriveSchedule({
+              plannedStart: rStart || null, plannedEnd: rEnd || null, enteredStart: rActualStart || null,
+              loggedDate: rLogged || null, state: rState, todayIso,
+            });
+            const frozenBg = isSelected ? 'bg-purple-50 dark:bg-purple-950' : 'bg-white dark:bg-slate-900';
+
             return (
               // Each location is its own <tbody> so an expanded row's sticky pin is
               // bounded to *its* activity group — it releases the moment the group
@@ -461,7 +484,7 @@ export default function StatusTable({
                       : ''
                 }`}
               >
-                <td className={`${cellPad} align-middle text-center`}>
+                <td className={`${cellPad} ${FZ_CHECK} z-[11] ${frozenBg} align-middle text-center`}>
                   <input
                     type="checkbox"
                     checked={selectedUnitIds.includes(unit.id)}
@@ -469,7 +492,7 @@ export default function StatusTable({
                     className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                   />
                 </td>
-                <td className={`${cellPad} font-bold text-slate-900 dark:text-slate-100 align-middle`}>
+                <td className={`${cellPad} ${FZ_LOC} z-[11] ${frozenBg} border-r border-slate-200 dark:border-white/10 font-bold text-slate-900 dark:text-slate-100 align-middle`}>
                   <div className="flex items-start gap-2 relative">
                     <button
                       type="button"
@@ -562,77 +585,90 @@ export default function StatusTable({
                     }
                   />
                 </td>
-                <td className={`${cellPadTight} align-middle`}>
+                <td className={`${cellPadTight} align-middle`} onClick={(e) => e.stopPropagation()}>
                   {log ? (
-                    <DateChipCell
-                      value={
-                        pending?.extraProps?.startDate !== undefined
-                          ? pending.extraProps.startDate ?? ''
-                          : log?.planned_start_date || ''
-                      }
+                    <DateInputCell
+                      value={rStart}
                       pending={pending?.extraProps?.startDate !== undefined}
                       onChange={(val) =>
                         handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
-                          startDate: val,
-                          endDate: log.planned_end_date,
+                          startDate: val, endDate: log.planned_end_date,
                         })
                       }
                       disabled={isApplying}
                       ariaLabel={`Planned start — ${unit.unit_number}`}
-                      compact={isCompact}
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
                   )}
                 </td>
-                <td className={`${cellPadTight} align-middle`}>
+                <td className={`${cellPadTight} align-middle`} onClick={(e) => e.stopPropagation()}>
                   {log ? (
-                    <DateChipCell
-                      value={
-                        pending?.extraProps?.endDate !== undefined
-                          ? pending.extraProps.endDate ?? ''
-                          : log?.planned_end_date || ''
-                      }
+                    <DateInputCell
+                      value={rEnd}
                       pending={pending?.extraProps?.endDate !== undefined}
                       onChange={(val) =>
                         handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
-                          startDate: log.planned_start_date,
-                          endDate: val,
+                          startDate: log.planned_start_date, endDate: val,
                         })
                       }
                       disabled={isApplying}
                       ariaLabel={`Planned completion — ${unit.unit_number}`}
-                      compact={isCompact}
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
                   )}
                 </td>
-                <td className={`${cellPad} text-xs text-slate-500 dark:text-slate-400 text-right align-middle font-medium`}>
-                  {(pending?.state || log?.temporal_state) === 'completed' ? (
-                    <DateChipCell
-                      value={
-                        pending?.extraProps?.loggedDate !== undefined
-                          ? pending.extraProps.loggedDate ?? ''
-                          : log?.logged_date || ''
-                      }
-                      pending={pending?.extraProps?.loggedDate !== undefined}
+                <td className={`${cellPad} text-right align-middle`}>
+                  <DurationCell days={rSched.plannedDuration} />
+                </td>
+                <td className={`${cellPadTight} align-middle`} onClick={(e) => e.stopPropagation()}>
+                  {log ? (
+                    <DateInputCell
+                      value={rActualStart}
+                      pending={pending?.extraProps?.actualStartDate !== undefined}
                       onChange={(val) =>
-                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log!.temporal_state as TemporalState) || 'none', {
-                          startDate: log!.planned_start_date,
-                          endDate: log!.planned_end_date,
-                          loggedDate: val,
+                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
+                          startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: log.logged_date, actualStartDate: val,
                         })
                       }
                       disabled={isApplying}
-                      ariaLabel={`Actual completed — ${unit.unit_number}`}
-                      compact={isCompact}
+                      ariaLabel={`Actual start — ${unit.unit_number}`}
+                    />
+                  ) : (
+                    <span className="text-slate-400 text-xs italic">—</span>
+                  )}
+                </td>
+                <td className={`${cellPadTight} align-middle`} onClick={(e) => e.stopPropagation()}>
+                  {(pending?.state || log?.temporal_state) === 'completed' ? (
+                    <DateInputCell
+                      value={rLogged}
+                      pending={pending?.extraProps?.loggedDate !== undefined}
+                      onChange={(val) =>
+                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log!.temporal_state as TemporalState) || 'none', {
+                          startDate: log!.planned_start_date, endDate: log!.planned_end_date, loggedDate: val,
+                        })
+                      }
+                      disabled={isApplying}
+                      ariaLabel={`Actual completion — ${unit.unit_number}`}
                       completedTone
                       stopClickPropagation
                     />
                   ) : (
                     <span className="text-slate-400 text-xs italic">—</span>
                   )}
+                </td>
+                <td className={`${cellPad} text-right align-middle`}>
+                  <DurationCell days={rSched.actualDuration} ongoing={rSched.ongoing} />
+                </td>
+                <td className={`${cellPad} text-right align-middle`}>
+                  <VarianceCell days={rSched.varianceStart} pos="late" neg="early" zero="on time" />
+                </td>
+                <td className={`${cellPad} text-right align-middle`}>
+                  <VarianceCell days={rSched.varianceCompleted} pos="late" neg="early" zero="on time" />
+                </td>
+                <td className={`${cellPad} text-right align-middle`}>
+                  <VarianceCell days={rSched.varianceDuration} pos="over" neg="under" zero="on plan" />
                 </td>
                 <td className={`${cellPad} align-middle text-right`} onClick={(e) => e.stopPropagation()}>
                   <RowActionsMenu
@@ -657,8 +693,8 @@ export default function StatusTable({
                 if (notApplicable) {
                   return (
                     <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 opacity-60">
-                      <td className={cellPadTight}></td>
-                      <td className={`${cellPadTight} font-medium text-slate-500 dark:text-slate-400 align-middle pl-10`}>
+                      <td className={`${cellPadTight} ${FZ_CHECK} z-[11] bg-slate-50 dark:bg-slate-900`}></td>
+                      <td className={`${cellPadTight} ${FZ_LOC} z-[11] bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-white/10 font-medium text-slate-500 dark:text-slate-400 align-middle pl-10`}>
                         <div className="flex items-center gap-2 italic">
                           <span className="text-slate-400 font-bold">↳</span>
                           {activity.name}
@@ -684,9 +720,11 @@ export default function StatusTable({
                           )}
                         </div>
                       </td>
-                      <td className={`${cellPadTight} align-middle`}><span className="text-slate-400 text-xs italic">—</span></td>
-                      <td className={`${cellPadTight} align-middle`}><span className="text-slate-400 text-xs italic">—</span></td>
-                      <td className={`${cellPad} text-xs text-right align-middle`}><span className="text-slate-400 italic">—</span></td>
+                      {Array.from({ length: 9 }).map((_, i) => (
+                        <td key={i} className={`${cellPad} ${i >= 2 && i !== 3 ? 'text-right' : ''} align-middle`}>
+                          <span className="text-slate-300 dark:text-slate-600">—</span>
+                        </td>
+                      ))}
                       <td className={`${cellPad} align-middle text-right`}></td>
                     </tr>
                   );
@@ -704,66 +742,26 @@ export default function StatusTable({
                 const childPending = pendingTimelineChanges[`${unit.id}_${activity.name}`];
                 const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
 
-                // Schedule Variance Columns Phase 2 + 3 — the full per-activity
-                // schedule story on the expanded row. The CHEAP pair (Planned
-                // Duration + Variance Completed) needs only childLog dates; the
-                // AUDIT-backed set (Actual Started/Duration + Variance Start/Duration)
-                // needs the location's audit timeline, loaded lazily by the enclosing
-                // <ExpandedActivityAudit> (per-location, no level-wide prefetch).
+                // Schedule grid (owner's per-activity columns) for this activity.
                 const childState = (childLog.temporal_state as string) || 'none';
-                // Actual-Dates Capture — the manually-entered actual-start is the
-                // trusted source and WINS over the audit "ongoing" fallback; reflect
-                // any pending (unsaved) edit so the metrics + chip update live. When
-                // neither an entered date nor a genuine "ongoing" mark exists,
-                // resolveActualStartIso returns null → the start/duration cells blank
-                // (no misleading completion-day guess).
-                const pendingActualStart = childPending?.extraProps?.actualStartDate;
-                const enteredActualStart = pendingActualStart !== undefined
-                  ? (pendingActualStart || null)
-                  : (childLog.actual_start_date || null);
-                const actualStartIso = resolveActualStartIso(
-                  auditByActivity.get(activity.name) || [],
-                  { enteredStart: enteredActualStart },
-                );
-                // Ongoing → count the actual duration to today; completed → to its
-                // logged completion day. (Variance Completed stays gated on completion
-                // below, so today-as-end never reads as a "finished N late".)
-                const actualEndIso = childState === 'completed'
-                  ? childLog.logged_date
-                  : childState === 'ongoing' && actualStartIso ? todayIso : null;
-                const childMetrics = activitySchedule({
-                  plannedStart: childLog.planned_start_date,
-                  plannedEnd: childLog.planned_end_date,
-                  actualStart: actualStartIso,
-                  actualEnd: actualEndIso,
+                // Pending-aware effective date values for the editable date boxes.
+                const cStart = childPending?.extraProps?.startDate !== undefined ? (childPending.extraProps.startDate ?? '') : (childLog.planned_start_date || '');
+                const cEnd = childPending?.extraProps?.endDate !== undefined ? (childPending.extraProps.endDate ?? '') : (childLog.planned_end_date || '');
+                const cLogged = childPending?.extraProps?.loggedDate !== undefined ? (childPending.extraProps.loggedDate ?? '') : (childLog.logged_date || '');
+                const cActualStart = childPending?.extraProps?.actualStartDate !== undefined ? (childPending.extraProps.actualStartDate ?? '') : (childLog.actual_start_date || '');
+                // The per-activity schedule story. Manually-entered actual-start WINS;
+                // else a genuine "ongoing" mark from the loaded audit; else blank (no
+                // misleading completion-day guess). Reflects pending edits.
+                const cSched = deriveSchedule({
+                  plannedStart: cStart || null, plannedEnd: cEnd || null, enteredStart: cActualStart || null,
+                  loggedDate: cLogged || null, state: childState,
+                  events: auditByActivity.get(activity.name) || [], todayIso,
                 });
-
-                // Cheap pair. Variance Completed only reads once the slot is actually
-                // completed (an ongoing slot's end is `today`, which must not surface
-                // as "finished N late" — blank until it truly finishes).
-                const plannedDur = childMetrics.plannedDuration;
-                const vc = childState === 'completed' ? childMetrics.varianceCompleted : null;
-                const varianceCompletedLabel =
-                  vc === null ? null : vc > 0 ? `${vc}d late` : vc < 0 ? `${Math.abs(vc)}d early` : 'on time';
-
-                // Audit-backed set. Each null-propagates → a blank, never a false 0d.
-                const isChildOngoing = childState === 'ongoing';
-                const vs = childMetrics.varianceStart;
-                const varianceStartLabel =
-                  vs === null ? null : vs > 0 ? `${vs}d late` : vs < 0 ? `${Math.abs(vs)}d early` : 'on time';
-                const actualDur = childMetrics.actualDuration;
-                const vd = childMetrics.varianceDuration;
-                const varianceDurationLabel =
-                  vd === null ? null : vd > 0 ? `${vd}d over` : vd < 0 ? `${Math.abs(vd)}d under` : 'on plan';
-                const durationParts = [
-                  plannedDur !== null ? `planned ${plannedDur}d` : null,
-                  actualDur !== null ? `ran ${actualDur}d${isChildOngoing ? ' →' : ''}` : null,
-                ].filter(Boolean);
 
                 return (
                   <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
-                    <td className={cellPadTight}></td>
-                    <td className={`${cellPadTight} font-medium text-slate-700 dark:text-slate-300 align-middle pl-10`}>
+                    <td className={`${cellPadTight} ${FZ_CHECK} z-[11] bg-slate-50 dark:bg-slate-900`}></td>
+                    <td className={`${cellPadTight} ${FZ_LOC} z-[11] bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-white/10 font-medium text-slate-700 dark:text-slate-300 align-middle pl-10`}>
                       <div className="flex items-center gap-2">
                         <span className="text-slate-400 font-bold">↳</span>
                         {activity.name}
@@ -794,143 +792,78 @@ export default function StatusTable({
                         )}
                       </div>
                     </td>
-                    <td className={`${cellPadTight} align-top`}>
-                      <div className="flex flex-col gap-0.5 items-start">
-                        {childLog ? (
-                          <DateChipCell
-                            value={
-                              childPending?.extraProps?.startDate !== undefined
-                                ? childPending.extraProps.startDate ?? ''
-                                : childLog.planned_start_date || ''
-                            }
-                            pending={childPending?.extraProps?.startDate !== undefined}
-                            onChange={(val) =>
-                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                                startDate: val,
-                                endDate: childLog.planned_end_date,
-                                activityObj: activity
-                              })
-                            }
-                            disabled={isApplying}
-                            ariaLabel={`Planned start — ${activity.name}, ${unit.unit_number}`}
-                            compact={isCompact}
-                          />
-                        ) : (
-                          <span className="text-slate-400 text-xs italic">—</span>
-                        )}
-                        <div className="flex items-center gap-1">
-                          <span className="pl-2 text-[10px] font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">started</span>
-                          <DateChipCell
-                            value={(actualStartIso || '').slice(0, 10)}
-                            pending={pendingActualStart !== undefined}
-                            onChange={(val) =>
-                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                                startDate: childLog.planned_start_date,
-                                endDate: childLog.planned_end_date,
-                                loggedDate: childLog.logged_date,
-                                actualStartDate: val,
-                                activityObj: activity
-                              })
-                            }
-                            disabled={isApplying}
-                            ariaLabel={`Actual start — ${activity.name}, ${unit.unit_number}`}
-                            compact={isCompact}
-                          />
-                        </div>
-                        {varianceStartLabel && (
-                          <span
-                            className="pl-2 text-[10px] font-semibold whitespace-nowrap"
-                            style={{ color: varianceCompletedColor(vs) }}
-                            title={`Started ${varianceStartLabel} vs planned start`}
-                          >
-                            {varianceStartLabel} to start
-                          </span>
-                        )}
-                      </div>
+                    <td className={`${cellPadTight} align-middle`}>
+                      <DateInputCell
+                        value={cStart}
+                        pending={childPending?.extraProps?.startDate !== undefined}
+                        onChange={(val) =>
+                          handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                            startDate: val, endDate: childLog.planned_end_date, activityObj: activity,
+                          })
+                        }
+                        disabled={isApplying}
+                        ariaLabel={`Planned start — ${activity.name}, ${unit.unit_number}`}
+                      />
                     </td>
-                    <td className={`${cellPadTight} align-top`}>
-                      <div className="flex flex-col gap-0.5 items-start">
-                        {childLog ? (
-                          <DateChipCell
-                            value={
-                              childPending?.extraProps?.endDate !== undefined
-                                ? childPending.extraProps.endDate ?? ''
-                                : childLog.planned_end_date || ''
-                            }
-                            pending={childPending?.extraProps?.endDate !== undefined}
-                            onChange={(val) =>
-                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                                startDate: childLog.planned_start_date,
-                                endDate: val,
-                                activityObj: activity
-                              })
-                            }
-                            disabled={isApplying}
-                            ariaLabel={`Planned completion — ${activity.name}, ${unit.unit_number}`}
-                            compact={isCompact}
-                          />
-                        ) : (
-                          <span className="text-slate-400 text-xs italic">—</span>
-                        )}
-                        {durationParts.length > 0 && (
-                          <span
-                            className="pl-2 text-[10px] font-normal text-slate-400 dark:text-slate-500 whitespace-nowrap"
-                            title={
-                              (plannedDur !== null ? `Planned ${plannedDur} day${plannedDur === 1 ? '' : 's'}` : '') +
-                              (actualDur !== null ? `${plannedDur !== null ? ' · ' : ''}ran ${actualDur} day${actualDur === 1 ? '' : 's'}${isChildOngoing ? ' so far' : ''}` : '')
-                            }
-                          >
-                            {durationParts.join(' · ')}
-                          </span>
-                        )}
-                        {varianceDurationLabel && (
-                          <span
-                            className="pl-2 text-[10px] font-semibold whitespace-nowrap"
-                            style={{ color: varianceCompletedColor(vd) }}
-                            title={`Ran ${varianceDurationLabel} vs planned length`}
-                          >
-                            {varianceDurationLabel}
-                          </span>
-                        )}
-                      </div>
+                    <td className={`${cellPadTight} align-middle`}>
+                      <DateInputCell
+                        value={cEnd}
+                        pending={childPending?.extraProps?.endDate !== undefined}
+                        onChange={(val) =>
+                          handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                            startDate: childLog.planned_start_date, endDate: val, activityObj: activity,
+                          })
+                        }
+                        disabled={isApplying}
+                        ariaLabel={`Planned completion — ${activity.name}, ${unit.unit_number}`}
+                      />
                     </td>
-                    <td className={`${cellPad} text-xs text-slate-500 dark:text-slate-400 text-right align-top font-medium`}>
-                      <div className="flex flex-col gap-0.5 items-end">
-                        {(childPending?.state || childLog.temporal_state) === 'completed' ? (
-                          <DateChipCell
-                            value={
-                              childPending?.extraProps?.loggedDate !== undefined
-                                ? childPending.extraProps.loggedDate ?? ''
-                                : childLog.logged_date || ''
-                            }
-                            pending={childPending?.extraProps?.loggedDate !== undefined}
-                            onChange={(val) =>
-                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                                startDate: childLog.planned_start_date,
-                                endDate: childLog.planned_end_date,
-                                loggedDate: val,
-                                activityObj: activity
-                              })
-                            }
-                            disabled={isApplying}
-                            ariaLabel={`Actual completed — ${activity.name}, ${unit.unit_number}`}
-                            compact={isCompact}
-                            completedTone
-                            stopClickPropagation
-                          />
-                        ) : (
-                          <span className="text-slate-400 text-xs italic">—</span>
-                        )}
-                        {varianceCompletedLabel && (
-                          <span
-                            className="pr-2 text-[10px] font-semibold whitespace-nowrap"
-                            style={{ color: varianceCompletedColor(vc) }}
-                            title={`Finished ${varianceCompletedLabel} vs planned completion`}
-                          >
-                            {varianceCompletedLabel}
-                          </span>
-                        )}
-                      </div>
+                    <td className={`${cellPad} text-right align-middle`}>
+                      <DurationCell days={cSched.plannedDuration} />
+                    </td>
+                    <td className={`${cellPadTight} align-middle`}>
+                      <DateInputCell
+                        value={(cSched.actualStartIso || '').slice(0, 10)}
+                        pending={childPending?.extraProps?.actualStartDate !== undefined}
+                        onChange={(val) =>
+                          handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                            startDate: childLog.planned_start_date, endDate: childLog.planned_end_date, loggedDate: childLog.logged_date, actualStartDate: val, activityObj: activity,
+                          })
+                        }
+                        disabled={isApplying}
+                        ariaLabel={`Actual start — ${activity.name}, ${unit.unit_number}`}
+                      />
+                    </td>
+                    <td className={`${cellPadTight} align-middle`}>
+                      {(childPending?.state || childLog.temporal_state) === 'completed' ? (
+                        <DateInputCell
+                          value={cLogged}
+                          pending={childPending?.extraProps?.loggedDate !== undefined}
+                          onChange={(val) =>
+                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                              startDate: childLog.planned_start_date, endDate: childLog.planned_end_date, loggedDate: val, activityObj: activity,
+                            })
+                          }
+                          disabled={isApplying}
+                          ariaLabel={`Actual completion — ${activity.name}, ${unit.unit_number}`}
+                          completedTone
+                          stopClickPropagation
+                        />
+                      ) : (
+                        <span className="text-slate-400 text-xs italic">—</span>
+                      )}
+                    </td>
+                    <td className={`${cellPad} text-right align-middle`}>
+                      <DurationCell days={cSched.actualDuration} ongoing={cSched.ongoing} />
+                    </td>
+                    <td className={`${cellPad} text-right align-middle`}>
+                      <VarianceCell days={cSched.varianceStart} pos="late" neg="early" zero="on time" />
+                    </td>
+                    <td className={`${cellPad} text-right align-middle`}>
+                      <VarianceCell days={cSched.varianceCompleted} pos="late" neg="early" zero="on time" />
+                    </td>
+                    <td className={`${cellPad} text-right align-middle`}>
+                      <VarianceCell days={cSched.varianceDuration} pos="over" neg="under" zero="on plan" />
                     </td>
                     <td className={`${cellPad} align-middle text-right`}></td>
                   </tr>
