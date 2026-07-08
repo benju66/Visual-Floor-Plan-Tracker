@@ -7,6 +7,7 @@ import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/providers/AuthProvider';
 import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X, Info, Settings, Library } from 'lucide-react';
 import GlobalSettingsModal from '@/components/GlobalSettingsModal';
+import SubcontractorBenchmark from '@/components/dashboard/SubcontractorBenchmark';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 export default function DashboardPage() {
   const { session } = useAuth();
@@ -224,6 +225,13 @@ export default function DashboardPage() {
               <p className="text-sm text-slate-500">Get started by setting up a robust tracker.</p>
             </div>
           )}
+        </div>
+
+        {/* ── Private per-GC benchmarking — cross-project by design, so it lives on
+            the home dashboard (opt-in, RLS-scoped, self-fetching, read-only). Moved
+            here from the single-project dashboard (Data Storytelling P4). ── */}
+        <div className="mt-10">
+          <SubcontractorBenchmark />
         </div>
       </div>
 

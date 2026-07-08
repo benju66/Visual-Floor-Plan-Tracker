@@ -16,7 +16,6 @@ import type { ApplicabilityIndex } from '@/utils/applicability';
 import FloorPulse from '@/components/dashboard/FloorPulse';
 import TypeScorecard from '@/components/dashboard/TypeScorecard';
 import ProductionRates from '@/components/dashboard/ProductionRates';
-import SubcontractorBenchmark from '@/components/dashboard/SubcontractorBenchmark';
 import type { Unit, Activity, StatusLog, Sheet, TrackingMode } from '@/types/domain';
 
 // Lazy-load recharts via next/dynamic — prevents SSR hydration crash
@@ -533,10 +532,6 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
         history={trackHistory}
         applicabilityIndex={applicabilityIndex}
       />
-
-      {/* ── Private per-GC benchmarking — compare a sub / cost code across the
-          tenant's own jobs (opt-in, RLS-scoped, read-only) ── */}
-      <SubcontractorBenchmark />
 
       <div className="glass-panel rounded-2xl border p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6">Activity Breakdown</h2>
