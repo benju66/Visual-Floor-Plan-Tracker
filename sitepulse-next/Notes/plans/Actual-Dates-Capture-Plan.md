@@ -1,4 +1,10 @@
 # Actual-Dates Capture — let the team type the real actual-start date (self-contained build plan)
+> ✅ STATUS: **Phase 1 COMPLETE + APPROVED + COMMITTED** 2026-07-08 (`ef320e4` on branch
+> `schedule-variance-columns-phase-2`; migration `20260711_status_logs_actual_start.sql` APPLIED to
+> prod). Verified live (Orchard read-only + Test-project write round-trip + IDB offline durability).
+> Merge to `main` (with Schedule Variance Columns P1-P3) pending owner go-ahead. The master-schedule /
+> baseline / production-rate consumption of the captured actuals remains a FUTURE workstream.
+>
 > Audience: a fresh Claude Code session with no memory of the chat that produced this.
 > Read this top-to-bottom, then re-read the actual current files before editing.
 > Parent workstream: `Notes/plans/Schedule-Variance-Columns-Plan.md` (this is the WRITE-PATH
