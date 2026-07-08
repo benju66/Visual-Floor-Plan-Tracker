@@ -343,6 +343,19 @@ export interface PaceMove {
   projectedFinish: string;
 }
 
+/**
+ * The result of a best-move search. `move` is the transplant worth suggesting,
+ * or null. `evaluated` distinguishes the TWO honest reasons `move` is null:
+ * `true` = there were ≥2 levels with real bands and the search genuinely found
+ * nothing that saves ≥ {@link MIN_MOVE_DAYS} (the UI can say "no meaningful
+ * move"); `false` = there weren't two comparable levels to evaluate at all (the
+ * UI stays silent — claiming "no move helps" would be a conclusion never reached).
+ */
+export interface PaceMoveResult {
+  move: PaceMove | null;
+  evaluated: boolean;
+}
+
 export interface BestPaceMoveInput {
   /** The lifted per-level rollups already computed in ProjectDashboard (keyed by sheet id). */
   levelRollups: Record<string, GroupRollup>;
@@ -366,10 +379,11 @@ export interface BestPaceMoveInput {
  *
  * Honesty (AGENTS.md §3): only levels with an UNSUPPRESSED band (a dated P50)
  * can be a donor or a recipient — a suppressed level has no pace to lend and no
- * finish to pull in. Returns null when fewer than two such levels exist, or when
- * the best move saves fewer than {@link MIN_MOVE_DAYS} days.
+ * finish to pull in. Returns `{ move: null, evaluated: false }` when fewer than
+ * two such levels exist (nothing to compare), or `{ move: null, evaluated: true }`
+ * when it compared them and no transplant saves ≥ {@link MIN_MOVE_DAYS} days.
  */
-export function bestPaceMove({ levelRollups, today, seed }: BestPaceMoveInput): PaceMove | null {
+export function bestPaceMove({ levelRollups, today, seed }: BestPaceMoveInput): PaceMoveResult {
   const contenders = Object.entries(levelRollups)
     .map(([sheetId, rollup]) => ({
       sheetId,
@@ -380,7 +394,8 @@ export function bestPaceMove({ levelRollups, today, seed }: BestPaceMoveInput): 
     }))
     .filter(c => c.band.suppressed === null && c.band.p50 !== null);
 
-  if (contenders.length < 2) return null;
+  // Fewer than two comparable levels → we could not evaluate any transplant.
+  if (contenders.length < 2) return { move: null, evaluated: false };
 
   // Project finish at median pace = the latest level P50.
   const baseline = contenders.reduce<string>((m, c) => (c.band.p50! > m ? c.band.p50! : m), contenders[0].band.p50!);
@@ -415,5 +430,6 @@ export function bestPaceMove({ levelRollups, today, seed }: BestPaceMoveInput): 
       }
     }
   }
-  return best;
+  // Compared ≥2 levels: `best` is the move (or null = genuinely nothing helps).
+  return { move: best, evaluated: true };
 }

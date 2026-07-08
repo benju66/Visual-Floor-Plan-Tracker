@@ -585,7 +585,8 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
         scope={scope}
         sheets={sheets}
         scopeLabel={scope === 'all' ? 'all levels' : (scopedSheet?.sheet_name || 'level')}
-        paceMove={bestMove}
+        paceMove={bestMove.move}
+        paceMoveEvaluated={bestMove.evaluated}
       />
 
       {/* ── Type Scorecard — which space type is dragging the schedule ── */}

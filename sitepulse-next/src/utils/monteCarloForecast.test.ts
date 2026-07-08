@@ -400,23 +400,27 @@ function level(fullWeeks: number[], totalSlots: number, completedSlots: number):
 }
 
 describe('bestPaceMove', () => {
-  it('returns null on uniform pace (no level is faster to transplant)', () => {
+  it('evaluates but finds no move on uniform pace (no level is faster)', () => {
     const rollups = {
       a: level([3, 3, 3, 3, 3, 3], 40, 10),
       b: level([3, 3, 3, 3, 3, 3], 40, 10),
     };
-    expect(bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED })).toBeNull();
+    const res = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
+    expect(res.move).toBeNull();
+    expect(res.evaluated).toBe(true); // two comparable levels — we DID look
   });
 
-  it('returns null with fewer than two unsuppressed levels', () => {
+  it('does not evaluate with fewer than two unsuppressed levels', () => {
     // One healthy level + one complete (suppressed) level → only one contender.
     const rollups = {
       a: level([4, 4, 4, 4, 4, 4], 40, 12),
       done: level([4, 4, 4, 4, 4, 4], 20, 20), // remaining 0 → band 'complete', filtered out
     };
-    expect(bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED })).toBeNull();
+    const res = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
+    expect(res.move).toBeNull();
+    expect(res.evaluated).toBe(false); // nothing comparable → stay silent, don't claim "no move helps"
     // And truly empty input.
-    expect(bestPaceMove({ levelRollups: {}, today: TODAY, seed: SEED })).toBeNull();
+    expect(bestPaceMove({ levelRollups: {}, today: TODAY, seed: SEED })).toEqual({ move: null, evaluated: false });
   });
 
   it('finds the transplant that pulls the project finish in the most', () => {
@@ -424,7 +428,8 @@ describe('bestPaceMove', () => {
       fast: level([10, 10, 10, 10, 10, 10], 40, 34), // remaining 6, ~1 wk
       slow: level([2, 2, 2, 2, 2, 2], 40, 4),         // remaining 36, ~18 wks — gates the project
     };
-    const move = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
+    const { move, evaluated } = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
+    expect(evaluated).toBe(true);
     expect(move).not.toBeNull();
     expect(move!.fromSheetId).toBe('fast'); // donor = the faster level
     expect(move!.toSheetId).toBe('slow');   // recipient = the lagging level
@@ -432,7 +437,7 @@ describe('bestPaceMove', () => {
     expect(move!.projectedFinish).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('is deterministic — same seed yields the identical move', () => {
+  it('is deterministic — same seed yields the identical result', () => {
     const rollups = {
       fast: level([9, 9, 9, 9, 9, 9], 40, 30),
       slow: level([1, 1, 1, 1, 1, 1], 40, 5),
@@ -442,7 +447,7 @@ describe('bestPaceMove', () => {
     expect(a).toEqual(b);
   });
 
-  it('returns null when speeding up one level cannot beat a tied bottleneck', () => {
+  it('evaluates but finds no move when speeding one level cannot beat a tied bottleneck', () => {
     // Two levels tie as the slowest; a third is fast. Speeding up either tied
     // level leaves the other gating the finish → 0 days saved → below the floor.
     const rollups = {
@@ -450,6 +455,8 @@ describe('bestPaceMove', () => {
       b: level([1, 1, 1, 1, 1, 1], 40, 30), // remaining 10, ~10 wks (tied)
       c: level([10, 10, 10, 10, 10, 10], 40, 35), // fast, remaining 5, ~1 wk
     };
-    expect(bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED })).toBeNull();
+    const res = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
+    expect(res.move).toBeNull();
+    expect(res.evaluated).toBe(true);
   });
 });

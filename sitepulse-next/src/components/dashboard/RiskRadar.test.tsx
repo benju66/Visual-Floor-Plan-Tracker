@@ -27,12 +27,12 @@ const MOVE: PaceMove = { fromSheetId: 's2', toSheetId: 's1', daysSaved: 6, proje
 
 const baseProps = {
   units: UNITS, statuses: STATUSES, activities: ACTIVITIES, track: 'Production',
-  history: HISTORY, sheets: SHEETS, scopeLabel: 'all levels',
+  history: HISTORY, sheets: SHEETS, scopeLabel: 'all levels', paceMoveEvaluated: false,
 };
 
 describe('RiskRadar — P4 highest-impact move line', () => {
   it('renders the move suggestion (with the caption) at all-levels scope', () => {
-    const { container } = render(<RiskRadar {...baseProps} scope="all" paceMove={MOVE} />);
+    const { container } = render(<RiskRadar {...baseProps} scope="all" paceMove={MOVE} paceMoveEvaluated />);
     expect(container.textContent).toContain(
       "If Level 1 matched Level 2's pace, the projected finish moves up ~6 days.",
     );
@@ -40,12 +40,19 @@ describe('RiskRadar — P4 highest-impact move line', () => {
   });
 
   it('hides the move when scoped to a single level (cross-level only)', () => {
-    const { container } = render(<RiskRadar {...baseProps} scope="s1" scopeLabel="Level 1" paceMove={MOVE} />);
+    const { container } = render(<RiskRadar {...baseProps} scope="s1" scopeLabel="Level 1" paceMove={MOVE} paceMoveEvaluated />);
     expect(container.textContent).not.toContain('moves up');
   });
 
-  it('renders nothing extra when there is no move', () => {
-    const { container } = render(<RiskRadar {...baseProps} scope="all" paceMove={null} />);
+  it('shows the honest "no meaningful move" note when levels were compared and none helps', () => {
+    const { container } = render(<RiskRadar {...baseProps} scope="all" paceMove={null} paceMoveEvaluated />);
+    expect(container.textContent).toContain('No single pace shift between levels would meaningfully improve the finish date.');
+    expect(container.textContent).not.toContain('moves up');
+  });
+
+  it('stays silent (no note) when there were not enough levels to evaluate', () => {
+    const { container } = render(<RiskRadar {...baseProps} scope="all" paceMove={null} paceMoveEvaluated={false} />);
+    expect(container.textContent).not.toContain('No single pace shift');
     expect(container.textContent).not.toContain('moves up');
     // the module itself still renders (Framing sits in the muted group).
     expect(container.textContent).toContain('not enough history yet');

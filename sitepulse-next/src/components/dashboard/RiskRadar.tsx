@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { Radar, Info, Lightbulb } from 'lucide-react';
 import { parseDay, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS } from '@/utils/progressAnalytics';
-import { activityRisk, bandMethodSentence, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
+import { activityRisk, bandMethodSentence, FORECAST_BAND_SEED, MIN_MOVE_DAYS } from '@/utils/monteCarloForecast';
 import type { ActivityRisk, PaceMove } from '@/utils/monteCarloForecast';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { StatusHistoryEvent } from '@/hooks/useProjectQueries';
@@ -44,6 +44,13 @@ export interface RiskRadarProps {
   scopeLabel: string;
   /** The single highest-impact pace transplant (P4), or null when none is meaningful. */
   paceMove: PaceMove | null;
+  /**
+   * True when {@link bestPaceMove} actually compared ≥2 levels. Lets the module
+   * tell "we checked and nothing helps" (show the muted note) apart from "not
+   * enough comparable data" (stay silent) — never claiming a conclusion it
+   * didn't reach.
+   */
+  paceMoveEvaluated: boolean;
 }
 
 const fmt = (iso: string | null): string => {
@@ -78,7 +85,7 @@ function RiskChip({ r }: { r: ActivityRisk }) {
   );
 }
 
-export default function RiskRadar({ units, statuses, activities, track, history, applicabilityIndex, scope, sheets, scopeLabel, paceMove }: RiskRadarProps) {
+export default function RiskRadar({ units, statuses, activities, track, history, applicabilityIndex, scope, sheets, scopeLabel, paceMove, paceMoveEvaluated }: RiskRadarProps) {
   const today = useMemo(() => new Date(), []);
 
   const rows = useMemo(
@@ -103,6 +110,9 @@ export default function RiskRadar({ units, statuses, activities, track, history,
   // scope. Resolve its level names from the sheet list (falls back gracefully).
   const sheetName = (id: string) => sheets.find(s => s.id === id)?.sheet_name || 'a level';
   const showMove = scope === 'all' && paceMove !== null;
+  // Only say "nothing would help" when we actually compared levels and came up
+  // empty — never when there simply wasn't enough data to look (honest silence).
+  const showNoMove = scope === 'all' && paceMove === null && paceMoveEvaluated;
 
   return (
     <div className="glass-panel rounded-2xl border shadow-sm overflow-hidden">
@@ -137,6 +147,20 @@ export default function RiskRadar({ units, statuses, activities, track, history,
             </p>
             <p className="text-[10px] text-slate-400 mt-0.5">estimate from recent pace — not crew logistics</p>
           </div>
+        </div>
+      )}
+
+      {/* Honest "we checked, nothing helps" — advertises the capability without
+          firing on thin data (only when ≥2 levels were actually compared). */}
+      {showNoMove && (
+        <div className="flex items-start gap-2 px-5 py-2 border-b border-slate-200/60 dark:border-white/10">
+          <Lightbulb size={14} className="text-slate-400 mt-0.5 shrink-0" />
+          <p
+            className="text-[11px] text-slate-400"
+            title={`Checked every level's recent pace against the others — none would save ${MIN_MOVE_DAYS}+ days on the projected finish.`}
+          >
+            No single pace shift between levels would meaningfully improve the finish date.
+          </p>
         </div>
       )}
 
