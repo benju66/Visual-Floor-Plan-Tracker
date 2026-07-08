@@ -10,6 +10,7 @@ import {
 import type { Project, Unit, PercentPoint, StatusLog, Activity, TemporalState, Sheet, ActivityOverride, TopLevelRole } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
 import { buildApplicabilityIndex, hasSequenceGaps, nextApplicableIndex } from '@/utils/applicability';
+import { resolveActivityId } from '@/utils/resolveActivityId';
 import { useProposePendingSubtype, useSubtypes } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult, type TaxonomyUnitFields } from '@/utils/subtypes';
 import { useSheetText } from '@/hooks/useSheetText';
@@ -552,9 +553,21 @@ export function useMapActions(project: Project | null | undefined) {
       const status_color = activity.color || (activity as any).status_color || '';
       const sheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[activityName] || {};
 
+      // status_logs.activity_id is NOT NULL. The desktop paths hand a full Activity, but the
+      // mobile swipe-deck quick paths (swipe-right, PLN/ONG/✓) and synthetic bottleneck
+      // placeholders (src/utils/bottleneck.ts) carry only a name — resolve the id by name+track
+      // before writing, else the insert fails the NOT-NULL constraint. Fail loudly (kept in the
+      // pending queue) rather than writing NULL if the activity truly can't be found.
+      const resolvedActivityId = resolveActivityId(activity, activities);
+      if (!resolvedActivityId) {
+        throw new Error(
+          `Couldn't identify the activity${activityName ? ` "${activityName}"` : ''} for this location — reopen the status picker and try again.`
+        );
+      }
+
       const newLogData = {
         unit_id: unit.id,
-        activity_id: activity.id as string,
+        activity_id: resolvedActivityId,
         activityName,
         status_color,
         temporal_state: currentTemporalState,
