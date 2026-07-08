@@ -6,8 +6,9 @@ import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegment
 import StatusTrigger, { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
 import RowActionsMenu from './manage/RowActionsMenu';
 import AssigneeCell from './manage/AssigneeCell';
+import ExpandedActivityAudit from './manage/ExpandedActivityAudit';
 import { applicableActivities, isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
-import { activitySchedule, computeUnitVariance, orderedTrackActivities, varianceCompletedColor, varianceFill, varianceLabel, type VarianceInfo } from '@/utils/progressAnalytics';
+import { activitySchedule, computeUnitVariance, orderedTrackActivities, resolveActualStartIso, varianceCompletedColor, varianceFill, varianceLabel, type VarianceInfo } from '@/utils/progressAnalytics';
 import { lastActivityIso, formatAge } from '@/utils/staleness';
 import { formatPlannedDate } from '@/utils/formatPlannedDate';
 import type { ListDensity } from '@/store/useSettingsStore';
@@ -647,7 +648,9 @@ export default function StatusTable({
                   />
                 </td>
               </tr>
-              {expandedUnitIds.has(unit.id) && currentActivities?.map(activity => {
+              {expandedUnitIds.has(unit.id) && (
+              <ExpandedActivityAudit unitId={unit.id} track={trackingMode}>
+              {(auditByActivity) => currentActivities?.map(activity => {
                 if (activity.name === log?.activityName) return null;
 
                 const notApplicable = applicabilityIndex && !isActivityApplicable(activity, unit, applicabilityIndex);
@@ -701,21 +704,52 @@ export default function StatusTable({
                 const childPending = pendingTimelineChanges[`${unit.id}_${activity.name}`];
                 const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
 
-                // Schedule Variance Columns Phase 2 — the two CHEAP per-activity
-                // metrics, arithmetic over the childLog dates already on this row
-                // (no new query). Planned Duration is known whenever both planned
-                // dates exist; Variance Completed stays null (blank, never a false
-                // "0d") until the slot is completed with a logged date — logged_date
-                // is null until then, so activitySchedule null-propagates it for us.
+                // Schedule Variance Columns Phase 2 + 3 — the full per-activity
+                // schedule story on the expanded row. The CHEAP pair (Planned
+                // Duration + Variance Completed) needs only childLog dates; the
+                // AUDIT-backed set (Actual Started/Duration + Variance Start/Duration)
+                // needs the location's audit timeline, loaded lazily by the enclosing
+                // <ExpandedActivityAudit> (per-location, no level-wide prefetch).
+                const childState = (childLog.temporal_state as string) || 'none';
+                const actualStartIso = resolveActualStartIso(
+                  auditByActivity.get(activity.name) || [],
+                  { state: childState, loggedDate: childLog.logged_date },
+                );
+                // Ongoing → count the actual duration to today; completed → to its
+                // logged completion day. (Variance Completed stays gated on completion
+                // below, so today-as-end never reads as a "finished N late".)
+                const actualEndIso = childState === 'completed'
+                  ? childLog.logged_date
+                  : childState === 'ongoing' && actualStartIso ? todayIso : null;
                 const childMetrics = activitySchedule({
                   plannedStart: childLog.planned_start_date,
                   plannedEnd: childLog.planned_end_date,
-                  actualStart: null,
-                  actualEnd: childLog.logged_date,
+                  actualStart: actualStartIso,
+                  actualEnd: actualEndIso,
                 });
-                const vc = childMetrics.varianceCompleted;
+
+                // Cheap pair. Variance Completed only reads once the slot is actually
+                // completed (an ongoing slot's end is `today`, which must not surface
+                // as "finished N late" — blank until it truly finishes).
+                const plannedDur = childMetrics.plannedDuration;
+                const vc = childState === 'completed' ? childMetrics.varianceCompleted : null;
                 const varianceCompletedLabel =
                   vc === null ? null : vc > 0 ? `${vc}d late` : vc < 0 ? `${Math.abs(vc)}d early` : 'on time';
+
+                // Audit-backed set. Each null-propagates → a blank, never a false 0d.
+                const isChildOngoing = childState === 'ongoing';
+                const actualStartText = actualStartIso ? formatPlannedDate(actualStartIso) : null;
+                const vs = childMetrics.varianceStart;
+                const varianceStartLabel =
+                  vs === null ? null : vs > 0 ? `${vs}d late` : vs < 0 ? `${Math.abs(vs)}d early` : 'on time';
+                const actualDur = childMetrics.actualDuration;
+                const vd = childMetrics.varianceDuration;
+                const varianceDurationLabel =
+                  vd === null ? null : vd > 0 ? `${vd}d over` : vd < 0 ? `${Math.abs(vd)}d under` : 'on plan';
+                const durationParts = [
+                  plannedDur !== null ? `planned ${plannedDur}d` : null,
+                  actualDur !== null ? `ran ${actualDur}d${isChildOngoing ? ' →' : ''}` : null,
+                ].filter(Boolean);
 
                 return (
                   <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
@@ -751,29 +785,48 @@ export default function StatusTable({
                         )}
                       </div>
                     </td>
-                    <td className={`${cellPadTight} align-middle`}>
-                      {childLog ? (
-                        <DateChipCell
-                          value={
-                            childPending?.extraProps?.startDate !== undefined
-                              ? childPending.extraProps.startDate ?? ''
-                              : childLog.planned_start_date || ''
-                          }
-                          pending={childPending?.extraProps?.startDate !== undefined}
-                          onChange={(val) =>
-                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                              startDate: val,
-                              endDate: childLog.planned_end_date,
-                              activityObj: activity
-                            })
-                          }
-                          disabled={isApplying}
-                          ariaLabel={`Planned start — ${activity.name}, ${unit.unit_number}`}
-                          compact={isCompact}
-                        />
-                      ) : (
-                        <span className="text-slate-400 text-xs italic">—</span>
-                      )}
+                    <td className={`${cellPadTight} align-top`}>
+                      <div className="flex flex-col gap-0.5 items-start">
+                        {childLog ? (
+                          <DateChipCell
+                            value={
+                              childPending?.extraProps?.startDate !== undefined
+                                ? childPending.extraProps.startDate ?? ''
+                                : childLog.planned_start_date || ''
+                            }
+                            pending={childPending?.extraProps?.startDate !== undefined}
+                            onChange={(val) =>
+                              handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
+                                startDate: val,
+                                endDate: childLog.planned_end_date,
+                                activityObj: activity
+                              })
+                            }
+                            disabled={isApplying}
+                            ariaLabel={`Planned start — ${activity.name}, ${unit.unit_number}`}
+                            compact={isCompact}
+                          />
+                        ) : (
+                          <span className="text-slate-400 text-xs italic">—</span>
+                        )}
+                        {actualStartText && (
+                          <span
+                            className="pl-2 text-[10px] font-normal text-slate-400 dark:text-slate-500 whitespace-nowrap"
+                            title={`Actually started ${actualStartText}`}
+                          >
+                            started {actualStartText}
+                          </span>
+                        )}
+                        {varianceStartLabel && (
+                          <span
+                            className="pl-2 text-[10px] font-semibold whitespace-nowrap"
+                            style={{ color: varianceCompletedColor(vs) }}
+                            title={`Started ${varianceStartLabel} vs planned start`}
+                          >
+                            {varianceStartLabel} to start
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className={`${cellPadTight} align-top`}>
                       <div className="flex flex-col gap-0.5 items-start">
@@ -799,12 +852,24 @@ export default function StatusTable({
                         ) : (
                           <span className="text-slate-400 text-xs italic">—</span>
                         )}
-                        {childMetrics.plannedDuration !== null && (
+                        {durationParts.length > 0 && (
                           <span
                             className="pl-2 text-[10px] font-normal text-slate-400 dark:text-slate-500 whitespace-nowrap"
-                            title={`Planned duration — ${childMetrics.plannedDuration} day${childMetrics.plannedDuration === 1 ? '' : 's'}`}
+                            title={
+                              (plannedDur !== null ? `Planned ${plannedDur} day${plannedDur === 1 ? '' : 's'}` : '') +
+                              (actualDur !== null ? `${plannedDur !== null ? ' · ' : ''}ran ${actualDur} day${actualDur === 1 ? '' : 's'}${isChildOngoing ? ' so far' : ''}` : '')
+                            }
                           >
-                            planned {childMetrics.plannedDuration}d
+                            {durationParts.join(' · ')}
+                          </span>
+                        )}
+                        {varianceDurationLabel && (
+                          <span
+                            className="pl-2 text-[10px] font-semibold whitespace-nowrap"
+                            style={{ color: varianceCompletedColor(vd) }}
+                            title={`Ran ${varianceDurationLabel} vs planned length`}
+                          >
+                            {varianceDurationLabel}
                           </span>
                         )}
                       </div>
@@ -851,6 +916,8 @@ export default function StatusTable({
                   </tr>
                 );
               })}
+              </ExpandedActivityAudit>
+              )}
               </tbody>
             );
           })}

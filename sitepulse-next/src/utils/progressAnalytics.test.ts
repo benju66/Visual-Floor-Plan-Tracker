@@ -14,6 +14,7 @@ import {
   clampProjectForecast,
   isStalledSwarm,
   firstOngoingIso,
+  resolveActualStartIso,
   activitySchedule,
   VARIANCE_COLORS,
 } from './progressAnalytics';
@@ -443,6 +444,52 @@ describe('firstOngoingIso', () => {
       { temporal_state: 'completed', client_timestamp: '2026-05-10T15:00:00Z', changed_at: '2026-05-10T15:00:00Z' },
     ])).toBeNull();
     expect(firstOngoingIso([])).toBeNull();
+  });
+});
+
+describe('resolveActualStartIso', () => {
+  it('uses the first ongoing event when one exists', () => {
+    const events = [
+      { temporal_state: 'ongoing', client_timestamp: '2026-04-28T07:00:00Z', changed_at: '2026-04-28T07:00:00Z' },
+      { temporal_state: 'completed', client_timestamp: '2026-05-10T15:00:00Z', changed_at: '2026-05-10T15:00:00Z', logged_date: '2026-05-10' },
+    ];
+    expect(resolveActualStartIso(events, { state: 'completed', loggedDate: '2026-05-10' }))
+      .toBe('2026-04-28T07:00:00Z');
+  });
+
+  it('falls back to the completion day when it jumped straight to complete', () => {
+    const events = [
+      { temporal_state: 'completed', changed_at: '2026-05-10T15:00:00Z', logged_date: '2026-05-10' },
+    ];
+    // No ongoing event → actual start is the current log's logged_date.
+    expect(resolveActualStartIso(events, { state: 'completed', loggedDate: '2026-05-10' }))
+      .toBe('2026-05-10');
+  });
+
+  it('clamps a stray ongoing event that post-dates completion back to the completion day', () => {
+    const events = [
+      { temporal_state: 'ongoing', client_timestamp: '2026-05-20T09:00:00Z', changed_at: '2026-05-20T09:00:00Z' },
+      { temporal_state: 'completed', changed_at: '2026-05-10T15:00:00Z', logged_date: '2026-05-10' },
+    ];
+    expect(resolveActualStartIso(events, { state: 'completed', loggedDate: '2026-05-10' }))
+      .toBe('2026-05-10');
+  });
+
+  it('returns null for an activity that never started (no ongoing, not completed)', () => {
+    expect(resolveActualStartIso([], { state: 'none', loggedDate: null })).toBeNull();
+    // A lone planned/ongoing-less slot with no completion also yields null.
+    expect(resolveActualStartIso(
+      [{ temporal_state: 'planned', changed_at: '2026-05-01T00:00:00Z' }],
+      { state: 'planned', loggedDate: null },
+    )).toBeNull();
+  });
+
+  it('still finds the ongoing start for an in-progress activity', () => {
+    const events = [
+      { temporal_state: 'ongoing', client_timestamp: '2026-06-01T08:00:00Z', changed_at: '2026-06-01T08:00:00Z' },
+    ];
+    expect(resolveActualStartIso(events, { state: 'ongoing', loggedDate: null }))
+      .toBe('2026-06-01T08:00:00Z');
   });
 });
 

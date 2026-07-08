@@ -150,6 +150,8 @@ export interface AuditEventLike {
   /** Server-side audit write time; the fallback stamp + the ordering key. */
   changed_at?: string | null;
   created_at?: string | null;
+  /** Completion date on a `completed` event; the jumped-straight-to-complete fallback. */
+  logged_date?: string | null;
 }
 
 /**
@@ -170,6 +172,34 @@ export function firstOngoingIso(rows: AuditEventLike[]): string | null {
       Date.parse(a.changed_at || a.created_at || '') - Date.parse(b.changed_at || b.created_at || ''))[0];
   if (!firstOngoing) return null;
   return firstOngoing.client_timestamp || firstOngoing.changed_at || null;
+}
+
+/**
+ * The fully-resolved ISO "actual start" for one activity — {@link firstOngoingIso}
+ * with the two fallbacks the Unit Journey has always applied: (1) an activity that
+ * jumped straight to `completed` (no `ongoing` event) starts on its completion day;
+ * (2) a stray late `ongoing` event that post-dates completion is clamped back to the
+ * completion day. `events` are one activity's audit rows (any order); `state` +
+ * `loggedDate` come from the current `status_logs` row. Returns null when the
+ * activity never started and never completed. Pure — feeds {@link activitySchedule}.
+ */
+export function resolveActualStartIso(
+  events: AuditEventLike[],
+  opts: { state?: string | null; loggedDate?: string | null },
+): string | null {
+  const { state, loggedDate } = opts;
+  const completed = events
+    .filter(e => e.temporal_state === 'completed')
+    .sort((a, b) => Date.parse(a.changed_at || a.created_at || '') - Date.parse(b.changed_at || b.created_at || ''));
+  const lastCompletion = completed[completed.length - 1];
+  const completionIso = state === 'completed'
+    ? (loggedDate || lastCompletion?.logged_date || lastCompletion?.changed_at || null)
+    : null;
+
+  let iso = firstOngoingIso(events);
+  if (!iso && completionIso) iso = completionIso; // jumped straight to complete
+  if (iso && completionIso && iso.slice(0, 10) > completionIso.slice(0, 10)) iso = completionIso; // clamp
+  return iso;
 }
 
 export interface ActivityScheduleInput {
