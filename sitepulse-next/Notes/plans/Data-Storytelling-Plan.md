@@ -1,4 +1,10 @@
 # Data Storytelling — make correct numbers tell the true story (self-contained build plan)
+> ✅ **STATUS: COMPLETE — shipped to `main` 2026-07-08.** Batch A (P1 planned-vs-projected +
+> hero clamp, P2 honest empties/swarm/counting) shipped 2026-07-07; Batch B (P3 list
+> accountability — age, days-behind, ownership, "By" column — + P4 benchmarking→home)
+> approved + merged 2026-07-08. **Owner adjustment at the Batch B review:** the "Actual
+> Completed" column was KEPT as its own column (the planned completed-fold was reverted).
+> Follow-up workstream spawned: `Notes/plans/Schedule-Variance-Columns-Plan.md`.
 > Audience: a fresh Claude Code session with no memory of the chat that produced this.
 > Read this top-to-bottom, then re-read the actual current files before editing.
 > Parent spec: none. Siblings: `Notes/plans/UI-Polish-Design-Consistency-Plan.md` +
