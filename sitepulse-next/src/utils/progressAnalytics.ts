@@ -134,6 +134,95 @@ export function computeUnitVariance(
 }
 
 // ---------------------------------------------------------------------------
+// Per-activity schedule story (actual start · planned/actual durations · variances)
+//
+// The per-ACTIVITY breakdown behind a unit's bottleneck verdict: when did work
+// actually start, how long did it plan vs run, and the three signed variances.
+// Pure + `Date.now()`-free — the caller supplies `today` (as `actualEnd`) for the
+// ongoing case. Consumed by the Unit History modal; the flat list stays a summary.
+// ---------------------------------------------------------------------------
+
+/** Minimal shape of a `status_audit_log` row needed to locate the first "ongoing" event. */
+export interface AuditEventLike {
+  temporal_state?: string | null;
+  /** Capture-time stamp (when the field marked it ongoing); preferred for "actual start". */
+  client_timestamp?: string | null;
+  /** Server-side audit write time; the fallback stamp + the ordering key. */
+  changed_at?: string | null;
+  created_at?: string | null;
+}
+
+/**
+ * ISO timestamp of when an activity ACTUALLY started: the earliest `ongoing`
+ * audit event's `client_timestamp` (capture time), falling back to its
+ * `changed_at`. Rows may arrive in any order — they are ordered by
+ * `changed_at`/`created_at` so the earliest ongoing wins. Returns null when the
+ * activity never went ongoing (it was never started, or it jumped straight to
+ * complete — the caller supplies that completion-day fallback).
+ *
+ * This is the SINGLE definition of "actual start", lifted from the Unit History
+ * Journey tab so the timeline and any future consumer never re-derive it.
+ */
+export function firstOngoingIso(rows: AuditEventLike[]): string | null {
+  const firstOngoing = rows
+    .filter(r => r.temporal_state === 'ongoing')
+    .sort((a, b) =>
+      Date.parse(a.changed_at || a.created_at || '') - Date.parse(b.changed_at || b.created_at || ''))[0];
+  if (!firstOngoing) return null;
+  return firstOngoing.client_timestamp || firstOngoing.changed_at || null;
+}
+
+export interface ActivityScheduleInput {
+  /** Planned window start ('YYYY-MM-DD'). */
+  plannedStart?: string | null;
+  /** Planned window finish ('YYYY-MM-DD'). */
+  plannedEnd?: string | null;
+  /** Actual start — {@link firstOngoingIso}, or the completion day when it jumped straight to complete. */
+  actualStart?: string | null;
+  /** Actual finish — the completion date when completed, or `today` while ongoing (caller's choice), else null. */
+  actualEnd?: string | null;
+}
+
+export interface ActivityScheduleMetrics {
+  /** Planned window length in whole days (a same-day window is 0). Null when a planned date is missing. */
+  plannedDuration: number | null;
+  /** Actual elapsed days start→end (counts to `today` while ongoing). Null when either actual date is missing. */
+  actualDuration: number | null;
+  /** Signed days late to start (+ = started after plan). Null when plannedStart or actualStart is missing. */
+  varianceStart: number | null;
+  /** Signed days late to finish (+ = finished after plan). Null when plannedEnd or actualEnd is missing. */
+  varianceCompleted: number | null;
+  /** Signed days over plan (+ = ran longer than planned). Null when either duration is null. */
+  varianceDuration: number | null;
+}
+
+/**
+ * The per-activity schedule story as signed whole-day numbers — "planned 10d,
+ * ran 16d, started 4d late". Every field NULL-propagates: a missing input yields
+ * `null`, never `0`, so a blank never reads as an on-time "0d" (a genuine 0 — a
+ * same-day window, or actual == plan — is real and kept). Late = positive.
+ * Pure; pass ISO 'YYYY-MM-DD' strings (the ongoing case passes `today` as
+ * `actualEnd`). Reuses {@link parseDay}/{@link dayDiff}.
+ */
+export function activitySchedule({
+  plannedStart, plannedEnd, actualStart, actualEnd,
+}: ActivityScheduleInput): ActivityScheduleMetrics {
+  const pStart = parseDay(plannedStart);
+  const pEnd = parseDay(plannedEnd);
+  const aStart = parseDay(actualStart);
+  const aEnd = parseDay(actualEnd);
+
+  const plannedDuration = pStart && pEnd ? dayDiff(pStart, pEnd) : null;
+  const actualDuration = aStart && aEnd ? dayDiff(aStart, aEnd) : null;
+  const varianceStart = pStart && aStart ? dayDiff(pStart, aStart) : null;
+  const varianceCompleted = pEnd && aEnd ? dayDiff(pEnd, aEnd) : null;
+  const varianceDuration =
+    plannedDuration !== null && actualDuration !== null ? actualDuration - plannedDuration : null;
+
+  return { plannedDuration, actualDuration, varianceStart, varianceCompleted, varianceDuration };
+}
+
+// ---------------------------------------------------------------------------
 // Variance → color / label (single source of truth for the lag encoding)
 // ---------------------------------------------------------------------------
 

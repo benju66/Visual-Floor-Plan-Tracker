@@ -12,6 +12,8 @@ import {
   planVsProjected,
   clampProjectForecast,
   isStalledSwarm,
+  firstOngoingIso,
+  activitySchedule,
   VARIANCE_COLORS,
 } from './progressAnalytics';
 import { buildApplicabilityIndex } from './applicability';
@@ -391,5 +393,119 @@ describe('isStalledSwarm', () => {
   });
   it('honors a custom threshold', () => {
     expect(isStalledSwarm(5, 10, 0.5)).toBe(true);
+  });
+});
+
+// --- Per-activity schedule story (Schedule Variance Columns Phase 1) ---
+describe('firstOngoingIso', () => {
+  it("returns the first ongoing event's capture timestamp", () => {
+    const rows = [
+      { temporal_state: 'completed', client_timestamp: '2026-05-10T15:00:00Z', changed_at: '2026-05-10T15:00:00Z' },
+      { temporal_state: 'ongoing', client_timestamp: '2026-04-28T07:00:00Z', changed_at: '2026-04-28T07:00:00Z' },
+    ];
+    expect(firstOngoingIso(rows)).toBe('2026-04-28T07:00:00Z');
+  });
+
+  it('picks the EARLIEST ongoing event regardless of input order', () => {
+    const rows = [
+      { temporal_state: 'ongoing', client_timestamp: '2026-06-02T09:00:00Z', changed_at: '2026-06-02T09:00:00Z' }, // a re-open
+      { temporal_state: 'ongoing', client_timestamp: '2026-05-01T08:00:00Z', changed_at: '2026-05-01T08:00:00Z' }, // the true first
+    ];
+    expect(firstOngoingIso(rows)).toBe('2026-05-01T08:00:00Z');
+  });
+
+  it('falls back to changed_at when the ongoing event has no client_timestamp', () => {
+    const rows = [
+      { temporal_state: 'ongoing', client_timestamp: null, changed_at: '2026-05-01T08:00:00Z' },
+    ];
+    expect(firstOngoingIso(rows)).toBe('2026-05-01T08:00:00Z');
+  });
+
+  it('is null when nothing ever went ongoing (jumped straight to complete / not started)', () => {
+    expect(firstOngoingIso([
+      { temporal_state: 'completed', client_timestamp: '2026-05-10T15:00:00Z', changed_at: '2026-05-10T15:00:00Z' },
+    ])).toBeNull();
+    expect(firstOngoingIso([])).toBeNull();
+  });
+});
+
+describe('activitySchedule', () => {
+  it('tells the schedule story with signed durations and variances', () => {
+    // Planned 10 days; started 4 days late; ran 16 days → finished 10 days late, 6 over plan.
+    const m = activitySchedule({
+      plannedStart: '2026-06-01', plannedEnd: '2026-06-11',
+      actualStart: '2026-06-05', actualEnd: '2026-06-21',
+    });
+    expect(m).toEqual({
+      plannedDuration: 10,
+      actualDuration: 16,
+      varianceStart: 4,
+      varianceCompleted: 10,
+      varianceDuration: 6,
+    });
+  });
+
+  it('signs early starts / finishes / short runs negative', () => {
+    const m = activitySchedule({
+      plannedStart: '2026-06-10', plannedEnd: '2026-06-25', // planned 15
+      actualStart: '2026-06-07', actualEnd: '2026-06-17',   // started 3 early, ran 10, finished 8 early
+    });
+    expect(m.varianceStart).toBe(-3);
+    expect(m.varianceCompleted).toBe(-8);
+    expect(m.actualDuration).toBe(10);
+    expect(m.varianceDuration).toBe(-5);
+  });
+
+  it("counts an ongoing activity's actual duration to today (caller passes today as actualEnd)", () => {
+    const m = activitySchedule({
+      plannedStart: '2026-06-01', plannedEnd: '2026-06-10',
+      actualStart: '2026-06-03', actualEnd: '2026-06-12', // today
+    });
+    expect(m.actualDuration).toBe(9);    // 6/3 → 6/12, still running
+    expect(m.varianceCompleted).toBe(2); // 2 days past planned finish so far
+    expect(m.varianceDuration).toBe(0);  // ran 9, planned 9
+  });
+
+  it('accepts a full ISO timestamp for actualStart (parsed date-only, timezone-stable)', () => {
+    // firstOngoingIso returns a capture timestamp like '...T07:00:00Z', not a date-only string.
+    const m = activitySchedule({
+      plannedStart: '2026-06-01', plannedEnd: '2026-06-10',
+      actualStart: '2026-06-03T07:00:00Z', actualEnd: '2026-06-12',
+    });
+    expect(m.varianceStart).toBe(2);
+    expect(m.actualDuration).toBe(9);
+  });
+
+  it('null-propagates missing inputs instead of reporting a false 0', () => {
+    // Not yet started: no actual dates → no actual duration / variances, but the plan is known.
+    const notStarted = activitySchedule({
+      plannedStart: '2026-06-01', plannedEnd: '2026-06-10', actualStart: null, actualEnd: null,
+    });
+    expect(notStarted).toEqual({
+      plannedDuration: 9,
+      actualDuration: null,
+      varianceStart: null,
+      varianceCompleted: null,
+      varianceDuration: null,
+    });
+    // No planned window → no planned duration / start-or-completed variance, even if actuals exist.
+    const noPlan = activitySchedule({
+      plannedStart: null, plannedEnd: null, actualStart: '2026-06-03', actualEnd: '2026-06-12',
+    });
+    expect(noPlan.plannedDuration).toBeNull();
+    expect(noPlan.varianceStart).toBeNull();
+    expect(noPlan.varianceCompleted).toBeNull();
+    expect(noPlan.varianceDuration).toBeNull();
+    expect(noPlan.actualDuration).toBe(9);
+  });
+
+  it('keeps a genuine same-day window as 0, not null (a real zero, not a missing one)', () => {
+    const m = activitySchedule({
+      plannedStart: '2026-06-01', plannedEnd: '2026-06-01',
+      actualStart: '2026-06-01', actualEnd: '2026-06-01', // jumped straight to complete in a day
+    });
+    expect(m.plannedDuration).toBe(0);
+    expect(m.actualDuration).toBe(0);
+    expect(m.varianceDuration).toBe(0);
   });
 });

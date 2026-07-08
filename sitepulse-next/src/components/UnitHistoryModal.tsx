@@ -10,6 +10,7 @@ import {
   orderedTrackActivities,
   parseDay,
   dayDiff,
+  firstOngoingIso,
 } from '@/utils/progressAnalytics';
 import { applicableActivities } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
@@ -133,7 +134,6 @@ export default function UnitHistoryModal({
       const events = audit.filter(l => l.activityName === m.name);
       const state = current?.temporal_state || 'none';
 
-      const firstOngoing = events.find(e => e.temporal_state === 'ongoing');
       const completions = events.filter(e => e.temporal_state === 'completed');
       const lastCompletion = completions.length > 0 ? completions[completions.length - 1] : undefined;
 
@@ -141,8 +141,8 @@ export default function UnitHistoryModal({
         ? (parseDay(current?.logged_date) || parseDay(lastCompletion?.logged_date) || tsDay(lastCompletion?.changed_at))
         : null;
 
-      let actualStart =
-        tsDay(firstOngoing?.client_timestamp) || tsDay(firstOngoing?.changed_at) || null;
+      // Actual start = the single shared definition (progressAnalytics.firstOngoingIso).
+      let actualStart = tsDay(firstOngoingIso(events));
       if (!actualStart && completionDay) actualStart = completionDay; // jumped straight to complete
       if (actualStart && completionDay && actualStart > completionDay) actualStart = completionDay;
 
