@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows, resolveCurrentBaseline } from '@/utils/scheduleBaseline';
+import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows, resolveCurrentBaseline, baselineSlotWindow, projectDriftSinceBaseline } from '@/utils/scheduleBaseline';
 import { isScheduleBaselineSnapshot } from '@/types/domain';
 import type { ScheduleBaseline, ScheduleBaselineSnapshot } from '@/types/domain';
 
@@ -92,6 +92,85 @@ describe('mergeLevelWindows', () => {
     expect(merged['s1']['Drywall']).toEqual({ start_date: '2026-07-11', end_date: '2026-07-11' });
     expect(merged['s2']['Framing']).toEqual({ start_date: '2026-08-01', end_date: '2026-08-05' });
     expect(merged['s1']['Paint']).toBeUndefined();
+  });
+});
+
+describe('baselineSlotWindow', () => {
+  const snap: ScheduleBaselineSnapshot = {
+    version: 1,
+    track: 'all',
+    levels: {
+      s1: {
+        Framing: { start_date: '2026-07-01', end_date: '2026-07-10' },
+        Paint: { start_date: null, end_date: null }, // present but dateless
+        Drywall: { end_date: '2026-07-20' },          // one-sided
+      },
+    },
+    locations: [],
+  };
+
+  it('returns the frozen level window for a present slot', () => {
+    expect(baselineSlotWindow(snap, 's1', 'Framing')).toEqual({ start: '2026-07-01', end: '2026-07-10' });
+  });
+
+  it('returns a one-sided window with the missing side null', () => {
+    expect(baselineSlotWindow(snap, 's1', 'Drywall')).toEqual({ start: null, end: '2026-07-20' });
+  });
+
+  it('returns null for a slot the baseline never carried (→ new)', () => {
+    expect(baselineSlotWindow(snap, 's1', 'Trim')).toBeNull(); // activity absent
+    expect(baselineSlotWindow(snap, 's9', 'Framing')).toBeNull(); // sheet absent
+  });
+
+  it('returns null for a present-but-dateless entry', () => {
+    expect(baselineSlotWindow(snap, 's1', 'Paint')).toBeNull();
+  });
+
+  it('is deterministic — same inputs, same output', () => {
+    expect(baselineSlotWindow(snap, 's1', 'Framing')).toEqual(baselineSlotWindow(snap, 's1', 'Framing'));
+  });
+});
+
+describe('projectDriftSinceBaseline', () => {
+  const snap: ScheduleBaselineSnapshot = {
+    version: 1,
+    track: 'all',
+    levels: {
+      s1: { Framing: { start_date: '2026-07-01', end_date: '2026-07-10' } },
+      s2: { Drywall: { start_date: '2026-07-05', end_date: '2026-07-20' } }, // latest end → baseline finish
+    },
+    locations: [
+      // A later location end must NOT be used — the drift is a Layer-1 (level) read.
+      { unit_id: 'u1', activity_id: 'a1', planned_start_date: null, planned_end_date: '2026-09-01' },
+    ],
+  };
+
+  it('is null when the baseline froze no level window', () => {
+    const empty: ScheduleBaselineSnapshot = { version: 1, track: 'all', levels: {}, locations: [] };
+    expect(projectDriftSinceBaseline(empty, '2026-08-01').days).toBeNull();
+  });
+
+  it('is null when the current planned finish is missing', () => {
+    expect(projectDriftSinceBaseline(snap, null).days).toBeNull();
+  });
+
+  it('is positive when the current plan finishes LATER than the baseline (slipped)', () => {
+    // baseline finish = 2026-07-20 (the latest level end across sheets)
+    expect(projectDriftSinceBaseline(snap, '2026-07-30').days).toBe(10);
+  });
+
+  it('is negative when the current plan finishes EARLIER than the baseline (pulled in)', () => {
+    expect(projectDriftSinceBaseline(snap, '2026-07-15').days).toBe(-5);
+  });
+
+  it('is 0 when the current finish equals the baseline finish', () => {
+    expect(projectDriftSinceBaseline(snap, '2026-07-20').days).toBe(0);
+  });
+
+  it('reads the baseline finish from the LEVEL layer, not a later location end', () => {
+    // The location layer carries a 2026-09-01 end; the drift must ignore it and
+    // use the level max (2026-07-20), so equal-to-level-max reads 0, not negative.
+    expect(projectDriftSinceBaseline(snap, '2026-07-20').days).toBe(0);
   });
 });
 

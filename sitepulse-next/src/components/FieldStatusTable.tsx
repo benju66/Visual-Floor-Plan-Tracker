@@ -1,13 +1,16 @@
 "use client";
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { Layers } from 'lucide-react';
+import { Layers, Flag } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore, useHydratedStore, type ListDensity } from '@/store/useSettingsStore';
 import { useManageStore } from '@/store/useManageStore';
 import { useFieldData } from '@/hooks/useFieldData';
 import { useActivities, useAllProjectUnits, useAllProjectStatuses, useUpdateUnitFields, useProjectMembers, useProject } from '@/hooks/useProjectQueries';
+import { useScheduleBaselines } from '@/hooks/useScheduleBaselines';
+import { resolveCurrentBaseline, projectDriftSinceBaseline } from '@/utils/scheduleBaseline';
+import { varianceCompletedColor } from '@/utils/progressAnalytics';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useSubtypes, useProposePendingSubtype } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult } from '@/utils/subtypes';
@@ -19,7 +22,7 @@ import RenameLocationModal from './manage/RenameLocationModal';
 import { filterLocations, pivotRowsToActivity, type LocationRow } from '@/utils/locationFilters';
 import { buildBulkStatusChanges } from '@/utils/bulkStatus';
 import { deriveBottleneckStatuses } from '@/utils/bottleneck';
-import type { Sheet, Unit, Activity, TemporalState, PendingChangesMap, StatusLog, ProjectType } from '@/types/domain';
+import type { Sheet, Unit, Activity, TemporalState, PendingChangesMap, StatusLog, ProjectType, ActivitySchedules } from '@/types/domain';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 
 const MobileSwipeDeck = dynamic(() => import('./MobileSwipeDeck'), {
@@ -205,6 +208,61 @@ export default function FieldStatusTable({
   );
   const manageVisible = useMemo(() => filterLocations(rows, manageFilters), [rows, manageFilters]);
 
+  // ── Band vs Promise P4: baseline overlay (display-only) ───────────────────
+  // The current baseline (newest, narrowed) + a "Show baseline" overlay toggle.
+  // Reuses the shared resolver so the "which baseline?" rule lives in one place.
+  const { data: baselines = [] } = useScheduleBaselines(projectId);
+  const currentBaseline = useMemo(() => resolveCurrentBaseline(baselines), [baselines]);
+  const hasBaseline = !!currentBaseline;
+  const [showBaseline, setShowBaseline] = useState(false);
+  const showBaselineCols = hasBaseline && showBaseline;
+
+  // Each unit → its sheet id, so a row can read its level's baseline/current
+  // window. All-levels scope reads sheet_id off the cross-sheet units; a single
+  // sheet's rows all belong to the active sheet.
+  const sheetIdByUnitId = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (scope === 'all') {
+      for (const u of allUnits) if (u.sheet_id) map[u.id] = u.sheet_id;
+    } else {
+      for (const u of units) map[u.id] = activeSheetId;
+    }
+    return map;
+  }, [scope, allUnits, units, activeSheetId]);
+
+  // sheet id → its live Layer-1 windows (`activity_schedules`), so the per-activity
+  // "vs baseline" flag compares the level's CURRENT window to its baseline window
+  // — the same level-plan-vs-level-plan comparison the MSP importer makes.
+  const sheetSchedulesById = useMemo(() => {
+    const map: Record<string, ActivitySchedules> = {};
+    for (const s of sheets) {
+      const sched = s.activity_schedules as ActivitySchedules | null;
+      if (sched) map[s.id] = sched;
+    }
+    return map;
+  }, [sheets]);
+
+  // Whole-project current planned finish (Layer 1 — the latest end across every
+  // sheet's activity_schedules), paired with the baseline's Layer-1 finish so the
+  // top-line drift reads one basis. Fetch-free + scope-independent.
+  const currentLevelFinish = useMemo(() => {
+    let max: string | null = null;
+    for (const s of sheets) {
+      const sched = s.activity_schedules as ActivitySchedules | null;
+      if (!sched) continue;
+      for (const win of Object.values(sched)) {
+        const end = win?.end_date ?? null;
+        if (end && (max === null || end > max)) max = end;
+      }
+    }
+    return max;
+  }, [sheets]);
+
+  const drift = useMemo(
+    () => (currentBaseline ? projectDriftSinceBaseline(currentBaseline.snapshot, currentLevelFinish) : { days: null }),
+    [currentBaseline, currentLevelFinish]
+  );
+
   // --- Per-location management (rename / change type) via the existing field mutation ---
   const updateUnitFields = useUpdateUnitFields(activeSheetId);
   const { data: members = [] } = useProjectMembers(projectId);
@@ -385,6 +443,50 @@ export default function FieldStatusTable({
         />
       )}
 
+      {/* ── Baseline overlay strip (Band vs Promise P4) — the toggle + the top-line
+             "plan drifted ~N days since baseline" read; honest empty state when none ── */}
+      {isDesktop && !isEmpty && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px]">
+          {hasBaseline ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowBaseline((v) => !v)}
+                aria-pressed={showBaseline}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-semibold transition-colors ${
+                  showBaseline
+                    ? 'border-slate-700 bg-slate-800 text-white dark:border-white dark:bg-white dark:text-slate-900'
+                    : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10'
+                }`}
+              >
+                <Flag size={12} /> {showBaseline ? 'Hide baseline' : 'Show baseline'}
+              </button>
+              <span className="text-slate-500 dark:text-slate-400">
+                Baseline <b className="text-slate-600 dark:text-slate-300">{currentBaseline!.row.name}</b> · captured{' '}
+                {new Date(currentBaseline!.row.created_at).toLocaleDateString()}
+              </span>
+              {showBaseline && drift.days !== null && (
+                <span className="font-semibold whitespace-nowrap" style={{ color: varianceCompletedColor(drift.days) }}>
+                  ·{' '}
+                  {drift.days > 0
+                    ? `plan drifted ~${drift.days}d later since baseline`
+                    : drift.days < 0
+                      ? `plan pulled in ~${Math.abs(drift.days)}d since baseline`
+                      : 'plan unchanged since baseline'}
+                </span>
+              )}
+              {showBaseline && drift.days === null && (
+                <span className="text-slate-400 dark:text-slate-500">· plan-drift needs level dates on both the baseline and the current plan</span>
+              )}
+            </>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-slate-400 dark:text-slate-500">
+              <Flag size={12} /> No baseline captured yet — capture one in the Schedule view to compare the plan against its target.
+            </span>
+          )}
+        </div>
+      )}
+
       {isDesktop && !isEmpty && (
         <div className="flex-1 min-h-0 overflow-y-auto pb-6">
           <StatusTable
@@ -417,6 +519,10 @@ export default function FieldStatusTable({
             onAssignUnit={onAssignUnit}
             density={listDensity}
             companyNameById={companyNameById}
+            showBaselineCols={showBaselineCols}
+            baselineSnapshot={currentBaseline?.snapshot ?? null}
+            sheetIdByUnitId={sheetIdByUnitId}
+            sheetSchedulesById={sheetSchedulesById}
             {...sharedSelectionProps}
           />
         </div>

@@ -9,6 +9,7 @@ import AssigneeCell from './manage/AssigneeCell';
 import ExpandedActivityAudit from './manage/ExpandedActivityAudit';
 import { applicableActivities, isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
 import { activitySchedule, computeUnitVariance, orderedTrackActivities, resolveActualStartIso, varianceCompletedColor, varianceFill, varianceLabel, type VarianceInfo, type AuditEventLike } from '@/utils/progressAnalytics';
+import { baselineSlotWindow, baselineDelta, type BaselineDelta } from '@/utils/scheduleBaseline';
 import { lastActivityIso, formatAge } from '@/utils/staleness';
 import type { ListDensity } from '@/store/useSettingsStore';
 import type { LocationRow } from '@/utils/locationFilters';
@@ -23,6 +24,8 @@ import type {
   TemporalState,
   TrackingMode,
   PendingChangesMap,
+  ScheduleBaselineSnapshot,
+  ActivitySchedules,
 } from '@/types/domain';
 
 /**
@@ -78,6 +81,58 @@ function VarianceCell({ days, pos, neg, zero }: { days: number | null; pos: stri
       {label}
     </span>
   );
+}
+
+/** A read-only frozen baseline date — muted (it's a snapshot, not editable); blank when null. */
+function BaselineDateCell({ value }: { value: string | null }) {
+  if (!value) return <span className="text-slate-300 dark:text-slate-600">—</span>;
+  return <span className="tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap text-xs">{value}</span>;
+}
+
+/**
+ * The per-activity "vs baseline" flag — reuses the MSP importer's wording
+ * (`= baseline` / `new` / `±Nd`) and the existing lag palette
+ * (`varianceCompletedColor`: later = the behind ramp, earlier = emerald). Blank
+ * when there's nothing to compare (the activity isn't in the level plan at all).
+ */
+function BaselineFlagCell({ delta }: { delta: BaselineDelta | null }) {
+  if (!delta) return <span className="text-slate-300 dark:text-slate-600">—</span>;
+  if (delta.kind === 'unchanged') {
+    return <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">= baseline</span>;
+  }
+  if (delta.kind === 'new') {
+    return <span className="text-[11px] font-bold text-sky-600 dark:text-sky-400 whitespace-nowrap">new</span>;
+  }
+  const days = delta.endShiftDays ?? delta.startShiftDays;
+  const label = days == null ? 'moved' : days > 0 ? `+${days}d` : `${days}d`;
+  return (
+    <span className="tabular-nums text-[11px] font-bold whitespace-nowrap" style={{ color: varianceCompletedColor(days ?? 0) }}>
+      {label}
+    </span>
+  );
+}
+
+/**
+ * The baseline overlay for one level × activity slot (Band vs Promise P4): the
+ * frozen level window it shows + how the CURRENT level window has drifted from
+ * it. Level-plan-vs-level-plan (Layer 1) via the shared `baselineSlotWindow` /
+ * `baselineDelta` math — the same comparison the importer makes, so it never
+ * cries wolf on subdivided plans. Returns null (→ blank cells) when the activity
+ * isn't in the level plan on either the baseline or the current side.
+ */
+function computeBaselineForSlot(
+  snapshot: ScheduleBaselineSnapshot,
+  sheetId: string | undefined,
+  activityName: string | null | undefined,
+  levelSchedule: ActivitySchedules | undefined
+): { win: { start: string | null; end: string | null } | null; delta: BaselineDelta } | null {
+  if (!sheetId || !activityName) return null;
+  const win = baselineSlotWindow(snapshot, sheetId, activityName);
+  const cur = levelSchedule?.[activityName];
+  const hasCur = !!(cur && (cur.start_date || cur.end_date));
+  if (!win && !hasCur) return null;
+  const delta = baselineDelta(snapshot, sheetId, activityName, cur?.start_date ?? null, cur?.end_date ?? null);
+  return { win, delta };
 }
 
 /**
@@ -187,6 +242,16 @@ interface StatusTableProps {
   density?: ListDensity;
   /** subcontractor_id → company name, for the Owner cell's muted sub line (Data Storytelling P3). */
   companyNameById?: Record<string, string>;
+  /** Band vs Promise P4 — when true, render the read-only baseline columns + the
+   *  per-activity "vs baseline" flag. Only ever true when `baselineSnapshot` exists. */
+  showBaselineCols?: boolean;
+  /** The current baseline's frozen plan snapshot (newest, narrowed) — the source
+   *  for the baseline columns; null hides them. */
+  baselineSnapshot?: ScheduleBaselineSnapshot | null;
+  /** unit_id → its sheet id, so each row can read its level's baseline/current window. */
+  sheetIdByUnitId?: Record<string, string>;
+  /** sheet id → that sheet's live `activity_schedules` (Layer 1), for the "vs baseline" drift. */
+  sheetSchedulesById?: Record<string, ActivitySchedules>;
 }
 
 export default function StatusTable({
@@ -224,7 +289,13 @@ export default function StatusTable({
   onAssignUnit,
   density = 'comfortable',
   companyNameById,
+  showBaselineCols = false,
+  baselineSnapshot = null,
+  sheetIdByUnitId,
+  sheetSchedulesById,
 }: StatusTableProps) {
+  // The baseline overlay is only live when the toggle is on AND a baseline exists.
+  const baseCols = showBaselineCols && !!baselineSnapshot;
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
 
@@ -412,6 +483,13 @@ export default function StatusTable({
             </th>
             <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>Planned Start</th>
             <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>Planned Completion</th>
+            {baseCols && (
+              <>
+                <th className={`${headPad} font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap bg-slate-50 dark:bg-white/[0.03]`} title="The planned start this activity's level had when the baseline was captured">Baseline Start</th>
+                <th className={`${headPad} font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap bg-slate-50 dark:bg-white/[0.03]`} title="The planned finish this activity's level had when the baseline was captured">Baseline End</th>
+                <th className={`${headPad} font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap text-right bg-slate-50 dark:bg-white/[0.03]`} title="How the current level plan for this activity has drifted since the baseline">vs Baseline</th>
+              </>
+            )}
             <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap text-right`}>Planned Duration</th>
             <th className={`${headPad} font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap`}>Actual Start</th>
             <th
@@ -465,6 +543,12 @@ export default function StatusTable({
               loggedDate: rLogged || null, state: rState, todayIso,
             });
             const frozenBg = isSelected ? 'bg-purple-50 dark:bg-purple-950' : 'bg-white dark:bg-slate-900';
+
+            // Band vs Promise P4 — the baseline overlay for this row's current activity.
+            const rowSheetId = sheetIdByUnitId?.[unit.id];
+            const rowBaseline = baseCols && baselineSnapshot
+              ? computeBaselineForSlot(baselineSnapshot, rowSheetId, log?.activityName, rowSheetId ? sheetSchedulesById?.[rowSheetId] : undefined)
+              : null;
 
             return (
               // Each location is its own <tbody> so an expanded row's sticky pin is
@@ -619,6 +703,13 @@ export default function StatusTable({
                     <span className="text-slate-400 text-xs italic">—</span>
                   )}
                 </td>
+                {baseCols && (
+                  <>
+                    <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineDateCell value={rowBaseline?.win?.start ?? null} /></td>
+                    <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineDateCell value={rowBaseline?.win?.end ?? null} /></td>
+                    <td className={`${cellPad} text-right align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineFlagCell delta={rowBaseline?.delta ?? null} /></td>
+                  </>
+                )}
                 <td className={`${cellPad} text-right align-middle`}>
                   <DurationCell days={rSched.plannedDuration} />
                 </td>
@@ -721,9 +812,18 @@ export default function StatusTable({
                         </div>
                       </td>
                       {Array.from({ length: 9 }).map((_, i) => (
-                        <td key={i} className={`${cellPad} ${i >= 2 && i !== 3 ? 'text-right' : ''} align-middle`}>
-                          <span className="text-slate-300 dark:text-slate-600">—</span>
-                        </td>
+                        <React.Fragment key={i}>
+                          <td className={`${cellPad} ${i >= 2 && i !== 3 ? 'text-right' : ''} align-middle`}>
+                            <span className="text-slate-300 dark:text-slate-600">—</span>
+                          </td>
+                          {baseCols && i === 1 && (
+                            <>
+                              <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><span className="text-slate-300 dark:text-slate-600">—</span></td>
+                              <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><span className="text-slate-300 dark:text-slate-600">—</span></td>
+                              <td className={`${cellPad} text-right align-middle bg-slate-50 dark:bg-white/[0.03]`}><span className="text-slate-300 dark:text-slate-600">—</span></td>
+                            </>
+                          )}
+                        </React.Fragment>
                       ))}
                       <td className={`${cellPad} align-middle text-right`}></td>
                     </tr>
@@ -757,6 +857,11 @@ export default function StatusTable({
                   loggedDate: cLogged || null, state: childState,
                   events: auditByActivity.get(activity.name) || [], todayIso,
                 });
+
+                // Band vs Promise P4 — the baseline overlay for this activity slot.
+                const childBaseline = baseCols && baselineSnapshot
+                  ? computeBaselineForSlot(baselineSnapshot, rowSheetId, activity.name, rowSheetId ? sheetSchedulesById?.[rowSheetId] : undefined)
+                  : null;
 
                 return (
                   <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
@@ -818,6 +923,13 @@ export default function StatusTable({
                         ariaLabel={`Planned completion — ${activity.name}, ${unit.unit_number}`}
                       />
                     </td>
+                    {baseCols && (
+                      <>
+                        <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineDateCell value={childBaseline?.win?.start ?? null} /></td>
+                        <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineDateCell value={childBaseline?.win?.end ?? null} /></td>
+                        <td className={`${cellPad} text-right align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineFlagCell delta={childBaseline?.delta ?? null} /></td>
+                      </>
+                    )}
                     <td className={`${cellPad} text-right align-middle`}>
                       <DurationCell days={cSched.plannedDuration} />
                     </td>

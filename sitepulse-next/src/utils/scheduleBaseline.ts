@@ -131,6 +131,55 @@ export function baselineDelta(
 }
 
 /**
+ * The frozen LEVEL window one activity carried in the baseline, for a single
+ * sheet × activity slot (Band vs Promise P4 — the read behind the List's
+ * read-only "Baseline start / Baseline end" columns). Uses the SAME snapshot
+ * path {@link baselineDelta} reads (`snapshot.levels[sheetId][activityName]`,
+ * Layer 1) so the JSONB shape lives in one place. Returns `null` when the
+ * baseline never froze a window there — a missing slot AND a present-but-dateless
+ * entry both read as `null`, which the caller surfaces as "new". Pure.
+ */
+export function baselineSlotWindow(
+  snapshot: ScheduleBaselineSnapshot,
+  sheetId: string,
+  activityName: string
+): { start: string | null; end: string | null } | null {
+  const entry = snapshot.levels[sheetId]?.[activityName];
+  if (!entry || (!entry.start_date && !entry.end_date)) return null;
+  return { start: entry.start_date ?? null, end: entry.end_date ?? null };
+}
+
+/**
+ * Whole-day PLAN drift since the baseline: how much later (or earlier) the
+ * current plan's finish sits versus the finish the baseline plan implied (Band
+ * vs Promise P4 — the List's top-line "plan drifted ~N days since baseline"
+ * read). The baseline's implied finish is the latest level-window end it froze
+ * (`snapshot.levels`, Layer 1); the caller pairs it with a Layer-1 current
+ * planned finish (the latest end across the sheets' live `activity_schedules`)
+ * so both sides read the SAME basis. Positive = the plan slipped LATER since the
+ * baseline; negative = it pulled in. This is plan-vs-plan drift — distinct from
+ * execution variance (actual vs plan), which the List's variance columns already
+ * carry. Returns `{ days: null }` (render nothing) when the baseline froze no
+ * level window or the current finish is missing — never a fabricated number.
+ * Pure; ISO 'YYYY-MM-DD' in, no `Date.now()`.
+ */
+export function projectDriftSinceBaseline(
+  snapshot: ScheduleBaselineSnapshot,
+  currentPlannedFinish: string | null
+): { days: number | null } {
+  let baselineFinish: string | null = null;
+  for (const activities of Object.values(snapshot.levels)) {
+    for (const win of Object.values(activities)) {
+      const end = win?.end_date ?? null;
+      if (end && (baselineFinish === null || end > baselineFinish)) baselineFinish = end;
+    }
+  }
+  const from = parseDay(baselineFinish);
+  const to = parseDay(currentPlannedFinish);
+  return { days: from && to ? dayDiff(from, to) : null };
+}
+
+/**
  * Fold confirmed import rows into per-sheet level-window patches (the Phase 4
  * "import as anchor-loading": the importer feeds Layer 1 so import and manual
  * entry drive the SAME engine). One-sided task dates coalesce to a same-day
