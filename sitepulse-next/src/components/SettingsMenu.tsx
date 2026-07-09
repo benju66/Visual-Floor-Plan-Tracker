@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, X, Palette, Monitor, PenTool, Plus, Trash2, Pencil, Calendar, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle, Layers } from 'lucide-react';
+import { Settings, X, Palette, Monitor, PenTool, Plus, Trash2, Pencil, Calendar, CalendarRange, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle, Layers } from 'lucide-react';
 import { useUpdateSheetScopes, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, useImportProjectContacts, type ProjectContactFields } from '@/hooks/useProjectQueries';
 import { parseProcoreDirectoryCsv } from '@/utils/procoreDirectoryCsv';
 import { useAuth } from '@/providers/AuthProvider';
@@ -443,6 +443,12 @@ export default function SettingsMenu({
   const updateProjectMutation = useUpdateProject(projectId);
   const { data: allUnits = [] } = useAllProjectUnits(sheets?.map(s => s.id) || []);
 
+  // The project dates are governed by the `projects` UPDATE policy, which admits
+  // owner/admin only (verified against prod — NOT pm, despite the general
+  // privileged-role convention). Gate the inputs to who can actually write so a
+  // PM doesn't hit a silent RLS rejection; RLS remains the real enforcement.
+  const canEditProjectInfo = currentUserRole === 'owner' || currentUserRole === 'admin';
+
   const projectUnitTypes = (project?.unit_types as string[]) || ['Apartment Unit', 'Common Area', 'Back of House', 'Commercial Space', 'Other'];
 
   if (!open) return null;
@@ -490,6 +496,16 @@ export default function SettingsMenu({
             }`}
           >
             <Layers size={16} /> Levels &amp; Scopes
+          </button>
+          <button
+            onClick={() => setActiveTab('projectInfo')}
+            className={`flex items-center gap-2 shrink-0 px-3 py-2 text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === 'projectInfo'
+                ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <CalendarRange size={16} /> Project Info
           </button>
           <button
             onClick={() => setActiveTab('contacts')}
@@ -814,6 +830,56 @@ export default function SettingsMenu({
                    })}
                    {sheets.length === 0 && <p className="text-xs text-slate-500">No levels added yet.</p>}
                  </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'projectInfo' && (
+            <div className="flex flex-col gap-6">
+              <div>
+                <h3 className="font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white">
+                  <CalendarRange size={16} className="text-sky-500" /> Project Dates
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 text-balance">
+                  When the job broke ground and the date you’ve committed to finish. The contract
+                  completion date is the “word” the dashboard measures the forecast against — leave a
+                  field blank if it isn’t set yet.
+                </p>
+              </div>
+
+              {!canEditProjectInfo && (
+                <p className="text-xs italic text-slate-500">
+                  Only a project owner or admin can change these dates.
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl">
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="project-construction-start" className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    Construction Start
+                  </label>
+                  <input
+                    id="project-construction-start"
+                    type="date"
+                    disabled={!canEditProjectInfo}
+                    value={project?.construction_start_date ?? ''}
+                    onChange={(e) => updateProjectMutation.mutate({ construction_start_date: e.target.value || null })}
+                    className="bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="project-contract-completion" className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    Contract Completion
+                  </label>
+                  <input
+                    id="project-contract-completion"
+                    type="date"
+                    disabled={!canEditProjectInfo}
+                    value={project?.contract_completion_date ?? ''}
+                    onChange={(e) => updateProjectMutation.mutate({ contract_completion_date: e.target.value || null })}
+                    className="bg-white dark:bg-black/20 border border-slate-300 dark:border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                </div>
               </div>
             </div>
           )}

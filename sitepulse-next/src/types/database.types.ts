@@ -20,6 +20,8 @@ export interface Database {
           project_type: string | null
           ai_training_enabled: boolean
           created_at: string | null
+          construction_start_date: string | null
+          contract_completion_date: string | null
         }
         Insert: {
           id?: string
@@ -31,6 +33,8 @@ export interface Database {
           project_type?: string | null
           ai_training_enabled?: boolean
           created_at?: string | null
+          construction_start_date?: string | null
+          contract_completion_date?: string | null
         }
         Update: {
           id?: string
@@ -42,6 +46,8 @@ export interface Database {
           project_type?: string | null
           ai_training_enabled?: boolean
           created_at?: string | null
+          construction_start_date?: string | null
+          contract_completion_date?: string | null
         }
         Relationships: []
       }
