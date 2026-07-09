@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows } from '@/utils/scheduleBaseline';
+import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows, resolveCurrentBaseline } from '@/utils/scheduleBaseline';
 import { isScheduleBaselineSnapshot } from '@/types/domain';
-import type { ScheduleBaselineSnapshot } from '@/types/domain';
+import type { ScheduleBaseline, ScheduleBaselineSnapshot } from '@/types/domain';
 
 const mkStatus = (o: {
   unit_id: string; activity_id: string; track?: string;
@@ -92,5 +92,48 @@ describe('mergeLevelWindows', () => {
     expect(merged['s1']['Drywall']).toEqual({ start_date: '2026-07-11', end_date: '2026-07-11' });
     expect(merged['s2']['Framing']).toEqual({ start_date: '2026-08-01', end_date: '2026-08-05' });
     expect(merged['s1']['Paint']).toBeUndefined();
+  });
+});
+
+describe('resolveCurrentBaseline', () => {
+  const validSnap: ScheduleBaselineSnapshot = { version: 1, track: 'all', levels: {}, locations: [] };
+  const mkRow = (o: { id: string; created_at: string; snapshot?: unknown; name?: string }) => ({
+    id: o.id,
+    project_id: 'p1',
+    name: o.name ?? 'Baseline',
+    track: 'all',
+    snapshot: o.snapshot ?? validSnap,
+    created_by: null,
+    created_at: o.created_at,
+  }) as ScheduleBaseline;
+
+  it('returns null when there are no baselines', () => {
+    expect(resolveCurrentBaseline([])).toBeNull();
+  });
+
+  it('picks the newest by created_at regardless of input order', () => {
+    const rows = [
+      mkRow({ id: 'old', created_at: '2026-07-01T00:00:00Z', name: 'Old' }),
+      mkRow({ id: 'new', created_at: '2026-07-09T00:00:00Z', name: 'New' }),
+      mkRow({ id: 'mid', created_at: '2026-07-05T00:00:00Z', name: 'Mid' }),
+    ];
+    const current = resolveCurrentBaseline(rows);
+    expect(current?.row.id).toBe('new');
+    expect(current?.row.name).toBe('New');
+    expect(current?.snapshot).toBe(validSnap);
+  });
+
+  it('degrades to null when the newest snapshot is malformed (never falls back to an older valid one)', () => {
+    const rows = [
+      mkRow({ id: 'old', created_at: '2026-07-01T00:00:00Z' }), // valid but older
+      mkRow({ id: 'new', created_at: '2026-07-09T00:00:00Z', snapshot: { version: 2, junk: true } }),
+    ];
+    expect(resolveCurrentBaseline(rows)).toBeNull();
+  });
+
+  it('narrows a single valid baseline', () => {
+    const current = resolveCurrentBaseline([mkRow({ id: 'only', created_at: '2026-07-03T00:00:00Z' })]);
+    expect(current?.row.id).toBe('only');
+    expect(isScheduleBaselineSnapshot(current?.snapshot)).toBe(true);
   });
 });

@@ -34,6 +34,7 @@ import { rippleForward, buildRippleWrites, type RippleDelta, type PlannedWindow 
 import GanttTimeline, { type RowMeta } from './GanttTimeline';
 import CascadePanel from './CascadePanel';
 import MspImportPanel from './MspImportPanel';
+import BaselineControl from './BaselineControl';
 import type { Sheet, Unit, Activity, StatusLog } from '@/types/domain';
 
 interface ScheduleWorkspaceProps {
@@ -366,6 +367,15 @@ export default function ScheduleWorkspace({
           ))}
         </div>
       </div>
+
+      {/* ── Baseline strip (Band vs Promise P3): capture/show the frozen plan the
+             schedule is measured against — reachable without opening the importer.
+             Only once a meaningful schedule exists (activities present). ── */}
+      {activities.length > 0 && (
+        <div className="mb-3 rounded-lg border border-slate-200/80 dark:border-white/10 bg-white/60 dark:bg-black/20 px-3 py-2">
+          <BaselineControl projectId={projectId} sheets={sheets} />
+        </div>
+      )}
 
       {/* ── All-levels banner ── */}
       {scope === 'all' && (

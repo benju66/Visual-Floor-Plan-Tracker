@@ -11,11 +11,37 @@
 import type {
   ActivitySchedules,
   BaselineLocationWindow,
+  ScheduleBaseline,
   ScheduleBaselineSnapshot,
   Sheet,
   StatusLog,
 } from '@/types/domain';
+import { isScheduleBaselineSnapshot } from '@/types/domain';
 import { dayDiff, parseDay } from '@/utils/progressAnalytics';
+
+/** The one baseline the app treats as "current", with its snapshot narrowed. */
+export interface CurrentBaseline {
+  row: ScheduleBaseline;
+  snapshot: ScheduleBaselineSnapshot;
+}
+
+/**
+ * Resolve the single "current baseline" from a project's baselines (v1 rule:
+ * the NEWEST captured baseline — no picker). Order-robust (sorts by `created_at`
+ * rather than trusting caller order) and honest about corruption: if the newest
+ * baseline's JSONB fails the {@link isScheduleBaselineSnapshot} guard it degrades
+ * to `null` ("no baseline"), never a crash and never a silent fallback to an
+ * older one. This is the shared read every baseline surface uses so the
+ * "which baseline?" rule lives in exactly one place.
+ */
+export function resolveCurrentBaseline(baselines: ScheduleBaseline[]): CurrentBaseline | null {
+  let newest: ScheduleBaseline | null = null;
+  for (const b of baselines) {
+    if (!newest || (b.created_at ?? '') > (newest.created_at ?? '')) newest = b;
+  }
+  if (!newest) return null;
+  return isScheduleBaselineSnapshot(newest.snapshot) ? { row: newest, snapshot: newest.snapshot } : null;
+}
 
 type SheetLike = Pick<Sheet, 'id' | 'activity_schedules'>;
 type StatusLike = Pick<

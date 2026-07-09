@@ -9,8 +9,8 @@ import {
   useUpdateSheetSchedule,
 } from '@/hooks/useProjectQueries';
 import { useScheduleBaselines, useSetScheduleBaseline, useDeleteScheduleBaseline } from '@/hooks/useScheduleBaselines';
-import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows } from '@/utils/scheduleBaseline';
-import { isScheduleBaselineSnapshot } from '@/types/domain';
+import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows, resolveCurrentBaseline } from '@/utils/scheduleBaseline';
+import BaselineControl from './BaselineControl';
 import { useActivityDictionary, useProposePendingActivity } from '@/hooks/useActivityDictionary';
 import { useActivityScopes } from '@/hooks/useActivityScopes';
 import { activeScopeNames } from '@/utils/activityScopes';
@@ -58,6 +58,10 @@ interface RowState {
 
 const ALL_LEVELS = 'all';
 
+/** A re-import big enough that freezing the new plan as a baseline is worth a
+ *  nudge (Band vs Promise P3). Small one-off imports don't nag. */
+const LARGE_IMPORT_MIN_DATES = 10;
+
 /**
  * MS Project import → reconciliation → planned dates (Scheduling Foundation
  * Slice A, Phase 4b). Drop an MSPDI `.xml` export in, match each imported task
@@ -87,13 +91,10 @@ export default function MspImportPanel({
   const deleteBaseline = useDeleteScheduleBaseline(projectId);
   const [confirmingDeleteBaseline, setConfirmingDeleteBaseline] = useState(false);
   const updateSheetSchedule = useUpdateSheetSchedule(projectId);
-  // Newest baseline, narrowed at the boundary — a malformed snapshot degrades to
-  // "no baseline" rather than a crash.
-  const latestSnapshot = useMemo(() => {
-    const latest = baselines[0];
-    if (!latest) return null;
-    return isScheduleBaselineSnapshot(latest.snapshot) ? { row: latest, snap: latest.snapshot } : null;
-  }, [baselines]);
+  // The current baseline (newest), narrowed at the boundary — a malformed
+  // snapshot degrades to "no baseline" rather than a crash. Shared resolver so
+  // the "which baseline?" rule lives in one place (scheduleBaseline.ts).
+  const latestSnapshot = useMemo(() => resolveCurrentBaseline(baselines), [baselines]);
   const { data: dictionary = [] } = useActivityDictionary();
   const { data: managedScopes = [] } = useActivityScopes();
   const proposePendingActivity = useProposePendingActivity();
@@ -141,6 +142,15 @@ export default function MspImportPanel({
   const [overrideExisting, setOverrideExisting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  // After a large re-import with no baseline yet, we hold the panel open on a
+  // "capture a baseline now" nudge instead of closing (Band vs Promise P3).
+  const [postImport, setPostImport] = useState<{ dates: number; units: number } | null>(null);
+
+  // Every top-level close clears the post-import nudge so a reopen starts clean.
+  const handleClose = () => {
+    setPostImport(null);
+    onClose();
+  };
 
   const activityById = useMemo(() => new Map(activities.map((m) => [m.id, m])), [activities]);
   const activityOptions = useMemo(
@@ -175,6 +185,7 @@ export default function MspImportPanel({
   const handleFile = async (file: File) => {
     const text = await file.text();
     const result = parseMspXml(text);
+    setPostImport(null);
     setFileName(file.name);
     setParse(result);
     setConfirming(false);
@@ -273,7 +284,7 @@ export default function MspImportPanel({
     if (!latestSnapshot || !row.sheetId || row.sheetId === ALL_LEVELS || !row.activityId) return null;
     const name = activityById.get(row.activityId)?.name;
     if (!name || (!t.start && !t.finish)) return null;
-    return baselineDelta(latestSnapshot.snap, row.sheetId, name, t.start ?? t.finish ?? null, t.finish ?? t.start ?? null);
+    return baselineDelta(latestSnapshot.snapshot, row.sheetId, name, t.start ?? t.finish ?? null, t.finish ?? t.start ?? null);
   };
 
   const applyImport = async () => {
@@ -313,7 +324,19 @@ export default function MspImportPanel({
         message: `Imported ${plan.writes.length} planned date${plan.writes.length === 1 ? '' : 's'} across ${plan.affectedUnitCount} location${plan.affectedUnitCount === 1 ? '' : 's'}.`,
         type: 'success',
       });
-      onClose();
+      // A large re-import with no baseline yet is exactly when one is worth
+      // taking — hold the panel open on a capture nudge instead of closing.
+      // (If a baseline already exists we don't nudge: re-capturing would move
+      // the very reference the just-shown diff was measured against.)
+      if (plan.writes.length >= LARGE_IMPORT_MIN_DATES && !latestSnapshot) {
+        const summary = { dates: plan.writes.length, units: plan.affectedUnitCount };
+        setParse(null);
+        setRows({});
+        setFileName(null);
+        setPostImport(summary);
+      } else {
+        handleClose();
+      }
     } catch (err) {
       setToast({ message: (err as Error)?.message || 'Import failed.', type: 'error' });
     } finally {
@@ -333,7 +356,7 @@ export default function MspImportPanel({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" role="presentation" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" role="presentation" onClick={handleClose}>
       <div className="w-full max-w-5xl rounded-2xl border p-6 shadow-2xl glass-panel max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* ── Header ── */}
         <div className="flex items-start justify-between mb-1">
@@ -343,11 +366,13 @@ export default function MspImportPanel({
               Export the schedule from Microsoft Project as <b>XML</b> (MSPDI), match its tasks to your activities, and the planned dates flow onto your locations.
             </p>
           </div>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500">
+          <button type="button" onClick={handleClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500">
             <X size={18} />
           </button>
         </div>
 
+        {!postImport ? (
+        <>
         {/* ── File chooser ── */}
         <div className="mt-3 flex items-center gap-3">
           <input
@@ -643,6 +668,37 @@ export default function MspImportPanel({
                 </button>
               </div>
             )}
+          </div>
+        )}
+        </>
+        ) : (
+          <div className="mt-4 rounded-xl border-2 border-sky-400 bg-sky-50/80 dark:bg-sky-900/20 dark:border-sky-500/60 p-4">
+            <div className="flex items-center gap-2 text-sm font-bold text-sky-800 dark:text-sky-200">
+              <CheckCircle2 size={16} className="shrink-0" />
+              Imported {postImport.dates} planned date{postImport.dates === 1 ? '' : 's'} across {postImport.units} location{postImport.units === 1 ? '' : 's'}.
+            </div>
+            <p className="mt-1.5 text-xs text-sky-800/80 dark:text-sky-200/80 text-balance">
+              The plan just changed a lot. Capture a baseline now — it freezes today&rsquo;s plan as the reference, so the next re-import can show exactly what moved.
+            </p>
+            <div className="mt-3 rounded-lg border border-sky-200/70 dark:border-sky-400/20 bg-white/70 dark:bg-black/20 px-3 py-2">
+              <BaselineControl projectId={projectId} sheets={sheets} active={open} />
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPostImport(null)}
+                className="rounded-md border border-slate-300 dark:border-slate-600 text-xs font-semibold py-1.5 px-3 hover:bg-white/60 dark:hover:bg-white/10"
+              >
+                Import another schedule
+              </button>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="rounded-md bg-slate-800 dark:bg-white dark:text-slate-900 text-white text-xs font-bold py-1.5 px-3"
+              >
+                Done
+              </button>
+            </div>
           </div>
         )}
       </div>
