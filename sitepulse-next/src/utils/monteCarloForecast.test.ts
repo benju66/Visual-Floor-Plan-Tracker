@@ -6,6 +6,7 @@ import {
   activityRisk,
   bestPaceMove,
   promiseOutlook,
+  selectHeroBand,
   MIN_MOVE_DAYS,
   FORECAST_BAND_SEED,
   type ForecastBand,
@@ -509,5 +510,45 @@ describe('promiseOutlook', () => {
     const a = promiseOutlook({ promise: '2026-05-15', band });
     const b = promiseOutlook({ promise: '2026-05-15', band });
     expect(a).toEqual(b);
+  });
+});
+
+describe('selectHeroBand', () => {
+  const dated = (p10: string, p50: string, p90: string): ForecastBand => ({ p10, p50, p90, suppressed: null });
+  const scope = dated('2026-08-01', '2026-08-20', '2026-09-10');
+
+  it('honesty: a suppressed pooled scope band stays suppressed, even if levels have dates', () => {
+    const suppressed: ForecastBand = { p10: null, p50: null, p90: null, suppressed: 'no-pace' };
+    const res = selectHeroBand(suppressed, [dated('2026-09-01', '2026-09-20', '2026-10-10')]);
+    expect(res.band).toBe(suppressed);       // never manufactured from a level
+    expect(res.pinnedToLevel).toBe(false);
+  });
+
+  it('keeps the scope band when no level finishes later', () => {
+    const earlier = dated('2026-07-01', '2026-07-20', '2026-08-10'); // earlier P50 than scope
+    const res = selectHeroBand(scope, [earlier]);
+    expect(res.band).toBe(scope);
+    expect(res.pinnedToLevel).toBe(false);
+  });
+
+  it('clamps LATER to a level whose P50 finishes after the pooled scope', () => {
+    const slower = dated('2026-09-05', '2026-09-25', '2026-10-15'); // later P50
+    const res = selectHeroBand(scope, [dated('2026-07-01', '2026-07-20', '2026-08-10'), slower]);
+    expect(res.band).toBe(slower);
+    expect(res.pinnedToLevel).toBe(true);
+  });
+
+  it('picks the single latest level when several are later, and ignores suppressed ones', () => {
+    const latest = dated('2026-10-01', '2026-10-20', '2026-11-10');
+    const mid = dated('2026-09-01', '2026-09-20', '2026-10-10');
+    const dead: ForecastBand = { p10: null, p50: null, p90: null, suppressed: 'small-sample' };
+    const res = selectHeroBand(scope, [mid, dead, latest]);
+    expect(res.band).toBe(latest);
+    expect(res.pinnedToLevel).toBe(true);
+  });
+
+  it('is pure — same inputs yield the identical selection', () => {
+    const levels = [dated('2026-09-05', '2026-09-25', '2026-10-15')];
+    expect(selectHeroBand(scope, levels)).toEqual(selectHeroBand(scope, levels));
   });
 });

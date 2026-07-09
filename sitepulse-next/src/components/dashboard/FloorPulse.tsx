@@ -1,9 +1,9 @@
 "use client";
 import React, { useMemo } from 'react';
 import { TrendingUp, TrendingDown, Check, Map as MapIcon } from 'lucide-react';
-import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS } from '@/utils/progressAnalytics';
+import { summarizeGroup, parseDay, PLAN_TICK_MIN_COVERAGE, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS } from '@/utils/progressAnalytics';
 import type { CompletionEvent, GroupRollup } from '@/utils/progressAnalytics';
-import { bandForRollup, bandMethodSentence, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
+import { bandForRollup, bandMethodSentence, selectHeroBand, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
 import type { ForecastBand } from '@/utils/monteCarloForecast';
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import type { Sheet, Unit, Activity, StatusLog } from '@/types/domain';
@@ -83,38 +83,36 @@ function ForecastChip({ r, band }: { r: GroupRollup; band?: ForecastBand }) {
   if (r.forecastSuppressed === 'complete') {
     return <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><Check size={13} /> complete</span>;
   }
-  if (r.forecastDate) {
-    // Muted 80% range under the point date — the honest spread. Falls back to the
-    // plain "at current pace" caption when the band is suppressed (e.g. pace too
-    // erratic to bound) so a row never contradicts its own forecast.
-    const hasBand = band && !band.suppressed && band.p10 && band.p90;
+  // One basis: headline the MIDPOINT (P50) of the honest range, with the range
+  // beneath — so a row can never show a date that contradicts its own spread.
+  if (band && !band.suppressed && band.p50) {
     return (
       <span className="text-xs whitespace-nowrap">
         <span className="text-slate-400">→ </span>
-        <span className="font-semibold text-slate-700 dark:text-slate-200">~wk of {fmtWeek(r.forecastDate)}</span>
-        {hasBand ? (
+        <span className="font-semibold text-slate-700 dark:text-slate-200">~wk of {fmtWeek(band.p50)}</span>
+        {band.p10 && band.p90 && (
           <span
             className="block text-[9px] text-slate-400"
-            title={`Likely finish ${fmtWeek(band!.p10!)}–${fmtWeek(band!.p90!)}${band!.p50 ? ` · median ${fmtWeek(band!.p50)}` : ''}. ${bandMethodSentence()}`}
+            title={`Likely finish ${fmtWeek(band.p10)}–${fmtWeek(band.p90)}. ${bandMethodSentence()}`}
           >
-            likely {fmtWeek(band!.p10!)}–{fmtWeek(band!.p90!)}
+            likely {fmtWeek(band.p10)}–{fmtWeek(band.p90)}
           </span>
-        ) : (
-          <span className="block text-[9px] text-slate-400">at current pace</span>
         )}
       </span>
     );
   }
+  // Suppressed (too few tasks, or pace too thin/erratic to bound) → honest '—'.
+  const reason = band?.suppressed ?? r.forecastSuppressed;
   return (
     <span
       className="text-xs text-slate-400 whitespace-nowrap"
-      title={r.forecastSuppressed === 'small-sample'
+      title={reason === 'small-sample'
         ? `Forecasts are suppressed (never faked) below ${SMALL_SAMPLE_SLOTS} tracked tasks.`
-        : `No completions in the last ${FORECAST_WINDOW_WEEKS} weeks — no pace to project from.`}
+        : `Recent pace is too thin or erratic to bound a finish honestly.`}
     >
       —
       <span className="block text-[9px]">
-        {r.forecastSuppressed === 'small-sample' ? 'too few tasks to project' : 'no recent pace to project'}
+        {reason === 'small-sample' ? 'too few tasks to project' : 'no steady pace to project'}
       </span>
     </span>
   );
@@ -169,6 +167,15 @@ export default function FloorPulse({
   );
   const building = buildingRollup ?? computedBuilding!;
 
+  // The project-wide "building →" figure uses the SAME one-basis rule as the hero
+  // card: the pooled building band, clamped later to the slowest level's band, and
+  // headlined by its midpoint (P50) — so it can never contradict its own range.
+  const buildingBand = useMemo(() => bandForRollup(building, today, FORECAST_BAND_SEED), [building, today]);
+  const projectForecast = useMemo(
+    () => selectHeroBand(buildingBand, rows.map(row => row.band)),
+    [buildingBand, rows],
+  );
+
   if (sheets.length === 0) return null;
 
   return (
@@ -179,9 +186,9 @@ export default function FloorPulse({
           <span className="hidden sm:inline text-[11px] text-slate-400 truncate">building order · click a level to scope the dashboard</span>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          {building.forecastDate && (
+          {projectForecast.band.p50 && (
             <span className="text-xs text-slate-500 whitespace-nowrap">
-              building → <b className="text-slate-700 dark:text-slate-200">~wk of {fmtWeek(building.forecastDate)}</b>
+              building → <b className="text-slate-700 dark:text-slate-200">~wk of {fmtWeek(projectForecast.band.p50)}</b>
             </span>
           )}
           <button

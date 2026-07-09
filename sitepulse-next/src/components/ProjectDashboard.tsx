@@ -7,11 +7,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAllProjectUnits, useAllProjectStatuses, useStatusHistory } from '@/hooks/useProjectQueries';
 import { useMapStore } from '@/store/useMapStore';
 import {
-  summarizeGroup, parseDay, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS, FORECAST_WINDOW_WEEKS,
-  scopePlannedFinish, clampProjectForecast, planVsProjected, isStalledSwarm,
+  summarizeGroup, parseDay, STALL_THRESHOLD_DAYS, SMALL_SAMPLE_SLOTS,
+  scopePlannedFinish, planVsProjected, isStalledSwarm,
 } from '@/utils/progressAnalytics';
 import type { GroupRollup } from '@/utils/progressAnalytics';
-import { bandForRollup, bandMethodSentence, bestPaceMove, promiseOutlook, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
+import { bandForRollup, bandMethodSentence, bestPaceMove, promiseOutlook, selectHeroBand, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
 import type { ForecastBand } from '@/utils/monteCarloForecast';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
@@ -188,26 +188,16 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     [buildingRollup.stalledUnitIds.length, buildingRollup.unitCount],
   );
 
-  // Planned finish for the current scope (latest planned_end_date), and the hero
-  // projection clamped to no earlier than the slowest in-scope level forecast.
+  // Planned finish for the current scope (latest planned_end_date).
   const plannedFinish = useMemo(
     () => scopePlannedFinish(displayStatuses, trackingMode),
     [displayStatuses, trackingMode],
   );
-  const clampedForecast = useMemo(() => {
-    const scopedLevelForecasts = (scope === 'all' ? sheets.map(s => s.id) : [scope])
-      .map(id => levelRollups[id]?.forecastDate ?? null);
-    return clampProjectForecast(scopeRollup.forecastDate, scopedLevelForecasts);
-  }, [scope, sheets, levelRollups, scopeRollup.forecastDate]);
-  const planDelta = useMemo(
-    () => planVsProjected(plannedFinish, clampedForecast.date),
-    [plannedFinish, clampedForecast.date],
-  );
 
   // ── Confidence bands (Schedule That Thinks P1/P2) ──
-  // The honest spread around each projected finish, computed ONCE here (fixed
-  // seed → stable numbers) and threaded down. Additive: the point forecasts
-  // above are untouched; a suppressed forecast carries a suppressed band.
+  // The honest 80% spread around each scope, computed ONCE here (fixed seed →
+  // stable numbers) and threaded down. Additive: the point-forecast math in
+  // progressAnalytics is untouched; a suppressed forecast carries a suppressed band.
   const scopeBand = useMemo(
     () => bandForRollup(scopeRollup, today, FORECAST_BAND_SEED),
     [scopeRollup, today],
@@ -220,24 +210,27 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     }
     return map;
   }, [sheets, levelRollups, today]);
-  // Basis rule (consistency): the hero band matches whatever basis the clamp
-  // chose. When the clamp pinned the hero to a level's forecast, show THAT
-  // level's band (the pinning level is the one with the latest level forecast —
-  // by construction the date the clamp landed on); otherwise the scope band.
-  // One basis, one story — never two contradictory ranges.
-  const heroBand = useMemo(() => {
-    if (clampedForecast.clampedToLevel) {
-      const scopedIds = scope === 'all' ? sheets.map(s => s.id) : [scope];
-      let pinId: string | null = null;
-      let latest: string | null = null;
-      for (const id of scopedIds) {
-        const f = levelRollups[id]?.forecastDate ?? null;
-        if (f && (latest === null || f > latest)) { latest = f; pinId = id; }
-      }
-      if (pinId && levelBands[pinId]) return levelBands[pinId];
-    }
-    return scopeBand;
-  }, [clampedForecast.clampedToLevel, scope, sheets, levelRollups, levelBands, scopeBand]);
+
+  // ── Forecast Coherence: the card tells ONE story from ONE band ──
+  // The hero headlines the MIDPOINT (P50) of the honest range — not a separate
+  // median-pace number that could land outside its own range. selectHeroBand is
+  // that single basis: the pooled scope band, clamped LATER to the slowest scoped
+  // level's band so an all-levels projection can't beat its slowest level (the
+  // band twin of the old clampProjectForecast). The projected date, the range,
+  // "vs planned", and the promise all read from this one band.
+  const heroSelection = useMemo(() => {
+    const scopedLevelBands = (scope === 'all' ? sheets.map(s => s.id) : [scope])
+      .map(id => levelBands[id])
+      .filter((b): b is ForecastBand => Boolean(b));
+    return selectHeroBand(scopeBand, scopedLevelBands);
+  }, [scope, sheets, levelBands, scopeBand]);
+  const heroBand = heroSelection.band;
+  // Projected finish = the midpoint (P50) of that one band; null when suppressed.
+  const projectedDate = heroBand.p50;
+  const planDelta = useMemo(
+    () => planVsProjected(plannedFinish, projectedDate),
+    [plannedFinish, projectedDate],
+  );
 
   // ── Highest-impact move (Schedule That Thinks P4) ──
   // The single cross-level pace transplant that pulls the PROJECT finish in the
@@ -376,24 +369,24 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
   }
 
   const fmtFinish = (iso: string) => parseDay(iso)?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  // Projected finish = the CLAMPED aggregate (never earlier than the slowest in-scope level).
-  const projectedDate = clampedForecast.date;
+  // Projected finish = the midpoint (P50) of the hero band (defined above). One
+  // basis for the whole card, so the headline can never contradict its own range.
   const forecastLabel = projectedDate
     ? `~wk of ${fmtFinish(projectedDate)}`
-    : scopeRollup.forecastSuppressed === 'complete' ? 'Complete'
+    : heroBand.suppressed === 'complete' ? 'Complete'
     : '—';
   const forecastHint = projectedDate
-    ? (clampedForecast.clampedToLevel
-        ? `Pinned to the slowest level's pace — an all-levels projection can't finish before its slowest level. Based on the median weekly completion pace of the last ${FORECAST_WINDOW_WEEKS} weeks; a pace projection, not a commitment.`
-        : `At the median weekly completion pace of the last ${FORECAST_WINDOW_WEEKS} weeks. A pace projection, not a commitment.`)
-    : scopeRollup.forecastSuppressed === 'small-sample' ? `Too few tasks in this scope to project a finish — forecasts need at least ${SMALL_SAMPLE_SLOTS} tracked tasks.`
-    : scopeRollup.forecastSuppressed === 'no-pace' ? `No completions in the last ${FORECAST_WINDOW_WEEKS} weeks — no pace to project from.`
-    : scopeRollup.forecastSuppressed === 'complete' ? 'All tracked tasks in this scope are complete.'
+    ? (heroSelection.pinnedToLevel
+        ? `Midpoint of the likely finish range — pinned to the slowest level (an all-levels projection can't finish before its slowest level). ${bandMethodSentence()} A projection, not a commitment.`
+        : `Midpoint of the likely finish range. ${bandMethodSentence()} A projection, not a commitment.`)
+    : heroBand.suppressed === 'small-sample' ? `Too few tasks in this scope to project a finish — forecasts need at least ${SMALL_SAMPLE_SLOTS} tracked tasks.`
+    : heroBand.suppressed === 'no-pace' ? `Not enough steady recent pace to bound a finish — no projection (never faked).`
+    : heroBand.suppressed === 'complete' ? 'All tracked tasks in this scope are complete.'
     : 'Log completions to see a projection.';
   // The honest '—' (suppressed, never faked): muted dash + its reason caption.
   const forecastSuppressedCaption =
-    scopeRollup.forecastSuppressed === 'small-sample' ? 'too few tasks to project'
-    : scopeRollup.forecastSuppressed === 'no-pace' ? 'no recent pace'
+    heroBand.suppressed === 'small-sample' ? 'too few tasks to project'
+    : heroBand.suppressed === 'no-pace' ? 'no steady pace to project'
     : null;
   // Planned vs Projected: whole-day delta wording (positive = projected late).
   const planComparison =
@@ -520,7 +513,7 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
             {forecastSuppressedCaption && (
               <p className="text-[10px] text-slate-400 mt-0.5" title={forecastHint}>{forecastSuppressedCaption}</p>
             )}
-            {clampedForecast.clampedToLevel && projectedDate && (
+            {heroSelection.pinnedToLevel && projectedDate && (
               <p className="text-[10px] text-slate-400 mt-0.5" title={forecastHint}>pinned to a level&apos;s pace</p>
             )}
             {/* ── Band vs Promise (P2): the payoff — "are we keeping our word?".

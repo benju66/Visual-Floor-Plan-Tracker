@@ -497,3 +497,47 @@ export function promiseOutlook({ promise, band }: PromiseOutlookInput): PromiseO
     verdict,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Forecast coherence — the ONE band the hero card tells its whole story from
+// ---------------------------------------------------------------------------
+
+/**
+ * The band the hero card headlines, plus whether a level gated it. The card
+ * shows this band's P50 as the projected finish, its P10–P90 as the range, and
+ * measures the promise against it — one basis, so the card can never contradict
+ * its own range (Forecast Coherence).
+ */
+export interface HeroBandSelection {
+  band: ForecastBand;
+  /** True when a scoped LEVEL's band (not the pooled scope) gates the finish. */
+  pinnedToLevel: boolean;
+}
+
+/**
+ * Pick the one band the hero card projects from: the pooled scope band, clamped
+ * LATER to the slowest scoped level's band (by P50) so an all-levels projection
+ * can never finish before its slowest level. This is the band-based twin of
+ * {@link clampProjectForecast} and mirrors its two rules exactly:
+ *   1. Honesty — if the pooled scope band is itself suppressed (no P50), the hero
+ *      stays suppressed; never manufacture a project finish from a single level.
+ *   2. Only ever push LATER — a level band that finishes earlier never pulls the
+ *      projection in.
+ *
+ * Pure: bands in, selection out; no `Date.now()`.
+ */
+export function selectHeroBand(scopeBand: ForecastBand, levelBands: ForecastBand[]): HeroBandSelection {
+  // Rule 1: a suppressed pooled forecast stays suppressed (a null hero stays null).
+  if (scopeBand.suppressed || !scopeBand.p50) {
+    return { band: scopeBand, pinnedToLevel: false };
+  }
+  // Rule 2: clamp later to the slowest dated level band.
+  let band = scopeBand;
+  let latest = scopeBand.p50;
+  let pinnedToLevel = false;
+  for (const lb of levelBands) {
+    if (lb.suppressed || !lb.p50) continue;
+    if (lb.p50 > latest) { band = lb; latest = lb.p50; pinnedToLevel = true; }
+  }
+  return { band, pinnedToLevel };
+}
