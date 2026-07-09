@@ -1,5 +1,5 @@
 import React from 'react';
-import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, Pointer, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Search, Map, Workflow, Highlighter } from 'lucide-react';
+import { Undo2, Redo2, Hand, MousePointer2, PlusCircle, MinusCircle, Stamp, PenLine, List, Crosshair, ListChecks, Magnet, Loader2, Route, Footprints, Move, Plus, Minus, History, Gauge, Search, Map, Workflow, Highlighter } from 'lucide-react';
 import { useMapStore } from '@/store/useMapStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
 
@@ -51,11 +51,11 @@ export default function MapHorizontalToolbar({
     undo: Undo2,
     redo: Redo2,
     pan: Hand,
-    draw: MousePointer2,
+    draw: PenLine,
     add_node: PlusCircle,
     delete_node: MinusCircle,
     stamp: Stamp,
-    select: Pointer,
+    select: MousePointer2,
     multi_select: ListChecks,
     crosshair: Crosshair,
     route: Route

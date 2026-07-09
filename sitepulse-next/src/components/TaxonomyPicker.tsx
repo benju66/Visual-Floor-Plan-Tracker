@@ -141,6 +141,21 @@ export default function TaxonomyPicker({
     setActiveIndex((i) => (options.length === 0 ? 0 : Math.min(i, options.length - 1)));
   }, [options.length]);
 
+  // On the grouped (no-search) view, start the highlight on the AI-suggested or
+  // currently-selected type so it scrolls into view — instead of the list opening
+  // at the top with the match buried below (the fuzzy guess can sit far down).
+  // Search mode already ranks the best match first, so we skip it there; and we
+  // don't fight the user's arrow keys because the option set only rebuilds when its
+  // inputs change, not on plain navigation.
+  const preferredOptionId = suggestedSubtypeId ?? selectedSubtypeId ?? null;
+  useEffect(() => {
+    if (query.trim() || !preferredOptionId) return;
+    const idx = options.findIndex((s) => s.id === preferredOptionId);
+    if (idx >= 0) setActiveIndex(idx);
+    // `query` intentionally omitted: `options` already rebuilds when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options, preferredOptionId]);
+
   // Scroll the highlighted option into view on keyboard navigation. Optional call:
   // some environments (jsdom in tests) don't implement scrollIntoView.
   useEffect(() => {
@@ -257,7 +272,7 @@ export default function TaxonomyPicker({
                     : rowIdle
               }`}
             >
-              <span className="flex-1 truncate">{s.name}</span>
+              <span className="flex-1 break-words">{s.name}</span>
               {/* The location category (Primary Spaces / Common Areas / Back of
                   House / Other), shown on every row so the role is legible even in
                   the flat search view where the group headers are absent. */}

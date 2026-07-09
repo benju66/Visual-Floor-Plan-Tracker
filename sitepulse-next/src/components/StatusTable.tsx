@@ -560,7 +560,10 @@ export default function StatusTable({
                 style={isExpanded ? { top: headerH } : undefined}
                 className={`border-b border-slate-200 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors cursor-pointer ${
                   isExpanded
-                    ? `sticky z-10 shadow-[0_2px_4px_-2px_rgba(0,0,0,0.18)] ${
+                    // z-[15]: above the child rows' sticky-left frozen cells (z-[11]) so
+                    // the pinned location/checkbox columns stay on top as the group
+                    // scrolls under them; still below the header (thead z-20 / th z-30).
+                    ? `sticky z-[15] shadow-[0_2px_4px_-2px_rgba(0,0,0,0.18)] ${
                         isSelected ? 'bg-purple-50 dark:bg-purple-950' : 'bg-white dark:bg-slate-900'
                       }`
                     : isSelected
@@ -777,8 +780,21 @@ export default function StatusTable({
               </tr>
               {expandedUnitIds.has(unit.id) && (
               <ExpandedActivityAudit unitId={unit.id} track={trackingMode}>
-              {(auditByActivity) => currentActivities?.map(activity => {
-                if (activity.name === log?.activityName) return null;
+              {(auditByActivity) => {
+                // Item 11 — the activities flagged out-of-sequence on the parent row.
+                // The specific offenders are already computed upstream (deriveBottleneck-
+                // Statuses); we highlight the matching child rows below with a red ring.
+                const outOfSeqNames = new Set(
+                  ((log?.outOfSequence as Array<{ activityName?: string | null }> | undefined) ?? [])
+                    .map((o) => o.activityName)
+                    .filter((n): n is string => !!n),
+                );
+                return currentActivities?.map(activity => {
+                // Item 12 — the current/bottleneck activity now renders here too (marked
+                // "Current" + accented below) rather than being skipped, so the expanded
+                // list reads as a complete, in-order timeline. It stays fully editable.
+                const isCurrentActivity = activity.name === log?.activityName;
+                const isOutOfSeq = outOfSeqNames.has(activity.name);
 
                 const notApplicable = applicabilityIndex && !isActivityApplicable(activity, unit, applicabilityIndex);
                 if (notApplicable) {
@@ -864,12 +880,17 @@ export default function StatusTable({
                   : null;
 
                 return (
-                  <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5">
-                    <td className={`${cellPadTight} ${FZ_CHECK} z-[11] bg-slate-50 dark:bg-slate-900`}></td>
-                    <td className={`${cellPadTight} ${FZ_LOC} z-[11] bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-white/10 font-medium text-slate-700 dark:text-slate-300 align-middle pl-10`}>
+                  <tr key={`${unit.id}_${activity.name}`} className={`border-b border-slate-200 dark:border-white/5 ${isCurrentActivity ? 'bg-sky-50/70 dark:bg-sky-500/[0.12]' : 'bg-slate-50 dark:bg-white/5'} ${isOutOfSeq ? 'ring-1 ring-inset ring-red-400/70 dark:ring-red-500/60' : ''}`}>
+                    <td className={`${cellPadTight} ${FZ_CHECK} z-[11] ${isCurrentActivity ? 'bg-sky-50 dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-900'}`}></td>
+                    <td className={`${cellPadTight} ${FZ_LOC} z-[11] border-l-2 ${isCurrentActivity ? 'bg-sky-50 dark:bg-sky-950/60 border-l-sky-400 dark:border-l-sky-500' : 'bg-slate-50 dark:bg-slate-900 border-l-transparent'} border-r border-slate-200 dark:border-white/10 font-medium text-slate-700 dark:text-slate-300 align-middle pl-10`}>
                       <div className="flex items-center gap-2">
-                        <span className="text-slate-400 font-bold">↳</span>
-                        {activity.name}
+                        <span className={`font-bold ${isCurrentActivity ? 'text-sky-500' : 'text-slate-400'}`}>↳</span>
+                        <span className={isCurrentActivity ? 'font-semibold text-sky-800 dark:text-sky-200' : undefined}>{activity.name}</span>
+                        {isCurrentActivity && (
+                          <span className="shrink-0 rounded-full bg-sky-100 dark:bg-sky-500/25 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-200">
+                            Current
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className={cellPadTight}></td>
@@ -980,7 +1001,8 @@ export default function StatusTable({
                     <td className={`${cellPad} align-middle text-right`}></td>
                   </tr>
                 );
-              })}
+              });
+              }}
               </ExpandedActivityAudit>
               )}
               </tbody>

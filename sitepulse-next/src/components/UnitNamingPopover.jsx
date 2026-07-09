@@ -37,7 +37,7 @@ export default function UnitNamingPopover({
 
   return (
     <div
-      className="absolute top-6 right-6 z-[60] w-64 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md"
+      className="absolute top-6 right-6 z-[60] w-80 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md"
       style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
       onKeyDown={(e) => { if (e.key === 'Escape') cancelUnitNaming(); }}
     >

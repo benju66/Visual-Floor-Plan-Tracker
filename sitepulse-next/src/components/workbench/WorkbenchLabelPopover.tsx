@@ -125,7 +125,7 @@ export default function WorkbenchLabelPopover({
 
   return (
     <div
-      className="absolute top-6 right-6 z-[60] w-72 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md max-h-[calc(100vh-6rem)] overflow-y-auto overscroll-contain"
+      className="absolute top-6 right-6 z-[60] w-80 rounded-2xl border p-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md max-h-[calc(100vh-6rem)] overflow-y-auto overscroll-contain"
       style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
       onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
     >

@@ -96,4 +96,30 @@ describe('TaxonomyPicker — combobox behavior', () => {
     expect(screen.getByText('Dwelling Unit')).toBeTruthy();
     expect(screen.getByText('Corridor')).toBeTruthy();
   });
+
+  it('opens with the AI-suggested type highlighted so it scrolls into view (item 3)', () => {
+    const { combobox } = renderPicker({ restrictToProjectType: true, suggestedSubtypeId: 'c' });
+    // Grouped order (Housing): program "Dwelling Unit" [0], common "Corridor" [1].
+    // The default highlight is 0; the suggestion should move it to Corridor so the
+    // active-descendant (which the scroll-into-view effect follows) points at it.
+    const active = combobox.getAttribute('aria-activedescendant');
+    const corridorOption = screen.getByText('Corridor').closest('li');
+    expect(corridorOption?.getAttribute('id')).toBe(active);
+  });
+
+  it('falls back to the currently-selected type for the opening highlight (item 3)', () => {
+    const { combobox } = renderPicker({ restrictToProjectType: true, selectedSubtypeId: 'c' });
+    const active = combobox.getAttribute('aria-activedescendant');
+    const corridorOption = screen.getByText('Corridor').closest('li');
+    expect(corridorOption?.getAttribute('id')).toBe(active);
+  });
+
+  it('does not force the suggested highlight while searching (best match already ranks first)', () => {
+    const { combobox } = renderPicker({ restrictToProjectType: true, suggestedSubtypeId: 'c' });
+    fireEvent.change(combobox, { target: { value: 'dwelling' } });
+    // In search mode the highlight resets to the top-ranked result, not the suggestion.
+    const active = combobox.getAttribute('aria-activedescendant');
+    const dwellingOption = screen.getByText('Dwelling Unit').closest('li');
+    expect(dwellingOption?.getAttribute('id')).toBe(active);
+  });
 });
