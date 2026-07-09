@@ -5,6 +5,7 @@ import {
   bandForRollup,
   activityRisk,
   bestPaceMove,
+  promiseOutlook,
   MIN_MOVE_DAYS,
   FORECAST_BAND_SEED,
   type ForecastBand,
@@ -458,5 +459,55 @@ describe('bestPaceMove', () => {
     const res = bestPaceMove({ levelRollups: rollups, today: TODAY, seed: SEED });
     expect(res.move).toBeNull();
     expect(res.evaluated).toBe(true);
+  });
+});
+
+describe('promiseOutlook', () => {
+  // A dated, unsuppressed band: optimistic May 10, median May 20, pessimistic May 30.
+  const band: ForecastBand = { p10: '2026-05-10', p50: '2026-05-20', p90: '2026-05-30', suppressed: null };
+
+  it('returns null when the promise is null (no date → no line)', () => {
+    expect(promiseOutlook({ promise: null, band })).toBeNull();
+  });
+
+  it('returns null when the band is suppressed (a suppressed band never gains a line)', () => {
+    const suppressed: ForecastBand = { p10: null, p50: null, p90: null, suppressed: 'small-sample' };
+    expect(promiseOutlook({ promise: '2026-05-20', band: suppressed })).toBeNull();
+  });
+
+  it('returns null when the band is undated even if not flagged suppressed', () => {
+    const undated: ForecastBand = { p10: null, p50: null, p90: null, suppressed: null };
+    expect(promiseOutlook({ promise: '2026-05-20', band: undated })).toBeNull();
+  });
+
+  it("verdict 'on-track' when the promise is at or past P90 (even the pessimistic finish beats it)", () => {
+    expect(promiseOutlook({ promise: '2026-05-30', band })!.verdict).toBe('on-track'); // == p90 boundary
+    expect(promiseOutlook({ promise: '2026-06-15', band })!.verdict).toBe('on-track'); // past p90
+  });
+
+  it("verdict 'likely-miss' when the promise is at or before P10 (even the optimistic finish is past it)", () => {
+    expect(promiseOutlook({ promise: '2026-05-10', band })!.verdict).toBe('likely-miss'); // == p10 boundary
+    expect(promiseOutlook({ promise: '2026-04-01', band })!.verdict).toBe('likely-miss'); // before p10
+  });
+
+  it("verdict 'at-risk' when the promise falls inside the 80% range", () => {
+    expect(promiseOutlook({ promise: '2026-05-20', band })!.verdict).toBe('at-risk'); // == p50, inside
+    expect(promiseOutlook({ promise: '2026-05-15', band })!.verdict).toBe('at-risk'); // between p10 and p50
+  });
+
+  it('signs medianDeltaDays: median AFTER the promise (late) is +, ahead is −', () => {
+    expect(promiseOutlook({ promise: '2026-05-15', band })!.medianDeltaDays).toBe(5);  // May20 finish, 5d late
+    expect(promiseOutlook({ promise: '2026-05-25', band })!.medianDeltaDays).toBe(-5); // May20 finish, 5d ahead
+    expect(promiseOutlook({ promise: '2026-05-20', band })!.medianDeltaDays).toBe(0);  // finish on the promise
+  });
+
+  it('signs p90DeltaDays the same way (+ = pessimistic finish past the promise)', () => {
+    expect(promiseOutlook({ promise: '2026-05-20', band })!.p90DeltaDays).toBe(10); // p90 May30 vs promise May20
+  });
+
+  it('is pure — same inputs yield the identical result', () => {
+    const a = promiseOutlook({ promise: '2026-05-15', band });
+    const b = promiseOutlook({ promise: '2026-05-15', band });
+    expect(a).toEqual(b);
   });
 });

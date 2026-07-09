@@ -604,6 +604,7 @@ function App() {
               sheets={sheets}
               activeSheet={activeSheet}
               applicabilityIndex={applicabilityIndex}
+              contractCompletionDate={project?.contract_completion_date ?? null}
               navigateToView={navigateToView}
             />
           </div>

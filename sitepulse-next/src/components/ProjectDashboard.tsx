@@ -11,7 +11,7 @@ import {
   scopePlannedFinish, clampProjectForecast, planVsProjected, isStalledSwarm,
 } from '@/utils/progressAnalytics';
 import type { GroupRollup } from '@/utils/progressAnalytics';
-import { bandForRollup, bandMethodSentence, bestPaceMove, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
+import { bandForRollup, bandMethodSentence, bestPaceMove, promiseOutlook, FORECAST_BAND_SEED } from '@/utils/monteCarloForecast';
 import type { ForecastBand } from '@/utils/monteCarloForecast';
 import { isActivityApplicable, applicableSlotCount, EMPTY_APPLICABILITY_INDEX } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
@@ -86,6 +86,20 @@ function bucketByWeek(
   });
 }
 
+/** One-word promise verdict → its label + temporal color (Band vs Promise P2). */
+const PROMISE_VERDICT_DISPLAY: Record<'on-track' | 'at-risk' | 'likely-miss', { label: string; cls: string }> = {
+  'on-track': { label: 'on track', cls: 'text-emerald-600 dark:text-emerald-400' },
+  'at-risk': { label: 'at risk', cls: 'text-amber-600 dark:text-amber-400' },
+  'likely-miss': { label: 'likely to miss', cls: 'text-red-600 dark:text-red-400' },
+};
+
+/** Plain-English signed median delta vs the promised date (Band vs Promise P2). */
+function promiseDeltaText(days: number): string {
+  if (days > 0) return `~${days}d past the promised date`;
+  if (days < 0) return `~${Math.abs(days)}d ahead of the promised date`;
+  return 'on the promised date';
+}
+
 interface ProjectDashboardProps {
   units: Unit[];
   activeStatuses: StatusLog[];
@@ -94,11 +108,13 @@ interface ProjectDashboardProps {
   sheets?: Sheet[];
   activeSheet?: Sheet | null;
   applicabilityIndex?: ApplicabilityIndex;
+  /** The project's owner-entered contract completion date (ISO 'YYYY-MM-DD') or null. */
+  contractCompletionDate?: string | null;
   /** URL-first view switch from the page (pushes `?view=` + mirrors the UI store). */
   navigateToView: (mode: string) => void;
 }
 
-export default function ProjectDashboard({ activities, trackingMode, sheets = [], applicabilityIndex = EMPTY_APPLICABILITY_INDEX, navigateToView }: ProjectDashboardProps) {
+export default function ProjectDashboard({ activities, trackingMode, sheets = [], applicabilityIndex = EMPTY_APPLICABILITY_INDEX, contractCompletionDate = null, navigateToView }: ProjectDashboardProps) {
   // Scope replaces the old Active Level / All Levels toggle: Floor Pulse rows set it.
   const [scope, setScope] = useState<string>('all');
   const [isChartExpanded, setIsChartExpanded] = useState(true);
@@ -391,6 +407,12 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
     projectedDate && !heroBand.suppressed && heroBand.p10 && heroBand.p90
       ? { text: `${fmtFinish(heroBand.p10)}–${fmtFinish(heroBand.p90)}`, p50: heroBand.p50 }
       : null;
+  // ── Band vs Promise (Phase 2) ──
+  // "Are we going to keep our word?" — the hero band measured against the
+  // owner-entered contract completion date. Non-null ONLY when a real date is set
+  // AND the band is unsuppressed/dated; never a fabricated promise (AGENTS.md §3).
+  const outlook = promiseOutlook({ promise: contractCompletionDate, band: heroBand });
+  const promiseVerdict = outlook?.verdict ? PROMISE_VERDICT_DISPLAY[outlook.verdict] : null;
 
   return (
     <div className="w-full pb-6 space-y-6 overflow-y-auto h-full pr-2 p-2">
@@ -501,9 +523,30 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
             {clampedForecast.clampedToLevel && projectedDate && (
               <p className="text-[10px] text-slate-400 mt-0.5" title={forecastHint}>pinned to a level&apos;s pace</p>
             )}
+            {/* ── Band vs Promise (P2): the payoff — "are we keeping our word?".
+                Leads over the demoted "vs planned" line when a contract completion
+                date is set; renders nothing with no real date or a suppressed band. ── */}
+            {outlook && promiseVerdict && contractCompletionDate && (
+              <p
+                className="text-xs font-medium text-slate-600 dark:text-slate-300 mt-1"
+                title={`Your 80% likely finish measured against the contract completion date (${fmtFinish(contractCompletionDate)})${heroBandRange ? ` — likely ${heroBandRange.text}` : ''}. ${bandMethodSentence()}`}
+              >
+                vs promised <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtFinish(contractCompletionDate)}</span>
+                {' · '}<span className={`font-bold ${promiseVerdict.cls}`}>{promiseVerdict.label}</span>
+                {outlook.medianDeltaDays !== null && outlook.medianDeltaDays !== 0 && (
+                  <span className="text-slate-500 dark:text-slate-400"> · {promiseDeltaText(outlook.medianDeltaDays)}</span>
+                )}
+              </p>
+            )}
+            {/* No promise set, but there IS an honest band to measure it against — nudge. */}
+            {!contractCompletionDate && !heroBand.suppressed && !!heroBand.p50 && (
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 leading-snug">
+                Set a contract completion date in <span className="font-medium">Settings → Project Info</span> to track the promise.
+              </p>
+            )}
             {plannedFinish ? (
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
-                vs planned <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtFinish(plannedFinish)}</span>
+              <p className={`mt-1 ${outlook ? 'text-[11px] text-slate-400 dark:text-slate-500' : 'text-xs font-medium text-slate-500 dark:text-slate-400'}`}>
+                vs planned <span className={outlook ? 'font-medium' : 'font-semibold text-slate-700 dark:text-slate-200'}>{fmtFinish(plannedFinish)}</span>
                 {planComparison && <> · <span className={`font-bold ${planComparison.cls}`}>{planComparison.text}</span></>}
               </p>
             ) : (

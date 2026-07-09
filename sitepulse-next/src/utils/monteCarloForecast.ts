@@ -433,3 +433,67 @@ export function bestPaceMove({ levelRollups, today, seed }: BestPaceMoveInput): 
   // Compared ≥2 levels: `best` is the move (or null = genuinely nothing helps).
   return { move: best, evaluated: true };
 }
+
+// ---------------------------------------------------------------------------
+// Band vs Promise — the confidence band measured against the promised finish date
+// ---------------------------------------------------------------------------
+
+/**
+ * How the 80% confidence band sits against an owner-entered promise date (the
+ * project's contract completion date). The deltas are signed whole days from the
+ * promise to each band edge — POSITIVE = the simulated finish lands AFTER the
+ * promise (late). The verdict reads off where the promise falls in the 80% range.
+ */
+export interface PromiseOutlook {
+  /** dayDiff(promise, band.p50): + = the median finish is AFTER the promise (late). */
+  medianDeltaDays: number | null;
+  /** dayDiff(promise, band.p90): + = even the pessimistic finish is after the promise. */
+  p90DeltaDays: number | null;
+  verdict: 'on-track' | 'at-risk' | 'likely-miss' | null;
+}
+
+export interface PromiseOutlookInput {
+  /** The promised finish (contract completion date), ISO 'YYYY-MM-DD', or null. */
+  promise: string | null;
+  /** The hero's confidence band (from {@link bandForRollup}). */
+  band: ForecastBand;
+}
+
+/**
+ * Measure a promised finish date against the confidence band — "are we going to
+ * keep our word?" (Band vs Promise, Phase 2).
+ *
+ * Returns `null` (render nothing) when there is no honest comparison to make:
+ * the `promise` is null, OR the band is `suppressed`, OR the band lacks a dated
+ * p10/p50/p90. This mirrors the same honesty rule as the rest of the forecast
+ * layer (AGENTS.md §3) — no promise line where there is no real date or no
+ * honest band; a suppressed band never gains a line.
+ *
+ * Verdict (compare the promised date to the 80% range; ISO strings sort
+ * lexicographically, same as the band math already relies on):
+ *   - `promise >= band.p90` → **'on-track'** (even the pessimistic finish beats it)
+ *   - `promise <= band.p10` → **'likely-miss'** (even the optimistic finish is past it)
+ *   - otherwise → **'at-risk'** (the promise falls inside the likely range)
+ *
+ * Pure + deterministic: dates in, values out; no `Date.now()`, no `Math.random()`.
+ */
+export function promiseOutlook({ promise, band }: PromiseOutlookInput): PromiseOutlook | null {
+  if (!promise || band.suppressed || !band.p10 || !band.p50 || !band.p90) return null;
+
+  const promiseDate = parseDay(promise);
+  const p50 = parseDay(band.p50);
+  const p90 = parseDay(band.p90);
+  if (!promiseDate || !p50 || !p90) return null;
+
+  // Where does the promise fall relative to the 80% range?
+  const verdict: PromiseOutlook['verdict'] =
+    promise >= band.p90 ? 'on-track'
+    : promise <= band.p10 ? 'likely-miss'
+    : 'at-risk';
+
+  return {
+    medianDeltaDays: dayDiff(promiseDate, p50), // + = median finish later than the promise (late)
+    p90DeltaDays: dayDiff(promiseDate, p90),
+    verdict,
+  };
+}
