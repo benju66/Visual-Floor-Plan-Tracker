@@ -163,3 +163,56 @@ describe('handleApplyAll — feeds onApplyPendingChanges in order', () => {
     expect(result.current.pendingChanges['u1']).toBeDefined();
   });
 });
+
+describe('handleApplyAll — per-item checkpoint stays crash-safe under concurrency', () => {
+  // List View Performance Phase 1: Apply now overlaps several saves at once (bounded
+  // concurrency). The load-bearing invariant is that the per-item IDB checkpoint
+  // (persistCurrentQueue) still drains ONE item at a time and never "resurrects" an
+  // already-synced item — so a crash mid-sync leaves only unsynced work (AGENTS.md §2).
+  it('drains the IDB checkpoint monotonically when several changes apply at once', async () => {
+    const PENDING_KEY = 'sitepulse-pending-changes-proj-1';
+
+    // Resolve each apply after a per-unit delay so completions arrive OUT of staging order,
+    // stressing the serialized checkpoint against scrambled overlap.
+    const delayByUnit: Record<string, number> = { u1: 8, u2: 2, u3: 6, u4: 1 };
+    const onApply = vi.fn(async (changes: PendingChange[]) => {
+      await new Promise((r) => setTimeout(r, delayByUnit[changes[0].unit.id] ?? 1));
+    });
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'A1') });
+      result.current.handleLocalUpdate(unit('u2'), null, 'completed', { activityObj: activityObj('a2', 'A2') });
+      result.current.handleLocalUpdate(unit('u3'), null, 'completed', { activityObj: activityObj('a3', 'A3') });
+      result.current.handleLocalUpdate(unit('u4'), null, 'completed', { activityObj: activityObj('a4', 'A4') });
+    });
+    expect(result.current.pendingCount).toBe(4);
+
+    // Capture the KEY SET persisted at each checkpoint (snapshotted at call time — the live
+    // map is mutated in place, so a stored reference would read empty after the fact).
+    const checkpointKeySets: string[][] = [];
+    idbSet.mockImplementation((k: unknown, v: unknown) => {
+      if (k === PENDING_KEY) checkpointKeySets.push(Object.keys(v as Record<string, unknown>));
+      return Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.handleApplyAll();
+    });
+
+    // Effects are quiesced during the run (isSyncingRef), so these are exactly the per-item
+    // checkpoints: each successful save removes one unit → 3, 2, 1 remaining (0 → del, not set).
+    expect(checkpointKeySets.map((s) => s.length)).toEqual([3, 2, 1]);
+
+    // Anti-resurrection: once a unit leaves a checkpoint it never reappears in a later one.
+    for (let i = 1; i < checkpointKeySets.length; i++) {
+      const previous = new Set(checkpointKeySets[i - 1]);
+      for (const key of checkpointKeySets[i]) {
+        expect(previous.has(key)).toBe(true); // later checkpoint ⊆ earlier checkpoint
+      }
+    }
+
+    // The buffer fully drains after a clean concurrent apply.
+    expect(result.current.pendingCount).toBe(0);
+  });
+});

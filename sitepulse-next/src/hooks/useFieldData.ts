@@ -11,7 +11,13 @@ import {
   clearPersistedPendingChanges,
   persistCurrentQueue,
 } from '@/utils/pendingChangesStore';
+import { runWithConcurrency } from '@/utils/concurrency';
 import type { Unit, StatusLog, PendingChangesMap, PendingChange, TemporalState } from '@/types/domain';
+
+// How many staged status-saves the List's Apply overlaps at once. Each is a full
+// upsert_status_log round-trip (auto-advance may fire a second write), so a small
+// bound keeps a big batch fast without hammering the DB or the offline queue.
+const APPLY_CONCURRENCY = 5;
 
 interface UseFieldDataProps {
   activeStatuses: StatusLog[];
@@ -224,36 +230,50 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     
     const finalChanges = Array.from(dedupedMap.values());
     if (finalChanges.length === 0) return { succeeded: 0, failed: 0 };
-    
+
     setIsApplying(true);
     isSyncingRef.current = true; // Quiesce reactive IDB writes during sync loop
-    let succeeded = 0;
-    let failed = 0;
-    const failedChanges: PendingChange[] = [];
 
     // Work against live snapshots so we can write directly to IDB on each checkpoint.
     // const: the bindings are never reassigned — items are removed via `delete` (mutation).
     const livePending = { ...pendingChanges };
     const liveTimeline = { ...pendingTimelineChanges };
 
+    // Per-item checkpoint, serialized. Several changes now save at once (bounded
+    // concurrency below), but the dequeue-and-persist for each MUST NOT interleave:
+    // the deletes mutate the shared live snapshots, and out-of-order IDB writes could
+    // "resurrect" an already-synced item. Chaining off a single tail promise runs each
+    // delete+persist atomically and in completion order, so IDB shrinks monotonically —
+    // a crash mid-sync still leaves only unsynced items on rehydration (AGENTS.md §2).
+    let checkpointTail: Promise<void> = Promise.resolve();
+    const checkpoint = (change: PendingChange): Promise<void> => {
+      checkpointTail = checkpointTail.then(() => {
+        const aName = change.extraProps?.activityObj?.name || change.log?.activityName;
+        const key = `${change.unit.id}_${aName}`;
+        delete livePending[change.unit.id];
+        delete liveTimeline[key];
+        return persistCurrentQueue(projectId, livePending, liveTimeline);
+      });
+      return checkpointTail;
+    };
+
     try {
-      for (const change of finalChanges) {
-        try {
+      // Overlap up to APPLY_CONCURRENCY apply calls instead of strict one-at-a-time.
+      // Each call carries its capture-time client_timestamp (change.capturedAt, threaded
+      // through onApplyPendingChanges → commitUnitActivity) and writes via upsert_status_log
+      // with the LWW guard — unchanged; we only change HOW MANY run at once. A successful
+      // call checkpoints immediately; a failure leaves that item queued for retry.
+      const results = await runWithConcurrency(
+        finalChanges,
+        APPLY_CONCURRENCY,
+        async (change) => {
           await onApplyPendingChanges?.([change]);
-          succeeded++;
-          // Per-item dequeue: immediately remove the synced item from the live snapshots
-          // and checkpoint to IDB. If the browser crashes after this point, only unsynced
-          // items will remain in IDB on rehydration.
-          const aName = change.extraProps?.activityObj?.name || change.log?.activityName;
-          const key = `${change.unit.id}_${aName}`;
-          delete livePending[change.unit.id];
-          delete liveTimeline[key];
-          await persistCurrentQueue(projectId, livePending, liveTimeline);
-        } catch {
-          failed++;
-          failedChanges.push(change);
+          await checkpoint(change);
         }
-      }
+      );
+
+      const succeeded = results.filter((r) => r.ok).length;
+      const failed = results.length - succeeded;
 
       // Sync React state to match the drained IDB
       setPendingChanges(livePending);
@@ -263,12 +283,12 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
       if (failed === 0) {
         await clearPersistedPendingChanges(projectId);
       }
+
+      return { succeeded, failed };
     } finally {
       isSyncingRef.current = false;
       setIsApplying(false);
     }
-
-    return { succeeded, failed };
   };
 
   const handleSort = (col: string) => {
