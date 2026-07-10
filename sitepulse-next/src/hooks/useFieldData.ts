@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useMapStore } from '@/store/useMapStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -125,7 +125,16 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
 
   // --- Handlers ---
 
-  const handleLocalUpdate = (unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
+  // useCallback with an empty dep list keeps these two per-row edit handlers at a
+  // STABLE identity across renders. Both drive their state through the functional
+  // setter form (`setPendingChanges((prev) => …)`) and stamp `capturedAt` at
+  // call-time, so they never need to close over the current pending maps — the
+  // empty deps are correct, not a stale-closure bug. Stable identity is the
+  // prerequisite for React.memo(LocationRow) to skip un-edited rows (List View
+  // Performance — Phase 3): without it every edit would hand every row a fresh
+  // callback prop and defeat the memo. (AGENTS.md §2: pending state stays local
+  // useState → IDB with capture-time timestamps — unchanged here.)
+  const handleLocalUpdate = useCallback((unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
     const now = new Date().toISOString();
     setPendingChanges((prev) => {
       const existing = prev[unit.id] || {
@@ -145,9 +154,9 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
         },
       };
     });
-  };
+  }, []);
 
-  const handleTimelineUpdate = (unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
+  const handleTimelineUpdate = useCallback((unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
     const now = new Date().toISOString();
     const activityName = extraProps?.activityObj?.name || baseLog?.activityName;
     const key = `${unit.id}_${activityName}`;
@@ -164,7 +173,7 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
         }
       };
     });
-  };
+  }, []);
 
   const handleRemovePendingItem = (unitId: string, activityName?: string | null): boolean => {
     if (activityName) {

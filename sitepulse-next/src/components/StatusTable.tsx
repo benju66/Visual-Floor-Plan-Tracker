@@ -1,19 +1,16 @@
 "use client";
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUp, ArrowDown, History, ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
-import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegments } from '@/components/ui/FieldStatusAtoms';
-import StatusTrigger, { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
-import RowActionsMenu from './manage/RowActionsMenu';
-import AssigneeCell from './manage/AssigneeCell';
-import ExpandedActivityAudit from './manage/ExpandedActivityAudit';
-import { applicableActivities, isActivityApplicable, type ApplicabilityIndex } from '@/utils/applicability';
-import { activitySchedule, computeUnitVariance, orderedTrackActivities, resolveActualStartIso, varianceCompletedColor, varianceFill, varianceLabel, type VarianceInfo, type AuditEventLike } from '@/utils/progressAnalytics';
-import { baselineSlotWindow, baselineDelta, type BaselineDelta } from '@/utils/scheduleBaseline';
-import { lastActivityIso, formatAge } from '@/utils/staleness';
+import { ArrowUp, ArrowDown, ChevronRight, ChevronDown } from 'lucide-react';
+import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
+import { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
+import LocationRow from './manage/LocationRow';
+import { applicableActivities, type ApplicabilityIndex } from '@/utils/applicability';
+import { computeUnitVariance, orderedTrackActivities, type VarianceInfo } from '@/utils/progressAnalytics';
+import { lastActivityIso } from '@/utils/staleness';
 import { useViewportPresence } from '@/hooks/useViewportPresence';
 import type { ListDensity } from '@/store/useSettingsStore';
-import type { LocationRow } from '@/utils/locationFilters';
+import type { LocationRow as LocationRowData } from '@/utils/locationFilters';
 import type { TaxonomyResult } from '@/utils/subtypes';
 import type { MemberLike } from './manage/assignee';
 import type {
@@ -30,150 +27,24 @@ import type {
 } from '@/types/domain';
 
 /**
- * DateInputCell — an always-visible native date box with the browser's calendar
- * picker (matching the app's other date inputs, e.g. QuickStatusModal), used for
- * the schedule grid's editable date columns (Schedule Variance Columns — owner
- * asked for real date boxes, not the quiet click-to-edit chips). Pending
- * (unapplied) edits get the amber treatment; `completedTone` tints the value
- * emerald for the Actual Completion column.
+ * A referentially STABLE wrapper around a (possibly changing, possibly undefined)
+ * callback. The returned function identity never changes across renders, yet it
+ * always invokes the latest `fn`. This is what lets `React.memo(LocationRow)` skip a
+ * row whose own data didn't change even when the parent (page / container) hands
+ * StatusTable a fresh closure on every render (List View Performance — Phase 3).
+ *
+ * Presence is preserved by the CALL SITE, not here: for callbacks whose presence
+ * gates UI (e.g. the row-actions "Locate"/"Delete" items), pass
+ * `source ? stableWrapper : undefined` so a genuinely-absent callback still reads as
+ * absent. Since presence is structural (set once by the mount), that ternary's result
+ * identity is itself stable across the edit path.
  */
-function DateInputCell({
-  value, pending, disabled, onChange, ariaLabel, completedTone, stopClickPropagation,
-}: {
-  value: string;
-  pending: boolean;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-  ariaLabel: string;
-  completedTone?: boolean;
-  stopClickPropagation?: boolean;
-}) {
-  return (
-    <input
-      type="date"
-      value={value}
-      onClick={stopClickPropagation ? (e) => e.stopPropagation() : undefined}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      className={`bg-white dark:bg-black/20 border rounded-md px-2 py-1 text-xs font-medium w-[132px] outline-none transition-colors focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 ${
-        pending
-          ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400'
-          : `border-slate-300 dark:border-white/15 hover:border-slate-400 dark:hover:border-white/25 ${
-              completedTone ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-300'
-            }`
-      }`}
-    />
-  );
-}
-
-/** A read-only duration cell — "13d" (or "13d →" while counting to today); blank when null. */
-function DurationCell({ days, ongoing }: { days: number | null; ongoing?: boolean }) {
-  if (days === null) return <span className="text-slate-300 dark:text-slate-600">—</span>;
-  return <span className="tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">{days}d{ongoing ? ' →' : ''}</span>;
-}
-
-/** A read-only signed-variance cell, colored off the existing lag scale; blank when null. */
-function VarianceCell({ days, pos, neg, zero }: { days: number | null; pos: string; neg: string; zero: string }) {
-  if (days === null) return <span className="text-slate-300 dark:text-slate-600">—</span>;
-  const label = days > 0 ? `${days}d ${pos}` : days < 0 ? `${Math.abs(days)}d ${neg}` : zero;
-  return (
-    <span className="tabular-nums font-semibold whitespace-nowrap" style={{ color: varianceCompletedColor(days) }}>
-      {label}
-    </span>
-  );
-}
-
-/** A read-only frozen baseline date — muted (it's a snapshot, not editable); blank when null. */
-function BaselineDateCell({ value }: { value: string | null }) {
-  if (!value) return <span className="text-slate-300 dark:text-slate-600">—</span>;
-  return <span className="tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap text-xs">{value}</span>;
-}
-
-/**
- * The per-activity "vs baseline" flag — reuses the MSP importer's wording
- * (`= baseline` / `new` / `±Nd`) and the existing lag palette
- * (`varianceCompletedColor`: later = the behind ramp, earlier = emerald). Blank
- * when there's nothing to compare (the activity isn't in the level plan at all).
- */
-function BaselineFlagCell({ delta }: { delta: BaselineDelta | null }) {
-  if (!delta) return <span className="text-slate-300 dark:text-slate-600">—</span>;
-  if (delta.kind === 'unchanged') {
-    return <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">= baseline</span>;
-  }
-  if (delta.kind === 'new') {
-    return <span className="text-[11px] font-bold text-sky-600 dark:text-sky-400 whitespace-nowrap">new</span>;
-  }
-  const days = delta.endShiftDays ?? delta.startShiftDays;
-  const label = days == null ? 'moved' : days > 0 ? `+${days}d` : `${days}d`;
-  return (
-    <span className="tabular-nums text-[11px] font-bold whitespace-nowrap" style={{ color: varianceCompletedColor(days ?? 0) }}>
-      {label}
-    </span>
-  );
-}
-
-/**
- * The baseline overlay for one level × activity slot (Band vs Promise P4): the
- * frozen level window it shows + how the CURRENT level window has drifted from
- * it. Level-plan-vs-level-plan (Layer 1) via the shared `baselineSlotWindow` /
- * `baselineDelta` math — the same comparison the importer makes, so it never
- * cries wolf on subdivided plans. Returns null (→ blank cells) when the activity
- * isn't in the level plan on either the baseline or the current side.
- */
-function computeBaselineForSlot(
-  snapshot: ScheduleBaselineSnapshot,
-  sheetId: string | undefined,
-  activityName: string | null | undefined,
-  levelSchedule: ActivitySchedules | undefined
-): { win: { start: string | null; end: string | null } | null; delta: BaselineDelta } | null {
-  if (!sheetId || !activityName) return null;
-  const win = baselineSlotWindow(snapshot, sheetId, activityName);
-  const cur = levelSchedule?.[activityName];
-  const hasCur = !!(cur && (cur.start_date || cur.end_date));
-  if (!win && !hasCur) return null;
-  const delta = baselineDelta(snapshot, sheetId, activityName, cur?.start_date ?? null, cur?.end_date ?? null);
-  return { win, delta };
-}
-
-/**
- * The per-activity schedule story for one row (Planned/Actual Duration + the three
- * signed variances), from pending-aware dates + the trusted actual-start. `events`
- * (a location's audit rows) supply the "ongoing" actual-start fallback on expanded
- * rows; the location row passes none, so it uses the ENTERED actual-start only (no
- * level-wide audit prefetch). Finish variance is gated on completion; ongoing actual
- * duration counts to `todayIso`. Reuses the pure progressAnalytics helpers.
- */
-function deriveSchedule(opts: {
-  plannedStart: string | null;
-  plannedEnd: string | null;
-  enteredStart: string | null;
-  loggedDate: string | null;
-  state: string;
-  events?: AuditEventLike[];
-  todayIso: string;
-}) {
-  const actualStartIso = resolveActualStartIso(opts.events || [], { enteredStart: opts.enteredStart });
-  const actualEndIso = opts.state === 'completed'
-    ? opts.loggedDate
-    : opts.state === 'ongoing' && actualStartIso ? opts.todayIso : null;
-  const m = activitySchedule({
-    plannedStart: opts.plannedStart,
-    plannedEnd: opts.plannedEnd,
-    actualStart: actualStartIso,
-    actualEnd: actualEndIso,
-  });
-  return {
-    plannedDuration: m.plannedDuration,
-    actualDuration: m.actualDuration,
-    varianceStart: m.varianceStart,
-    varianceDuration: m.varianceDuration,
-    // Finish variance only reads once the slot is actually completed (an ongoing
-    // slot's end is today, which must not surface as "finished N late").
-    varianceCompleted: opts.state === 'completed' ? m.varianceCompleted : null,
-    ongoing: opts.state === 'ongoing',
-    actualStartIso,
-  };
+function useStableCallback<A extends unknown[], R>(
+  fn: ((...args: A) => R) | undefined,
+): (...args: A) => R | undefined {
+  const ref = useRef(fn);
+  ref.current = fn;
+  return useCallback((...args: A) => ref.current?.(...args), []);
 }
 
 /**
@@ -182,6 +53,11 @@ function deriveSchedule(opts: {
  * Owns: lastClickedIndex (Shift+Click multi-select context).
  *       renderSortIcon (Q1 resolution: JSX stays in presenter, not in hook).
  *       allVisibleSelected / toggleSelectAll (derived from props, no store access).
+ *       The `<table>`/`<thead>`, the `visible` map, and one `<LocationRow>` per
+ *       location (List View Performance — Phase 3: each row is memoized, so an edit
+ *       re-renders only the row it touched). StatusTable itself is NOT memoized — it
+ *       must re-render on every edit to recompute which row's slice changed — but it
+ *       hands each row STABLE callbacks + per-row primitive flags so the memo holds.
  *
  * Props:
  *   visible              — { unit, log }[] from useFieldData (LocationRow shape)
@@ -199,7 +75,7 @@ function deriveSchedule(opts: {
  *   onChooseStatus       — fn from page
  */
 interface StatusTableProps {
-  visible: LocationRow[];
+  visible: LocationRowData[];
   pendingChanges: PendingChangesMap;
   // The status-update handler shape shared by handleLocalUpdate / handleTimelineUpdate,
   // identical to StatusTrigger's onLocalUpdate contract (both come from useFieldData).
@@ -305,6 +181,9 @@ export default function StatusTable({
   // `useUnitHistory` query. This turns "expand all" from N-simultaneous history
   // requests (the freeze) into a viewport-bounded handful. When IntersectionObserver
   // is unavailable, `supported` is false and every expanded row fetches as before.
+  // Phase 3 passes each row a per-row `auditEnabled` boolean derived from this (NOT
+  // the `nearIds` Set), so a scroll that flips one row's near-state re-renders only
+  // that row — keeping the memo granular.
   const { observeRef, nearIds, supported: viewportSupported } = useViewportPresence();
 
   // Density-conditional paddings (comfortable keeps today's exact metrics).
@@ -320,7 +199,7 @@ export default function StatusTable({
   const FZ_LOC = 'sticky left-12';
 
   // Clear expansions when activities change (e.g., track changes)
-  React.useEffect(() => {
+  useEffect(() => {
     setExpandedUnitIds(new Set());
   }, [currentActivities]);
 
@@ -339,7 +218,7 @@ export default function StatusTable({
     return () => ro.disconnect();
   }, []);
 
-  const logMap = React.useMemo(() => {
+  const logMap = useMemo(() => {
     const map = new Map<string, StatusLog>();
     if (rawStatuses) {
       rawStatuses.forEach(log => {
@@ -351,12 +230,12 @@ export default function StatusTable({
 
   // Display-only "now" — stable for this mount so the age + variance derivations
   // memoize (no Date.now() in the pure utils; this is presentation chrome).
-  const today = React.useMemo(() => new Date(), []);
-  const todayIso = React.useMemo(() => today.toISOString(), [today]);
+  const today = useMemo(() => new Date(), []);
+  const todayIso = useMemo(() => today.toISOString(), [today]);
 
   // Per-unit last-activity ISO (max client_timestamp across ALL the unit's rows,
   // any track) → drives the age chip. Uses already-loaded rawStatuses, no query.
-  const staleByUnitId = React.useMemo(() => {
+  const staleByUnitId = useMemo(() => {
     const byUnit = new Map<string, StatusLog[]>();
     for (const s of rawStatuses || []) {
       if (!s.unit_id) continue;
@@ -371,7 +250,7 @@ export default function StatusTable({
 
   // Per-unit schedule variance (bottleneck-based, applicability-respecting) →
   // drives the days-behind number. Reuses the single-source-of-truth pace math.
-  const varianceByUnitId = React.useMemo(() => {
+  const varianceByUnitId = useMemo(() => {
     const trackActs = orderedTrackActivities(currentActivities || [], trackingMode);
     const byUnit = new Map<string, StatusLog[]>();
     for (const s of rawStatuses || []) {
@@ -391,6 +270,25 @@ export default function StatusTable({
     return out;
   }, [visible, rawStatuses, currentActivities, trackingMode, applicabilityIndex, today]);
 
+  // Each unit's slice of `pendingTimelineChanges` (keys `${unit.id}_${activityName}`),
+  // so a memoized row receives only ITS staged per-activity edits — not the whole map,
+  // whose identity changes on every timeline edit and would re-render all rows. Units
+  // with no staged timeline edits get `undefined` here (a stable value every render),
+  // so collapsed/unstaged rows never re-render on someone else's child edit. (Unit ids
+  // are UUIDs with no `_`, so splitting on the first `_` matches how the key is built —
+  // the same convention handleRemovePendingItem uses.)
+  const pendingTimelineByUnit = useMemo(() => {
+    const map = new Map<string, PendingChangesMap>();
+    for (const key of Object.keys(pendingTimelineChanges)) {
+      const sep = key.indexOf('_');
+      const unitId = sep >= 0 ? key.slice(0, sep) : key;
+      let slice = map.get(unitId);
+      if (!slice) { slice = {}; map.set(unitId, slice); }
+      slice[key] = pendingTimelineChanges[key];
+    }
+    return map;
+  }, [pendingTimelineChanges]);
+
   const isAllExpanded = expandedUnitIds.size === visible.length && visible.length > 0;
 
   const toggleExpandAll = (e: React.MouseEvent) => {
@@ -403,7 +301,9 @@ export default function StatusTable({
     }
   };
 
-  const toggleRowExpanded = (e: React.MouseEvent, unitId: string) => {
+  // Stable per-row expand toggle (functional setState → no dependency on current
+  // state), safe to pass through the memoized row.
+  const onToggleExpanded = useCallback((e: React.MouseEvent, unitId: string) => {
     e.stopPropagation();
     setExpandedUnitIds(prev => {
       const next = new Set(prev);
@@ -411,7 +311,7 @@ export default function StatusTable({
       else next.add(unitId);
       return next;
     });
-  };
+  }, []);
 
   // Q1 resolution: renderSortIcon lives here, not in the hook (no JSX from hooks)
   const renderSortIcon = (col: string) => {
@@ -421,7 +321,16 @@ export default function StatusTable({
       : <ArrowDown size={14} className="inline-block ml-1" />;
   };
 
-  const handleRowClick = (e: React.MouseEvent, unitId: string, index: number) => {
+  // Row-click (incl. Shift+Click range) needs the LIVE selection / list / anchor, but
+  // must keep a stable identity so it doesn't defeat the row memo. Read the volatile
+  // bits from a ref that's refreshed each render; the setters are stable.
+  const rowClickCtx = useRef<{ selectedUnitIds: string[]; visible: LocationRowData[]; lastClickedIndex: number | null }>({
+    selectedUnitIds, visible, lastClickedIndex,
+  });
+  rowClickCtx.current = { selectedUnitIds, visible, lastClickedIndex };
+
+  const onRowClick = useCallback((e: React.MouseEvent, unitId: string, index: number) => {
+    const { selectedUnitIds, visible, lastClickedIndex } = rowClickCtx.current;
     if (e.shiftKey && lastClickedIndex !== null) {
       const start = Math.min(lastClickedIndex, index);
       const end = Math.max(lastClickedIndex, index);
@@ -433,7 +342,7 @@ export default function StatusTable({
       toggleSelectedUnitId(unitId);
     }
     setLastClickedIndex(index);
-  };
+  }, [setSelectedUnitIds, toggleSelectedUnitId]);
 
   const allVisibleSelected =
     visible.length > 0 && visible.every((r) => selectedUnitIds.includes(r.unit.id));
@@ -447,6 +356,21 @@ export default function StatusTable({
       setSelectedUnitIds(Array.from(newSelected));
     }
   };
+
+  // Stabilize the callbacks that flow into every memoized row. Identity is fixed for
+  // the component's life; each wrapper always calls the latest prop. Presence-gated
+  // ones (Locate / Delete / N/A toggle) keep their "is it provided?" signal via the
+  // `source ? … : undefined` guard so absent callbacks still read as absent.
+  const stableChooseStatus = useStableCallback(onChooseStatus);
+  const stableRename = useStableCallback(onRenameLocation);
+  const stableChangeType = useStableCallback(onChangeUnitType);
+  const stableAssign = useStableCallback(onAssignUnit);
+  const stableToggleApplicability = useStableCallback(onToggleApplicability);
+  const stableLocate = useStableCallback(onLocateUnit);
+  const stableDelete = useStableCallback(onDeleteLocation);
+  const rowToggleApplicability = onToggleApplicability ? stableToggleApplicability : undefined;
+  const rowLocate = onLocateUnit ? stableLocate : undefined;
+  const rowDelete = onDeleteLocation ? stableDelete : undefined;
 
   return (
     <>
@@ -514,518 +438,63 @@ export default function StatusTable({
           </tr>
         </thead>
         {visible.map(({ unit, log }, index) => {
-            const pending = pendingChanges[unit.id];
-            // Spreading a possibly-null `log` yields optional props, so annotate the result:
-            // when `log` is null the branch is a partial `{ temporal_state }`, which StatusTrigger
-            // tolerates (it re-spreads baseLog) — same runtime shape as the original .jsx.
-            const dLog: StatusLog | null = pending ? ({ ...log, temporal_state: pending.state } as StatusLog) : log;
-            // The location's active/current activity is shown inline in this row (it is skipped
-            // in the expanded child list below), so its N/A toggle has to live here too — otherwise
-            // the current task is the one activity that can never be marked Not Applicable from
-            // the table. Resolve the activity object so onToggleApplicability gets its id.
-            const activeActivity = log?.activityName
-              ? currentActivities?.find((m) => m.name === log.activityName)
-              : null;
-            const isExpanded = expandedUnitIds.has(unit.id);
-            const isSelected = selectedUnitIds.includes(unit.id);
-
-            // Data Storytelling P3 — the three at-a-glance accountability cues.
-            const variance = varianceByUnitId.get(unit.id);
-            const showVariance = !!variance && (variance.kind === 'behind' || variance.kind === 'ahead');
-            const lastIso = staleByUnitId.get(unit.id) ?? null;
-            const age = formatAge(lastIso, todayIso);
-            const subId = activeActivity?.subcontractor_id ?? null;
-            const subName = subId ? companyNameById?.[subId] : undefined;
-
-            // Schedule grid (owner's per-activity columns) for the location's CURRENT
-            // activity — pending-aware date values + derived durations/variances. Actual
-            // start uses the ENTERED value only here (no per-row audit prefetch); the
-            // "ongoing" fallback appears on the expanded rows, which load the audit.
-            const rState = (pending?.state || log?.temporal_state || 'none') as string;
-            const rStart = pending?.extraProps?.startDate !== undefined ? (pending.extraProps.startDate ?? '') : (log?.planned_start_date || '');
-            const rEnd = pending?.extraProps?.endDate !== undefined ? (pending.extraProps.endDate ?? '') : (log?.planned_end_date || '');
-            const rLogged = pending?.extraProps?.loggedDate !== undefined ? (pending.extraProps.loggedDate ?? '') : (log?.logged_date || '');
-            const rActualStart = pending?.extraProps?.actualStartDate !== undefined ? (pending.extraProps.actualStartDate ?? '') : (log?.actual_start_date || '');
-            const rSched = deriveSchedule({
-              plannedStart: rStart || null, plannedEnd: rEnd || null, enteredStart: rActualStart || null,
-              loggedDate: rLogged || null, state: rState, todayIso,
-            });
-            const frozenBg = isSelected ? 'bg-purple-50 dark:bg-purple-950' : 'bg-white dark:bg-slate-900';
-
-            // Band vs Promise P4 — the baseline overlay for this row's current activity.
-            const rowSheetId = sheetIdByUnitId?.[unit.id];
-            const rowBaseline = baseCols && baselineSnapshot
-              ? computeBaselineForSlot(baselineSnapshot, rowSheetId, log?.activityName, rowSheetId ? sheetSchedulesById?.[rowSheetId] : undefined)
-              : null;
-
-            return (
-              // Each location is its own <tbody> so an expanded row's sticky pin is
-              // bounded to *its* activity group — it releases the moment the group
-              // scrolls past, and the next location takes over. While expanded, the
-              // <tbody> is observed for near-viewport presence so only on-screen
-              // expansions run their audit query (Phase 2); collapsed rows aren't
-              // observed (nothing to fetch), keeping re-renders off the scroll path.
-              <tbody key={unit.id} ref={isExpanded ? observeRef(unit.id) : null}>
-              <tr
-                onClick={(e) => handleRowClick(e, unit.id, index)}
-                style={isExpanded ? { top: headerH } : undefined}
-                className={`border-b border-slate-200 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/10 transition-colors cursor-pointer ${
-                  isExpanded
-                    // z-[15]: above the child rows' sticky-left frozen cells (z-[11]) so
-                    // the pinned location/checkbox columns stay on top as the group
-                    // scrolls under them; still below the header (thead z-20 / th z-30).
-                    ? `sticky z-[15] shadow-[0_2px_4px_-2px_rgba(0,0,0,0.18)] ${
-                        isSelected ? 'bg-purple-50 dark:bg-purple-950' : 'bg-white dark:bg-slate-900'
-                      }`
-                    : isSelected
-                      ? 'bg-purple-50 dark:bg-purple-900/10'
-                      : ''
-                }`}
-              >
-                <td className={`${cellPad} ${FZ_CHECK} z-[11] ${frozenBg} align-middle text-center`}>
-                  <input
-                    type="checkbox"
-                    checked={selectedUnitIds.includes(unit.id)}
-                    readOnly
-                    className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                  />
-                </td>
-                <td className={`${cellPad} ${FZ_LOC} z-[11] ${frozenBg} border-r border-slate-200 dark:border-white/10 font-bold text-slate-900 dark:text-slate-100 align-middle`}>
-                  <div className="flex items-start gap-2 relative">
-                    <button
-                      type="button"
-                      onClick={(e) => toggleRowExpanded(e, unit.id)}
-                      className="mt-0.5 p-0.5 rounded text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                    >
-                      {expandedUnitIds.has(unit.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    </button>
-                    <div className="flex flex-col gap-0.5 min-w-0">
-                      <div className="flex items-center gap-2">
-                        {unit.unit_number}
-                        {levelByUnitId?.[unit.id] && (
-                          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">· {levelByUnitId[unit.id]}</span>
-                        )}
-                        <BottleneckIndicator
-                          unit={unit}
-                          outOfSequence={log?.outOfSequence as unknown as React.ComponentProps<typeof BottleneckIndicator>['outOfSequence']}
-                          onUpdateStatus={handleTimelineUpdate as unknown as React.ComponentProps<typeof BottleneckIndicator>['onUpdateStatus']}
-                        />
-                        {savingUnitId === unit.id && <UpdatingRing />}
-                      </div>
-                      {(showVariance || age !== '—') && (
-                        <div className="flex items-center gap-2 text-[10px] font-medium">
-                          {showVariance && variance && (
-                            <span
-                              className="inline-flex items-center gap-1 whitespace-nowrap"
-                              style={{ color: varianceFill(variance) }}
-                              title={varianceLabel(variance)}
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: varianceFill(variance) }} />
-                              {variance.days}d {variance.kind === 'behind' ? 'late' : 'early'}
-                            </span>
-                          )}
-                          {age !== '—' && (
-                            <span
-                              className="ml-auto text-slate-400 dark:text-slate-500 font-normal whitespace-nowrap"
-                              title={lastIso ? `Last update ${new Date(lastIso).toLocaleString()}` : undefined}
-                            >
-                              {age}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </td>
-                <td className={`${cellPadTight} align-middle text-slate-600 dark:text-slate-400`} onClick={(e) => e.stopPropagation()}>
-                  <div className="flex flex-col gap-1.5 items-start">
-                    <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
-                      {unit.unit_type || 'Unknown'}
-                    </span>
-                    <AssigneeCell
-                      assignedTo={unit.assigned_to}
-                      members={members || []}
-                      onAssign={(userId) => onAssignUnit?.(unit.id, userId)}
-                    />
-                    {subName && (
-                      <span
-                        className="max-w-[150px] truncate text-[10px] text-slate-400 dark:text-slate-500 pl-1.5"
-                        title={`Subcontractor on ${activeActivity?.name ?? 'current activity'}: ${subName}`}
-                      >
-                        {subName}
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className={`${cellPadTight} align-middle`}>
-                  <StatusTrigger
-                    unit={unit}
-                    baseLog={dLog}
-                    pendingChange={pending}
-                    onChooseStatus={onChooseStatus}
-                    onLocalUpdate={handleLocalUpdate}
-                    isApplying={isApplying}
-                    savingUnitId={savingUnitId}
-                    large={false}
-                    statusTrailing={
-                      onToggleApplicability && activeActivity ? (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activeActivity, false, dLog?.temporal_state); }}
-                          disabled={savingUnitId === unit.id || isApplying}
-                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                          title="Mark current activity Not Applicable for this location"
-                          aria-label={`Mark ${log?.activityName} not applicable for this location`}
-                        >
-                          <Ban size={14} />
-                        </button>
-                      ) : null
-                    }
-                  />
-                </td>
-                <td className={`${cellPadTight} align-middle`} onClick={(e) => e.stopPropagation()}>
-                  {log ? (
-                    <DateInputCell
-                      value={rStart}
-                      pending={pending?.extraProps?.startDate !== undefined}
-                      onChange={(val) =>
-                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
-                          startDate: val, endDate: log.planned_end_date,
-                        })
-                      }
-                      disabled={isApplying}
-                      ariaLabel={`Planned start — ${unit.unit_number}`}
-                    />
-                  ) : (
-                    <span className="text-slate-400 text-xs italic">—</span>
-                  )}
-                </td>
-                <td className={`${cellPadTight} align-middle`} onClick={(e) => e.stopPropagation()}>
-                  {log ? (
-                    <DateInputCell
-                      value={rEnd}
-                      pending={pending?.extraProps?.endDate !== undefined}
-                      onChange={(val) =>
-                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
-                          startDate: log.planned_start_date, endDate: val,
-                        })
-                      }
-                      disabled={isApplying}
-                      ariaLabel={`Planned completion — ${unit.unit_number}`}
-                    />
-                  ) : (
-                    <span className="text-slate-400 text-xs italic">—</span>
-                  )}
-                </td>
-                {baseCols && (
-                  <>
-                    <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineDateCell value={rowBaseline?.win?.start ?? null} /></td>
-                    <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineDateCell value={rowBaseline?.win?.end ?? null} /></td>
-                    <td className={`${cellPad} text-right align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineFlagCell delta={rowBaseline?.delta ?? null} /></td>
-                  </>
-                )}
-                <td className={`${cellPad} text-right align-middle`}>
-                  <DurationCell days={rSched.plannedDuration} />
-                </td>
-                <td className={`${cellPadTight} align-middle`} onClick={(e) => e.stopPropagation()}>
-                  {log ? (
-                    <DateInputCell
-                      value={rActualStart}
-                      pending={pending?.extraProps?.actualStartDate !== undefined}
-                      onChange={(val) =>
-                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log.temporal_state as TemporalState) || 'none', {
-                          startDate: log.planned_start_date, endDate: log.planned_end_date, loggedDate: log.logged_date, actualStartDate: val,
-                        })
-                      }
-                      disabled={isApplying}
-                      ariaLabel={`Actual start — ${unit.unit_number}`}
-                    />
-                  ) : (
-                    <span className="text-slate-400 text-xs italic">—</span>
-                  )}
-                </td>
-                <td className={`${cellPadTight} align-middle`} onClick={(e) => e.stopPropagation()}>
-                  {(pending?.state || log?.temporal_state) === 'completed' ? (
-                    <DateInputCell
-                      value={rLogged}
-                      pending={pending?.extraProps?.loggedDate !== undefined}
-                      onChange={(val) =>
-                        handleLocalUpdate(unit, log || ({} as StatusLog), pending?.state || (log!.temporal_state as TemporalState) || 'none', {
-                          startDate: log!.planned_start_date, endDate: log!.planned_end_date, loggedDate: val,
-                        })
-                      }
-                      disabled={isApplying}
-                      ariaLabel={`Actual completion — ${unit.unit_number}`}
-                      completedTone
-                      stopClickPropagation
-                    />
-                  ) : (
-                    <span className="text-slate-400 text-xs italic">—</span>
-                  )}
-                </td>
-                <td className={`${cellPad} text-right align-middle`}>
-                  <DurationCell days={rSched.actualDuration} ongoing={rSched.ongoing} />
-                </td>
-                <td className={`${cellPad} text-right align-middle`}>
-                  <VarianceCell days={rSched.varianceStart} pos="late" neg="early" zero="on time" />
-                </td>
-                <td className={`${cellPad} text-right align-middle`}>
-                  <VarianceCell days={rSched.varianceCompleted} pos="late" neg="early" zero="on time" />
-                </td>
-                <td className={`${cellPad} text-right align-middle`}>
-                  <VarianceCell days={rSched.varianceDuration} pos="over" neg="under" zero="on plan" />
-                </td>
-                <td className={`${cellPad} align-middle text-right`} onClick={(e) => e.stopPropagation()}>
-                  <RowActionsMenu
-                    unitNumber={unit.unit_number}
-                    currentSubtypeId={unit.subtype_id}
-                    subtypes={subtypes || []}
-                    projectType={projectType}
-                    onRename={() => onRenameLocation?.(unit)}
-                    onChangeType={(result) => onChangeUnitType?.(unit.id, result)}
-                    onLocate={onLocateUnit ? () => onLocateUnit(unit.id) : undefined}
-                    onDelete={onDeleteLocation ? () => onDeleteLocation(unit.id) : undefined}
-                    onHistory={() => setHistoryModalUnitId(unit.id)}
-                  />
-                </td>
-              </tr>
-              {expandedUnitIds.has(unit.id) && (
-              // Only fetch this location's audit when its row is on/near screen — or
-              // whenever viewport tracking is unavailable, so nothing regresses to
-              // "never loads" (List View Performance — Phase 2).
-              <ExpandedActivityAudit
-                unitId={unit.id}
-                track={trackingMode}
-                enabled={!viewportSupported || nearIds.has(unit.id)}
-              >
-              {(auditByActivity) => {
-                // Item 11 — the activities flagged out-of-sequence on the parent row.
-                // The specific offenders are already computed upstream (deriveBottleneck-
-                // Statuses); we highlight the matching child rows below with a red ring.
-                const outOfSeqNames = new Set(
-                  ((log?.outOfSequence as Array<{ activityName?: string | null }> | undefined) ?? [])
-                    .map((o) => o.activityName)
-                    .filter((n): n is string => !!n),
-                );
-                return currentActivities?.map(activity => {
-                // Item 12 — the current/bottleneck activity now renders here too (marked
-                // "Current" + accented below) rather than being skipped, so the expanded
-                // list reads as a complete, in-order timeline. It stays fully editable.
-                const isCurrentActivity = activity.name === log?.activityName;
-                const isOutOfSeq = outOfSeqNames.has(activity.name);
-
-                const notApplicable = applicabilityIndex && !isActivityApplicable(activity, unit, applicabilityIndex);
-                if (notApplicable) {
-                  return (
-                    <tr key={`${unit.id}_${activity.name}`} className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/5 opacity-60">
-                      <td className={`${cellPadTight} ${FZ_CHECK} z-[11] bg-slate-50 dark:bg-slate-900`}></td>
-                      <td className={`${cellPadTight} ${FZ_LOC} z-[11] bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-white/10 font-medium text-slate-500 dark:text-slate-400 align-middle pl-10`}>
-                        <div className="flex items-center gap-2 italic">
-                          <span className="text-slate-400 font-bold">↳</span>
-                          {activity.name}
-                        </div>
-                      </td>
-                      <td className={cellPadTight}></td>
-                      <td className={`${cellPadTight} align-middle`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-block rounded-lg border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider italic ${getTemporalStateStyle('none')}`}>
-                            N/A
-                          </span>
-                          {onToggleApplicability && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activity, true); }}
-                              disabled={savingUnitId === unit.id || isApplying}
-                              className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                              title="Restore — mark this activity applicable for this location"
-                              aria-label={`Restore ${activity.name} for this location`}
-                            >
-                              <RotateCcw size={14} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      {Array.from({ length: 9 }).map((_, i) => (
-                        <React.Fragment key={i}>
-                          <td className={`${cellPad} ${i >= 2 && i !== 3 ? 'text-right' : ''} align-middle`}>
-                            <span className="text-slate-300 dark:text-slate-600">—</span>
-                          </td>
-                          {baseCols && i === 1 && (
-                            <>
-                              <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><span className="text-slate-300 dark:text-slate-600">—</span></td>
-                              <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><span className="text-slate-300 dark:text-slate-600">—</span></td>
-                              <td className={`${cellPad} text-right align-middle bg-slate-50 dark:bg-white/[0.03]`}><span className="text-slate-300 dark:text-slate-600">—</span></td>
-                            </>
-                          )}
-                        </React.Fragment>
-                      ))}
-                      <td className={`${cellPad} align-middle text-right`}></td>
-                    </tr>
-                  );
-                }
-
-                const childLog =
-                  logMap.get(`${unit.id}_${activity.name}`) ||
-                  ({
-                    unit_id: unit.id,
-                    activityName: activity.name,
-                    status_color: activity.color,
-                    track: trackingMode,
-                    temporal_state: 'none',
-                  } as unknown as StatusLog);
-                const childPending = pendingTimelineChanges[`${unit.id}_${activity.name}`];
-                const dChildLog = childPending ? { ...childLog, temporal_state: childPending.state } : childLog;
-
-                // Schedule grid (owner's per-activity columns) for this activity.
-                const childState = (childLog.temporal_state as string) || 'none';
-                // Pending-aware effective date values for the editable date boxes.
-                const cStart = childPending?.extraProps?.startDate !== undefined ? (childPending.extraProps.startDate ?? '') : (childLog.planned_start_date || '');
-                const cEnd = childPending?.extraProps?.endDate !== undefined ? (childPending.extraProps.endDate ?? '') : (childLog.planned_end_date || '');
-                const cLogged = childPending?.extraProps?.loggedDate !== undefined ? (childPending.extraProps.loggedDate ?? '') : (childLog.logged_date || '');
-                const cActualStart = childPending?.extraProps?.actualStartDate !== undefined ? (childPending.extraProps.actualStartDate ?? '') : (childLog.actual_start_date || '');
-                // The per-activity schedule story. Manually-entered actual-start WINS;
-                // else a genuine "ongoing" mark from the loaded audit; else blank (no
-                // misleading completion-day guess). Reflects pending edits.
-                const cSched = deriveSchedule({
-                  plannedStart: cStart || null, plannedEnd: cEnd || null, enteredStart: cActualStart || null,
-                  loggedDate: cLogged || null, state: childState,
-                  events: auditByActivity.get(activity.name) || [], todayIso,
-                });
-
-                // Band vs Promise P4 — the baseline overlay for this activity slot.
-                const childBaseline = baseCols && baselineSnapshot
-                  ? computeBaselineForSlot(baselineSnapshot, rowSheetId, activity.name, rowSheetId ? sheetSchedulesById?.[rowSheetId] : undefined)
-                  : null;
-
-                return (
-                  <tr key={`${unit.id}_${activity.name}`} className={`border-b border-slate-200 dark:border-white/5 ${isCurrentActivity ? 'bg-sky-50/70 dark:bg-sky-500/[0.12]' : 'bg-slate-50 dark:bg-white/5'} ${isOutOfSeq ? 'ring-1 ring-inset ring-red-400/70 dark:ring-red-500/60' : ''}`}>
-                    <td className={`${cellPadTight} ${FZ_CHECK} z-[11] ${isCurrentActivity ? 'bg-sky-50 dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-900'}`}></td>
-                    <td className={`${cellPadTight} ${FZ_LOC} z-[11] border-l-2 ${isCurrentActivity ? 'bg-sky-50 dark:bg-sky-950/60 border-l-sky-400 dark:border-l-sky-500' : 'bg-slate-50 dark:bg-slate-900 border-l-transparent'} border-r border-slate-200 dark:border-white/10 font-medium text-slate-700 dark:text-slate-300 align-middle pl-10`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`font-bold ${isCurrentActivity ? 'text-sky-500' : 'text-slate-400'}`}>↳</span>
-                        <span className={isCurrentActivity ? 'font-semibold text-sky-800 dark:text-sky-200' : undefined}>{activity.name}</span>
-                        {isCurrentActivity && (
-                          <span className="shrink-0 rounded-full bg-sky-100 dark:bg-sky-500/25 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-200">
-                            Current
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className={cellPadTight}></td>
-                    <td className={`${cellPadTight} align-middle`}>
-                      <div className="flex items-center gap-2">
-                        <StatusSegments
-                          value={(dChildLog.temporal_state as TemporalState) || 'none'}
-                          onChange={(s) => handleTimelineUpdate(unit, childLog, s, { activityObj: activity })}
-                          disabled={savingUnitId === unit.id || isApplying}
-                          pending={!!(childPending?.state && childPending.state !== childLog.temporal_state)}
-                          ariaLabel={`Status for ${activity.name}`}
-                          size="sm"
-                        />
-                        {onToggleApplicability && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); onToggleApplicability(unit, activity, false, dChildLog.temporal_state); }}
-                            disabled={savingUnitId === unit.id || isApplying}
-                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                            title="Mark Not Applicable for this location"
-                            aria-label={`Mark ${activity.name} not applicable for this location`}
-                          >
-                            <Ban size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td className={`${cellPadTight} align-middle`}>
-                      <DateInputCell
-                        value={cStart}
-                        pending={childPending?.extraProps?.startDate !== undefined}
-                        onChange={(val) =>
-                          handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                            startDate: val, endDate: childLog.planned_end_date, activityObj: activity,
-                          })
-                        }
-                        disabled={isApplying}
-                        ariaLabel={`Planned start — ${activity.name}, ${unit.unit_number}`}
-                      />
-                    </td>
-                    <td className={`${cellPadTight} align-middle`}>
-                      <DateInputCell
-                        value={cEnd}
-                        pending={childPending?.extraProps?.endDate !== undefined}
-                        onChange={(val) =>
-                          handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                            startDate: childLog.planned_start_date, endDate: val, activityObj: activity,
-                          })
-                        }
-                        disabled={isApplying}
-                        ariaLabel={`Planned completion — ${activity.name}, ${unit.unit_number}`}
-                      />
-                    </td>
-                    {baseCols && (
-                      <>
-                        <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineDateCell value={childBaseline?.win?.start ?? null} /></td>
-                        <td className={`${cellPad} align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineDateCell value={childBaseline?.win?.end ?? null} /></td>
-                        <td className={`${cellPad} text-right align-middle bg-slate-50 dark:bg-white/[0.03]`}><BaselineFlagCell delta={childBaseline?.delta ?? null} /></td>
-                      </>
-                    )}
-                    <td className={`${cellPad} text-right align-middle`}>
-                      <DurationCell days={cSched.plannedDuration} />
-                    </td>
-                    <td className={`${cellPadTight} align-middle`}>
-                      <DateInputCell
-                        value={(cSched.actualStartIso || '').slice(0, 10)}
-                        pending={childPending?.extraProps?.actualStartDate !== undefined}
-                        onChange={(val) =>
-                          handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                            startDate: childLog.planned_start_date, endDate: childLog.planned_end_date, loggedDate: childLog.logged_date, actualStartDate: val, activityObj: activity,
-                          })
-                        }
-                        disabled={isApplying}
-                        ariaLabel={`Actual start — ${activity.name}, ${unit.unit_number}`}
-                      />
-                    </td>
-                    <td className={`${cellPadTight} align-middle`}>
-                      {(childPending?.state || childLog.temporal_state) === 'completed' ? (
-                        <DateInputCell
-                          value={cLogged}
-                          pending={childPending?.extraProps?.loggedDate !== undefined}
-                          onChange={(val) =>
-                            handleTimelineUpdate(unit, childLog, childPending?.state || (childLog.temporal_state as TemporalState) || 'none', {
-                              startDate: childLog.planned_start_date, endDate: childLog.planned_end_date, loggedDate: val, activityObj: activity,
-                            })
-                          }
-                          disabled={isApplying}
-                          ariaLabel={`Actual completion — ${activity.name}, ${unit.unit_number}`}
-                          completedTone
-                          stopClickPropagation
-                        />
-                      ) : (
-                        <span className="text-slate-400 text-xs italic">—</span>
-                      )}
-                    </td>
-                    <td className={`${cellPad} text-right align-middle`}>
-                      <DurationCell days={cSched.actualDuration} ongoing={cSched.ongoing} />
-                    </td>
-                    <td className={`${cellPad} text-right align-middle`}>
-                      <VarianceCell days={cSched.varianceStart} pos="late" neg="early" zero="on time" />
-                    </td>
-                    <td className={`${cellPad} text-right align-middle`}>
-                      <VarianceCell days={cSched.varianceCompleted} pos="late" neg="early" zero="on time" />
-                    </td>
-                    <td className={`${cellPad} text-right align-middle`}>
-                      <VarianceCell days={cSched.varianceDuration} pos="over" neg="under" zero="on plan" />
-                    </td>
-                    <td className={`${cellPad} align-middle text-right`}></td>
-                  </tr>
-                );
-              });
-              }}
-              </ExpandedActivityAudit>
-              )}
-              </tbody>
-            );
-          })}
+          // Per-row derivations are cheap lookups; the expensive cell rendering lives
+          // inside the memoized <LocationRow>, which skips re-render when these props
+          // are referentially unchanged. Pass per-row PRIMITIVES / SLICES (never the
+          // shared pendingChanges / selectedUnitIds / nearIds objects) so an edit,
+          // selection, scroll, or save re-renders only the row it actually touched.
+          const rowSheetId = sheetIdByUnitId?.[unit.id];
+          const rowLevelSchedule = rowSheetId ? sheetSchedulesById?.[rowSheetId] : undefined;
+          return (
+            <LocationRow
+              key={unit.id}
+              unit={unit}
+              log={log}
+              index={index}
+              pendingChange={pendingChanges[unit.id]}
+              pendingTimelineForUnit={pendingTimelineByUnit.get(unit.id)}
+              isSelected={selectedUnitIds.includes(unit.id)}
+              isExpanded={expandedUnitIds.has(unit.id)}
+              isSaving={savingUnitId === unit.id}
+              auditEnabled={!viewportSupported || nearIds.has(unit.id)}
+              isApplying={isApplying}
+              currentActivities={currentActivities}
+              trackingMode={trackingMode}
+              logMap={logMap}
+              todayIso={todayIso}
+              applicabilityIndex={applicabilityIndex}
+              variance={varianceByUnitId.get(unit.id)}
+              lastIso={staleByUnitId.get(unit.id) ?? null}
+              levelLabel={levelByUnitId?.[unit.id]}
+              companyNameById={companyNameById}
+              subtypes={subtypes}
+              projectType={projectType}
+              members={members}
+              baseCols={baseCols}
+              baselineSnapshot={baselineSnapshot}
+              rowSheetId={rowSheetId}
+              rowLevelSchedule={rowLevelSchedule}
+              headerH={headerH}
+              cellPad={cellPad}
+              cellPadTight={cellPadTight}
+              frozenCheckClass={FZ_CHECK}
+              frozenLocClass={FZ_LOC}
+              observeRef={observeRef}
+              onRowClick={onRowClick}
+              onToggleExpanded={onToggleExpanded}
+              handleLocalUpdate={handleLocalUpdate}
+              handleTimelineUpdate={handleTimelineUpdate}
+              onChooseStatus={stableChooseStatus}
+              onToggleApplicability={rowToggleApplicability}
+              onRenameLocation={stableRename}
+              onChangeUnitType={stableChangeType}
+              onLocateUnit={rowLocate}
+              onDeleteLocation={rowDelete}
+              onAssignUnit={stableAssign}
+              setHistoryModalUnitId={setHistoryModalUnitId}
+            />
+          );
+        })}
       </table>
       </div>
 
