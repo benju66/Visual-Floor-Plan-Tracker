@@ -11,6 +11,7 @@ import { applicableActivities, isActivityApplicable, type ApplicabilityIndex } f
 import { activitySchedule, computeUnitVariance, orderedTrackActivities, resolveActualStartIso, varianceCompletedColor, varianceFill, varianceLabel, type VarianceInfo, type AuditEventLike } from '@/utils/progressAnalytics';
 import { baselineSlotWindow, baselineDelta, type BaselineDelta } from '@/utils/scheduleBaseline';
 import { lastActivityIso, formatAge } from '@/utils/staleness';
+import { useViewportPresence } from '@/hooks/useViewportPresence';
 import type { ListDensity } from '@/store/useSettingsStore';
 import type { LocationRow } from '@/utils/locationFilters';
 import type { TaxonomyResult } from '@/utils/subtypes';
@@ -299,6 +300,13 @@ export default function StatusTable({
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
 
+  // Viewport-only audit fetching (List View Performance — Phase 2): each expanded
+  // location's row is observed, and only those on/near the screen actually run their
+  // `useUnitHistory` query. This turns "expand all" from N-simultaneous history
+  // requests (the freeze) into a viewport-bounded handful. When IntersectionObserver
+  // is unavailable, `supported` is false and every expanded row fetches as before.
+  const { observeRef, nearIds, supported: viewportSupported } = useViewportPresence();
+
   // Density-conditional paddings (comfortable keeps today's exact metrics).
   const isCompact = density === 'compact';
   const headPad = isCompact ? 'px-5 py-2' : 'px-5 py-3';
@@ -553,8 +561,11 @@ export default function StatusTable({
             return (
               // Each location is its own <tbody> so an expanded row's sticky pin is
               // bounded to *its* activity group — it releases the moment the group
-              // scrolls past, and the next location takes over.
-              <tbody key={unit.id}>
+              // scrolls past, and the next location takes over. While expanded, the
+              // <tbody> is observed for near-viewport presence so only on-screen
+              // expansions run their audit query (Phase 2); collapsed rows aren't
+              // observed (nothing to fetch), keeping re-renders off the scroll path.
+              <tbody key={unit.id} ref={isExpanded ? observeRef(unit.id) : null}>
               <tr
                 onClick={(e) => handleRowClick(e, unit.id, index)}
                 style={isExpanded ? { top: headerH } : undefined}
@@ -779,7 +790,14 @@ export default function StatusTable({
                 </td>
               </tr>
               {expandedUnitIds.has(unit.id) && (
-              <ExpandedActivityAudit unitId={unit.id} track={trackingMode}>
+              // Only fetch this location's audit when its row is on/near screen — or
+              // whenever viewport tracking is unavailable, so nothing regresses to
+              // "never loads" (List View Performance — Phase 2).
+              <ExpandedActivityAudit
+                unitId={unit.id}
+                track={trackingMode}
+                enabled={!viewportSupported || nearIds.has(unit.id)}
+              >
               {(auditByActivity) => {
                 // Item 11 — the activities flagged out-of-sequence on the parent row.
                 // The specific offenders are already computed upstream (deriveBottleneck-

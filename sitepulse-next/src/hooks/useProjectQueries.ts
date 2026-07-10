@@ -100,7 +100,7 @@ export function useUpdateProject(projectId: string) {
   });
 }
 
-export function useUnitHistory(unitId: string) {
+export function useUnitHistory(unitId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.unitHistory(unitId),
     queryFn: async (): Promise<StatusLog[]> => {
@@ -115,7 +115,11 @@ export function useUnitHistory(unitId: string) {
       if (error) throw error;
       return (data ?? []).map(r => ({ ...r, activityName: r.activity_name })) as unknown as StatusLog[];
     },
-    enabled: !!unitId
+    // `enabled` lets a caller defer the fetch until it's actually needed — the List's
+    // expanded rows pass their near-viewport presence so "expand all" doesn't fire N
+    // history queries at once (List View Performance — Phase 2). Default true keeps
+    // every existing caller (Unit History modal, inspector) fetching eagerly.
+    enabled: !!unitId && enabled
   });
 }
 

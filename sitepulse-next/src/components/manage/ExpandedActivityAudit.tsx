@@ -10,6 +10,14 @@ type AuditRow = StatusLog & { changed_at?: string | null };
 interface ExpandedActivityAuditProps {
   unitId: string;
   track: string;
+  /**
+   * Gate the per-location history fetch on near-viewport presence (List View
+   * Performance — Phase 2). When false the query stays idle (no request), and the
+   * events map is empty so expanded child rows fall back to the ENTERED actual-start
+   * only — the exact same state as "audit still loading". Defaults to true, so any
+   * caller that doesn't gate keeps the eager-fetch behavior.
+   */
+  enabled?: boolean;
   /** Render-prop: receives an activityName → audit-events map for this location. */
   children: (eventsByActivity: Map<string, AuditEventLike[]>) => React.ReactNode;
 }
@@ -26,8 +34,8 @@ interface ExpandedActivityAuditProps {
  * Renders a bare fragment so the caller's <tr> rows stay direct children of the
  * surrounding <tbody>.
  */
-export default function ExpandedActivityAudit({ unitId, track, children }: ExpandedActivityAuditProps) {
-  const { data: rawLogs } = useUnitHistory(unitId);
+export default function ExpandedActivityAudit({ unitId, track, enabled = true, children }: ExpandedActivityAuditProps) {
+  const { data: rawLogs } = useUnitHistory(unitId, enabled);
 
   const eventsByActivity = useMemo(() => {
     const map = new Map<string, AuditEventLike[]>();
