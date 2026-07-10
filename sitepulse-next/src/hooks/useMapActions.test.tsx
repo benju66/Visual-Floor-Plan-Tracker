@@ -284,6 +284,129 @@ describe('commitUnitActivity', () => {
     expect(advanceArgs.log_data.temporal_state).toBe('planned');
     expect(advanceArgs.log_data.client_timestamp).toBe('2026-07-02T00:00:00.000Z');
   });
+
+  // ── Status Sequencing & Data-Integrity Fix — Phase 3 (date corruption) ──
+  // Editing a PLANNED start/end date on an already-completed activity must NOT
+  // silently re-stamp its completion date (logged_date) to today. That edit carries
+  // no `loggedDate`, and the pre-fix code re-stamped today whenever the slot was
+  // 'completed' and `loggedDate` was absent — clobbering the real completion date the
+  // RPC then wrote (it rewrites every column from its payload). This bug fires even
+  // with auto-advance OFF; the fix mirrors the sibling `actual_start_date` preservation.
+  const drywallB = { id: 'act-B', name: 'Drywall', color: '#222222', track: 'Production', sequence_order: 2 } as unknown as Activity;
+
+  it('preserves a completed activity\'s logged_date when only its planned date is edited', async () => {
+    // Auto-advance OFF — this bug is independent of it, and OFF keeps the primary
+    // write the ONLY RPC so the assertion reads the right call.
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: false } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    const client = makeTestQueryClient();
+    client.setQueryData(queryKeys.activities('proj-1'), [drywallB]);
+    // Drywall is ALREADY completed with a real completion date + actual-start date —
+    // exactly the data a planned-date edit must leave alone.
+    client.setQueryData(['statuses', 's1'], [
+      {
+        id: 'log-B', unit_id: 'u1', activity_id: 'act-B', activityName: 'Drywall',
+        track: 'Production', temporal_state: 'completed', status_color: '#222222',
+        planned_start_date: '2026-06-10', planned_end_date: '2026-06-25',
+        logged_date: '2026-07-01', actual_start_date: '2026-06-20',
+      },
+    ]);
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    // Re-save the still-completed Drywall, changing ONLY its planned start date. No
+    // `loggedDate` in extraProps — exactly what a planned-date edit sends.
+    await act(async () => {
+      await result.current.commitUnitActivity(unit, drywallB, 'completed', false, {
+        startDate: '2026-06-12',
+        client_timestamp: '2026-07-05T00:00:00.000Z',
+      });
+    });
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const [fnName, args] = rpc.mock.calls[0] as unknown as [string, { log_data: Record<string, unknown> }];
+    expect(fnName).toBe('upsert_status_log');
+    expect(args.log_data.activity_id).toBe('act-B');
+    // The edited planned date lands...
+    expect(args.log_data.planned_start_date).toBe('2026-06-12');
+    // ...but the completion date is PRESERVED, not re-stamped to today (the bug).
+    expect(args.log_data.logged_date).toBe('2026-07-01');
+    // Sanity: the sibling actual_start_date preservation this mirrors still holds.
+    expect(args.log_data.actual_start_date).toBe('2026-06-20');
+  });
+
+  // The other side of the rule: a genuinely-NEW completion (no prior log / no prior
+  // logged_date) with no supplied loggedDate still defaults to today — normal
+  // completion stamping must not regress.
+  it('still stamps today for a genuinely-new completion when no loggedDate is supplied', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: false } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    const client = makeTestQueryClient();
+    client.setQueryData(queryKeys.activities('proj-1'), [drywallB]);
+    // No prior Drywall log → genuinely-new completion, so today is the correct stamp.
+    client.setQueryData(['statuses', 's1'], []);
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    // Same UTC formula the code uses; the act resolves within microtasks, so the date
+    // can't roll between here and the write.
+    const today = new Date().toISOString().split('T')[0];
+
+    await act(async () => {
+      await result.current.commitUnitActivity(unit, drywallB, 'completed', false, {
+        client_timestamp: '2026-07-05T00:00:00.000Z',
+      });
+    });
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const [, args] = rpc.mock.calls[0] as unknown as [string, { log_data: Record<string, unknown> }];
+    expect(args.log_data.logged_date).toBe(today);
+  });
+
+  // The preservation must not swallow an INTENTIONAL clear: an edit that explicitly
+  // carries loggedDate: '' still resolves logged_date to null (via the
+  // `extraProps.loggedDate !== undefined` branch), even when a prior date exists.
+  it('still clears logged_date when an explicit clear (loggedDate: "") is supplied', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: false } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    const client = makeTestQueryClient();
+    client.setQueryData(queryKeys.activities('proj-1'), [drywallB]);
+    client.setQueryData(['statuses', 's1'], [
+      {
+        id: 'log-B', unit_id: 'u1', activity_id: 'act-B', activityName: 'Drywall',
+        track: 'Production', temporal_state: 'completed', status_color: '#222222',
+        logged_date: '2026-07-01',
+      },
+    ]);
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await result.current.commitUnitActivity(unit, drywallB, 'completed', false, {
+        loggedDate: '',
+        client_timestamp: '2026-07-05T00:00:00.000Z',
+      });
+    });
+
+    const [, args] = rpc.mock.calls[0] as unknown as [string, { log_data: Record<string, unknown> }];
+    // useUpdateStatus drops a null logged_date so the RPC's NULLIF resolves the absent
+    // key to NULL at the DB (Data model: absent key → NULL). The key must be gone —
+    // crucially NOT the preserved prior date '2026-07-01' (preservation didn't swallow
+    // the intentional clear).
+    expect(args.log_data.logged_date).toBeUndefined();
+  });
 });
 
 // ── Status Sequencing & Data-Integrity Fix — Phase 2 (bulk path) ──

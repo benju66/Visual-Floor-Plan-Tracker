@@ -576,7 +576,18 @@ export function useMapActions(project: Project | null | undefined) {
         track: activity.track as string,
         planned_start_date: extraProps.startDate || sheetSchedule.start_date || null,
         planned_end_date: extraProps.endDate || sheetSchedule.end_date || null,
-        logged_date: extraProps.loggedDate !== undefined ? (extraProps.loggedDate || null) : (currentTemporalState === 'completed' ? new Date().toISOString().split('T')[0] : null),
+        // Completion date. When the edit carries loggedDate, honor it (incl. an explicit
+        // '' clear → null). When it does NOT (e.g. a planned-date-only edit on an already-
+        // completed activity), PRESERVE the stored logged_date rather than re-stamping
+        // today — otherwise fixing a planned-date typo silently rewrites the real completion
+        // date and corrupts schedule-variance history. Today is stamped ONLY for a
+        // genuinely-new completion (state is 'completed' AND there is no prior logged_date).
+        // Mirrors the actual_start_date preservation just below (Status Sequencing Phase 3).
+        logged_date: extraProps.loggedDate !== undefined
+          ? (extraProps.loggedDate || null)
+          : (currentTemporalState === 'completed'
+              ? (oldStatus?.logged_date ?? new Date().toISOString().split('T')[0])
+              : null),
         // Manually-entered actual-start (Actual-Dates Capture). Only ever changed when
         // this edit explicitly carries it; otherwise PRESERVE the stored value so an
         // unrelated edit (status / planned date) can't wipe a hand-entered actual-start
