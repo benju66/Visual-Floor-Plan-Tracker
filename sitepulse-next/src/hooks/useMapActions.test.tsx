@@ -562,3 +562,115 @@ describe('handleApplyBulkStatus (Status Sequencing & Data-Integrity Fix — Phas
     expect(advanceRows.some(r => r.unit_id === 'u1')).toBe(false);
   });
 });
+
+// ── Status Sequencing & Data-Integrity Fix — Phase 4 (undo reverses an auto-advance) ──
+// Completing an activity auto-advances the NEXT slot to 'planned'. Before Phase 4 the undo
+// entry captured only the PRIMARY slot, so a single Undo reversed the completion but left
+// the teed-up next slot stranded at 'planned' — a half-reverted schedule. Phase 4 captures
+// the auto-advance side-write in the SAME undo entry, so ONE Undo reverses BOTH slots and
+// ONE Redo re-applies BOTH. Undo/redo write via supabase.from('status_logs').upsert(...),
+// which the harness maps to `bulkUpsert` (the RPC path is only the forward commit).
+describe('commitUnitActivity undo/redo — Phase 4: one Undo reverses BOTH the completion and its auto-advance', () => {
+  const unit = { id: 'u1', unit_number: '101', sheet_id: 's1', polygon_coordinates: [], opening_edges: [] } as unknown as Unit;
+  const frame = { id: 'act-A', name: 'Frame', color: '#111111', track: 'Production', sequence_order: 1 } as unknown as Activity;
+  const drywall = { id: 'act-B', name: 'Drywall', color: '#222222', track: 'Production', sequence_order: 2 } as unknown as Activity;
+
+  type Row = { unit_id?: string; activity_id?: string; temporal_state?: string };
+  // Every status_logs row an undo/redo upsert wrote for a given activity_id (each bulkUpsert
+  // call is [rows, opts]).
+  const upsertRowsForActivity = (activityId: string): Row[] =>
+    (bulkUpsert.mock.calls as unknown as Array<[Row[], unknown]>)
+      .flatMap(([rows]) => rows ?? [])
+      .filter(r => r.activity_id === activityId);
+
+  beforeEach(() => {
+    // Make the forward commit's status write echo back its row (as the real upsert_status_log
+    // RPC does) so the captured primary + secondary `newLog`s carry activity_id/track/
+    // temporal_state — otherwise the shared harness stub returns a fixed `{ id: 'log-new' }`
+    // that strips them and leaves the undo/redo writes unassertable. `single()` fires right
+    // after `.rpc(...)`, so the newest recorded `rpc` call IS this write's log_data. The
+    // top-level beforeEach re-resets `rpcSingle` each test, so this override can't leak.
+    rpcSingle.mockImplementation(() => {
+      const lastCall = rpc.mock.calls[rpc.mock.calls.length - 1] as unknown as [string, { log_data?: Record<string, unknown> }] | undefined;
+      const logData = lastCall?.[1]?.log_data ?? {};
+      return Promise.resolve({ data: { id: 'log-new', ...logData }, error: null });
+    });
+  });
+
+  // A client where completing Frame genuinely tees up Drywall (Drywall is Not Started).
+  const freshCompletionWrapper = () => {
+    const client = makeTestQueryClient();
+    client.setQueryData(queryKeys.activities('proj-1'), [frame, drywall]);
+    client.setQueryData(['statuses', 's1'], []);
+    return ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+  };
+
+  it('one Undo restores BOTH slots — the completed activity AND the auto-advanced next slot', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: true } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: freshCompletionWrapper() });
+
+    // Complete Frame → auto-advance tees Drywall up to 'planned' (both writes fire via the RPC).
+    await act(async () => {
+      await result.current.commitUnitActivity(unit, frame, 'completed', false, {
+        client_timestamp: '2026-07-02T00:00:00.000Z',
+      });
+    });
+    expect(rpc).toHaveBeenCalledTimes(2);
+    // The forward commit uses the RPC path only — no undo/redo writes yet.
+    expect(bulkUpsert).not.toHaveBeenCalled();
+
+    // ONE Undo.
+    await act(async () => {
+      await result.current.triggerUndo();
+    });
+
+    // Primary slot reverts: Frame → Not Started (existing single-slot behavior, unchanged).
+    const frameUndo = upsertRowsForActivity('act-A');
+    expect(frameUndo.length).toBeGreaterThan(0);
+    expect(frameUndo.every(r => r.temporal_state === 'none')).toBe(true);
+
+    // The load-bearing Phase-4 assertion: the auto-advanced slot ALSO reverts — Drywall →
+    // Not Started. Before the fix NOTHING was written for act-B here (the half-revert bug).
+    const drywallUndo = upsertRowsForActivity('act-B');
+    expect(drywallUndo.length).toBeGreaterThan(0);
+    expect(drywallUndo.every(r => r.temporal_state === 'none')).toBe(true);
+  });
+
+  it('one Redo re-applies BOTH slots — the completion AND the auto-advance', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: true } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: freshCompletionWrapper() });
+
+    await act(async () => {
+      await result.current.commitUnitActivity(unit, frame, 'completed', false, {
+        client_timestamp: '2026-07-02T00:00:00.000Z',
+      });
+    });
+    await act(async () => {
+      await result.current.triggerUndo();
+    });
+
+    // Isolate the writes made by Redo alone.
+    bulkUpsert.mockClear();
+
+    await act(async () => {
+      await result.current.triggerRedo();
+    });
+
+    // Primary re-applies: Frame → completed again.
+    const frameRedo = upsertRowsForActivity('act-A');
+    expect(frameRedo.length).toBeGreaterThan(0);
+    expect(frameRedo.every(r => r.temporal_state === 'completed')).toBe(true);
+
+    // The auto-advance re-applies too: Drywall → planned. Before the fix the secondary was
+    // never captured, so Redo left it Not Started.
+    const drywallRedo = upsertRowsForActivity('act-B');
+    expect(drywallRedo.length).toBeGreaterThan(0);
+    expect(drywallRedo.every(r => r.temporal_state === 'planned')).toBe(true);
+  });
+});

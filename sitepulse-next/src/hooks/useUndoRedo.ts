@@ -14,6 +14,13 @@ export interface UndoAction {
   newData?: any;
   oldLog?: StatusLog | null;
   newLog?: StatusLog | null;
+  // Status Sequencing Phase 4: an auto-advance side-write teed up alongside a status
+  // completion (commitUnitActivity's `if (target)` block). When present, ONE undo/redo
+  // reverses/re-applies BOTH slots so nothing is left half-changed. The teed-up slot's
+  // "before" is ALWAYS Not Started — planAutoAdvance only ever targets a 'none' slot
+  // (Phase 1) — so we store just `newLog` (its 'planned' after-state): undo restores it
+  // to none, redo re-writes this planned log. `unitId` is the same unit as the primary.
+  secondary?: { unitId: string; newLog?: StatusLog | null };
   unitIds?: string[];
   track?: string;
   activityName?: string;
@@ -95,6 +102,22 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           insertObj = { unit_id: action.unitId, track: action.newLog?.track, activity_id: action.newLog?.activity_id, temporal_state: 'none' };
         }
         await supabase.from('status_logs').upsert([insertObj], { onConflict: 'unit_id,activity_id' });
+
+        // Phase 4: the SAME Undo also reverses the auto-advance side-write. That slot was
+        // Not Started before it was teed up (planAutoAdvance only advances a 'none' slot),
+        // so restore it to none — the identical cache + DB path the primary's first-time
+        // ("no oldLog") branch above uses. Never .insert() — stay on the (unit_id,
+        // activity_id) upsert.
+        if (action.secondary && action.secondary.newLog) {
+          const secUnitId = action.secondary.unitId;
+          const secLog = action.secondary.newLog;
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+            if (!old) return old;
+            const filtered = old.filter(s => !(s.unit_id === secUnitId && s.activity_id === secLog.activity_id));
+            return [...filtered, { unit_id: secUnitId, track: secLog.track, activity_id: secLog.activity_id, activityName: secLog.activityName ?? '', temporal_state: 'none', id: `temp_${Date.now()}`, created_at: new Date().toISOString() } as StatusLog];
+          });
+          await supabase.from('status_logs').upsert([{ unit_id: secUnitId, track: secLog.track, activity_id: secLog.activity_id, temporal_state: 'none' }] as any, { onConflict: 'unit_id,activity_id' });
+        }
         break;
 
       case 'BULK_UPDATE_STATUS':
@@ -192,6 +215,20 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         });
         if (action.newLog) {
           const { id, created_at, activityName, ...rest } = action.newLog as any;
+          await supabase.from('status_logs').upsert([rest], { onConflict: 'unit_id,activity_id' });
+        }
+
+        // Phase 4: re-apply the auto-advance too — re-write its 'planned' after-state, the
+        // identical cache + DB path the primary re-write above uses. Mirror of the undo case.
+        if (action.secondary && action.secondary.newLog) {
+          const secUnitId = action.secondary.unitId;
+          const secLog = action.secondary.newLog;
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+            if (!old) return old;
+            const filtered = old.filter(s => !(s.unit_id === secUnitId && s.activity_id === secLog.activity_id));
+            return [...filtered, secLog];
+          });
+          const { id, created_at, activityName, ...rest } = secLog as any;
           await supabase.from('status_logs').upsert([rest], { onConflict: 'unit_id,activity_id' });
         }
         break;

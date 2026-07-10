@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { useUndoRedo } from '@/hooks/useUndoRedo';
+import { useUndoRedo, type UndoAction } from '@/hooks/useUndoRedo';
 import {
   useCreateUnit, useUpdateUnitGeometry, useUpdateUnitFields,
   useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateActivity, useBulkUpdateStatus
@@ -606,6 +606,10 @@ export function useMapActions(project: Project | null | undefined) {
       // can NOT flip the already-succeeded primary write to a failure — otherwise a batched
       // Apply would wrongly re-queue an item that actually saved. On failure we toast a
       // distinct note and carry on (record undo, return ok:true).
+      // Phase 4: the auto-advance side-write (if it fires) is captured here so ONE Undo
+      // reverses BOTH slots. Stays undefined when no advance happens → single-slot undo is
+      // exactly as before.
+      let autoAdvanceSecondary: UndoAction['secondary'];
       const autoAdvanceEnabled = settings.auto_advance_tracks?.[activity.track as string] === true;
       if (currentTemporalState === 'completed' && autoAdvanceEnabled && !isUndoRedo) {
         try {
@@ -656,7 +660,11 @@ export function useMapActions(project: Project | null | undefined) {
               planned_end_date: nextSheetSchedule.end_date || null,
               client_timestamp: extraProps.client_timestamp || null,
             };
-            await updateStatusMutation.mutateAsync(nextLogData);
+            const nextLog = await updateStatusMutation.mutateAsync(nextLogData);
+            // Record the teed-up slot's after-state on the SAME undo entry (Phase 4). Its
+            // "before" is always Not Started (planAutoAdvance only targets a 'none' slot),
+            // so undo restores it to none and redo re-writes this 'planned' log.
+            autoAdvanceSecondary = { unitId: unit.id, newLog: nextLog };
           }
         } catch (advErr: any) {
           showToast("Saved, but couldn't line up the next activity: " + advErr.message, 'warning');
@@ -665,7 +673,7 @@ export function useMapActions(project: Project | null | undefined) {
 
       if (!isUndoRedo) {
         setUndoStack(prev => {
-          const next = [...prev, { actionType: 'UPDATE_STATUS' as const, unitId: unit.id, oldLog: oldStatus, newLog }];
+          const next = [...prev, { actionType: 'UPDATE_STATUS' as const, unitId: unit.id, oldLog: oldStatus, newLog, secondary: autoAdvanceSecondary }];
           return next.length > 50 ? next.slice(next.length - 50) : next;
         });
         setRedoStack([]);
