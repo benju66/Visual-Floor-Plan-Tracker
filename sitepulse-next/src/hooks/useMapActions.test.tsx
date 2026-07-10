@@ -23,13 +23,19 @@ import type { Activity, PercentPoint, Project, Unit } from '@/types/domain';
 const rpcSingle = vi.fn();
 const rpc = vi.fn(() => ({ single: rpcSingle }));
 const getSession = vi.fn();
+// The bulk path (useBulkUpdateStatus) writes via `.upsert(onConflict)`, NOT the RPC —
+// intercept it so the Phase-2 bulk auto-advance assertions can read the exact rows written.
+const bulkUpsert = vi.fn();
 
 vi.mock('@/supabaseClient', () => ({
   supabase: {
     auth: { getSession: () => getSession() },
     rpc: (...args: unknown[]) => rpc(...(args as [])),
-    // No query hook fires here (they're mocked below), but keep a benign stub.
-    from: () => ({ select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }),
+    // `select().eq()` is a benign stub for the RPC tests; `upsert` is the bulk write path.
+    from: () => ({
+      select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }),
+      upsert: (...args: unknown[]) => bulkUpsert(...(args as [])),
+    }),
   },
 }));
 
@@ -56,6 +62,7 @@ function wrapper({ children }: { children: ReactNode }) {
 beforeEach(() => {
   rpc.mockClear();
   rpcSingle.mockReset().mockResolvedValue({ data: { id: 'log-new' }, error: null });
+  bulkUpsert.mockReset().mockResolvedValue({ error: null });
   getSession.mockReset().mockResolvedValue({ data: { session: { access_token: 'tok', user: { id: 'user-1' } } } });
   // Reset the shared Zustand singletons so state never bleeds between tests.
   useMapStore.setState({
@@ -276,5 +283,159 @@ describe('commitUnitActivity', () => {
     expect(advanceArgs.log_data.activity_id).toBe('act-B');
     expect(advanceArgs.log_data.temporal_state).toBe('planned');
     expect(advanceArgs.log_data.client_timestamp).toBe('2026-07-02T00:00:00.000Z');
+  });
+});
+
+// ── Status Sequencing & Data-Integrity Fix — Phase 2 (bulk path) ──
+// The bulk "Apply to selected → Completed" writes via useBulkUpdateStatus (.upsert on
+// unit_id,activity_id), so we assert on the bulk .upsert rows, NOT the RPC. The pre-fix
+// bulk auto-advance grouped EVERY selected unit by its next-index and stamped 'planned'
+// with no per-unit state read — downgrading a later activity some locations had already
+// completed. Phase 2 gates group membership with the SAME planAutoAdvance never-downgrade
+// rule the single path uses (Phase 1), applied per unit.
+describe('handleApplyBulkStatus (Status Sequencing & Data-Integrity Fix — Phase 2)', () => {
+  const frame = { id: 'act-A', name: 'Frame', color: '#111111', track: 'Production', sequence_order: 1 } as unknown as Activity;
+  const drywall = { id: 'act-B', name: 'Drywall', color: '#222222', track: 'Production', sequence_order: 2 } as unknown as Activity;
+
+  type BulkRow = { unit_id: string; activity_id: string; temporal_state: string };
+  // Flatten every bulk .upsert row that carries `activityId` (each call is [rows, opts]).
+  const upsertRowsFor = (activityId: string): BulkRow[] =>
+    (bulkUpsert.mock.calls as unknown as Array<[BulkRow[], unknown]>)
+      .map(([rows]) => rows)
+      .filter(rows => rows.length > 0 && rows.every(r => r.activity_id === activityId))
+      .flat();
+
+  const seedClient = (statuses: unknown[], unitIds: string[]) => {
+    const client = makeTestQueryClient();
+    client.setQueryData(queryKeys.activities('proj-1'), [frame, drywall]);
+    client.setQueryData(
+      queryKeys.units('s1'),
+      unitIds.map(id => ({ id, unit_type: null, sheet_id: 's1' })) as unknown as Unit[],
+    );
+    client.setQueryData(['statuses', 's1'], statuses);
+    return client;
+  };
+
+  it('does NOT downgrade selected locations whose next activity is already completed (the bulk repro)', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: true } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    // u1 has Drywall ALREADY completed (with real dates); u2 & u3 have not started it.
+    const client = seedClient(
+      [
+        {
+          id: 'log-B1', unit_id: 'u1', activity_id: 'act-B', activityName: 'Drywall',
+          track: 'Production', temporal_state: 'completed', status_color: '#222222',
+          logged_date: '2026-07-01', actual_start_date: '2026-06-20',
+        },
+      ],
+      ['u1', 'u2', 'u3'],
+    );
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await result.current.handleApplyBulkStatus({
+        unitIds: ['u1', 'u2', 'u3'],
+        activityName: 'Frame',
+        color: '#111111',
+        temporal_state: 'completed',
+        track: 'Production',
+        planned_start_date: null,
+        planned_end_date: null,
+      });
+    });
+
+    // Primary write: Frame → completed for ALL three selected locations (unchanged behavior).
+    const frameRows = upsertRowsFor('act-A');
+    expect(new Set(frameRows.map(r => r.unit_id))).toEqual(new Set(['u1', 'u2', 'u3']));
+    expect(frameRows.every(r => r.temporal_state === 'completed')).toBe(true);
+
+    // Auto-advance: ONLY the genuinely Not-Started next slots (u2, u3) are teed up to
+    // Drywall 'planned'. u1 is EXCLUDED — its Drywall is already completed, so the
+    // never-downgrade rule leaves that slot (and its logged/actual-start dates) untouched.
+    const advanceRows = upsertRowsFor('act-B');
+    expect(new Set(advanceRows.map(r => r.unit_id))).toEqual(new Set(['u2', 'u3']));
+    expect(advanceRows.every(r => r.temporal_state === 'planned')).toBe(true);
+    // The load-bearing assertion: u1's completed Drywall never received a downgrade write.
+    expect(advanceRows.some(r => r.unit_id === 'u1')).toBe(false);
+  });
+
+  // The other side of the rule: when NO selected location has started the next slot,
+  // normal bulk advance still tees up every one of them.
+  it('still tees up every Not-Started next slot across the selected locations', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: true } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    // No Drywall rows anywhere → every unit's next slot is Not Started ('none').
+    const client = seedClient([], ['u1', 'u2', 'u3']);
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await result.current.handleApplyBulkStatus({
+        unitIds: ['u1', 'u2', 'u3'],
+        activityName: 'Frame',
+        color: '#111111',
+        temporal_state: 'completed',
+        track: 'Production',
+        planned_start_date: null,
+        planned_end_date: null,
+      });
+    });
+
+    const advanceRows = upsertRowsFor('act-B');
+    expect(new Set(advanceRows.map(r => r.unit_id))).toEqual(new Set(['u1', 'u2', 'u3']));
+    expect(advanceRows.every(r => r.temporal_state === 'planned')).toBe(true);
+  });
+
+  // Concurrent-Apply race residual (plan §Open decisions): a near-simultaneous single
+  // Apply may have already teed up a unit's next slot to 'planned'. The never-downgrade
+  // rule reads that progress and SKIPS the unit, so the worst case is "bulk skips a slot
+  // it might have teed up" — safe, never a destructive re-stamp/downgrade — regardless of
+  // interleaving order. (A stronger ordering guard is therefore not needed for Phase 2.)
+  it('leaves a next slot a concurrent Apply already teed up (planned) untouched', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: true } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    // u1's Drywall is already 'planned' — the state a near-simultaneous single Apply's
+    // auto-advance would have left. The bulk path must NOT re-stamp/downgrade it.
+    const client = seedClient(
+      [
+        {
+          id: 'log-B1', unit_id: 'u1', activity_id: 'act-B', activityName: 'Drywall',
+          track: 'Production', temporal_state: 'planned', status_color: '#222222',
+        },
+      ],
+      ['u1', 'u2'],
+    );
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await result.current.handleApplyBulkStatus({
+        unitIds: ['u1', 'u2'],
+        activityName: 'Frame',
+        color: '#111111',
+        temporal_state: 'completed',
+        track: 'Production',
+        planned_start_date: null,
+        planned_end_date: null,
+      });
+    });
+
+    const advanceRows = upsertRowsFor('act-B');
+    // Only u2 advances; u1's already-planned slot is left alone (never-downgrade, no churn).
+    expect(new Set(advanceRows.map(r => r.unit_id))).toEqual(new Set(['u2']));
+    expect(advanceRows.some(r => r.unit_id === 'u1')).toBe(false);
   });
 });

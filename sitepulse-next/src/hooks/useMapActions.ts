@@ -9,8 +9,8 @@ import {
 } from '@/hooks/useProjectQueries';
 import type { Project, Unit, PercentPoint, StatusLog, Activity, TemporalState, Sheet, ActivityOverride, TopLevelRole } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
-import { buildApplicabilityIndex, nextApplicableIndex } from '@/utils/applicability';
-import { planAutoAdvance } from '@/utils/autoAdvance';
+import { buildApplicabilityIndex } from '@/utils/applicability';
+import { planAutoAdvance, type AutoAdvanceTarget } from '@/utils/autoAdvance';
 import { resolveActivityId } from '@/utils/resolveActivityId';
 import { useProposePendingSubtype, useSubtypes } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult, type TaxonomyUnitFields } from '@/utils/subtypes';
@@ -739,28 +739,56 @@ export function useMapActions(project: Project | null | undefined) {
         const currentIndex = trackActivities.findIndex(a => a.name === activityName);
 
         if (currentIndex !== -1) {
-          const targetGroups: Record<number, string[]> = {};
+          // Same never-downgrade rule as the single path (Phase 1): run planAutoAdvance
+          // PER UNIT, reading THIS unit's per-slot state by the canonical activity_id slot
+          // key. A unit only joins an advance group when its next slot is Not Started
+          // ('none'); if that slot already has progress (planned/ongoing/completed) the
+          // helper returns null and the unit is left untouched — so bulk-completing an
+          // activity can no longer wipe a finished later activity across selected locations.
+          // We keep the group-by-next-activity batching (one .upsert per distinct next
+          // activity) for efficiency, but membership is now gated by the pure helper — do
+          // not duplicate the rule here. The map's bulk dock is active-sheet-scoped (its
+          // units come from queryKeys.units(activeSheetId)), so reading state from the
+          // active-sheet cache is correct for every unit it can select.
+          //
+          // Concurrent-Apply race (plan §Open decisions): the state read here is a snapshot
+          // taken before the primary bulk write. If a near-simultaneous single Apply already
+          // teed up a unit's next slot (planned), never-downgrade makes bulk SKIP it rather
+          // than overwrite — the worst case is "skips when it might have teed up", never
+          // destructive — so a stronger ordering guard isn't warranted for this phase.
+          const targetGroups: Record<string, { target: AutoAdvanceTarget; ids: string[] }> = {};
           for (const id of unitIds as string[]) {
             const unit = units.find(u => u.id === id);
             if (!unit) continue;
-            const nextIndex = nextApplicableIndex(trackActivities, unit, currentIndex, applicabilityIndex);
-            if (nextIndex === -1) continue;
-            (targetGroups[nextIndex] ||= []).push(id);
+            const target = planAutoAdvance({
+              orderedTrackActivities: trackActivities,
+              unit,
+              completedIndex: currentIndex,
+              applicabilityIndex,
+              stateOf: (i) => {
+                const act = trackActivities[i];
+                const log = act
+                  ? activeStatuses.find(s => s.unit_id === unit.id && s.activity_id === act.id)
+                  : null;
+                return (log?.temporal_state as TemporalState) ?? 'none';
+              },
+            });
+            if (!target) continue;
+            (targetGroups[target.activityId] ||= { target, ids: [] }).ids.push(id);
           }
 
-          for (const [idxStr, groupIds] of Object.entries(targetGroups)) {
-            const nextActivity = trackActivities[Number(idxStr)];
+          for (const { target, ids: groupIds } of Object.values(targetGroups)) {
             await bulkUpdateStatusMutation.mutateAsync({
                unitIds: groupIds,
-               activityName: nextActivity.name,
-               activity_id: nextActivity.id,
-               color: nextActivity.color,
+               activityName: target.activityName,
+               activity_id: target.activityId,
+               color: target.color,
                temporal_state: 'planned',
                track,
                planned_start_date: null,
                planned_end_date: null
             });
-            groupIds.forEach(id => advancedLogs.push({ unit_id: id, activity_id: nextActivity.id, activityName: nextActivity.name, status_color: nextActivity.color, temporal_state: 'planned', track }));
+            groupIds.forEach(id => advancedLogs.push({ unit_id: id, activity_id: target.activityId, activityName: target.activityName, status_color: target.color, temporal_state: 'planned', track }));
           }
         }
       }
