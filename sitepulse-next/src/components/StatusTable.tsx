@@ -1,10 +1,12 @@
 "use client";
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUp, ArrowDown, ChevronRight, ChevronDown } from 'lucide-react';
 import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 import { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
 import LocationRow from './manage/LocationRow';
+import { windowPadding, estimateRowHeight } from '@/utils/listWindow';
 import { applicableActivities, type ApplicabilityIndex } from '@/utils/applicability';
 import { computeUnitVariance, orderedTrackActivities, type VarianceInfo } from '@/utils/progressAnalytics';
 import { lastActivityIso } from '@/utils/staleness';
@@ -203,6 +205,12 @@ export default function StatusTable({
     setExpandedUnitIds(new Set());
   }, [currentActivities]);
 
+  // The vertical scroll parent for BOTH the sticky header and the row
+  // virtualizer (List View Performance — Phase 4). This presenter's own
+  // overflow-auto div is the definite scroll element the sticky <thead> already
+  // pins to; react-virtual measures/observes it via getScrollElement.
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   // Measure the sticky header so an expanded location's row can pin flush
   // *underneath* it (top: headerH), not behind it. Measured (not hardcoded) so
   // it stays correct across font-size / browser-zoom changes.
@@ -372,9 +380,33 @@ export default function StatusTable({
   const rowLocate = onLocateUnit ? stableLocate : undefined;
   const rowDelete = onDeleteLocation ? stableDelete : undefined;
 
+  // ── Row virtualization (List View Performance — Phase 4) ──────────────────
+  // Only the location <tbody> blocks near the viewport mount; two empty spacer
+  // <tbody>s size the scroll range for the off-screen blocks. Route (a): keep
+  // the real <table>, sticky <thead>, and frozen sticky-left columns exactly as
+  // they are. Each block is VARIABLE height (1 row collapsed → 1 + N expanded),
+  // so we let react-virtual measure each mounted block (measureElement) rather
+  // than assume a fixed height — the estimate only seeds first paint. getItemKey
+  // keys measurements by unit.id so they follow a row through sort/filter.
+  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
+    count: visible.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => estimateRowHeight(isCompact ? 'compact' : 'comfortable'),
+    getItemKey: (index) => visible[index]?.unit.id ?? index,
+    overscan: 8,
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const { paddingTop, paddingBottom } = windowPadding(virtualItems, rowVirtualizer.getTotalSize());
+  // Stable wrapper around the virtualizer's measure ref-callback so a memoized
+  // LocationRow never re-renders just because we hand it the measurer; the
+  // wrapper still forwards the element (with its data-index) for measurement.
+  const measureRow = useStableCallback(rowVirtualizer.measureElement);
+  // Column count for the spacer rows' colSpan (baseline overlay adds 3 columns).
+  const colCount = baseCols ? 17 : 14;
+
   return (
     <>
-      <div className="w-full h-full overflow-auto rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/15 shadow-sm relative">
+      <div ref={scrollRef} className="w-full h-full overflow-auto rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/15 shadow-sm relative">
       <table className={`w-full text-left border-collapse ${isCompact ? 'text-xs' : 'text-sm'} text-slate-800 dark:text-slate-200 relative`}>
         <thead ref={theadRef} className="sticky top-0 z-20 bg-white dark:bg-slate-900 shadow-sm after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-slate-300 dark:after:border-white/10">
           <tr>
@@ -437,12 +469,23 @@ export default function StatusTable({
             <th className={`${headPad} w-10`} />
           </tr>
         </thead>
-        {visible.map(({ unit, log }, index) => {
+        {/* Top spacer — the collapsed height of every block scrolled off the top,
+            so the scrollbar/geometry match the full list (route (a): the real
+            <table> is preserved; only on-screen <tbody> blocks mount). */}
+        <tbody aria-hidden="true">
+          <tr><td colSpan={colCount} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+        </tbody>
+        {virtualItems.map((vItem) => {
+          const rowData = visible[vItem.index];
+          if (!rowData) return null;
+          const { unit, log } = rowData;
           // Per-row derivations are cheap lookups; the expensive cell rendering lives
           // inside the memoized <LocationRow>, which skips re-render when these props
           // are referentially unchanged. Pass per-row PRIMITIVES / SLICES (never the
           // shared pendingChanges / selectedUnitIds / nearIds objects) so an edit,
           // selection, scroll, or save re-renders only the row it actually touched.
+          // `index` is the absolute position in `visible` (vItem.index) so Shift+Click
+          // range selection still spans blocks that are currently off-screen.
           const rowSheetId = sheetIdByUnitId?.[unit.id];
           const rowLevelSchedule = rowSheetId ? sheetSchedulesById?.[rowSheetId] : undefined;
           return (
@@ -450,7 +493,8 @@ export default function StatusTable({
               key={unit.id}
               unit={unit}
               log={log}
-              index={index}
+              index={vItem.index}
+              measureRef={measureRow}
               pendingChange={pendingChanges[unit.id]}
               pendingTimelineForUnit={pendingTimelineByUnit.get(unit.id)}
               isSelected={selectedUnitIds.includes(unit.id)}
@@ -495,6 +539,10 @@ export default function StatusTable({
             />
           );
         })}
+        {/* Bottom spacer — the collapsed height of every block below the window. */}
+        <tbody aria-hidden="true">
+          <tr><td colSpan={colCount} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+        </tbody>
       </table>
       </div>
 

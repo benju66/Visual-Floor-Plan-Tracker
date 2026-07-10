@@ -20,6 +20,34 @@ import type { Unit, StatusLog, Activity, Subtype, PendingChange, TrackingMode } 
 
 const h = vi.hoisted(() => ({ counts: new Map<string, number>() }));
 
+// jsdom has no layout, so @tanstack/react-virtual's real windowing computes an
+// EMPTY range (its `outerSize === 0` guard) and would render zero rows here.
+// This test's concern is re-render SCOPE (the Phase-3 memo), which is orthogonal
+// to windowing — the spacer math is unit-tested in `listWindow.test.ts`, and the
+// on-screen window is a live-verify item. So we stub `useVirtualizer` to a
+// no-windowing pass-through that renders ALL `count` blocks (index-ordered),
+// letting the memo assertions below stay exactly as they were pre-Phase-4.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: {
+    count: number;
+    getItemKey?: (index: number) => string | number;
+  }) => {
+    const items = Array.from({ length: opts.count }, (_, index) => ({
+      index,
+      key: opts.getItemKey ? opts.getItemKey(index) : index,
+      start: index * 64,
+      end: (index + 1) * 64,
+      size: 64,
+      lane: 0,
+    }));
+    return {
+      getVirtualItems: () => items,
+      getTotalSize: () => opts.count * 64,
+      measureElement: () => {},
+    };
+  },
+}));
+
 vi.mock('./manage/LocationRow', async () => {
   const React = await import('react');
   interface SpyProps {

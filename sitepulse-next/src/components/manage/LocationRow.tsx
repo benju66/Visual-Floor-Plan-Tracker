@@ -1,5 +1,5 @@
 "use client";
-import React from 'react';
+import React, { useCallback } from 'react';
 import { ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegments } from '@/components/ui/FieldStatusAtoms';
 import StatusTrigger, { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
@@ -242,6 +242,11 @@ export interface LocationRowProps {
 
   // Stable ref callback (from useViewportPresence) — safe through memo.
   observeRef: (id: string) => (el: HTMLElement | null) => void;
+  /** react-virtual's dynamic measure ref-callback (List View Performance —
+   *  Phase 4). Attached to this block's <tbody> (which also carries data-index)
+   *  so the virtualizer measures its true height — 1 row collapsed, 1 + N
+   *  expanded. Stable identity (wrapped in StatusTable) so it's memo-safe. */
+  measureRef: (el: HTMLElement | null) => void;
 
   // Stable callbacks (identity fixed across renders by StatusTable).
   onRowClick: (e: React.MouseEvent, unitId: string, index: number) => void;
@@ -296,6 +301,7 @@ function LocationRowInner({
   frozenCheckClass: FZ_CHECK,
   frozenLocClass: FZ_LOC,
   observeRef,
+  measureRef,
   onRowClick,
   onToggleExpanded,
   handleLocalUpdate,
@@ -348,14 +354,30 @@ function LocationRowInner({
     ? computeBaselineForSlot(baselineSnapshot, rowSheetId, log?.activityName, rowLevelSchedule)
     : null;
 
+  // Compose the two refs this block's <tbody> needs (List View Performance):
+  //  • Phase 4 — react-virtual's dynamic height measurement (reads data-index).
+  //  • Phase 2 — the viewport-presence observer that gates the audit fetch, but
+  //    ONLY while expanded (a collapsed block has nothing to fetch, matching the
+  //    original `isExpanded ? observeRef(unit.id) : null`).
+  // Identity changes only when isExpanded flips (which already re-renders just
+  // this row), so the memo still holds for edits/scrolls that don't toggle it.
+  const setBlockRef = useCallback(
+    (el: HTMLElement | null) => {
+      measureRef(el);
+      if (isExpanded) observeRef(unit.id)(el);
+    },
+    [measureRef, observeRef, isExpanded, unit.id],
+  );
+
   return (
     // Each location is its own <tbody> so an expanded row's sticky pin is
     // bounded to *its* activity group — it releases the moment the group
-    // scrolls past, and the next location takes over. While expanded, the
-    // <tbody> is observed for near-viewport presence so only on-screen
-    // expansions run their audit query (Phase 2); collapsed rows aren't
-    // observed (nothing to fetch), keeping re-renders off the scroll path.
-    <tbody ref={isExpanded ? observeRef(unit.id) : null}>
+    // scrolls past, and the next location takes over. The <tbody> carries
+    // data-index (the block's position in `visible`) and is measured by the
+    // virtualizer (Phase 4); while expanded it is ALSO observed for
+    // near-viewport presence so only on-screen expansions run their audit query
+    // (Phase 2) — both via the composed setBlockRef above.
+    <tbody ref={setBlockRef} data-index={index}>
     <tr
       onClick={(e) => onRowClick(e, unit.id, index)}
       style={isExpanded ? { top: headerH } : undefined}
