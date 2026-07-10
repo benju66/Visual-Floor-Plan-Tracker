@@ -192,4 +192,89 @@ describe('commitUnitActivity', () => {
     // ...but the failed follow-on does NOT flip the succeeded primary to a failure.
     expect(outcome).toEqual({ ok: true });
   });
+
+  // ── Status Sequencing & Data-Integrity Fix — Phase 1 (the headline repro) ──
+  // Completing an EARLIER activity must never downgrade a LATER activity that is
+  // already completed. Before the fix, auto-advance blindly wrote temporal_state
+  // 'planned' to the next slot — resetting a finished activity and (because the RPC
+  // rewrites every column from its payload, NULLIF-ing absent fields) wiping its
+  // logged_date / actual_start_date, which Undo can't recover.
+  it('does NOT downgrade an already-completed later activity when auto-advancing', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: true } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    const frame = { id: 'act-A', name: 'Frame', color: '#111111', track: 'Production', sequence_order: 1 } as unknown as Activity;
+    const drywall = { id: 'act-B', name: 'Drywall', color: '#222222', track: 'Production', sequence_order: 2 } as unknown as Activity;
+
+    const client = makeTestQueryClient();
+    client.setQueryData(queryKeys.activities('proj-1'), [frame, drywall]);
+    // Drywall (the LATER activity) is ALREADY completed with real dates — exactly the
+    // data auto-advance must not touch when we now complete Frame (the earlier one).
+    client.setQueryData(['statuses', 's1'], [
+      {
+        id: 'log-B', unit_id: 'u1', activity_id: 'act-B', activityName: 'Drywall',
+        track: 'Production', temporal_state: 'completed', status_color: '#222222',
+        planned_start_date: null, planned_end_date: null,
+        logged_date: '2026-07-01', actual_start_date: '2026-06-20',
+        client_timestamp: '2026-07-01T00:00:00.000Z', created_at: '2026-07-01T00:00:00.000Z',
+      },
+    ]);
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await result.current.commitUnitActivity(unit, frame, 'completed', false, {
+        client_timestamp: '2026-07-02T00:00:00.000Z',
+      });
+    });
+
+    // Only the primary write (Frame → completed) fires. Auto-advance sees Drywall is
+    // already completed and does NOTHING — no second RPC, so Drywall's state + dates
+    // are left exactly as they were.
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const [, primaryArgs] = rpc.mock.calls[0] as unknown as [string, { log_data: Record<string, unknown> }];
+    expect(primaryArgs.log_data.activity_id).toBe('act-A');
+
+    const calls = rpc.mock.calls as unknown as Array<[string, { log_data: Record<string, unknown> }]>;
+    const wroteToDrywall = calls.some(([, a]) => a.log_data.activity_id === 'act-B');
+    expect(wroteToDrywall).toBe(false);
+  });
+
+  // The other side of the never-downgrade rule: when the next slot is genuinely Not
+  // Started, auto-advance still tees it up as 'planned' — and (smell fix a) stamps it
+  // with the SAME capture-time client_timestamp the primary edit carried, not a
+  // sync-time "now" that would always win Last-Write-Wins.
+  it('still tees up a Not-Started next activity as planned, with the capture-time timestamp', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: true } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    const frame = { id: 'act-A', name: 'Frame', color: '#111111', track: 'Production', sequence_order: 1 } as unknown as Activity;
+    const drywall = { id: 'act-B', name: 'Drywall', color: '#222222', track: 'Production', sequence_order: 2 } as unknown as Activity;
+
+    const client = makeTestQueryClient();
+    client.setQueryData(queryKeys.activities('proj-1'), [frame, drywall]);
+    // No status seeded for Drywall → it is Not Started ('none'), so advancing is safe.
+    client.setQueryData(['statuses', 's1'], []);
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await result.current.commitUnitActivity(unit, frame, 'completed', false, {
+        client_timestamp: '2026-07-02T00:00:00.000Z',
+      });
+    });
+
+    // Primary (Frame) + auto-advance (Drywall) both fire.
+    expect(rpc).toHaveBeenCalledTimes(2);
+    const [, advanceArgs] = rpc.mock.calls[1] as unknown as [string, { log_data: Record<string, unknown> }];
+    expect(advanceArgs.log_data.activity_id).toBe('act-B');
+    expect(advanceArgs.log_data.temporal_state).toBe('planned');
+    expect(advanceArgs.log_data.client_timestamp).toBe('2026-07-02T00:00:00.000Z');
+  });
 });

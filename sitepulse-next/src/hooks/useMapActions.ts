@@ -9,7 +9,8 @@ import {
 } from '@/hooks/useProjectQueries';
 import type { Project, Unit, PercentPoint, StatusLog, Activity, TemporalState, Sheet, ActivityOverride, TopLevelRole } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
-import { buildApplicabilityIndex, hasSequenceGaps, nextApplicableIndex } from '@/utils/applicability';
+import { buildApplicabilityIndex, nextApplicableIndex } from '@/utils/applicability';
+import { planAutoAdvance } from '@/utils/autoAdvance';
 import { resolveActivityId } from '@/utils/resolveActivityId';
 import { useProposePendingSubtype, useSubtypes } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult, type TaxonomyUnitFields } from '@/utils/subtypes';
@@ -602,29 +603,47 @@ export function useMapActions(project: Project | null | undefined) {
           const trackActivities = activities.filter(a => a.track === activity.track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
           const currentIndex = trackActivities.findIndex(a => a.name === newLogData.activityName);
 
-          // Defensive Auto-Advance: Only advance if the backlog track sequence is
-          // flawless. Activities not applicable to this unit are not gaps.
-          const hasGaps = currentIndex > 0 && hasSequenceGaps(
-            trackActivities, unit, currentIndex, applicabilityIndex,
-            (name) => activeStatuses.find(s => s.unit_id === unit.id && s.activityName === name)
-          );
+          // The never-downgrade decision lives in one tested pure helper
+          // (planAutoAdvance). It only tees up the next slot when that slot is Not
+          // Started ('none'); if it already has progress (planned/ongoing/completed)
+          // it returns null and we write NOTHING — so completing an earlier activity
+          // can never overwrite a later one's saved state + dates. Per-slot state is
+          // read from THIS unit's own logs, matched by the canonical activity_id slot
+          // key (not the display name). Keeps the defensive prior-gap guard inside.
+          const target = planAutoAdvance({
+            orderedTrackActivities: trackActivities,
+            unit,
+            completedIndex: currentIndex,
+            applicabilityIndex,
+            stateOf: (i) => {
+              const act = trackActivities[i];
+              const log = act
+                ? activeStatuses.find(s => s.unit_id === unit.id && s.activity_id === act.id)
+                : null;
+              return (log?.temporal_state as TemporalState) ?? 'none';
+            },
+          });
 
-          // Walk PAST inapplicable activities — never land auto-advance on an N/A slot
-          const nextIndex = currentIndex === -1 ? -1 : nextApplicableIndex(trackActivities, unit, currentIndex, applicabilityIndex);
-          if (!hasGaps && nextIndex !== -1) {
-            const nextActivity = trackActivities[nextIndex];
-            const nextActivityName = nextActivity.name;
-            const nextSheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[nextActivityName] || {};
+          if (target) {
+            // Genuinely-new slot (was 'none'), so writing 'planned' + its planned dates
+            // can't clobber saved progress. Read those dates from the UNIT'S OWN sheet
+            // schedule (all-levels correctness — the unit may live on a different sheet
+            // than the active one), and stamp the side-write with the SAME capture-time
+            // client_timestamp the primary edit carried, so it doesn't win Last-Write-
+            // Wins at sync-time "now".
+            const targetSheet = sheets.find(s => s.id === unit.sheet_id) ?? activeSheet;
+            const nextSheetSchedule = (targetSheet?.activity_schedules as Record<string, any>)?.[target.activityName] || {};
 
             const nextLogData = {
               unit_id: unit.id,
-              activity_id: nextActivity.id,
-              activityName: nextActivityName,
-              status_color: nextActivity.color,
+              activity_id: target.activityId,
+              activityName: target.activityName,
+              status_color: target.color,
               temporal_state: 'planned' as TemporalState,
-              track: nextActivity.track,
+              track: target.track,
               planned_start_date: nextSheetSchedule.start_date || null,
-              planned_end_date: nextSheetSchedule.end_date || null
+              planned_end_date: nextSheetSchedule.end_date || null,
+              client_timestamp: extraProps.client_timestamp || null,
             };
             await updateStatusMutation.mutateAsync(nextLogData);
           }
