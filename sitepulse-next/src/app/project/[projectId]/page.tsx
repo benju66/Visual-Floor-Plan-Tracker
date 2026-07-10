@@ -617,7 +617,11 @@ function App() {
               onChooseStatus={(unit, onSelect) => setActivityMenu({ mode: 'unit', unit, onSelect })}
               onApplyPendingChanges={async (changesArray) => {
                  for (const c of changesArray) {
-                    await commitUnitActivity(c.unit, c.extraProps?.activityObj || { id: c.log?.activity_id, name: c.log?.activityName, color: c.log?.status_color, track: trackingMode }, c.state, false, { ...c.extraProps, client_timestamp: c.capturedAt });
+                    const result = await commitUnitActivity(c.unit, c.extraProps?.activityObj || { id: c.log?.activity_id, name: c.log?.activityName, color: c.log?.status_color, track: trackingMode }, c.state, false, { ...c.extraProps, client_timestamp: c.capturedAt });
+                    // commitUnitActivity swallows + toasts its own errors and reports ok:false.
+                    // Re-throw so Apply's concurrency runner records the failure and KEEPS this
+                    // item in the pending queue for retry (AGENTS.md §2 — keep unsynced work).
+                    if (!result.ok) throw new Error('Status save failed — kept in the pending queue.');
                  }
               }}
               sheets={sheets}

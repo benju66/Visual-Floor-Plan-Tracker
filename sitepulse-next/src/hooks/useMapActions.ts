@@ -507,7 +507,7 @@ export function useMapActions(project: Project | null | undefined) {
     currentTemporalState: TemporalState = 'none',
     isUndoRedo = false,
     extraProps: any = {}
-  ) => {
+  ): Promise<{ ok: boolean }> => {
     setSavingUnitId(unit.id);
     const activeSheetStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
     // In all-levels editing the unit may live on a different sheet than the active one, so its
@@ -530,7 +530,7 @@ export function useMapActions(project: Project | null | undefined) {
     if (activity.isClearAction) {
       try {
         const oldLog = activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode && s.activityName === activity.name) || activeStatuses.find(s => s.unit_id === unit.id && s.track === trackingMode) || null;
-        if (!oldLog) return;
+        if (!oldLog) return { ok: true }; // nothing to clear — a no-op, not a failure
         await clearStatusMutation.mutateAsync({ unitId: unit.id, track: trackingMode, activityId: oldLog.activity_id, activityName: oldLog.activityName });
         if (!isUndoRedo) {
           setUndoStack(prev => {
@@ -539,12 +539,13 @@ export function useMapActions(project: Project | null | undefined) {
           });
           setRedoStack([]);
         }
+        return { ok: true };
       } catch (err: any) {
         showToast('Failed to clear status: ' + err.message, 'error');
+        return { ok: false }; // surface failure so a batched Apply keeps this item queued
       } finally {
         setSavingUnitId(null);
       }
-      return;
     }
 
     const activityName = activity.name as string;
@@ -587,39 +588,48 @@ export function useMapActions(project: Project | null | undefined) {
         client_timestamp: extraProps.client_timestamp || null
       };
       const newLog = await updateStatusMutation.mutateAsync(newLogData);
-      
+
+      // Auto-advance is a CONVENIENCE side-effect (tee up the next activity as "planned"),
+      // not the change the user staged. Isolate it in its own try/catch so a failure here
+      // can NOT flip the already-succeeded primary write to a failure — otherwise a batched
+      // Apply would wrongly re-queue an item that actually saved. On failure we toast a
+      // distinct note and carry on (record undo, return ok:true).
       const autoAdvanceEnabled = settings.auto_advance_tracks?.[activity.track as string] === true;
       if (currentTemporalState === 'completed' && autoAdvanceEnabled && !isUndoRedo) {
-        const overrides = queryClient.getQueryData<ActivityOverride[]>(queryKeys.activityOverrides(project?.id as string)) || [];
-        const applicabilityIndex = buildApplicabilityIndex(activities, overrides);
-        const trackActivities = activities.filter(a => a.track === activity.track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
-        const currentIndex = trackActivities.findIndex(a => a.name === newLogData.activityName);
+        try {
+          const overrides = queryClient.getQueryData<ActivityOverride[]>(queryKeys.activityOverrides(project?.id as string)) || [];
+          const applicabilityIndex = buildApplicabilityIndex(activities, overrides);
+          const trackActivities = activities.filter(a => a.track === activity.track).sort((a,b) => (a.sequence_order || 0) - (b.sequence_order || 0));
+          const currentIndex = trackActivities.findIndex(a => a.name === newLogData.activityName);
 
-        // Defensive Auto-Advance: Only advance if the backlog track sequence is
-        // flawless. Activities not applicable to this unit are not gaps.
-        const hasGaps = currentIndex > 0 && hasSequenceGaps(
-          trackActivities, unit, currentIndex, applicabilityIndex,
-          (name) => activeStatuses.find(s => s.unit_id === unit.id && s.activityName === name)
-        );
+          // Defensive Auto-Advance: Only advance if the backlog track sequence is
+          // flawless. Activities not applicable to this unit are not gaps.
+          const hasGaps = currentIndex > 0 && hasSequenceGaps(
+            trackActivities, unit, currentIndex, applicabilityIndex,
+            (name) => activeStatuses.find(s => s.unit_id === unit.id && s.activityName === name)
+          );
 
-        // Walk PAST inapplicable activities — never land auto-advance on an N/A slot
-        const nextIndex = currentIndex === -1 ? -1 : nextApplicableIndex(trackActivities, unit, currentIndex, applicabilityIndex);
-        if (!hasGaps && nextIndex !== -1) {
-          const nextActivity = trackActivities[nextIndex];
-          const nextActivityName = nextActivity.name;
-          const nextSheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[nextActivityName] || {};
+          // Walk PAST inapplicable activities — never land auto-advance on an N/A slot
+          const nextIndex = currentIndex === -1 ? -1 : nextApplicableIndex(trackActivities, unit, currentIndex, applicabilityIndex);
+          if (!hasGaps && nextIndex !== -1) {
+            const nextActivity = trackActivities[nextIndex];
+            const nextActivityName = nextActivity.name;
+            const nextSheetSchedule = (activeSheet?.activity_schedules as Record<string, any>)?.[nextActivityName] || {};
 
-          const nextLogData = {
-            unit_id: unit.id,
-            activity_id: nextActivity.id,
-            activityName: nextActivityName,
-            status_color: nextActivity.color,
-            temporal_state: 'planned' as TemporalState,
-            track: nextActivity.track,
-            planned_start_date: nextSheetSchedule.start_date || null,
-            planned_end_date: nextSheetSchedule.end_date || null
-          };
-          await updateStatusMutation.mutateAsync(nextLogData);
+            const nextLogData = {
+              unit_id: unit.id,
+              activity_id: nextActivity.id,
+              activityName: nextActivityName,
+              status_color: nextActivity.color,
+              temporal_state: 'planned' as TemporalState,
+              track: nextActivity.track,
+              planned_start_date: nextSheetSchedule.start_date || null,
+              planned_end_date: nextSheetSchedule.end_date || null
+            };
+            await updateStatusMutation.mutateAsync(nextLogData);
+          }
+        } catch (advErr: any) {
+          showToast("Saved, but couldn't line up the next activity: " + advErr.message, 'warning');
         }
       }
 
@@ -630,8 +640,13 @@ export function useMapActions(project: Project | null | undefined) {
         });
         setRedoStack([]);
       }
+      return { ok: true };
     } catch (err: any) {
       showToast('Failed to update status: ' + err.message, 'error');
+      // Report failure so a batched Apply records it and KEEPS this item queued for retry
+      // (offline-queue "keep unsynced work" invariant, AGENTS.md §2). This is now ONLY the
+      // primary write failing — auto-advance failures are handled above and don't reach here.
+      return { ok: false };
     } finally {
       setSavingUnitId(null);
     }
