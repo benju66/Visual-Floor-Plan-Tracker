@@ -658,6 +658,13 @@ export function useMapActions(project: Project | null | undefined) {
               track: target.track,
               planned_start_date: nextSheetSchedule.start_date || null,
               planned_end_date: nextSheetSchedule.end_date || null,
+              // A freshly teed-up 'planned' slot has no completion or actual-start yet. Send
+              // them explicitly-null so the Phase-5 preserve-on-absent RPC can't carry a stale
+              // date over from the row this lands on (planAutoAdvance only targets a 'none'
+              // slot, but a legacy/edge 'none' row could still hold a leftover date — this
+              // keeps the write clean regardless).
+              logged_date: null,
+              actual_start_date: null,
               client_timestamp: extraProps.client_timestamp || null,
             };
             const nextLog = await updateStatusMutation.mutateAsync(nextLogData);

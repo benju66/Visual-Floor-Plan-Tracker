@@ -674,7 +674,12 @@ export function useUpdateStatus(sheetId: string) {
   return useMutation({
     mutationFn: async (newLogData: UpdateStatusVars) => {
       const safeData = { ...newLogData } as any;
-      if (safeData.logged_date === null) delete safeData.logged_date;
+      // Phase 5 (Status Sequencing DB backstop): upsert_status_log now PRESERVES a field
+      // whose JSON key is ABSENT and only CLEARS one that is present-but-null/empty. So we
+      // must NOT drop a null logged_date — dropping it would turn an explicit "clear the
+      // completion date" into a silent preserve. commitUnitActivity always sends logged_date
+      // explicitly (a real value, or null to clear), so leaving the key present is exactly
+      // the intent. (present-null and present-'' are equivalent clears in the RPC.)
 
       delete safeData.created_at;
       delete safeData.id;
@@ -737,6 +742,17 @@ export function useClearStatus(sheetId: string) {
           track: track,
           activity_id: activityId,
           temporal_state: 'none' as TemporalState,
+          // Clearing a slot to Not Started is a FULL reset. Post-Phase-5, upsert_status_log
+          // PRESERVES any field we omit, so we must send these explicitly-empty to keep wiping
+          // the slot's color + dates — a 'none' slot must not carry a stale color or a
+          // planned/completion/actual-start date. '' is the RPC's present-but-empty clear
+          // (NULLIF(...,'') → NULL). Before Phase 5 the same reset happened by omission
+          // (absent = clear); now it is intentional and explicit.
+          status_color: '',
+          planned_start_date: '',
+          planned_end_date: '',
+          logged_date: '',
+          actual_start_date: '',
           client_timestamp: new Date().toISOString()
       };
       const { error } = await supabase.rpc('upsert_status_log', { log_data: newLog });

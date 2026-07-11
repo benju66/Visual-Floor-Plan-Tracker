@@ -401,11 +401,12 @@ describe('commitUnitActivity', () => {
     });
 
     const [, args] = rpc.mock.calls[0] as unknown as [string, { log_data: Record<string, unknown> }];
-    // useUpdateStatus drops a null logged_date so the RPC's NULLIF resolves the absent
-    // key to NULL at the DB (Data model: absent key → NULL). The key must be gone —
-    // crucially NOT the preserved prior date '2026-07-01' (preservation didn't swallow
-    // the intentional clear).
-    expect(args.log_data.logged_date).toBeUndefined();
+    // Phase 5 contract: upsert_status_log CLEARS a field that is present-but-null (and
+    // PRESERVES one whose key is absent). So an explicit clear must send logged_date
+    // PRESENT as null — useUpdateStatus no longer drops it. The value must be null,
+    // crucially NOT the prior '2026-07-01' (preservation didn't swallow the intentional
+    // clear), and NOT undefined (an absent key would now preserve, breaking the clear).
+    expect(args.log_data.logged_date).toBeNull();
   });
 });
 

@@ -49,6 +49,7 @@ vi.mock('@/supabaseClient', () => ({
 import {
   useUnits,
   useUpdateStatus,
+  useClearStatus,
   useBulkUpdateStatus,
   useBulkInsertStatusLogs,
 } from './useProjectQueries';
@@ -155,6 +156,39 @@ describe('useUpdateStatus — single write contract', () => {
     const [, args] = rpc.mock.calls[0] as unknown as [string, { log_data: Record<string, unknown> }];
     expect(typeof args.log_data.client_timestamp).toBe('string');
     expect(args.log_data.client_timestamp).not.toBe('');
+  });
+});
+
+// ── Clear-to-Not-Started: explicit-empty reset (Status Sequencing Phase 5) ────
+// upsert_status_log now PRESERVES an omitted field, so "clear to Not Started" must
+// send its color + every date PRESENT-but-empty to stay a FULL reset. A regression
+// here (dropping a field) would silently leave a stale completion/planned date on a
+// slot the user cleared — the exact class of bug Phase 5 exists to prevent. SQL isn't
+// exercised in Vitest, so this caller-contract assertion is the guard for the RPC flip.
+describe('useClearStatus — full-reset clear contract (Phase 5)', () => {
+  it('sends status_color + all four dates present-but-empty so the RPC clears them', async () => {
+    const { result } = renderHook(() => useClearStatus('sheet-1'), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        unitId: 'u1', track: 'Production', activityId: 'act-42', activityName: 'Drywall',
+      });
+    });
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const [fnName, args] = rpc.mock.calls[0] as unknown as [string, { log_data: Record<string, unknown> }];
+    expect(fnName).toBe('upsert_status_log');
+    expect(args.log_data.temporal_state).toBe('none');
+    // Every preservable field is PRESENT (key exists) and empty — so the RPC's
+    // `log_data ? 'field'` is true and it CLEARS to NULL, rather than preserving a
+    // stale value now that omission means "keep".
+    for (const field of ['status_color', 'planned_start_date', 'planned_end_date', 'logged_date', 'actual_start_date']) {
+      expect(args.log_data).toHaveProperty(field);
+      expect(args.log_data[field]).toBe('');
+    }
+    // The stable slot key rides through; still never a plain insert.
+    expect(args.log_data.activity_id).toBe('act-42');
+    expect(insert).not.toHaveBeenCalled();
   });
 });
 
