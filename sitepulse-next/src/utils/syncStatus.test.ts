@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { deriveSyncState, syncStateLabel, syncStateTone, type SyncState } from './syncStatus';
+import {
+  deriveSyncState,
+  syncStateLabel,
+  syncStateTone,
+  pendingItemState,
+  pendingItemTone,
+  pendingItemLabel,
+  type SyncState,
+  type PendingItemState,
+} from './syncStatus';
 
 const input = (over: Partial<Parameters<typeof deriveSyncState>[0]> = {}) => ({
   hasRehydrated: true,
@@ -77,5 +86,30 @@ describe('syncStateTone', () => {
   ];
   it.each(cases)('%s → %s', (state, tone) => {
     expect(syncStateTone(state)).toBe(tone);
+  });
+});
+
+describe('pendingItemState — the one predicate both drill-in surfaces use', () => {
+  it('failed beats offline — a recorded failure is `failed` even while offline', () => {
+    expect(pendingItemState({ isFailed: true, isOnline: false })).toBe('failed');
+    expect(pendingItemState({ isFailed: true, isOnline: true })).toBe('failed');
+  });
+  it('waiting when offline and not failed (can only sync once reconnected)', () => {
+    expect(pendingItemState({ isFailed: false, isOnline: false })).toBe('waiting');
+  });
+  it('queued when online and not failed (staged, just not applied yet)', () => {
+    expect(pendingItemState({ isFailed: false, isOnline: true })).toBe('queued');
+  });
+});
+
+describe('pendingItemTone / pendingItemLabel', () => {
+  const cases: Array<[PendingItemState, ReturnType<typeof pendingItemTone>, string]> = [
+    ['failed', 'red', 'Failed'],
+    ['waiting', 'amber', 'Waiting'],
+    ['queued', 'neutral', ''],
+  ];
+  it.each(cases)('%s → tone %s / label "%s"', (state, tone, label) => {
+    expect(pendingItemTone(state)).toBe(tone);
+    expect(pendingItemLabel(state)).toBe(label);
   });
 });

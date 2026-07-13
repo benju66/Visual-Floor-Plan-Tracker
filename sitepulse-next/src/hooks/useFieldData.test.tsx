@@ -164,6 +164,89 @@ describe('handleApplyAll — feeds onApplyPendingChanges in order', () => {
   });
 });
 
+describe('handleRetryItem — single-item retry (Save Visibility Phase 2)', () => {
+  it('re-sends ONE change: success drops just that item + clears its failed flag, others untouched', async () => {
+    // u1 fails its Apply, u2 succeeds → u1 stays queued + flagged; u2 drains.
+    let failU1 = true;
+    const onApply = vi.fn(async (changes: PendingChange[]) => {
+      if (failU1 && changes[0].unit.id === 'u1') throw new Error('offline');
+    });
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'A1') });
+      result.current.handleLocalUpdate(unit('u2'), null, 'ongoing', { activityObj: activityObj('a2', 'A2') });
+    });
+
+    await act(async () => { await result.current.handleApplyAll(); });
+
+    // After Apply: u1 failed (still queued + flagged), u2 succeeded (drained).
+    expect(result.current.pendingChanges['u1']).toBeDefined();
+    expect(result.current.pendingChanges['u2']).toBeUndefined();
+    expect(result.current.failedCount).toBe(1);
+    expect(result.current.failedKeys.has('u1_A1')).toBe(true);
+
+    // Retry u1 with the write now succeeding.
+    failU1 = false;
+    const u1Change = result.current.pendingChanges['u1'];
+    onApply.mockClear();
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.handleRetryItem(u1Change); });
+
+    // The retry re-used the same seam with a ONE-item array…
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply.mock.calls[0][0]).toHaveLength(1);
+    expect(onApply.mock.calls[0][0][0].unit.id).toBe('u1');
+    // …and on success the item leaves the queue, its flag clears, the queue empties.
+    expect(ok).toBe(true);
+    expect(result.current.pendingChanges['u1']).toBeUndefined();
+    expect(result.current.failedCount).toBe(0);
+    expect(result.current.pendingCount).toBe(0);
+  });
+
+  it('a still-failing retry keeps the item queued AND flagged (returns false)', async () => {
+    const onApply = vi.fn().mockRejectedValue(new Error('offline'));
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'A1') });
+    });
+    await act(async () => { await result.current.handleApplyAll(); });
+    expect(result.current.failedCount).toBe(1);
+
+    const u1Change = result.current.pendingChanges['u1'];
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.handleRetryItem(u1Change); });
+
+    expect(ok).toBe(false);
+    // The unsynced change survives for another retry, and stays flagged red.
+    expect(result.current.pendingChanges['u1']).toBeDefined();
+    expect(result.current.failedCount).toBe(1);
+    expect(result.current.failedKeys.has('u1_A1')).toBe(true);
+  });
+
+  it('retrying one activity does NOT drop a different queued activity on the same unit', async () => {
+    // u1 has a PRIMARY edit on activity A and a TIMELINE edit on activity B — different slots.
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a', 'A') });
+      result.current.handleTimelineUpdate(unit('u1'), null, 'ongoing', { activityObj: activityObj('b', 'B') });
+    });
+    expect(result.current.pendingCount).toBe(2);
+
+    // Retry ONLY the timeline B slot.
+    const bChange = result.current.pendingTimelineChanges['u1_B'];
+    await act(async () => { await result.current.handleRetryItem(bChange); });
+
+    // B is gone; the unrelated primary A on the same unit is preserved (precise removal).
+    expect(result.current.pendingTimelineChanges['u1_B']).toBeUndefined();
+    expect(result.current.pendingChanges['u1']).toBeDefined();
+    expect(result.current.pendingCount).toBe(1);
+  });
+});
+
 describe('handleApplyAll — per-item checkpoint stays crash-safe under concurrency', () => {
   // List View Performance Phase 1: Apply now overlaps several saves at once (bounded
   // concurrency). The load-bearing invariant is that the per-item IDB checkpoint

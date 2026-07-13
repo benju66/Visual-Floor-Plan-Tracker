@@ -1,9 +1,10 @@
 "use client";
 import React, { useState, useRef } from 'react';
-import { X, ChevronRight } from 'lucide-react';
+import { X, ChevronRight, AlertTriangle, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Unit, TemporalState } from '@/types/domain';
 import { getTemporalStateStyle, getInvertedBadgeStyle } from '@/utils/statusColors';
+import { pendingItemLabel, pendingItemTone, type PendingItemState } from '@/utils/syncStatus';
 
 // Chip + inverted-badge styles come from the canonical palette module (UI Polish P2).
 // Re-exported so existing consumers keep importing from this file.
@@ -110,6 +111,32 @@ export function StatusSegments({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Small sync-chrome pill tagging a queued item as failed / waiting (offline) in the
+ * pending drill-in (Save Visibility — Phase 2). Shared by the mobile drawer and the
+ * desktop FAB popover so both read the SAME tag. amber = waiting, red = failed — LOCAL
+ * sync-chrome tones, deliberately NOT the temporal status palette (AGENTS.md §3). A plain
+ * `queued` item renders nothing (it's the drawer's implicit "pending" default).
+ */
+export function PendingStateTag({ state }: { state: PendingItemState }) {
+  if (state === 'queued') return null;
+  const tone = pendingItemTone(state);
+  const cls =
+    tone === 'red'
+      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border border-red-300/60 dark:border-red-700/50'
+      : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/50';
+  const Icon = state === 'failed' ? AlertTriangle : WifiOff;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${cls}`}
+      title={state === 'failed' ? 'This change failed its last save — Retry to try again' : 'Offline — this change will save when you reconnect'}
+    >
+      <Icon size={10} className="shrink-0" />
+      {pendingItemLabel(state)}
+    </span>
   );
 }
 

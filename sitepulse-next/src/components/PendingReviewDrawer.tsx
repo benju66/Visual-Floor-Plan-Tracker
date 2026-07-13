@@ -1,8 +1,11 @@
 "use client";
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronRight, AlertTriangle } from 'lucide-react';
-import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
+import { X, ChevronRight, AlertTriangle, RotateCw } from 'lucide-react';
+import { UpdatingRing, PendingStateTag } from '@/components/ui/FieldStatusAtoms';
+import { buildPendingItems } from '@/utils/pendingItems';
+import { pendingItemState } from '@/utils/syncStatus';
+import { useIsOnline } from '@/hooks/useIsOnline';
 import type { Unit, StatusLog, PendingChange, TemporalState, Activity } from '@/types/domain';
 
 const getBadgeStyle = (state: TemporalState) => {
@@ -33,10 +36,14 @@ const getBadgeStyle = (state: TemporalState) => {
 interface PendingReviewDrawerProps {
   pendingChanges: Record<string, PendingChange>;
   pendingTimelineChanges: Record<string, PendingChange>;
+  /** Keys (pendingChangeKey) that failed their last Apply (Save Visibility — Phase 2). */
+  failedKeys: Set<string>;
   onClose: () => void;
   handleApplyAll: () => Promise<{ succeeded: number; failed: number }>;
   handleLocalDiscardAll: () => void;
   handleDrawerItemRemove: (unitId: string, activityName: string | null) => void;
+  /** Retry ONE staged change — reuses the batch write path with a one-item array. */
+  handleRetryItem: (change: PendingChange) => Promise<boolean>;
   handleStageUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps: any, isTimeline: boolean) => void;
   isApplying: boolean;
   currentActivities: Activity[];
@@ -45,57 +52,35 @@ interface PendingReviewDrawerProps {
 export default function PendingReviewDrawer({
   pendingChanges,
   pendingTimelineChanges,
+  failedKeys,
   onClose,
   handleApplyAll,
   handleLocalDiscardAll,
   handleDrawerItemRemove,
+  handleRetryItem,
   handleStageUpdate,
   isApplying,
   currentActivities,
 }: PendingReviewDrawerProps) {
   const [activePickerKey, setActivePickerKey] = useState<string | null>(null);
   const [applyResult, setApplyResult] = useState<{ succeeded: number; failed: number } | null>(null);
+  // Which single row is mid-retry — drives just that row's spinner (isApplying is global).
+  const [retryingKey, setRetryingKey] = useState<string | null>(null);
+  const isOnline = useIsOnline();
 
-  const pendingMap = new Map<string, any>();
+  // One row per slot (primary + timeline deduped, timeline wins) — the SAME shape the
+  // desktop popover builds, so both tag waiting/failed identically (Save Visibility — P2).
+  const pendingItems = buildPendingItems(pendingChanges, pendingTimelineChanges);
 
-  Object.entries(pendingChanges).forEach(([unitId, change]) => {
-    const mName = change.extraProps?.activityObj?.name || change.log?.activityName || 'Primary';
-    const key = `${unitId}_${mName}`;
-    pendingMap.set(key, {
-      key,
-      unitId,
-      unitNumber: change.unit.unit_number,
-      unit: change.unit,
-      log: change.log,
-      activityName: mName,
-      activityColor: change.extraProps?.activityObj?.color || change.log?.status_color || '#94a3b8',
-      state: change.state,
-      isTimeline: false,
-      hasConflict: false,
-    });
-  });
-
-  Object.entries(pendingTimelineChanges).forEach(([timelineKey, change]) => {
-    const mName = change.extraProps?.activityObj?.name || change.log?.activityName;
-    const key = `${change.unit.id}_${mName}`;
-    const existing = pendingMap.get(key);
-    
-    pendingMap.set(key, {
-      key,
-      unitId: change.unit.id,
-      unitNumber: change.unit.unit_number,
-      unit: change.unit,
-      log: change.log,
-      activityName: mName,
-      activityColor: change.extraProps?.activityObj?.color || change.log?.status_color || '#94a3b8',
-      state: change.state,
-      isTimeline: true,
-      activityObj: change.extraProps?.activityObj,
-      hasConflict: !!existing,
-    });
-  });
-
-  const pendingItems = Array.from(pendingMap.values());
+  const handleRetryOne = async (change: PendingChange, key: string) => {
+    if (retryingKey) return;
+    setRetryingKey(key);
+    try {
+      await handleRetryItem(change);
+    } finally {
+      setRetryingKey(null);
+    }
+  };
 
   const handleApplyWithFeedback = async () => {
     try {
@@ -142,15 +127,24 @@ export default function PendingReviewDrawer({
         {pendingItems.map((item) => {
           const rowBadge = getBadgeStyle(item.state);
           const isPickerOpen = activePickerKey === item.key;
+          // failed = its key is in failedKeys; waiting = pending & offline (read-only).
+          const isFailed = failedKeys.has(item.key);
+          const itemState = pendingItemState({ isFailed, isOnline });
+          const isRetrying = retryingKey === item.key;
 
           return (
-            <div key={item.key} className="mb-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+            <div
+              key={item.key}
+              className={`mb-2 bg-white dark:bg-slate-900 rounded-2xl border overflow-hidden shadow-sm ${
+                isFailed ? 'border-red-300 dark:border-red-700/60' : 'border-slate-200 dark:border-slate-800'
+              }`}
+            >
               <div className="flex items-center px-4 py-3 gap-3">
                 {/* Activity Color Swatch */}
                 <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: item.activityColor }} />
-                
+
                 {/* Unit Info */}
-                <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex flex-col flex-1 min-w-0 gap-0.5">
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                     Unit {item.unitNumber}
                   </span>
@@ -162,6 +156,8 @@ export default function PendingReviewDrawer({
                       </span>
                     )}
                   </span>
+                  {/* waiting / failed tag — nothing for a plain online-queued item */}
+                  <PendingStateTag state={itemState} />
                 </div>
 
                 {/* State Badge (Tappable for edit) */}
@@ -175,11 +171,26 @@ export default function PendingReviewDrawer({
                   <ChevronRight size={14} className={`transition-transform ${isPickerOpen ? 'rotate-90' : ''}`} />
                 </button>
 
+                {/* Per-item Retry — only for a failed row; re-sends JUST this change. */}
+                {isFailed && (
+                  <button
+                    type="button"
+                    onClick={() => handleRetryOne(item.change, item.key)}
+                    disabled={isApplying || isRetrying}
+                    title="Retry saving this change"
+                    aria-label="Retry saving this change"
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400 disabled:opacity-50 transition-colors shrink-0"
+                  >
+                    <RotateCw size={15} className={isRetrying ? 'animate-spin' : ''} />
+                  </button>
+                )}
+
                 {/* Remove Icon */}
                 <button
                   type="button"
                   onClick={() => handleDrawerItemRemove(item.unitId, item.isTimeline ? item.activityName : null)}
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors"
+                  disabled={isRetrying}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 disabled:opacity-50 transition-colors shrink-0"
                 >
                   <X size={16} />
                 </button>

@@ -25,6 +25,11 @@ interface MobileSwipeDeckProps {
   pendingCount: number;
   /** Staged changes that failed their last Apply (Save Visibility — Phase 1). */
   failedCount: number;
+  /** Keys (pendingChangeKey) that failed their last Apply — for the drawer's per-item
+   *  failed tag + Retry (Save Visibility — Phase 2). */
+  failedKeys: Set<string>;
+  /** Retry ONE staged change — one-item array through the existing write path (Phase 2). */
+  handleRetryItem: (change: PendingChange) => Promise<boolean>;
   currentActivities: Activity[];
   rawStatuses: StatusLog[];
   onChooseStatus?: (unit: Unit, onSelect: (m: Partial<Activity>) => void) => void;
@@ -65,6 +70,8 @@ export default function MobileSwipeDeck({
   handleApplyAll,
   pendingCount,
   failedCount,
+  failedKeys,
+  handleRetryItem,
   currentActivities,
   rawStatuses,
   onChooseStatus,
@@ -589,10 +596,12 @@ export default function MobileSwipeDeck({
             <PendingReviewDrawer
               pendingChanges={pendingChanges}
               pendingTimelineChanges={pendingTimelineChanges}
+              failedKeys={failedKeys}
               onClose={() => setIsDrawerOpen(false)}
               handleApplyAll={handleApplyAll}
               handleLocalDiscardAll={handleLocalDiscardAll}
               handleDrawerItemRemove={handleDrawerItemRemove}
+              handleRetryItem={handleRetryItem}
               handleStageUpdate={handleTimelineUpdate}
               isApplying={isApplying}
               currentActivities={currentActivities}

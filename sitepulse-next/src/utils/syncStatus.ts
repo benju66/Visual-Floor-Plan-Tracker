@@ -78,3 +78,49 @@ export function syncStateTone(state: SyncState): SyncTone {
       return 'amber';
   }
 }
+
+/**
+ * Per-item sync state inside the pending drill-in (Save Visibility — Phase 2).
+ * - `failed`  — this staged change failed its last Apply and stayed queued for retry.
+ * - `waiting` — offline: it can't sync until the connection is back (no failure yet).
+ * - `queued`  — online and never failed: simply staged, not applied yet.
+ */
+export type PendingItemState = 'failed' | 'waiting' | 'queued';
+
+/**
+ * Classify ONE staged change for the drawer/popover. Pure so the mobile drawer and the
+ * desktop popover tag every row IDENTICALLY (one predicate, no divergent inline
+ * conditionals). Precedence: a recorded failure beats offline — if the last attempt
+ * failed we say `failed` even while offline, because a retry is what clears it.
+ * `isOnline` is read from `navigator.onLine` / React Query's `onlineManager` by the
+ * caller (read-only) and passed in — no I/O here.
+ */
+export function pendingItemState({ isFailed, isOnline }: { isFailed: boolean; isOnline: boolean }): PendingItemState {
+  if (isFailed) return 'failed';
+  if (!isOnline) return 'waiting';
+  return 'queued';
+}
+
+/** Sync-chrome tone per item state. Local amber/red — NOT the temporal palette (§3). */
+export function pendingItemTone(state: PendingItemState): SyncTone {
+  switch (state) {
+    case 'failed':
+      return 'red';
+    case 'waiting':
+      return 'amber';
+    case 'queued':
+      return 'neutral';
+  }
+}
+
+/** Short human tag for a row. `queued` has no tag — it's the drawer's implicit default. */
+export function pendingItemLabel(state: PendingItemState): string {
+  switch (state) {
+    case 'failed':
+      return 'Failed';
+    case 'waiting':
+      return 'Waiting';
+    case 'queued':
+      return '';
+  }
+}

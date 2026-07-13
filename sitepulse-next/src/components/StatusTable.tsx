@@ -2,12 +2,14 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUp, ArrowDown, ChevronRight, ChevronDown, AlertTriangle } from 'lucide-react';
-import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
+import { ArrowUp, ArrowDown, ChevronRight, ChevronDown, AlertTriangle, RotateCw, X } from 'lucide-react';
+import { UpdatingRing, PendingStateTag } from '@/components/ui/FieldStatusAtoms';
 import { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
 import LocationRow from './manage/LocationRow';
 import { windowPadding, estimateRowHeight } from '@/utils/listWindow';
-import { deriveSyncState } from '@/utils/syncStatus';
+import { deriveSyncState, pendingItemState } from '@/utils/syncStatus';
+import { buildPendingItems } from '@/utils/pendingItems';
+import { useIsOnline } from '@/hooks/useIsOnline';
 import { applicableActivities, type ApplicabilityIndex } from '@/utils/applicability';
 import { computeUnitVariance, orderedTrackActivities, type VarianceInfo } from '@/utils/progressAnalytics';
 import { lastActivityIso } from '@/utils/staleness';
@@ -49,6 +51,10 @@ function useStableCallback<A extends unknown[], R>(
   ref.current = fn;
   return useCallback((...args: A) => ref.current?.(...args), []);
 }
+
+// Stable empty default for the optional `failedKeys` prop — a shared frozen Set so the
+// default identity never changes across renders (the memo test mounts without it).
+const EMPTY_FAILED_KEYS: Set<string> = new Set();
 
 /**
  * StatusTable — the desktop data table presenter (isDesktop).
@@ -100,6 +106,14 @@ interface StatusTableProps {
   /** Unit ids with at least one failed change, for per-row marking. StatusTable feeds
    *  each row a per-row `isFailed` BOOLEAN (never this Set) to preserve the row memo. */
   failedUnitIds: Set<string>;
+  /** Keys (pendingChangeKey) that failed their last Apply — for the FAB drill-in popover's
+   *  per-item failed tag + Retry (Save Visibility — Phase 2). Consumed ONLY by the popover
+   *  (which is not a memoized row), never handed to LocationRow. */
+  failedKeys?: Set<string>;
+  /** Retry ONE staged change — one-item array through the existing write path (Phase 2). */
+  handleRetryItem?: (change: import('@/types/domain').PendingChange) => Promise<boolean>;
+  /** Remove ONE staged change from the queue without saving (Phase 2 drill-in). */
+  handleRemovePendingItem?: (unitId: string, activityName?: string | null) => boolean;
   handleDiscardAll: () => void;
   handleApplyAll: () => void | Promise<{ succeeded: number; failed: number }>;
   handleTimelineUpdate: StatusTriggerProps['onLocalUpdate'];
@@ -157,6 +171,9 @@ export default function StatusTable({
   pendingCount,
   failedCount,
   failedUnitIds,
+  failedKeys = EMPTY_FAILED_KEYS,
+  handleRetryItem,
+  handleRemovePendingItem,
   handleDiscardAll,
   handleApplyAll,
   handleTimelineUpdate,
@@ -420,6 +437,34 @@ export default function StatusTable({
   const fabState = deriveSyncState({ hasRehydrated: true, isApplying, pendingCount, failedCount });
   const hasFailed = fabState === 'error';
 
+  // ── Pending drill-in popover (Save Visibility — Phase 2) ──────────────────
+  // A popover from the FAB listing each staged change (waiting vs failed), with per-item
+  // Retry / Remove — so one bad change can be re-sent or dropped without dragging the whole
+  // batch along or hiding inside the count. Read-only w.r.t. the queue: Retry reuses the
+  // batch write path with a one-item array, Remove reuses handleRemovePendingItem.
+  const isOnline = useIsOnline();
+  const [isDrillOpen, setIsDrillOpen] = useState(false);
+  const [retryingKey, setRetryingKey] = useState<string | null>(null);
+  const pendingItems = useMemo(
+    () => buildPendingItems(pendingChanges, pendingTimelineChanges),
+    [pendingChanges, pendingTimelineChanges],
+  );
+  // Reset the drill-in when the queue empties (the FAB unmounts) so it doesn't spring back
+  // open on the next edit.
+  useEffect(() => {
+    if (pendingCount === 0) setIsDrillOpen(false);
+  }, [pendingCount]);
+
+  const handleRetryOne = async (change: import('@/types/domain').PendingChange, key: string) => {
+    if (!handleRetryItem || retryingKey) return;
+    setRetryingKey(key);
+    try {
+      await handleRetryItem(change);
+    } finally {
+      setRetryingKey(null);
+    }
+  };
+
   return (
     <>
       <div ref={scrollRef} className="w-full h-full overflow-auto rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/15 shadow-sm relative">
@@ -565,7 +610,9 @@ export default function StatusTable({
 
       {/* Desktop FAB for Pending Changes — turns red + relabels to Retry when a save
           failed (Save Visibility — Phase 1), so a failure is never hidden inside the
-          plain "N pending" count. Retry re-runs Apply over everything still queued. */}
+          plain "N pending" count. Retry re-runs Apply over everything still queued.
+          Phase 2 adds a "Review" drill-in popover above the pill: see each staged change
+          (waiting vs failed) and Retry / Remove it one at a time. */}
       <AnimatePresence>
         {pendingCount > 0 && (
           <motion.div
@@ -573,10 +620,103 @@ export default function StatusTable({
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-            className="fixed bottom-6 right-6 z-50 flex justify-center pointer-events-none"
+            className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3 pointer-events-none"
           >
+            {/* ── Drill-in popover (opens above the pill) ── */}
+            <AnimatePresence>
+              {isDrillOpen && (
+                <motion.div
+                  initial={{ y: 12, opacity: 0, scale: 0.98 }}
+                  animate={{ y: 0, opacity: 1, scale: 1 }}
+                  exit={{ y: 12, opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
+                  className="pointer-events-auto w-[min(90vw,380px)] max-h-[min(60vh,420px)] flex flex-col rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden"
+                >
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                    <div className="min-w-0">
+                      <div className="text-sm font-black text-slate-800 dark:text-slate-100">Pending changes</div>
+                      <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                        {pendingItems.length} {pendingItems.length === 1 ? 'item' : 'items'}
+                        {failedCount > 0 && <span className="text-red-500 dark:text-red-400"> · {failedCount} failed</span>}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsDrillOpen(false)}
+                      className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+                      aria-label="Close pending changes"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1.5">
+                    {pendingItems.map((item) => {
+                      const isFailed = failedKeys.has(item.key);
+                      const itemState = pendingItemState({ isFailed, isOnline });
+                      const isRetrying = retryingKey === item.key;
+                      return (
+                        <div
+                          key={item.key}
+                          className={`flex items-center gap-2.5 rounded-xl border px-3 py-2 ${
+                            isFailed
+                              ? 'border-red-300 dark:border-red-700/60 bg-red-50/50 dark:bg-red-900/10'
+                              : 'border-slate-200 dark:border-slate-800'
+                          }`}
+                        >
+                          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.activityColor }} />
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 truncate">
+                              Loc {item.unitNumber}
+                            </span>
+                            <span className="text-[13px] font-bold text-slate-800 dark:text-slate-100 truncate flex items-center gap-1">
+                              {item.activityName}
+                              {item.hasConflict && (
+                                <span title="Timeline update overrides main card update">
+                                  <AlertTriangle size={11} className="text-amber-500 shrink-0" />
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 shrink-0">
+                            {item.state === 'none' ? 'Clear' : item.state}
+                          </span>
+                          <PendingStateTag state={itemState} />
+                          {isFailed && handleRetryItem && (
+                            <button
+                              type="button"
+                              onClick={() => handleRetryOne(item.change, item.key)}
+                              disabled={isApplying || isRetrying}
+                              title="Retry saving this change"
+                              aria-label="Retry saving this change"
+                              className="w-7 h-7 flex items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400 disabled:opacity-50 transition-colors shrink-0"
+                            >
+                              <RotateCw size={13} className={isRetrying ? 'animate-spin' : ''} />
+                            </button>
+                          )}
+                          {handleRemovePendingItem && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePendingItem(item.unitId, item.isTimeline ? item.activityName : null)}
+                              disabled={isRetrying}
+                              title="Remove this change (does not save)"
+                              aria-label="Remove this change"
+                              className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 disabled:opacity-50 transition-colors shrink-0"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* ── FAB pill ── */}
             <div
-              className={`p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border text-white ${
+              className={`p-3 rounded-full shadow-2xl flex items-center gap-3 pointer-events-auto border text-white ${
                 hasFailed
                   ? 'bg-red-600 dark:bg-red-700 border-red-500 dark:border-red-600'
                   : 'bg-slate-900 dark:bg-slate-800 border-slate-700 dark:border-slate-600'
@@ -593,6 +733,19 @@ export default function StatusTable({
                 )}
               </span>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsDrillOpen((v) => !v)}
+                  aria-expanded={isDrillOpen}
+                  title="Review each pending change"
+                  className={`px-3 py-2 text-xs font-bold rounded-full transition-colors flex items-center gap-1 ${
+                    hasFailed
+                      ? 'text-red-100 hover:text-white hover:bg-red-700 dark:hover:bg-red-800'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  Review
+                  <ChevronDown size={14} className={`transition-transform ${isDrillOpen ? '' : 'rotate-180'}`} />
+                </button>
                 <button
                   onClick={handleDiscardAll}
                   disabled={isApplying}

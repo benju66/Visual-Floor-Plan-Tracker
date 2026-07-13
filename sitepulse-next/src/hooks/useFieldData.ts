@@ -354,6 +354,65 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     }
   };
 
+  // Retry ONE staged change (Save Visibility — Phase 2) — so a single bad change can be
+  // re-sent (or dropped) without dragging the whole batch along, and one failure can't hide
+  // inside the count. Reuses the EXACT write path as handleApplyAll's worker — the same
+  // onApplyPendingChanges([change]) → commitUnitActivity → upsert_status_log with the
+  // change's capture-time client_timestamp — only with a one-item array. No new mutation, no
+  // queue-mechanic change (AGENTS.md §2).
+  //
+  // Serialized against an in-flight batch Apply (and any other retry) by isSyncingRef: bail
+  // if a sync loop is already running. While it runs we hold isSyncingRef (so the reactive
+  // IDB persist effects stay quiesced) and checkpoint the drained queue explicitly, exactly
+  // like handleApplyAll. Returns true on success, false if it failed / could not start.
+  const handleRetryItem = async (change: PendingChange): Promise<boolean> => {
+    if (isSyncingRef.current || !onApplyPendingChanges) return false;
+    const key = pendingChangeKey(change);
+
+    setIsApplying(true);
+    isSyncingRef.current = true;
+
+    // Snapshot the live queue so a success can write the drained state straight to IDB —
+    // the reactive persist effects are quiesced while isSyncingRef is set (mirrors the
+    // per-item checkpoint in handleApplyAll).
+    const livePending = { ...pendingChanges };
+    const liveTimeline = { ...pendingTimelineChanges };
+
+    try {
+      await onApplyPendingChanges([change]);
+
+      // Drop ONLY this slot. The timeline entry is keyed by the slot key; the primary is
+      // keyed by unit.id — delete that ONLY when it is for this SAME slot (same activity),
+      // so retrying one activity can't silently drop a DIFFERENT queued activity on the unit.
+      const primary = livePending[change.unit.id];
+      if (primary && pendingChangeKey(primary) === key) delete livePending[change.unit.id];
+      delete liveTimeline[key];
+
+      await persistCurrentQueue(projectId, livePending, liveTimeline);
+      setPendingChanges(livePending);
+      setPendingTimelineChanges(liveTimeline);
+      setFailedKeys((prev) => withoutFailedKey(prev, key));
+
+      // Fully drained → clean the IDB keys, same belt-and-suspenders as handleApplyAll.
+      if (Object.keys(livePending).length === 0 && Object.keys(liveTimeline).length === 0) {
+        await clearPersistedPendingChanges(projectId);
+      }
+      return true;
+    } catch {
+      // Keep it queued and (re)flag it red so the row + aggregate bar surface the failure.
+      setFailedKeys((prev) => {
+        if (prev.has(key)) return prev;
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
+      return false;
+    } finally {
+      isSyncingRef.current = false;
+      setIsApplying(false);
+    }
+  };
+
   const handleSort = (col: string) => {
     if (sortColumn === col) {
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -454,12 +513,17 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     pendingCount,
     failedCount,
     failedUnitIds,
+    // The full failed-key set — for the drill-in surfaces (drawer / desktop popover) that
+    // look up per-ITEM failed state by key. These are NOT memoized-row props, so passing the
+    // Set is safe; LocationRow still receives only a per-row `isFailed` boolean (Phase 3 memo).
+    failedKeys,
     setPendingChanges,
     setPendingTimelineChanges,
     isApplying,
     handleLocalUpdate,
     handleTimelineUpdate,
     handleRemovePendingItem,
+    handleRetryItem,
     handleDiscardAll,
     handleApplyAll,
     trackingMode,

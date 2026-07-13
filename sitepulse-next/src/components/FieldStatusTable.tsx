@@ -147,12 +147,14 @@ export default function FieldStatusTable({
     pendingCount,
     failedCount,
     failedUnitIds,
+    failedKeys,
     setPendingChanges,
     setPendingTimelineChanges,
     isApplying,
     handleLocalUpdate,
     handleTimelineUpdate,
     handleRemovePendingItem,
+    handleRetryItem,
     handleDiscardAll,
     handleApplyAll,
   } = useFieldData({ activeStatuses: effectiveActiveStatuses, onApplyPendingChanges, unitsOverride });
@@ -425,6 +427,8 @@ export default function FieldStatusTable({
           handleApplyAll={handleApplyAll}
           pendingCount={pendingCount}
           failedCount={failedCount}
+          failedKeys={failedKeys}
+          handleRetryItem={handleRetryItem}
           onChooseStatus={onChooseStatus}
           savingUnitId={savingUnitId}
           currentActivities={currentActivities}
@@ -501,6 +505,9 @@ export default function FieldStatusTable({
             pendingCount={pendingCount}
             failedCount={failedCount}
             failedUnitIds={failedUnitIds}
+            failedKeys={failedKeys}
+            handleRetryItem={handleRetryItem}
+            handleRemovePendingItem={handleRemovePendingItem}
             handleDiscardAll={handleDiscardAll}
             handleApplyAll={handleApplyAll}
             sortColumn={sortColumn}
