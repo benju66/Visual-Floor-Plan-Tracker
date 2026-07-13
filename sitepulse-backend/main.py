@@ -4,12 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 from supabase.lib.client_options import ClientOptions as _BaseClientOptions
 from supabase_auth._sync.storage import SyncSupportedStorage
+from storage3.exceptions import StorageApiError
 from dataclasses import dataclass
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 import os
 import io
+import re
 import shutil
 import tempfile
 import fitz  # PyMuPDF for fast PDF to Image conversion
@@ -28,11 +31,13 @@ class SafeClientOptions(_BaseClientOptions):
     storage: Optional[SyncSupportedStorage] = None
     httpx_client: Optional[object] = None
 
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+# Local dev runs on :3010 (npm run dev:3010) — the old :3000 default was a
+# standing CORS exception that served nobody.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3010")
 
 # Split by comma if the env var contains multiple domains, and natively support production
 allowed_origins = [url.strip() for url in FRONTEND_URL.split(",")]
-for default_url in ["http://localhost:3000", "https://sitepulse.build"]:
+for default_url in ["http://localhost:3010", "https://sitepulse.build"]:
     if default_url not in allowed_origins:
         allowed_origins.append(default_url)
 
@@ -118,7 +123,12 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         )
         if payload.get("role") != "authenticated":
             raise HTTPException(status_code=401, detail="Not authorized")
-        return {"sub": payload["sub"], "role": payload["role"]}
+        # A token without `sub` is malformed for our purposes — reject it as 401
+        # rather than letting the KeyError surface as a 500.
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(status_code=401, detail="Not authorized")
+        return {"sub": sub, "role": payload["role"]}
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=401,
@@ -254,6 +264,31 @@ def preview_matrix(page) -> "fitz.Matrix":
         zoom = PREVIEW_ZOOM * (MAX_RENDER_PIXELS / pixels) ** 0.5
     return fitz.Matrix(zoom, zoom)
 
+def download_original_pdf(sheet_id: str) -> bytes:
+    """Download `originals/<sheet_id>.pdf`, translating a missing storage object
+    into a clean 404. A missing object raises storage3's StorageApiError — the
+    `except fitz.FileDataError` branches only fire when DOWNLOADED bytes aren't
+    a valid PDF, so without this a legacy sheet with no original returned a
+    generic 500 that leaked the raw storage error string."""
+    try:
+        return supabase.storage.from_("floorplans").download(f"originals/{sheet_id}.pdf")
+    except StorageApiError as e:
+        print(f"[WARN] Original PDF unavailable for sheet {sheet_id}: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail="Original PDF not found in Storage. Please re-upload or attach the source file.",
+        )
+
+
+def content_disposition_attachment(filename: str) -> str:
+    """RFC 6266/5987 attachment header that survives non-ASCII names. Starlette
+    encodes response headers as latin-1, so a project called “Café Tower — 2”
+    used to crash the export at the header line. The plain `filename=` carries
+    an ASCII-safe fallback; `filename*=` carries the exact UTF-8 name."""
+    ascii_fallback = re.sub(r'[^A-Za-z0-9._ -]', '_', filename).strip() or 'export.pdf'
+    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+
+
 def bump_pdf_version(sheet_id: str):
     """Best-effort bump of sheets.pdf_version — cache-busts the public PDF/PNG
     URLs after an upload or re-attach. Non-fatal if the column does not exist
@@ -266,14 +301,21 @@ def bump_pdf_version(sheet_id: str):
         print(f"[WARN] pdf_version bump skipped for {sheet_id}: {e}")
 
 def hex_to_rgb(color_str: str):
-    import re
+    """CSS color string → (r, g, b) floats. Total: any malformed/non-string
+    input degrades to black instead of raising — a bad color in client-supplied
+    legend/polygon data must never 500 a whole export."""
+    if not isinstance(color_str, str):
+        return (0, 0, 0)
     rgba_match = re.search(r'rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)', color_str)
     if rgba_match:
-        return tuple(int(rgba_match.group(i))/255.0 for i in (1, 2, 3))
-    
+        return tuple(min(int(rgba_match.group(i)), 255)/255.0 for i in (1, 2, 3))
+
     color_str = color_str.lstrip('#')
     if len(color_str) >= 6:
-        return tuple(int(color_str[i:i+2], 16)/255.0 for i in (0, 2, 4))
+        try:
+            return tuple(int(color_str[i:i+2], 16)/255.0 for i in (0, 2, 4))
+        except ValueError:
+            return (0, 0, 0)
     return (0, 0, 0)
 
 
@@ -353,8 +395,10 @@ async def upload_and_convert_floorplan(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error processing upload: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Full detail goes to the server log only — raw supabase/fitz error
+        # strings (internal URLs, table names) must not reach the client.
+        print(f"Error processing upload for {sheet_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Upload processing failed on the server. Please try again.")
 
 @app.post("/attach-original/{sheet_id}")
 async def attach_original_pdf(
@@ -410,8 +454,8 @@ async def attach_original_pdf(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error attaching pdf: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error attaching pdf for {sheet_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Attaching the PDF failed on the server. Please try again.")
 
 
 @app.delete("/sheet-storage/{sheet_id}")
@@ -449,7 +493,7 @@ async def delete_sheet_storage(sheet_id: str, user: dict = Depends(get_current_u
         raise
     except Exception as e:
         print(f"Error deleting sheet storage for {sheet_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Deleting the sheet's stored files failed on the server. Please try again.")
 
 
 @app.delete("/project/{project_id}")
@@ -515,7 +559,7 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
         raise
     except Exception as e:
         print(f"Error deleting project {project_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Deleting the project failed on the server. Nothing was removed — please try again.")
 
 # Minimum segment length (in PDF points, 1pt = 1/72") for a line to be kept as a
 # snapping vector. Sub-point segments are hatching/detail noise that can't be
@@ -649,17 +693,18 @@ async def extract_snapping_vectors(sheet_id: str, user: dict = Depends(get_curre
         await verify_sheet_access(sheet_id, user["sub"])
 
         def process():
-            pdf_path = f"originals/{sheet_id}.pdf"
-            res = supabase.storage.from_("floorplans").download(pdf_path)
+            res = download_original_pdf(sheet_id)
             vectors = extract_vectors_from_pdf(res)
-            # Write-through: cache for future reads
+            # Write-through: cache for future reads (non-fatal, but LOGGED — a
+            # silent swallow here is exactly the known "vector cache write
+            # timeout → repeated slow extraction / no wall data" failure mode).
             try:
                 supabase.table("sheet_vectors").upsert(
                     {"sheet_id": sheet_id, "vectors": vectors},
                     on_conflict="sheet_id"
                 ).execute()
-            except Exception:
-                pass
+            except Exception as cache_err:
+                print(f"[WARN] sheet_vectors cache write failed for {sheet_id}: {cache_err}")
             return vectors
 
         import asyncio
@@ -671,8 +716,8 @@ async def extract_snapping_vectors(sheet_id: str, user: dict = Depends(get_curre
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error extracting vectors: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error extracting vectors for {sheet_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Vector extraction failed on the server. Please try again.")
 
 
 @app.get("/extract-text/{sheet_id}")
@@ -687,18 +732,18 @@ async def extract_sheet_text(sheet_id: str, user: dict = Depends(get_current_use
         await verify_sheet_access(sheet_id, user["sub"])
 
         def process():
-            pdf_path = f"originals/{sheet_id}.pdf"
-            res = supabase.storage.from_("floorplans").download(pdf_path)
+            res = download_original_pdf(sheet_id)
             words = extract_text_from_pdf(res)
             # Write-through: cache for future reads. An empty list is valid — a
-            # scanned sheet caches [] and becomes an OCR candidate.
+            # scanned sheet caches [] and becomes an OCR candidate. Non-fatal
+            # but LOGGED (mirrors the sheet_vectors cache-write warning).
             try:
                 supabase.table("sheet_text").upsert(
                     {"sheet_id": sheet_id, "text": words},
                     on_conflict="sheet_id"
                 ).execute()
-            except Exception:
-                pass
+            except Exception as cache_err:
+                print(f"[WARN] sheet_text cache write failed for {sheet_id}: {cache_err}")
             return words
 
         import asyncio
@@ -710,8 +755,8 @@ async def extract_sheet_text(sheet_id: str, user: dict = Depends(get_current_use
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error extracting text: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error extracting text for {sheet_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Text extraction failed on the server. Please try again.")
 
 
 @app.post("/export-pdf/{sheet_id}")
@@ -723,10 +768,9 @@ async def export_status_pdf(
     try:
         await verify_sheet_access(sheet_id, user["sub"])
         def process_export():
-            pdf_path = f"originals/{sheet_id}.pdf"
-            # Download as raw bytes directly from Supabase
-            res = supabase.storage.from_("floorplans").download(pdf_path)
-            
+            # Download as raw bytes directly from Supabase (404s cleanly when missing)
+            res = download_original_pdf(sheet_id)
+
             doc = fitz.open(stream=res, filetype="pdf")
             page = doc[0]
             
@@ -794,12 +838,23 @@ async def export_status_pdf(
                 
                 # (debug file write removed — was leaking user data to disk in production)
                     
-                pctX = legend.get('pctX', 0.05)
-                pctY = legend.get('pctY', 0.05)
-                scaleX = legend.get('scaleX', 1)
+                # legend_data is a loosely-typed client Dict — coerce/guard every
+                # field so one malformed value degrades that legend entry instead
+                # of 500ing the whole export.
+                def _num(v, fallback):
+                    try:
+                        return float(v)
+                    except (TypeError, ValueError):
+                        return fallback
+
+                pctX = _num(legend.get('pctX'), 0.05)
+                pctY = _num(legend.get('pctY'), 0.05)
+                scaleX = _num(legend.get('scaleX'), 1.0)
                 # milestone->activity rename: prefer the new payload key, fall back
                 # to the legacy one so an older frontend still exports a full legend.
                 active_activities = legend.get('active_activities') or legend.get('active_milestones', [])
+                if not isinstance(active_activities, list):
+                    active_activities = []
 
                 # Correctly map a visual percentage point to the underlying unrotated PDF canvas
                 def get_mapped_pt(px_pct, py_pct):
@@ -818,6 +873,9 @@ async def export_status_pdf(
                 legend_w = 200 * overall_scale
 
                 active_temporal_states = legend.get('active_temporal_states', [])
+                if not isinstance(active_temporal_states, list):
+                    active_temporal_states = []
+                active_temporal_states = [s for s in active_temporal_states if isinstance(s, str)]
 
                 activities_height = (30 * overall_scale) + (len(active_activities) * item_height) if active_activities else 0
                 statuses_height = (30 * overall_scale) + (len(active_temporal_states) * item_height) if active_temporal_states else 0
@@ -855,15 +913,17 @@ async def export_status_pdf(
 
                     y_offset = padding + (30 * overall_scale)
                     for m in active_activities:
-                        r_rgb = hex_to_rgb(m['color'])
-                        # Swatch is 14x14 
+                        if not isinstance(m, dict):
+                            continue
+                        r_rgb = hex_to_rgb(m.get('color'))
+                        # Swatch is 14x14
                         swatch_quad = map_offset_quad(padding, y_offset, 14 * overall_scale, 14 * overall_scale)
                         page.draw_quad(swatch_quad, color=hex_to_rgb("#cbd5e1"), fill=r_rgb, width=1*overall_scale)
-                        
+
                         # Text
                         text_pt = map_offset_pt(padding + 22 * overall_scale, y_offset + 11 * overall_scale)
-                        page.insert_text(text_pt, m['name'], fontsize=font_size, fontname="helv", color=hex_to_rgb("#475569"), rotate=page.rotation)
-                        
+                        page.insert_text(text_pt, str(m.get('name') or ''), fontsize=font_size, fontname="helv", color=hex_to_rgb("#475569"), rotate=page.rotation)
+
                         y_offset += item_height
 
                 if active_temporal_states:
@@ -951,13 +1011,20 @@ async def export_status_pdf(
             io.BytesIO(pdf_bytes),
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f"attachment; filename={req.project_name}_{req.sheet_name}_Status.pdf",
+                # Unicode-safe (RFC 5987): a project name with an em dash or
+                # accents used to crash Starlette's latin-1 header encode.
+                "Content-Disposition": content_disposition_attachment(f"{req.project_name}_{req.sheet_name}_Status.pdf"),
                 "Access-Control-Expose-Headers": "Content-Disposition"
             }
         )
-        
+
     except fitz.FileDataError:
         raise HTTPException(status_code=404, detail="Original PDF not found in Storage. Please re-upload or attach the source file.")
+    except HTTPException:
+        # Without this branch, verify_sheet_access's 403/404 fell into the
+        # generic handler below and re-emitted as a 500 — masking authz results
+        # from the frontend and from monitoring. Every other route has it.
+        raise
     except Exception as e:
-         print(f"Error exporting pdf: {str(e)}")
-         raise HTTPException(status_code=500, detail=str(e))
+         print(f"Error exporting pdf for {sheet_id}: {str(e)}")
+         raise HTTPException(status_code=500, detail="PDF export failed on the server. Please try again.")

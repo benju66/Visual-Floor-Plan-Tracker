@@ -87,3 +87,12 @@ def test_malformed_token_is_rejected():
     with pytest.raises(HTTPException) as exc:
         get_current_user(creds("this.is.not.a.jwt"))
     assert exc.value.status_code == 401
+
+
+def test_token_without_sub_is_rejected_401_not_500():
+    # A validly-signed 'authenticated' token missing `sub` used to raise a
+    # KeyError -> 500; it is malformed for our purposes and must be a clean 401.
+    token = make_token({"role": "authenticated"})
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(creds(token))
+    assert exc.value.status_code == 401
