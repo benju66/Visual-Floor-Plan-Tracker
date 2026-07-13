@@ -5,6 +5,7 @@ import { parseProcoreDirectoryCsv } from '@/utils/procoreDirectoryCsv';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/types/queryKeys';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 import type { Activity, Sheet, ProjectContact } from '@/types/domain';
 import type { AppSettings as ProjectSettings, MapSettings } from '@/store/useSettingsStore';
@@ -1171,8 +1172,11 @@ export default function SettingsMenu({
                     onClick={async () => {
                       if (!session?.user?.id) return;
                       setIsSavingProfile(true);
-                      await supabase.from('profiles').upsert({ id: session.user.id, display_name: displayNameInput } as any);
+                      // Builders resolve with { error } — check it, or a rejected
+                      // save shows the button returning to normal as if saved.
+                      const { error } = await supabase.from('profiles').upsert({ id: session.user.id, display_name: displayNameInput } as any);
                       setIsSavingProfile(false);
+                      if (error) window.alert(`Couldn't update your display name: ${error.message}`);
                     }}
                     className="w-full sm:w-auto px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold rounded-lg shadow-sm hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
@@ -1214,9 +1218,15 @@ export default function SettingsMenu({
                            
                            {currentUserRole === 'admin' && member.user_id !== session?.user?.id && (
                              <button 
-                               onClick={() => {
+                               onClick={async () => {
                                  if(window.confirm(`Remove ${member.user_email} from project?`)) {
-                                   supabase.from('project_members').delete().eq('id', member.id).then(() => queryClient.invalidateQueries({ queryKey: ['projectMembers', projectId] }));
+                                   // Check the resolved { error } — a failed delete used to refetch the
+                                   // roster (member still there) with no explanation. The invalidation
+                                   // also targeted a misspelled key ('projectMembers'); the canonical
+                                   // key is queryKeys.projectMembers → ['project_members', id].
+                                   const { error } = await supabase.from('project_members').delete().eq('id', member.id);
+                                   queryClient.invalidateQueries({ queryKey: queryKeys.projectMembers(projectId) });
+                                   if (error) window.alert(`Couldn't remove ${member.user_email}: ${error.message}`);
                                  }
                                }}
                                className="p-1 text-slate-400 hover:text-red-500 transition-colors" title="Remove Member"
@@ -1241,16 +1251,21 @@ export default function SettingsMenu({
                          try {
                            // Basic implementation: Insert email directly into project_members
                            // In a real app, this might trigger an edge function to send an invite email.
-                           await supabase.from('project_members').insert({
+                           // The builder RESOLVES with { error } (RLS denial / duplicate never
+                           // throws), so it must be checked — the old catch was dead code and the
+                           // email field cleared as if the invite worked. The invalidation also
+                           // targeted a misspelled key ('projectMembers' vs 'project_members').
+                           const { error } = await supabase.from('project_members').insert({
                              project_id: projectId,
                              user_email: newMemberEmail.trim().toLowerCase(),
                              role: newMemberRole
                            } as any);
+                           if (error) throw error;
                            setNewMemberEmail('');
-                           queryClient.invalidateQueries({ queryKey: ['projectMembers', projectId] });
+                           queryClient.invalidateQueries({ queryKey: queryKeys.projectMembers(projectId) });
                          } catch(err) {
                            console.error(err);
-                           alert("Failed to add member.");
+                           alert(`Failed to add member: ${err instanceof Error ? err.message : (err as { message?: string })?.message ?? 'unknown error'}`);
                          } finally {
                            setIsAddingMember(false);
                          }
