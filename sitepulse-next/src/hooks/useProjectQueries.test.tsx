@@ -33,10 +33,47 @@ const insert = vi.fn();
 const unitsEq = vi.fn();
 const unitsSelect = vi.fn(() => ({ eq: unitsEq }));
 
+// Paginated-read stub for the fetchAllIn / inlined-paginateAll chains:
+// select().in(ids)[.eq().not()].order().range(from, to) resolves a slice of
+// `pagedRows[table]` filtered to the requested ids — a tiny PostgREST. The mock
+// enforces the same contract the server does (id filter + range window) and
+// records every window in `rangeCalls` so tests can assert chunking/pagination.
+type RangeCall = { table: string; ids: string[]; from: number; to: number };
+let rangeCalls: RangeCall[] = [];
+let pagedRows: Record<string, Array<Record<string, unknown>>> = {};
+
+type PagedChain = {
+  select: (cols?: string) => PagedChain;
+  in: (col: string, values: string[]) => PagedChain;
+  eq: (col: string, v: unknown) => PagedChain;
+  not: (col: string, op: string, v: unknown) => PagedChain;
+  order: (col: string, opts?: { ascending: boolean }) => PagedChain;
+  range: (from: number, to: number) => Promise<{ data: Array<Record<string, unknown>>; error: null }>;
+};
+
+function pagedChain(table: string): PagedChain {
+  let ids: string[] = [];
+  const chain: PagedChain = {
+    select: () => chain,
+    in: (_col, values) => { ids = values; return chain; },
+    eq: () => chain,
+    not: () => chain,
+    order: () => chain,
+    range: (from, to) => {
+      rangeCalls.push({ table, ids: [...ids], from, to });
+      const matches = (pagedRows[table] ?? []).filter(r => ids.includes(r.unit_id as string));
+      return Promise.resolve({ data: matches.slice(from, to + 1), error: null });
+    },
+  };
+  return chain;
+}
+
 const from = vi.fn((table: string) => {
   if (table === 'units') return { select: unitsSelect };
-  // status_logs (+ any other write table): expose upsert/insert as tracked spies.
-  return { upsert, insert };
+  if (table === 'status_audit_log') return pagedChain(table);
+  // status_logs (+ any other write table): tracked write spies, plus the paged
+  // read chain for the bulk keep-existing readback (fetchAllIn).
+  return { upsert, insert, select: pagedChain(table).select };
 });
 
 vi.mock('@/supabaseClient', () => ({
@@ -52,6 +89,7 @@ import {
   useClearStatus,
   useBulkUpdateStatus,
   useBulkInsertStatusLogs,
+  useStatusHistory,
 } from './useProjectQueries';
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -67,6 +105,8 @@ beforeEach(() => {
   unitsEq.mockReset();
   unitsSelect.mockClear();
   from.mockClear();
+  rangeCalls = [];
+  pagedRows = {};
 });
 
 // ── Read hook: JSONB narrowing at the boundary (AGENTS.md §6) ────────────────
@@ -413,5 +453,88 @@ describe('useBulkInsertStatusLogs — never fabricates progress (schedule-write 
     const [rows] = upsert.mock.calls[0] as [Array<Record<string, unknown>>];
     expect(rows[0].logged_date).toBe(today); // dateless completion → backstopped
     expect(rows[1].logged_date).toBe('2026-06-15'); // real date preserved, never re-stamped
+  });
+});
+
+// ── Pagination sweep (supabase-1000-row-cap): dashboard history ──────────────
+// The dashboard calls useStatusHistory with EVERY unit id in the project. A
+// single unchunked `.in(...)` hard-fails past ~200 ids (request-URL limit) and
+// silently truncates at PostgREST's 1000-row cap — pace / weekly velocity /
+// Monte Carlo quietly undercount. Pin the fetchAllIn-style contract: ≤200 ids
+// per request, `.range()` pagination past a full page, nothing dropped.
+describe('useStatusHistory — chunked + paginated dashboard history', () => {
+  it('keeps every request ≤200 ids, paginates past 1000 rows, and drops nothing', async () => {
+    const unitIds = Array.from({ length: 250 }, (_, i) => `u${i}`);
+    pagedRows['status_audit_log'] = [
+      // 1005 completions on u0 → the first id-chunk needs a second page…
+      ...Array.from({ length: 1005 }, (_, i) => ({
+        unit_id: 'u0', activity_id: `a${i}`, activity_name: 'Frame', track: 'Production',
+        logged_date: '2026-01-02', client_timestamp: null, user_id: null,
+      })),
+      // …and one earlier completion lives in the SECOND id-chunk (u249).
+      {
+        unit_id: 'u249', activity_id: 'aX', activity_name: 'Drywall', track: 'Production',
+        logged_date: '2025-12-31', client_timestamp: null, user_id: null,
+      },
+    ];
+
+    const { result } = renderHook(() => useStatusHistory(unitIds), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // Every request's id list stays under the URL-limit chunk size…
+    expect(rangeCalls.length).toBeGreaterThan(0);
+    expect(rangeCalls.every(c => c.ids.length <= 200)).toBe(true);
+    // …the chunks jointly cover all 250 ids…
+    expect(new Set(rangeCalls.flatMap(c => c.ids)).size).toBe(250);
+    // …and the 1005-row chunk requested a second page instead of truncating.
+    expect(rangeCalls.some(c => c.from === 1000)).toBe(true);
+
+    // Nothing dropped, audit column mapped to activityName, sorted by date.
+    expect(result.current.data).toHaveLength(1006);
+    expect(result.current.data?.[0].activityName).toBe('Drywall'); // earliest logged_date first
+  });
+});
+
+// ── Pagination sweep: bulk keep-existing readback ────────────────────────────
+// The select fallback (no bottlenecks passed — the map dock's default) used a
+// single `.in(unit_id, <up to 800 ids>)`: past the row cap, slots vanished from
+// the readback and those units were silently skipped by the bulk update. Pin
+// that it now reads through the paginated helper and rewrites the right slots.
+describe('useBulkUpdateStatus — keep-existing readback is paginated', () => {
+  it('reads existing slots via range-paginated requests and filters track client-side', async () => {
+    pagedRows['status_logs'] = [
+      {
+        id: 'l1', unit_id: 'u1', activity_id: 'act-1', track: 'Production',
+        temporal_state: 'planned', status_color: '#111111',
+        planned_start_date: '2026-07-01', planned_end_date: '2026-07-05',
+        logged_date: null, created_at: '2026-07-01T00:00:00Z',
+      },
+      { // other-track slot for the same unit — must NOT be rewritten
+        id: 'l2', unit_id: 'u1', activity_id: 'act-2', track: 'Inspection',
+        temporal_state: 'planned', status_color: '#222222',
+        planned_start_date: null, planned_end_date: null,
+        logged_date: null, created_at: '2026-07-01T00:00:00Z',
+      },
+    ];
+
+    const { result } = renderHook(() => useBulkUpdateStatus('sheet-1'), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        unitIds: ['u1'], activityName: '__KEEP_EXISTING__', color: '',
+        temporal_state: 'ongoing', track: 'Production',
+      });
+    });
+
+    // The readback went through the chunked/paginated path (never a bare .in()).
+    expect(rangeCalls.some(c => c.table === 'status_logs')).toBe(true);
+
+    // Only the requested track's slot is rewritten, with its dates intact and
+    // no fabricated completion date (the bulk date-integrity contract).
+    const [rows] = upsert.mock.calls[0] as [Array<Record<string, unknown>>];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].activity_id).toBe('act-1');
+    expect(rows[0].temporal_state).toBe('ongoing');
+    expect(rows[0].planned_start_date).toBe('2026-07-01');
+    expect(rows[0].logged_date).toBeNull();
   });
 });

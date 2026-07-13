@@ -4,7 +4,7 @@ import { useMapStore } from '@/store/useMapStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { uploadFloorplanService, attachOriginalService, deleteSheetStorageService } from '@/services/api';
-import { useUpdateActivity, useReorderSheets } from '@/hooks/useProjectQueries';
+import { useUpdateActivity, useReorderSheets, fetchAllIn } from '@/hooks/useProjectQueries';
 import type { Project, Sheet, Activity } from '@/types/domain';
 import { queryKeys } from '@/types/queryKeys';
 import { invalidatePdfBytes } from '@/utils/pdfByteCache';
@@ -210,11 +210,23 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
         // Table may not exist yet
       }
 
-      const { data: sheetUnits } = await supabase.from('units').select('id').eq('sheet_id', sheetId);
-      if (sheetUnits && sheetUnits.length > 0) {
+      // Paginated id read (fetchAllIn): the old single select silently truncated
+      // at PostgREST's 1000-row cap, so a big sheet left orphaned units that made
+      // the sheets delete below fail. Deletes are chunked (an .in(...) URL with
+      // every unit id 414s past ~250 units) and error-checked so a partial
+      // failure surfaces in the catch toast instead of pretending success.
+      const sheetUnits = await fetchAllIn<{ id: string }>('units', 'sheet_id', [sheetId], 'id');
+      if (sheetUnits.length > 0) {
         const unitIds = sheetUnits.map(u => u.id);
-        await supabase.from('status_logs').delete().in('unit_id', unitIds);
-        await supabase.from('units').delete().in('id', unitIds);
+        const DELETE_CHUNK = 200;
+        for (let i = 0; i < unitIds.length; i += DELETE_CHUNK) {
+          const chunk = unitIds.slice(i, i + DELETE_CHUNK);
+          const { error: logDelError } = await supabase.from('status_logs').delete().in('unit_id', chunk);
+          if (logDelError) throw logDelError;
+        }
+        // Units are keyed to the sheet, so one filtered delete needs no id list.
+        const { error: unitDelError } = await supabase.from('units').delete().eq('sheet_id', sheetId);
+        if (unitDelError) throw unitDelError;
       }
 
       const { error } = await supabase.from('sheets').delete().eq('id', sheetId);

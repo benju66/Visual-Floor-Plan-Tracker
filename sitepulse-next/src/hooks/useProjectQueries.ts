@@ -458,9 +458,11 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
  * limits), and each chunk is paged with `.range()` under a stable `.order('id')`
  * until exhausted. Without this, the all-levels views silently truncate once a
  * project exceeds 1000 status rows — completed activities beyond the cap read back
- * as "not started" (see paginateAll). Used only for the cross-sheet aggregations.
+ * as "not started" (see paginateAll). Exported for every cross-sheet/cross-unit
+ * aggregation read (dashboard, workbench corpus, sheet delete) — any new
+ * `.in(<ids>)` read over an unbounded id list should go through here.
  */
-async function fetchAllIn<T>(
+export async function fetchAllIn<T>(
   table: 'status_logs' | 'units',
   column: 'unit_id' | 'sheet_id',
   values: string[],
@@ -1012,12 +1014,15 @@ export function useBulkUpdateStatus(sheetId: string) {
                 }
               }
             } else {
-              const { data: latestLogs, error: logError } = await supabase.from('status_logs')
-                .select('*')
-                .in('unit_id', chunkIds)
-                .eq('track', track);
-
-              if (logError) throw logError;
+              // Chunked + paginated readback (fetchAllIn): the old single
+              // `.in(unit_id, <up to 800 ids>)` blew the ~8KB request-URL limit
+              // AND silently truncated at PostgREST's 1000-row cap — slots past
+              // the cap vanished from latestStatusMap, so those units were
+              // skipped by the bulk update while the toast still reported
+              // "N locations updated". Track is filtered client-side (fetchAllIn
+              // is generic over the id column only).
+              const allLogs = await fetchAllIn<StatusLog>('status_logs', 'unit_id', chunkIds);
+              const latestLogs = allLogs.filter(l => l.track === track);
 
               const latestStatusMap: Record<string, StatusLog> = {};
               latestLogs.forEach(log => {
@@ -1527,15 +1532,37 @@ export function useStatusHistory(unitIds: string[]) {
       // (Scheduling Analytics Phase 6) the production-rate math, which needs the
       // stable `activity_id` to join a completion to its cost code / subcontractor.
       // Map its `activity_name` snapshot onto the domain `activityName` field.
-      const { data, error } = await supabase
-        .from('status_audit_log')
-        .select('unit_id, activity_id, activity_name, track, logged_date, client_timestamp, user_id')
-        .in('unit_id', validUnitIds)
-        .eq('temporal_state', 'completed')
-        .not('logged_date', 'is', null)
-        .order('logged_date', { ascending: true });
-      if (error) throw error;
-      return (data ?? []).map(({ activity_name, ...r }) => ({ ...r, activityName: activity_name })) as unknown as StatusHistoryEvent[];
+      //
+      // Chunked + paginated (the fetchAllIn pattern, inlined for the audit-table
+      // filters): the dashboard calls this with EVERY unit id in the project, so a
+      // single `.in(...)` blows the ~8KB request-URL limit past ~200 ids (hard
+      // failure → empty timeline) and silently truncates at PostgREST's 1000-row
+      // cap (pace / weekly velocity / Monte Carlo quietly undercount). Ordering is
+      // re-applied client-side because chunks return independently.
+      type AuditRow = {
+        unit_id: string; activity_id: string; activity_name: string; track: string;
+        logged_date: string; client_timestamp: string | null; user_id: string | null;
+      };
+      const ID_CHUNK = 200; // keep each .in(...) URL comfortably under the header limit
+      const rows: AuditRow[] = [];
+      for (let i = 0; i < validUnitIds.length; i += ID_CHUNK) {
+        const slice = validUnitIds.slice(i, i + ID_CHUNK);
+        const chunkRows = await paginateAll<AuditRow>(async (from, size) => {
+          const { data, error } = await supabase
+            .from('status_audit_log')
+            .select('unit_id, activity_id, activity_name, track, logged_date, client_timestamp, user_id')
+            .in('unit_id', slice)
+            .eq('temporal_state', 'completed')
+            .not('logged_date', 'is', null)
+            .order('id', { ascending: true })
+            .range(from, from + size - 1);
+          if (error) throw error;
+          return (data ?? []) as unknown as AuditRow[];
+        });
+        rows.push(...chunkRows);
+      }
+      rows.sort((a, b) => (a.logged_date < b.logged_date ? -1 : a.logged_date > b.logged_date ? 1 : 0));
+      return rows.map(({ activity_name, ...r }) => ({ ...r, activityName: activity_name })) as unknown as StatusHistoryEvent[];
     },
     enabled: validUnitIds.length > 0,
     staleTime: 1000 * 60 * 5,

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 import { queryKeys } from '@/types/queryKeys';
+import { fetchAllIn } from './useProjectQueries';
 import { mergeWorkbenchSidecar } from '@/utils/workbench';
 import type { CorpusLabel } from '@/utils/workbenchStats';
 import type { Project, Sheet, WorkbenchSheet, WorkbenchDrawing } from '@/types/domain';
@@ -129,11 +130,13 @@ export function useWorkbenchCorpusUnits(containerId: string | undefined) {
       const sheetIds = (sheetRows ?? []).map((r) => r.id);
       if (sheetIds.length === 0) return {};
 
-      const { data, error } = await supabase
-        .from('units')
-        .select('sheet_id, unit_number, top_level_role, subtype_id')
-        .in('sheet_id', sheetIds);
-      if (error) throw error;
+      // Chunked + paginated (fetchAllIn): a container past 1000 labels used to
+      // silently truncate here, quietly degrading the corpus-health stats and
+      // naming suggestions. Same three columns as before.
+      const data = await fetchAllIn<{
+        sheet_id: string | null; unit_number: string | null;
+        top_level_role: string | null; subtype_id: string | null;
+      }>('units', 'sheet_id', sheetIds, 'sheet_id, unit_number, top_level_role, subtype_id');
 
       const bySheet: Record<string, CorpusLabel[]> = {};
       for (const row of data ?? []) {
