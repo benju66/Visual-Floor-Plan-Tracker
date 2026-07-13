@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { makeTestQueryClient } from '@/test/renderWithQuery';
+import { deriveSyncState } from '@/utils/syncStatus';
 import type { PendingChange, Unit } from '@/types/domain';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -297,5 +298,94 @@ describe('handleApplyAll — per-item checkpoint stays crash-safe under concurre
 
     // The buffer fully drains after a clean concurrent apply.
     expect(result.current.pendingCount).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Save Visibility — Phase 3 regression backstop. Phases 1–2 made a failed status
+// save loud + drillable; these lock the WIRING so a future refactor can't quietly
+// bring back the old silent failure (a failed save rejoining the plain "N pending"
+// count with no red flag). Each test derives the sync state from the hook's LIVE
+// values — `deriveSyncState(result.current)` — so it proves `failedCount` actually
+// flips the shared sync state to 'error', not just that a private flag was set.
+// (The earlier "reports failures without draining" test asserts the item stays
+// queued; these close the gap it leaves — that the failure is SURFACED.)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('Save Visibility Phase 3 — a failed save is surfaced (not silent) and a retry clears it', () => {
+  it('a failed Apply keeps the item queued AND surfaces it: failedCount>0 + sync state "error"', async () => {
+    const onApply = vi.fn().mockRejectedValue(new Error('offline'));
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'Drywall') });
+    });
+
+    await act(async () => { await result.current.handleApplyAll(); });
+
+    // The queued item survives for retry (no data lost)…
+    expect(result.current.pendingChanges['u1']).toBeDefined();
+    // …AND it is no longer silent: it's counted as failed and flagged by the same slot key.
+    expect(result.current.failedCount).toBe(1);
+    expect(result.current.failedKeys.has('u1_Drywall')).toBe(true);
+    // The load-bearing wiring: the hook's live values derive to 'error', which BEATS 'pending'
+    // — a failure can never read as a plain unsaved count again.
+    expect(result.current.pendingCount).toBe(1);
+    expect(deriveSyncState(result.current)).toBe('error');
+  });
+
+  it('a subsequent successful Apply (the FAB Retry path) clears the failure → empty queue + "synced"', async () => {
+    // Retry on the desktop FAB re-runs handleApplyAll over the still-pending — the same seam,
+    // no new write path. (Phase 2 covers the per-item handleRetryItem clear; this covers the
+    // re-Apply-everything clear, which nothing tested before.)
+    let offline = true;
+    const onApply = vi.fn(async () => { if (offline) throw new Error('offline'); });
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'Drywall') });
+    });
+
+    // First Apply fails → error.
+    await act(async () => { await result.current.handleApplyAll(); });
+    expect(result.current.failedCount).toBe(1);
+    expect(deriveSyncState(result.current)).toBe('error');
+
+    // Back online; re-Apply the still-pending change.
+    offline = false;
+    await act(async () => { await result.current.handleApplyAll(); });
+
+    // The failure clears, the queue drains, and the shared sync state falls through to 'synced'.
+    expect(result.current.failedCount).toBe(0);
+    expect(result.current.pendingCount).toBe(0);
+    expect(result.current.pendingChanges['u1']).toBeUndefined();
+    expect(deriveSyncState(result.current)).toBe('synced');
+  });
+
+  it('a mixed batch flags EXACTLY the failed slots: survivors == failures, the rest drain', async () => {
+    // Three slots in one Apply: u2 fails, u1 + u3 succeed.
+    const onApply = vi.fn(async (changes: PendingChange[]) => {
+      if (changes[0].unit.id === 'u2') throw new Error('offline');
+    });
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'A1') });
+      result.current.handleLocalUpdate(unit('u2'), null, 'ongoing', { activityObj: activityObj('a2', 'A2') });
+      result.current.handleLocalUpdate(unit('u3'), null, 'completed', { activityObj: activityObj('a3', 'A3') });
+    });
+    expect(result.current.pendingCount).toBe(3);
+
+    let outcome: { succeeded: number; failed: number } | undefined;
+    await act(async () => { outcome = await result.current.handleApplyAll(); });
+
+    // Two saved (left the queue), one failed (stayed) — reported honestly.
+    expect(outcome).toEqual({ succeeded: 2, failed: 1 });
+    // The survivors are EXACTLY the failed slots: only u2 remains queued, and the failed set is
+    // exactly its key — the successes are neither queued nor flagged.
+    expect(Object.keys(result.current.pendingChanges)).toEqual(['u2']);
+    expect([...result.current.failedKeys]).toEqual(['u2_A2']);
+    expect(result.current.failedCount).toBe(1);
+    // And the aggregate reads as an error, not a plain "1 unsaved".
+    expect(deriveSyncState(result.current)).toBe('error');
   });
 });
