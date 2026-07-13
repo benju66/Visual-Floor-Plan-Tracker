@@ -8,6 +8,7 @@ import LocationLibraryPanel from '@/components/taxonomy/LocationLibraryPanel';
 import ActivityLibraryPanel from '@/components/schedule/ActivityLibraryPanel';
 import CostCodeLibraryPanel from '@/components/costcodes/CostCodeLibraryPanel';
 import { deleteProjectService } from '@/services/api';
+import { settledSupabaseFailures } from '@/utils/settledErrors';
 import type { Profile, Project } from '@/types/domain';
 
 // The profile fields this modal reads — the Team Directory list and the
@@ -277,8 +278,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
     }
 
     try {
+      // Supabase builders RESOLVE with { error } (they never reject on an RLS
+      // denial / constraint failure), so a rejected-only filter reported
+      // "updated successfully" over a batch of failed writes.
       const results = await Promise.allSettled(promises);
-      const failures = results.filter(r => r.status === 'rejected');
+      const failures = settledSupabaseFailures(results);
 
       queryClient.invalidateQueries({ queryKey: ['project_members'] });
 
