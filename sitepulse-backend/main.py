@@ -211,6 +211,49 @@ class ExportRequest(BaseModel):
 # frontend falls back to revalidating fetches when no version is available.
 STORAGE_CACHE_SECONDS = "604800"  # 7 days
 
+# ── Upload guardrails ────────────────────────────────────────────────────────
+# The upload handlers buffer the whole PDF in memory for PyMuPDF, so an
+# unbounded upload can OOM the single Render instance and take the backend down
+# for everyone. The cap is enforced by a chunked read (a client-supplied
+# Content-Length header can lie) and is env-overridable for bigger plan sets.
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "80"))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+async def read_upload_capped(file: UploadFile) -> bytes:
+    """Read an UploadFile fully, rejecting with 413 once it exceeds the cap."""
+    buf = bytearray()
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            return bytes(buf)
+        buf.extend(chunk)
+        if len(buf) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"PDF is larger than the {MAX_UPLOAD_MB} MB upload limit.",
+            )
+
+
+# Preview-render pixel budget. An E-size (36x24") page at the standard 4x zoom
+# is 10368x6912 px (~72 MP, ~215 MB of RGB) and is proven to fit; the budget sits
+# just above that so every normal sheet renders exactly as before, while a
+# degenerate/oversized page gets its zoom scaled down (still sharp, bounded
+# memory) instead of exploding the pixmap allocation.
+MAX_RENDER_PIXELS = 80_000_000
+PREVIEW_ZOOM = 4.0
+
+
+def preview_matrix(page) -> "fitz.Matrix":
+    """The 4x preview matrix, zoom-clamped so width*height stays in budget."""
+    rect = page.rect
+    pixels = (rect.width * PREVIEW_ZOOM) * (rect.height * PREVIEW_ZOOM)
+    zoom = PREVIEW_ZOOM
+    if pixels > MAX_RENDER_PIXELS:
+        zoom = PREVIEW_ZOOM * (MAX_RENDER_PIXELS / pixels) ** 0.5
+    return fitz.Matrix(zoom, zoom)
+
 def bump_pdf_version(sheet_id: str):
     """Best-effort bump of sheets.pdf_version — cache-busts the public PDF/PNG
     URLs after an upload or re-attach. Non-fatal if the column does not exist
@@ -241,12 +284,12 @@ async def upload_and_convert_floorplan(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    if not file.filename.lower().endswith('.pdf'):
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     try:
         await verify_sheet_access(sheet_id, user["sub"])
-        pdf_bytes = await file.read()
+        pdf_bytes = await read_upload_capped(file)
 
         def process_upload():
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -256,18 +299,19 @@ async def upload_and_convert_floorplan(
 
             page = doc.load_page(page_number - 1)
 
-            # Render fallback PNG at 4x for backward compat
-            zoom = 4.0
-            mat = fitz.Matrix(zoom, zoom)
-            pix = page.get_pixmap(matrix=mat, alpha=False)
+            # Render fallback PNG at 4x for backward compat (zoom-clamped to the
+            # pixel budget so an oversized page can't OOM the instance).
+            pix = page.get_pixmap(matrix=preview_matrix(page), alpha=False)
             img_bytes = pix.tobytes("png")
 
+            # Overwrite in place (x-upsert) — never remove-then-upload: a failure
+            # between the two would permanently delete the sheet's existing file
+            # with nothing to replace it.
             file_path = f"converted/{sheet_id}.png"
-            supabase.storage.from_("floorplans").remove([file_path])
             supabase.storage.from_("floorplans").upload(
                 path=file_path,
                 file=img_bytes,
-                file_options={"content-type": "image/png", "cache-control": STORAGE_CACHE_SECONDS},
+                file_options={"content-type": "image/png", "cache-control": STORAGE_CACHE_SECONDS, "upsert": "true"},
             )
 
             # Extract and store single-page PDF for vector extraction + PDF export
@@ -276,11 +320,10 @@ async def upload_and_convert_floorplan(
             single_page_pdf_bytes = single_page_doc.write()
 
             pdf_path = f"originals/{sheet_id}.pdf"
-            supabase.storage.from_("floorplans").remove([pdf_path])
             supabase.storage.from_("floorplans").upload(
                 path=pdf_path,
                 file=single_page_pdf_bytes,
-                file_options={"content-type": "application/pdf", "cache-control": STORAGE_CACHE_SECONDS},
+                file_options={"content-type": "application/pdf", "cache-control": STORAGE_CACHE_SECONDS, "upsert": "true"},
             )
 
             public_url = supabase.storage.from_("floorplans").get_public_url(file_path)
@@ -319,20 +362,21 @@ async def attach_original_pdf(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    if not file.filename.lower().endswith('.pdf'):
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-    
+
     try:
         await verify_sheet_access(sheet_id, user["sub"])
-        pdf_bytes = await file.read()
-        
+        pdf_bytes = await read_upload_capped(file)
+
         def process_attach():
+            # Overwrite in place (x-upsert) — never remove-then-upload; see
+            # upload_and_convert_floorplan.
             pdf_path = f"originals/{sheet_id}.pdf"
-            supabase.storage.from_("floorplans").remove([pdf_path])
             supabase.storage.from_("floorplans").upload(
                 path=pdf_path,
                 file=pdf_bytes,
-                file_options={"content-type": "application/pdf", "cache-control": STORAGE_CACHE_SECONDS},
+                file_options={"content-type": "application/pdf", "cache-control": STORAGE_CACHE_SECONDS, "upsert": "true"},
             )
             bump_pdf_version(sheet_id)
             # Pre-extract vectors from the new PDF (non-fatal)
@@ -350,13 +394,12 @@ async def attach_original_pdf(
             try:
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 page = doc.load_page(0)
-                pix = page.get_pixmap(matrix=fitz.Matrix(4.0, 4.0), alpha=False)
+                pix = page.get_pixmap(matrix=preview_matrix(page), alpha=False)
                 png_path = f"converted/{sheet_id}.png"
-                supabase.storage.from_("floorplans").remove([png_path])
                 supabase.storage.from_("floorplans").upload(
                     path=png_path,
                     file=pix.tobytes("png"),
-                    file_options={"content-type": "image/png", "cache-control": STORAGE_CACHE_SECONDS},
+                    file_options={"content-type": "image/png", "cache-control": STORAGE_CACHE_SECONDS, "upsert": "true"},
                 )
             except Exception as png_err:
                 print(f"[WARN] Preview PNG regeneration skipped: {png_err}")
@@ -418,22 +461,26 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
 
       1. `verify_project_admin` — the caller must hold `owner`/`admin` on this
          project (a real JWT-derived `sub`, not a client-supplied id).
-      2. Collect the project's sheet ids and remove each sheet's storage blobs
+      2. Collect the project's sheet ids (they are unreadable after the cascade),
+         then delete the `projects` row FIRST. Every child table FKs to
+         `projects` with `ON DELETE CASCADE` (sheets → units →
+         status_logs/audit/vectors, project_members, activities,
+         lookahead_plans, project_contacts), so the whole data tree goes with
+         it in one statement. The row delete is the authoritative destruction:
+         if it fails or times out, NOTHING has been touched and the retry is
+         clean — never a live, visible project whose drawings were already
+         destroyed (the pre-fix ordering).
+      3. Only after the cascade succeeds, remove each sheet's storage blobs
          (`converted/<id>.png`, `originals/<id>.pdf`) with the service-role
          client — the `floorplans` bucket's RLS denies a client `.remove()`, so
          this MUST happen server-side or the blobs orphan. Idempotent: Supabase
          storage does not error on already-absent paths.
-      3. Delete the `projects` row. Every child table FKs to `projects` with
-         `ON DELETE CASCADE` (sheets → units → status_logs/audit/vectors,
-         project_members, activities, lookahead_plans, project_contacts),
-         so the whole data tree goes with it in one statement.
 
-    Storage removal is best-effort/non-fatal (a hiccup re-orphans blobs, the
-    pre-fix behaviour — recoverable from the Storage dashboard) but the row
-    delete is the real, authoritative destruction. Deprecated `tiles/<id>/...`
-    objects (OpenSeadragon path, removed) are not swept here — they are absent
-    for any recent sheet; the canonical `delete_sheet_storage` route doesn't
-    sweep them either.
+    Storage removal is best-effort/non-fatal — worst case a sweep hiccup
+    orphans blobs (recoverable from the Storage dashboard). Deprecated
+    `tiles/<id>/...` objects (OpenSeadragon path, removed) are not swept here —
+    they are absent for any recent sheet; the canonical `delete_sheet_storage`
+    route doesn't sweep them either.
     """
     try:
         await verify_project_admin(project_id, user["sub"])
@@ -443,6 +490,9 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
                 supabase.table("sheets").select("id").eq("project_id", project_id).execute()
             )
             sheet_ids = [s["id"] for s in (sheets_res.data or [])]
+
+            # Authoritative destruction first — see docstring ordering rationale.
+            supabase.table("projects").delete().eq("id", project_id).execute()
 
             paths = []
             for sid in sheet_ids:
@@ -456,7 +506,6 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
                 except Exception as storage_err:  # non-fatal — see docstring
                     print(f"Project {project_id} storage cleanup warning (non-fatal): {storage_err}")
 
-            supabase.table("projects").delete().eq("id", project_id).execute()
             return len(sheet_ids)
 
         import asyncio
