@@ -23,6 +23,8 @@ interface MobileSwipeDeckProps {
   handleDiscardAll: () => void;
   handleApplyAll: () => Promise<{ succeeded: number; failed: number }>;
   pendingCount: number;
+  /** Staged changes that failed their last Apply (Save Visibility — Phase 1). */
+  failedCount: number;
   currentActivities: Activity[];
   rawStatuses: StatusLog[];
   onChooseStatus?: (unit: Unit, onSelect: (m: Partial<Activity>) => void) => void;
@@ -62,6 +64,7 @@ export default function MobileSwipeDeck({
   handleDiscardAll,
   handleApplyAll,
   pendingCount,
+  failedCount,
   currentActivities,
   rawStatuses,
   onChooseStatus,
@@ -285,7 +288,7 @@ export default function MobileSwipeDeck({
             >
               <ListFilter size={18} />
             </button>
-            <SyncIndicator isApplying={isApplying} hasRehydrated={hasRehydrated} pendingCount={pendingCount} />
+            <SyncIndicator isApplying={isApplying} hasRehydrated={hasRehydrated} pendingCount={pendingCount} failedCount={failedCount} />
           </div>
         </div>
 

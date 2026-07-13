@@ -12,12 +12,23 @@ import {
   persistCurrentQueue,
 } from '@/utils/pendingChangesStore';
 import { runWithConcurrency } from '@/utils/concurrency';
+import { pendingChangeKey } from '@/utils/pendingChangeKey';
 import type { Unit, StatusLog, PendingChangesMap, PendingChange, TemporalState } from '@/types/domain';
 
 // How many staged status-saves the List's Apply overlaps at once. Each is a full
 // upsert_status_log round-trip (auto-advance may fire a second write), so a small
 // bound keeps a big batch fast without hammering the DB or the offline queue.
 const APPLY_CONCURRENCY = 5;
+
+// Return `prev` untouched when `key` isn't present (stable identity → no re-render);
+// otherwise a new Set without it. Used to clear a failed-save flag the moment its item
+// is re-edited/removed (Save Visibility — Phase 1). Pure so it's trivially correct.
+function withoutFailedKey(prev: Set<string>, key: string): Set<string> {
+  if (!prev.has(key)) return prev;
+  const next = new Set(prev);
+  next.delete(key);
+  return next;
+}
 
 interface UseFieldDataProps {
   activeStatuses: StatusLog[];
@@ -66,6 +77,13 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
   const [pendingChanges, setPendingChanges] = useState<PendingChangesMap>({});
   const [pendingTimelineChanges, setPendingTimelineChanges] = useState<PendingChangesMap>({});
   const [isApplying, setIsApplying] = useState<boolean>(false);
+  // Which staged changes failed their last Apply and stayed queued for retry
+  // (Save Visibility — Phase 1). Keyed by pendingChangeKey — the SAME key the queue
+  // dedupes/checkpoints on, so a failed apply result maps back to the exact slot.
+  // Local useState ONLY (mirrors pendingChanges): NOT Zustand, NOT the RQ cache, NOT
+  // IDB — it annotates which queued items failed, never what is queued. Session-only:
+  // the queued item itself survives reload; only the red flag is in-memory (AGENTS §2).
+  const [failedKeys, setFailedKeys] = useState<Set<string>>(() => new Set());
   // Ref (not state) to quiesce reactive IDB persist effects during the sync loop.
   // Prevents the useEffect from writing to IDB on every setPendingChanges call during handleApplyAll.
   const isSyncingRef = useRef(false);
@@ -76,6 +94,7 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
   useEffect(() => {
     let cancelled = false;
     setHasRehydrated(false); // Reset on projectId change
+    setFailedKeys(new Set()); // Failed flags are session + project scoped — drop on switch
 
     (async () => {
       const [savedPending, savedTimeline] = await Promise.all([
@@ -154,6 +173,11 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
         },
       };
     });
+    // Re-editing a failed item clears its red flag — the user is acting on it, and the
+    // next Apply re-evaluates from scratch (Save Visibility — Phase 1). setFailedKeys is
+    // a stable dispatch, so the empty-deps stable identity this row memo relies on holds.
+    const failKey = pendingChangeKey({ unit, log: baseLog, extraProps });
+    setFailedKeys((prev) => withoutFailedKey(prev, failKey));
   }, []);
 
   const handleTimelineUpdate = useCallback((unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
@@ -173,11 +197,15 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
         }
       };
     });
+    // Re-editing a failed item clears its red flag (see handleLocalUpdate). Keyed via
+    // pendingChangeKey so it matches the failed-set entry the last Apply recorded.
+    setFailedKeys((prev) => withoutFailedKey(prev, pendingChangeKey({ unit, log: baseLog, extraProps })));
   }, []);
 
   const handleRemovePendingItem = (unitId: string, activityName?: string | null): boolean => {
     if (activityName) {
       const hasPrimary = pendingChanges[unitId] !== undefined;
+      const removed = pendingTimelineChanges[`${unitId}_${activityName}`];
       const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
         (k) => k.startsWith(`${unitId}_`) && k !== `${unitId}_${activityName}`
       );
@@ -189,8 +217,12 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
         return next;
       });
 
+      // Dropping a queued item also drops its failed flag (Save Visibility — Phase 1).
+      if (removed) setFailedKeys((prev) => withoutFailedKey(prev, pendingChangeKey(removed)));
+
       return hasRemaining;
     } else {
+      const removed = pendingChanges[unitId];
       const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
         (k) => k.startsWith(`${unitId}_`)
       );
@@ -202,6 +234,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
         return next;
       });
 
+      if (removed) setFailedKeys((prev) => withoutFailedKey(prev, pendingChangeKey(removed)));
+
       return hasRemaining;
     }
   };
@@ -209,21 +243,34 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
   const handleDiscardAll = () => {
     setPendingChanges({});
     setPendingTimelineChanges({});
+    setFailedKeys(new Set()); // No queue → no failed flags
     clearPersistedPendingChanges(projectId);
   };
 
   const pendingCount = useMemo(() => {
     const dedupedChanges = new Set<string>();
-    Object.values(pendingChanges).forEach(c => {
-      const aName = c.extraProps?.activityObj?.name || c.log?.activityName || 'Primary';
-      dedupedChanges.add(`${c.unit.id}_${aName}`);
-    });
-    Object.values(pendingTimelineChanges).forEach(c => {
-      const aName = c.extraProps?.activityObj?.name || c.log?.activityName || 'Primary';
-      dedupedChanges.add(`${c.unit.id}_${aName}`);
-    });
+    Object.values(pendingChanges).forEach(c => dedupedChanges.add(pendingChangeKey(c)));
+    Object.values(pendingTimelineChanges).forEach(c => dedupedChanges.add(pendingChangeKey(c)));
     return dedupedChanges.size;
   }, [pendingChanges, pendingTimelineChanges]);
+
+  // How many distinct staged changes failed their last Apply (drives the 'error' sync
+  // state + the red "N failed to save"). Keyed identically to pendingCount, so a failed
+  // count can never exceed the pending count.
+  const failedCount = failedKeys.size;
+
+  // The unit ids that have at least one failed change — for per-row marking. LocationRow
+  // receives a per-row `isFailed` BOOLEAN derived from this (never this Set itself), so a
+  // change to one row's failed state can't re-render the whole memoized table (List View
+  // Perf Phase 3). Unit ids are UUIDs (no `_`), so slice at the first `_` recovers them.
+  const failedUnitIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const key of failedKeys) {
+      const sep = key.indexOf('_');
+      ids.add(sep >= 0 ? key.slice(0, sep) : key);
+    }
+    return ids;
+  }, [failedKeys]);
 
   const handleApplyAll = async (): Promise<{ succeeded: number; failed: number }> => {
     const changesArray = [
@@ -232,11 +279,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     ];
     
     const dedupedMap = new Map<string, PendingChange>();
-    changesArray.forEach(c => {
-       const aName = c.extraProps?.activityObj?.name || c.log?.activityName || 'Primary';
-       dedupedMap.set(`${c.unit.id}_${aName}`, c);
-    });
-    
+    changesArray.forEach(c => dedupedMap.set(pendingChangeKey(c), c));
+
     const finalChanges = Array.from(dedupedMap.values());
     if (finalChanges.length === 0) return { succeeded: 0, failed: 0 };
 
@@ -257,10 +301,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     let checkpointTail: Promise<void> = Promise.resolve();
     const checkpoint = (change: PendingChange): Promise<void> => {
       checkpointTail = checkpointTail.then(() => {
-        const aName = change.extraProps?.activityObj?.name || change.log?.activityName;
-        const key = `${change.unit.id}_${aName}`;
         delete livePending[change.unit.id];
-        delete liveTimeline[key];
+        delete liveTimeline[pendingChangeKey(change)];
         return persistCurrentQueue(projectId, livePending, liveTimeline);
       });
       return checkpointTail;
@@ -283,6 +325,18 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
 
       const succeeded = results.filter((r) => r.ok).length;
       const failed = results.length - succeeded;
+
+      // Record exactly which items failed this Apply (Save Visibility — Phase 1).
+      // results[i] ↔ finalChanges[i], so a failed result maps back to its queued item via
+      // the SAME key the queue dedupes/checkpoints on. This REPLACES the prior failed set:
+      // an item that now succeeds drops out (checkpointed, no longer pending), a re-failure
+      // stays, so Retry re-evaluates cleanly. `error` beats `pending`; a fully clean Apply
+      // yields an empty set → the sync state falls through to `synced`.
+      const nextFailedKeys = new Set<string>();
+      for (const r of results) {
+        if (!r.ok) nextFailedKeys.add(pendingChangeKey(finalChanges[r.index]));
+      }
+      setFailedKeys(nextFailedKeys);
 
       // Sync React state to match the drained IDB
       setPendingChanges(livePending);
@@ -398,6 +452,8 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     pendingChanges,
     pendingTimelineChanges,
     pendingCount,
+    failedCount,
+    failedUnitIds,
     setPendingChanges,
     setPendingTimelineChanges,
     isApplying,

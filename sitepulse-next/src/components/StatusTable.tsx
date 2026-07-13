@@ -2,11 +2,12 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUp, ArrowDown, ChevronRight, ChevronDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, ChevronRight, ChevronDown, AlertTriangle } from 'lucide-react';
 import { UpdatingRing } from '@/components/ui/FieldStatusAtoms';
 import { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
 import LocationRow from './manage/LocationRow';
 import { windowPadding, estimateRowHeight } from '@/utils/listWindow';
+import { deriveSyncState } from '@/utils/syncStatus';
 import { applicableActivities, type ApplicabilityIndex } from '@/utils/applicability';
 import { computeUnitVariance, orderedTrackActivities, type VarianceInfo } from '@/utils/progressAnalytics';
 import { lastActivityIso } from '@/utils/staleness';
@@ -93,6 +94,12 @@ interface StatusTableProps {
   setHistoryModalUnitId: (id: string) => void;
   onChooseStatus?: StatusTriggerProps['onChooseStatus'];
   pendingCount: number;
+  /** Staged changes that failed their last Apply — drives the FAB's red error state
+   *  and Retry (Save Visibility — Phase 1). */
+  failedCount: number;
+  /** Unit ids with at least one failed change, for per-row marking. StatusTable feeds
+   *  each row a per-row `isFailed` BOOLEAN (never this Set) to preserve the row memo. */
+  failedUnitIds: Set<string>;
   handleDiscardAll: () => void;
   handleApplyAll: () => void | Promise<{ succeeded: number; failed: number }>;
   handleTimelineUpdate: StatusTriggerProps['onLocalUpdate'];
@@ -148,6 +155,8 @@ export default function StatusTable({
   setHistoryModalUnitId,
   onChooseStatus,
   pendingCount,
+  failedCount,
+  failedUnitIds,
   handleDiscardAll,
   handleApplyAll,
   handleTimelineUpdate,
@@ -404,6 +413,13 @@ export default function StatusTable({
   // Column count for the spacer rows' colSpan (baseline overlay adds 3 columns).
   const colCount = baseCols ? 17 : 14;
 
+  // The pending FAB's sync state (Save Visibility — Phase 1). The FAB only mounts when
+  // something is queued (pendingCount > 0), and a failed item stays queued, so
+  // failedCount > 0 ⟹ pendingCount > 0 — the bar is always present to surface it, and
+  // hasRehydrated is implicitly true by the time this desktop table renders rows.
+  const fabState = deriveSyncState({ hasRehydrated: true, isApplying, pendingCount, failedCount });
+  const hasFailed = fabState === 'error';
+
   return (
     <>
       <div ref={scrollRef} className="w-full h-full overflow-auto rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/15 shadow-sm relative">
@@ -500,6 +516,7 @@ export default function StatusTable({
               isSelected={selectedUnitIds.includes(unit.id)}
               isExpanded={expandedUnitIds.has(unit.id)}
               isSaving={savingUnitId === unit.id}
+              isFailed={failedUnitIds.has(unit.id)}
               auditEnabled={!viewportSupported || nearIds.has(unit.id)}
               isApplying={isApplying}
               currentActivities={currentActivities}
@@ -546,7 +563,9 @@ export default function StatusTable({
       </table>
       </div>
 
-      {/* Desktop FAB for Pending Changes */}
+      {/* Desktop FAB for Pending Changes — turns red + relabels to Retry when a save
+          failed (Save Visibility — Phase 1), so a failure is never hidden inside the
+          plain "N pending" count. Retry re-runs Apply over everything still queued. */}
       <AnimatePresence>
         {pendingCount > 0 && (
           <motion.div
@@ -556,24 +575,45 @@ export default function StatusTable({
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
             className="fixed bottom-6 right-6 z-50 flex justify-center pointer-events-none"
           >
-            <div className="bg-slate-900 dark:bg-slate-800 text-white p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border border-slate-700 dark:border-slate-600">
-              <span className="text-sm font-bold ml-2">
-                {pendingCount} pending
+            <div
+              className={`p-3 rounded-full shadow-2xl flex items-center gap-4 pointer-events-auto border text-white ${
+                hasFailed
+                  ? 'bg-red-600 dark:bg-red-700 border-red-500 dark:border-red-600'
+                  : 'bg-slate-900 dark:bg-slate-800 border-slate-700 dark:border-slate-600'
+              }`}
+            >
+              <span className="text-sm font-bold ml-2 flex items-center gap-2">
+                {hasFailed ? (
+                  <>
+                    <AlertTriangle size={16} className="shrink-0" />
+                    {failedCount} failed to save
+                  </>
+                ) : (
+                  `${pendingCount} pending`
+                )}
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleDiscardAll}
                   disabled={isApplying}
-                  className="px-4 py-2 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors disabled:opacity-50"
+                  className={`px-4 py-2 text-xs font-bold rounded-full transition-colors disabled:opacity-50 ${
+                    hasFailed
+                      ? 'text-red-100 hover:text-white hover:bg-red-700 dark:hover:bg-red-800'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-slate-700'
+                  }`}
                 >
                   Discard
                 </button>
                 <button
-                  onClick={handleApplyAll}
+                  onClick={() => { handleApplyAll(); }}
                   disabled={isApplying}
-                  className="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-amber-950 rounded-full transition-colors shadow-md disabled:opacity-50 flex items-center gap-2"
+                  className={`px-5 py-2 text-xs font-bold rounded-full transition-colors shadow-md disabled:opacity-50 flex items-center gap-2 ${
+                    hasFailed
+                      ? 'bg-white text-red-700 hover:bg-red-50'
+                      : 'bg-amber-500 hover:bg-amber-400 text-amber-950'
+                  }`}
                 >
-                  {isApplying ? <UpdatingRing /> : 'Apply'}
+                  {isApplying ? <UpdatingRing /> : hasFailed ? 'Retry' : 'Apply'}
                 </button>
               </div>
             </div>

@@ -83,6 +83,9 @@ const CURRENT_ACTIVITIES: Activity[] = [];
 const RAW_STATUSES: StatusLog[] = [];
 const SUBTYPES: Subtype[] = [];
 const SELECTED: string[] = [];
+// Stable empty failed set — a fresh identity each render would still keep every row's
+// per-row `isFailed` boolean at `false`, but keep it stable to mirror useFieldData.
+const NO_FAILED: Set<string> = new Set();
 
 // The two EDIT handlers are stabilized at their source (useFieldData useCallback), so
 // the test passes stable refs for them — matching production.
@@ -118,6 +121,8 @@ function makeProps(overrides: Partial<Props> = {}): Props {
     setSelectedUnitIds,
     setHistoryModalUnitId,
     pendingCount: 0,
+    failedCount: 0,
+    failedUnitIds: NO_FAILED,
     handleDiscardAll,
     handleApplyAll,
     rawStatuses: RAW_STATUSES,
@@ -190,5 +195,19 @@ describe('StatusTable — Phase 3 memoized row re-render scope', () => {
     expect(h.counts.get('a')).toBe(1);
     expect(h.counts.get('b')).toBe(2);
     expect(h.counts.get('c')).toBe(1);
+  });
+
+  it('re-renders ONLY the failed row when failedUnitIds flips (per-row isFailed boolean, not the shared set)', () => {
+    // Save Visibility — Phase 1: StatusTable feeds each row a per-row `isFailed` boolean
+    // derived from `failedUnitIds`, never the Set itself — so flagging one row as failed
+    // must not re-render the others (the memo must still hold).
+    const { rerender } = render(<StatusTable {...makeProps()} />);
+    expect([h.counts.get('a'), h.counts.get('b'), h.counts.get('c')]).toEqual([1, 1, 1]);
+
+    rerender(<StatusTable {...makeProps({ failedCount: 1, failedUnitIds: new Set(['b']) })} />);
+
+    expect(h.counts.get('a')).toBe(1); // isFailed still false → memo skipped
+    expect(h.counts.get('b')).toBe(2); // false → true → re-rendered
+    expect(h.counts.get('c')).toBe(1); // isFailed still false → memo skipped
   });
 });

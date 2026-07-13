@@ -1,6 +1,6 @@
 "use client";
 import React, { useCallback } from 'react';
-import { ChevronRight, ChevronDown, Ban, RotateCcw } from 'lucide-react';
+import { ChevronRight, ChevronDown, Ban, RotateCcw, AlertTriangle } from 'lucide-react';
 import { BottleneckIndicator, UpdatingRing, getTemporalStateStyle, StatusSegments } from '@/components/ui/FieldStatusAtoms';
 import StatusTrigger, { type StatusTriggerProps } from '@/components/ui/StatusTrigger';
 import RowActionsMenu from './RowActionsMenu';
@@ -207,6 +207,10 @@ export interface LocationRowProps {
   isSelected: boolean;
   isExpanded: boolean;
   isSaving: boolean;
+  /** This unit has a staged change that failed its last Apply (Save Visibility —
+   *  Phase 1). A per-row BOOLEAN (not the shared failed set) so a change to one row's
+   *  failed state re-renders only that row, preserving the List View Perf Phase-3 memo. */
+  isFailed: boolean;
   /** Phase-2 near-viewport gate for this row's audit fetch (fail-open when the
    *  parent's IntersectionObserver is unavailable). A boolean, so a scroll that
    *  flips one row's near-state re-renders only that row, not the whole table. */
@@ -277,6 +281,7 @@ function LocationRowInner({
   isSelected,
   isExpanded,
   isSaving,
+  isFailed,
   auditEnabled,
   isApplying,
   currentActivities,
@@ -423,6 +428,14 @@ function LocationRowInner({
                 onUpdateStatus={handleTimelineUpdate as unknown as React.ComponentProps<typeof BottleneckIndicator>['onUpdateStatus']}
               />
               {isSaving && <UpdatingRing />}
+              {isFailed && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/40 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300 whitespace-nowrap"
+                  title="This change failed to save — use Retry on the pending bar"
+                >
+                  <AlertTriangle size={10} /> Failed
+                </span>
+              )}
             </div>
             {(showVariance || age !== '—') && (
               <div className="flex items-center gap-2 text-[10px] font-medium">
