@@ -180,7 +180,9 @@ export default function WorkbenchReviewTable({ drawing, containerId, userId, onC
                       .map((o) => o.unit_number)
                       .filter((n): n is string => !!n && n.trim().length > 0)}
                     onUpdate={(patch) => updateLabel.mutate({ unitId: unit.id, ...patch })}
-                    onDelete={() => deleteUnit.mutate(unit.id)}
+                    onDelete={() => deleteUnit.mutate(unit.id, {
+                      onError: (err: Error) => window.alert(`Couldn't delete the label: ${err.message}. It was not removed.`),
+                    })}
                   />
                 ))}
               </tbody>

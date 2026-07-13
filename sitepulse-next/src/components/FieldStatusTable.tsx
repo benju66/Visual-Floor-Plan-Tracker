@@ -284,14 +284,19 @@ export default function FieldStatusTable({
   const [renameUnit, setRenameUnit] = useState<Unit | null>(null);
   // Resolve the taxonomy pick (existing sub-type or an "Other (pending)" proposal)
   // into role/sub-type/unit_type, then persist online via useUpdateUnitFields.
+  // These are online-only writes with no toast surface in the List view; the hook
+  // rolls its optimistic edit back on failure, and this per-call onError is the
+  // matching message so a visibly-reverting row never fails silently.
+  const alertSaveFailed = (what: string) => (err: Error) =>
+    window.alert(`Couldn't save the ${what}: ${err.message}. The change was not applied.`);
   const onChangeUnitType = async (unitId: string, result: TaxonomyResult) => {
     const updates = await taxonomyResultToUnitFields(result, (vars) => proposePending.mutateAsync(vars));
-    updateUnitFields.mutate({ unitId, updates });
+    updateUnitFields.mutate({ unitId, updates }, { onError: alertSaveFailed('location type') });
   };
   const onAssignUnit = (unitId: string, userId: string | null) =>
-    updateUnitFields.mutate({ unitId, updates: { assigned_to: userId } });
+    updateUnitFields.mutate({ unitId, updates: { assigned_to: userId } }, { onError: alertSaveFailed('assignment') });
   const onBulkAssign = (userId: string | null) => {
-    selectedUnitIds.forEach((id) => updateUnitFields.mutate({ unitId: id, updates: { assigned_to: userId } }));
+    selectedUnitIds.forEach((id) => updateUnitFields.mutate({ unitId: id, updates: { assigned_to: userId } }, { onError: alertSaveFailed('assignment') }));
     clearSelectedUnits();
   };
   const onBulkDelete = () => {
@@ -580,7 +585,7 @@ export default function FieldStatusTable({
           unitNumber={renameUnit.unit_number}
           onClose={() => setRenameUnit(null)}
           onSave={(newName) => {
-            updateUnitFields.mutate({ unitId: renameUnit.id, updates: { unit_number: newName } });
+            updateUnitFields.mutate({ unitId: renameUnit.id, updates: { unit_number: newName } }, { onError: alertSaveFailed('new name') });
             setRenameUnit(null);
           }}
         />

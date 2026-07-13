@@ -531,6 +531,16 @@ export function useAllProjectStatuses(unitIds: string[]) {
 
 // ==== Mutations ====
 
+// The unit-CRUD mutations below are ONLINE-ONLY (they never enter the offline
+// queue — that is status_logs territory, AGENTS §2), so a failure is final and
+// the optimistic cache edit MUST be rolled back: without it a failed create
+// leaves a phantom, unsaveable location on the canvas and a failed delete hides
+// a location that still exists. Each hook snapshots every matching cache entry
+// in onMutate (getQueriesData — setQueriesData partial-matches, so restore must
+// too) and restores the snapshot in onError; error MESSAGING stays at the call
+// sites (the map handlers already toast). The onSettled invalidation then
+// re-confirms server truth whenever it can reach the server.
+
 export function useCreateUnit(sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -542,12 +552,15 @@ export function useCreateUnit(sheetId: string) {
     },
     onMutate: async (newUnit) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
+      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
       const tempId = `temp_${Date.now()}`;
       const tempUnit = { ...newUnit, id: tempId } as Unit;
       queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => old ? [...old, tempUnit] : [tempUnit]);
-      return {};
+      return { prev };
     },
-    onError: () => {},
+    onError: (_err, _vars, ctx) => {
+      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
       // Invalidate all project units prefix
@@ -566,13 +579,16 @@ export function useUpdateUnitGeometry(sheetId: string) {
     },
     onMutate: async ({ unitId, polygon_coordinates }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
+      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
       queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => {
         if (!old) return old;
         return old.map(u => u.id === unitId ? { ...u, polygon_coordinates: polygon_coordinates as any } : u);
       });
-      return {};
+      return { prev };
     },
-    onError: () => {},
+    onError: (_err, _vars, ctx) => {
+      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
@@ -591,13 +607,16 @@ export function useUpdateUnitFields(sheetId: string) {
     },
     onMutate: async ({ unitId, updates }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
+      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
       queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => {
         if (!old) return old;
         return old.map(u => u.id === unitId ? { ...u, ...updates } as Unit : u);
       });
-      return {};
+      return { prev };
     },
-    onError: () => {},
+    onError: (_err, _vars, ctx) => {
+      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
@@ -634,14 +653,17 @@ export function useRecalculateSheetAreas(sheetId: string) {
     },
     onMutate: async (updates) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
+      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
       const byId = new Map(updates.map(u => [u.unitId, u.computed_area]));
       queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => {
         if (!old) return old;
         return old.map(u => byId.has(u.id) ? { ...u, computed_area: byId.get(u.id) ?? null } : u);
       });
-      return {};
+      return { prev };
     },
-    onError: () => {},
+    onError: (_err, _vars, ctx) => {
+      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
@@ -653,16 +675,23 @@ export function useDeleteUnit(sheetId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (unitId: string) => {
-      await supabase.from('status_logs').delete().eq('unit_id', unitId);
+      // The status rows go first (FK-safe) and their delete error must surface
+      // too — a failed log delete followed by a "successful" mutation would
+      // leave the slot rows orphaned while the UI reports the unit deleted.
+      const { error: logError } = await supabase.from('status_logs').delete().eq('unit_id', unitId);
+      if (logError) throw logError;
       const { error } = await supabase.from('units').delete().eq('id', unitId);
       if (error) throw error;
     },
     onMutate: async (unitId) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
+      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
       queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => old ? old.filter(u => u.id !== unitId) : old);
-      return {};
+      return { prev };
     },
-    onError: () => {},
+    onError: (_err, _vars, ctx) => {
+      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });

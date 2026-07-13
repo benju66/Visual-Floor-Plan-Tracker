@@ -415,7 +415,11 @@ export default function WorkbenchTracer({ drawing }: { drawing: WorkbenchDrawing
             groupKey: sheetId,
           });
         }
-        deleteUnit.mutate(id);
+        // The hook rolls the optimistic removal back on failure; this is the
+        // matching message so a reappearing label never fails silently.
+        deleteUnit.mutate(id, {
+          onError: (err: Error) => window.alert(`Couldn't delete the label: ${err.message}. It was not removed.`),
+        });
       });
     },
     [deleteUnit, units, sheetId],

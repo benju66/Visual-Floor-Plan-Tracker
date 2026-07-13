@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { makeTestQueryClient } from '@/test/renderWithQuery';
 import type { StatusLog, Unit } from '@/types/domain';
 import type { UpdateStatusVars } from '@/types/mutations';
@@ -32,6 +32,29 @@ const upsert = vi.fn();
 const insert = vi.fn();
 const unitsEq = vi.fn();
 const unitsSelect = vi.fn(() => ({ eq: unitsEq }));
+
+// Unit-CRUD write chains (the rollback contract tests): one switchable failure
+// simulates the server rejecting the write. Verbs resolve supabase-style
+// ({ data, error }) — builders never throw, the hooks check `error`.
+let unitsWriteError: { message: string } | null = null;
+const unitsWriteResult = () => Promise.resolve(
+  unitsWriteError
+    ? { data: null, error: unitsWriteError }
+    : { data: { id: 'u-new', unit_number: 'Saved' }, error: null },
+);
+const unitsInsert = vi.fn(() => ({ select: () => ({ single: unitsWriteResult }) }));
+// useUpdateUnitFields chains .eq().select().single(); useRecalculateSheetAreas
+// awaits .eq() directly — so the eq() result is BOTH chainable and thenable.
+const unitsUpdateEq = {
+  select: () => ({ single: unitsWriteResult }),
+  then: (
+    onFulfilled: (v: { data: unknown; error: unknown }) => unknown,
+    onRejected?: (e: unknown) => unknown,
+  ) => unitsWriteResult().then(onFulfilled, onRejected),
+};
+const unitsUpdate = vi.fn(() => ({ eq: () => unitsUpdateEq }));
+const unitsDelete = vi.fn(() => ({ eq: () => unitsWriteResult() }));
+const statusLogsDelete = vi.fn(() => ({ eq: () => Promise.resolve({ error: null }) }));
 
 // Paginated-read stub for the fetchAllIn / inlined-paginateAll chains:
 // select().in(ids)[.eq().not()].order().range(from, to) resolves a slice of
@@ -69,11 +92,11 @@ function pagedChain(table: string): PagedChain {
 }
 
 const from = vi.fn((table: string) => {
-  if (table === 'units') return { select: unitsSelect };
+  if (table === 'units') return { select: unitsSelect, insert: unitsInsert, update: unitsUpdate, delete: unitsDelete };
   if (table === 'status_audit_log') return pagedChain(table);
   // status_logs (+ any other write table): tracked write spies, plus the paged
   // read chain for the bulk keep-existing readback (fetchAllIn).
-  return { upsert, insert, select: pagedChain(table).select };
+  return { upsert, insert, delete: statusLogsDelete, select: pagedChain(table).select };
 });
 
 vi.mock('@/supabaseClient', () => ({
@@ -90,7 +113,11 @@ import {
   useBulkUpdateStatus,
   useBulkInsertStatusLogs,
   useStatusHistory,
+  useCreateUnit,
+  useUpdateUnitFields,
+  useDeleteUnit,
 } from './useProjectQueries';
+import { queryKeys } from '@/types/queryKeys';
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = makeTestQueryClient();
@@ -104,6 +131,11 @@ beforeEach(() => {
   insert.mockReset().mockResolvedValue({ data: null, error: null });
   unitsEq.mockReset();
   unitsSelect.mockClear();
+  unitsInsert.mockClear();
+  unitsUpdate.mockClear();
+  unitsDelete.mockClear();
+  statusLogsDelete.mockClear();
+  unitsWriteError = null;
   from.mockClear();
   rangeCalls = [];
   pagedRows = {};
@@ -536,5 +568,88 @@ describe('useBulkUpdateStatus — keep-existing readback is paginated', () => {
     expect(rows[0].temporal_state).toBe('ongoing');
     expect(rows[0].planned_start_date).toBe('2026-07-01');
     expect(rows[0].logged_date).toBeNull();
+  });
+});
+
+// ── Unit CRUD: optimistic rollback on failure (audit Group A1) ───────────────
+// These mutations are ONLINE-ONLY (never the offline queue), so a failure is
+// final. Before the fix each hook had an empty onError: a failed create left a
+// phantom, unsaveable location on the canvas; a failed delete hid a location
+// that still exists. Pin the contract: on failure the units cache is restored
+// to EXACTLY its pre-mutation state (never left mutated, never over-restored).
+describe('unit CRUD mutations — optimistic rollback on failure', () => {
+  const seeded = () => {
+    // The harness default gcTime: 0 would garbage-collect the seeded (observer-
+    // less) units query between the mutation and the assertion — keep the cache
+    // alive so the tests read what the CANVAS would actually see.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity },
+        mutations: { retry: false },
+      },
+    });
+    const existing = [
+      { id: 'u1', unit_number: 'Room 101', computed_area: 50 },
+    ] as unknown as Unit[];
+    client.setQueryData(queryKeys.units('sheet-1'), existing);
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return { client, seededWrapper };
+  };
+  const unitIds = (client: QueryClient) =>
+    (client.getQueryData<Unit[]>(queryKeys.units('sheet-1')) ?? []).map(u => u.id);
+
+  it('a failed create removes the phantom temp unit from the cache', async () => {
+    unitsWriteError = { message: 'insert denied' };
+    const { client, seededWrapper } = seeded();
+    const { result } = renderHook(() => useCreateUnit('sheet-1'), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({ sheet_id: 'sheet-1', unit_number: 'New Room' }),
+      ).rejects.toMatchObject({ message: 'insert denied' });
+    });
+
+    // The optimistic temp_ unit is gone; the cache is exactly the pre-save state.
+    expect(unitIds(client)).toEqual(['u1']);
+  });
+
+  it('a successful create keeps the optimistic unit (rollback only fires on error)', async () => {
+    const { client, seededWrapper } = seeded();
+    const { result } = renderHook(() => useCreateUnit('sheet-1'), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ sheet_id: 'sheet-1', unit_number: 'New Room' });
+    });
+
+    expect(unitIds(client)).toHaveLength(2); // u1 + the optimistic add
+  });
+
+  it('a failed field update restores the previous values', async () => {
+    unitsWriteError = { message: 'update denied' };
+    const { client, seededWrapper } = seeded();
+    const { result } = renderHook(() => useUpdateUnitFields('sheet-1'), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({ unitId: 'u1', updates: { unit_number: 'Renamed' } }),
+      ).rejects.toMatchObject({ message: 'update denied' });
+    });
+
+    const [u1] = client.getQueryData<Unit[]>(queryKeys.units('sheet-1')) ?? [];
+    expect(u1.unit_number).toBe('Room 101'); // not left showing the failed rename
+  });
+
+  it('a failed delete restores the unit — it still exists in the DB', async () => {
+    unitsWriteError = { message: 'delete denied' };
+    const { client, seededWrapper } = seeded();
+    const { result } = renderHook(() => useDeleteUnit('sheet-1'), { wrapper: seededWrapper });
+
+    await act(async () => {
+      await expect(result.current.mutateAsync('u1')).rejects.toMatchObject({ message: 'delete denied' });
+    });
+
+    expect(unitIds(client)).toEqual(['u1']); // the location is back, matching reality
   });
 });
