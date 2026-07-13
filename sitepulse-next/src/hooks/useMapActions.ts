@@ -810,9 +810,11 @@ export function useMapActions(project: Project | null | undefined) {
                activity_id: target.activityId,
                color: target.color,
                temporal_state: 'planned',
-               track,
-               planned_start_date: null,
-               planned_end_date: null
+               track
+               // Planned dates are omitted on purpose (omit-preserves): the teed-up slot
+               // may already carry an imported/cascaded planned window on its 'none' row —
+               // never wipe it. The bulk hook sends logged_date explicit-null for a
+               // non-completed state, so the fresh slot stays clean (single-path parity).
             });
             groupIds.forEach(id => advancedLogs.push({ unit_id: id, activity_id: target.activityId, activityName: target.activityName, status_color: target.color, temporal_state: 'planned', track }));
           }

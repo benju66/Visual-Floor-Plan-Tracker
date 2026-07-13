@@ -69,8 +69,11 @@ export default function BulkActionDock({
       color: targetColor,
       temporal_state: selectedState,
       track: trackingMode,
-      planned_start_date: startDate || null,
-      planned_end_date: endDate || null
+      // Empty date inputs mean "don't touch the stored planned window" — send the keys
+      // as undefined so the bulk hook omits them from the write (omit-preserves). An
+      // explicit null here would be treated as a CLEAR and wipe imported/cascaded dates.
+      planned_start_date: startDate || undefined,
+      planned_end_date: endDate || undefined
     });
     
     // Clear selection after a successful application

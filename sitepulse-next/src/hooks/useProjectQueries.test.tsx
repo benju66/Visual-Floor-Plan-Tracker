@@ -258,3 +258,160 @@ describe('useBulkInsertStatusLogs — bulk upsert contract', () => {
     expect(insert).not.toHaveBeenCalled();
   });
 });
+
+// ── Bulk date integrity (Bulk Date-Clobber Fix) ──────────────────────────────
+// The bulk paths used to stamp `logged_date = today` on EVERY row whose date was
+// null — fabricating completion dates on planned/ongoing work that then survived
+// forever (commitUnitActivity preserves a prior logged_date on completion) — and
+// BulkActionDock sent untouched date inputs as explicit nulls, wiping stored
+// planned windows. These pin the corrected contract: today is stamped ONLY for a
+// completion missing its date, and an undefined planned date is OMITTED from the
+// payload so the conflict-update preserves the stored window (the same
+// omit-preserves / present-clears rule the Phase-5 RPC enforces on the single path).
+describe('useBulkUpdateStatus — bulk date-integrity contract', () => {
+  const today = new Date().toISOString().split('T')[0];
+  const applyVars = {
+    unitIds: ['u1', 'u2'],
+    activityName: 'Drywall',
+    activity_id: 'act-42',
+    color: '#3366aa',
+    track: 'Production',
+  };
+
+  const upsertedRows = (): Array<Record<string, unknown>> =>
+    (upsert.mock.calls[0] as [Array<Record<string, unknown>>])[0];
+
+  it('never fabricates a completion date on a non-completed bulk apply', async () => {
+    const { result } = renderHook(() => useBulkUpdateStatus('sheet-1'), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ ...applyVars, temporal_state: 'planned' });
+    });
+    for (const row of upsertedRows()) {
+      // Present-but-null (clears any stale completion date) — never today's date.
+      expect(row).toHaveProperty('logged_date');
+      expect(row.logged_date).toBeNull();
+    }
+  });
+
+  it('still defaults a dateless completion to today', async () => {
+    const { result } = renderHook(() => useBulkUpdateStatus('sheet-1'), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ ...applyVars, temporal_state: 'completed' });
+    });
+    for (const row of upsertedRows()) {
+      expect(row.logged_date).toBe(today);
+    }
+  });
+
+  it('omits untouched planned dates so the upsert preserves stored windows', async () => {
+    const { result } = renderHook(() => useBulkUpdateStatus('sheet-1'), { wrapper });
+    await act(async () => {
+      // No planned dates in the vars — the dock's "date inputs left empty" shape.
+      await result.current.mutateAsync({ ...applyVars, temporal_state: 'ongoing' });
+    });
+    for (const row of upsertedRows()) {
+      expect(row).not.toHaveProperty('planned_start_date');
+      expect(row).not.toHaveProperty('planned_end_date');
+    }
+  });
+
+  it('sends an explicit planned date through (set) and an empty one as null (clear)', async () => {
+    const { result } = renderHook(() => useBulkUpdateStatus('sheet-1'), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        ...applyVars,
+        temporal_state: 'planned',
+        planned_start_date: '2026-07-20',
+        planned_end_date: null,
+      });
+    });
+    for (const row of upsertedRows()) {
+      expect(row.planned_start_date).toBe('2026-07-20');
+      // Present-but-null → the write clears the stored end date (caller's explicit choice).
+      expect(row).toHaveProperty('planned_end_date');
+      expect(row.planned_end_date).toBeNull();
+    }
+  });
+
+  it("keep-existing preserves each slot's stored dates on a non-completed state change", async () => {
+    const { result } = renderHook(() => useBulkUpdateStatus('sheet-1'), { wrapper });
+    const bottleneck = {
+      unit_id: 'u1', activity_id: 'act-7', status_color: '#111111',
+      temporal_state: 'planned', track: 'Production',
+      planned_start_date: '2026-07-01', planned_end_date: '2026-07-05', logged_date: null,
+    } as unknown as StatusLog;
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        unitIds: ['u1'], activityName: '__KEEP_EXISTING__', color: '',
+        temporal_state: 'ongoing', track: 'Production', bottlenecks: [bottleneck],
+      });
+    });
+
+    const [row] = upsertedRows();
+    expect(row.temporal_state).toBe('ongoing');
+    // The slot's stored planned window rides through untouched…
+    expect(row.planned_start_date).toBe('2026-07-01');
+    expect(row.planned_end_date).toBe('2026-07-05');
+    // …and its never-completed logged_date stays null instead of becoming "today".
+    expect(row.logged_date).toBeNull();
+  });
+
+  it('keep-existing completion with no stored date stamps today (genuinely-new completion)', async () => {
+    const { result } = renderHook(() => useBulkUpdateStatus('sheet-1'), { wrapper });
+    const bottleneck = {
+      unit_id: 'u1', activity_id: 'act-7', status_color: '#111111',
+      temporal_state: 'ongoing', track: 'Production',
+      planned_start_date: null, planned_end_date: null, logged_date: null,
+    } as unknown as StatusLog;
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        unitIds: ['u1'], activityName: '__KEEP_EXISTING__', color: '',
+        temporal_state: 'completed', track: 'Production', bottlenecks: [bottleneck],
+      });
+    });
+
+    const [row] = upsertedRows();
+    expect(row.logged_date).toBe(today);
+  });
+});
+
+describe('useBulkInsertStatusLogs — never fabricates progress (schedule-write contract)', () => {
+  const today = new Date().toISOString().split('T')[0];
+
+  it('preserves an explicit null logged_date on a non-completed row', async () => {
+    const { result } = renderHook(() => useBulkInsertStatusLogs('sheet-1'), { wrapper });
+    // The shape buildImportWrites / buildRippleWrites emit for a slot with no prior
+    // progress: planned window set, `logged_date: prior?.logged_date ?? null`.
+    const logs = [{
+      unit_id: 'u1', activity_id: 'act-42', temporal_state: 'planned',
+      track: 'Production', status_color: '#3366aa',
+      planned_start_date: '2026-07-20', planned_end_date: '2026-07-24', logged_date: null,
+    }] as unknown as StatusLog[];
+
+    await act(async () => {
+      await result.current.mutateAsync(logs);
+    });
+
+    const [rows] = upsert.mock.calls[0] as [Array<Record<string, unknown>>];
+    // An import must never mark work "completed today" — the null rides through.
+    expect(rows[0].logged_date).toBeNull();
+  });
+
+  it('stamps today only for a completed row missing its date', async () => {
+    const { result } = renderHook(() => useBulkInsertStatusLogs('sheet-1'), { wrapper });
+    const logs = [
+      { unit_id: 'u1', activity_id: 'act-42', temporal_state: 'completed', track: 'Production', status_color: '#3366aa', logged_date: null },
+      { unit_id: 'u2', activity_id: 'act-42', temporal_state: 'completed', track: 'Production', status_color: '#3366aa', logged_date: '2026-06-15' },
+    ] as unknown as StatusLog[];
+
+    await act(async () => {
+      await result.current.mutateAsync(logs);
+    });
+
+    const [rows] = upsert.mock.calls[0] as [Array<Record<string, unknown>>];
+    expect(rows[0].logged_date).toBe(today); // dateless completion → backstopped
+    expect(rows[1].logged_date).toBe('2026-06-15'); // real date preserved, never re-stamped
+  });
+});

@@ -1049,7 +1049,11 @@ export function useBulkUpdateStatus(sheetId: string) {
               const clientTimestamp = new Date().toISOString();
               const safeNewLogs = newLogs.map(l => {
                 const copy = { ...l };
-                if (copy.logged_date === null) copy.logged_date = today;
+                // Today is stamped ONLY for a genuinely-new completion (state is
+                // 'completed' and no date survived the merge) — a bulk "mark Planned/
+                // Ongoing" must never fabricate a completion date (mirrors
+                // commitUnitActivity's single-path rule).
+                if (copy.logged_date === null && temporal_state === 'completed') copy.logged_date = today;
                 delete copy.created_at;
                 delete copy.id;
                 copy.client_timestamp = clientTimestamp;
@@ -1061,22 +1065,28 @@ export function useBulkUpdateStatus(sheetId: string) {
           }
         } else {
           if (activity_id && temporal_state !== '__KEEP_EXISTING__') {
+            // Completion date: honor a caller-supplied value; otherwise today ONLY for a
+            // completion, explicit-null for every other state (present-clears — a slot
+            // re-marked planned/ongoing must not keep, or gain, a completion date).
             const finalLoggedDate = logged_date !== undefined ? logged_date : (temporal_state === 'completed' ? new Date().toISOString().split('T')[0] : null);
             const clientTimestamp = new Date().toISOString();
             const newLogs = chunkIds.map(id => {
-              const baseLog = {
+              const baseLog: Record<string, unknown> = {
                 unit_id: id,
                 activity_id: activity_id as string,
                 status_color: color,
                 temporal_state,
                 track,
-                planned_start_date: planned_start_date || null,
-                planned_end_date: planned_end_date || null,
                 logged_date: finalLoggedDate,
                 client_timestamp: clientTimestamp
               };
-              const today = new Date().toISOString().split('T')[0];
-              if (baseLog.logged_date === null) baseLog.logged_date = today;
+              // Omit-preserves, present-clears (the Phase-5 RPC contract, applied to the
+              // bulk upsert): an undefined planned date is OMITTED so the conflict-update
+              // leaves the stored window untouched; an explicit value/null/'' is sent to
+              // set/clear it. Keys stay uniform across the chunk (they derive from one
+              // caller arg), which PostgREST bulk writes require.
+              if (planned_start_date !== undefined) baseLog.planned_start_date = planned_start_date || null;
+              if (planned_end_date !== undefined) baseLog.planned_end_date = planned_end_date || null;
               return baseLog;
             });
 
@@ -1109,6 +1119,13 @@ export function useBulkUpdateStatus(sheetId: string) {
           });
         }
         
+        // Prior rows for this slot, read BEFORE filtering: an omitted planned date
+        // preserves the stored window in the cache exactly as the omit-preserves
+        // upsert does in the DB (keeps cache and server in agreement).
+        const priorBySlot = new Map<string, StatusLog>();
+        for (const s of old) {
+          if (unitIds.includes(s.unit_id as string) && s.activity_id === activity_id) priorBySlot.set(s.unit_id as string, s);
+        }
         const filtered = old.filter(s => !(unitIds.includes(s.unit_id as string) && s.activity_id === activity_id));
 
         if (activityName === null || activity_id == null || temporal_state === '__KEEP_EXISTING__') {
@@ -1125,8 +1142,8 @@ export function useBulkUpdateStatus(sheetId: string) {
           status_color: color,
           temporal_state: temporal_state as TemporalState,
           track,
-          planned_start_date: planned_start_date || null,
-          planned_end_date: planned_end_date || null,
+          planned_start_date: planned_start_date !== undefined ? (planned_start_date || null) : (priorBySlot.get(id)?.planned_start_date ?? null),
+          planned_end_date: planned_end_date !== undefined ? (planned_end_date || null) : (priorBySlot.get(id)?.planned_end_date ?? null),
           logged_date: finalLoggedDate,
           created_at: now,
           client_timestamp: now
@@ -1155,7 +1172,11 @@ export function useBulkInsertStatusLogs(sheetId: string) {
       const clientTimestamp = new Date().toISOString();
       const safeLogs = logsArray.map(log => {
         const copy = { ...log } as any;
-        if (copy.logged_date === null) {
+        // The feeders (import / cascade / ripple) deliberately carry prior progress
+        // through (`prior?.logged_date ?? null`) under the contract that a schedule
+        // write never fabricates progress. Today is stamped ONLY when the row itself
+        // records a completion missing its date; null on any other state stays null.
+        if (copy.logged_date === null && copy.temporal_state === 'completed') {
           copy.logged_date = today;
         }
         delete copy.created_at;
