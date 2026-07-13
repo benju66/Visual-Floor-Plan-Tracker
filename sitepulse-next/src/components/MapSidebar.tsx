@@ -11,6 +11,7 @@ import {
 import type { ApplicabilityIndex } from '@/utils/applicability';
 import UnitInspector from './UnitInspector';
 import type { Activity, Unit, Sheet, StatusLog, TemporalState } from '@/types/domain';
+import type { CommitStatusExtraProps } from '@/types/mutations';
 import { STATUS_DOT_CLASS } from '@/utils/statusColors';
 
 export interface MapSidebarProps {
@@ -26,7 +27,7 @@ export interface MapSidebarProps {
   onRenameUnitInitiate: (id: string) => void;
   onDeleteUnit: (id: string) => void;
   onLocateUnit?: (unitId: string) => void;
-  onCommitStatus: (unit: Unit, activity: Activity, state: TemporalState, extraProps?: Record<string, unknown>) => void;
+  onCommitStatus: (unit: Unit, activity: Activity, state: TemporalState, extraProps?: CommitStatusExtraProps) => void;
   onToggleApplicability: (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState) => void;
   onOpenHistory: (unitId: string) => void;
 }

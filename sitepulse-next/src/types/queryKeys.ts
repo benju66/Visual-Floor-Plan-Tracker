@@ -25,6 +25,12 @@ export const queryKeys = {
   sheetGridlines:     (sheetId: string)         => ['sheet_gridlines', sheetId] as const,
   projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
   currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
+  // Global (cross-project) profiles directory for the admin assignment modal.
+  // The assignment save appends the newly-assigned user via setQueryData.
+  globalTeamDirectory: ()                        => ['global_team_directory'] as const,
+  // The signed-in user's own profile display name (Settings → Profile). The
+  // display-name save invalidates it.
+  profileDisplayName: (userId: string)          => ['profile_display_name', userId] as const,
   subtypes:           ()                         => ['subtypes'] as const,
   // Global governed activity dictionary (Scheduling Foundation Slice A, Phase 2).
   // Cross-project (not project-scoped) — keyed globally + shared across projects,

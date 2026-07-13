@@ -38,6 +38,7 @@ import QuickActivityModal from '@/components/QuickActivityModal';
 import { exportToPDFService, uploadFloorplanService, attachOriginalService, type ExportPDFPayload } from '@/services/api';
 import { prefetchOriginalPdfs } from '@/utils/pdfSource';
 import { isStringArray, type Unit, type Activity, type Subtype, type TemporalState } from '@/types/domain';
+import type { CommitStatusExtraProps } from '@/types/mutations';
 import type { Toast } from '@/store/useUIStore';
 
 // ── Typed boundaries for still-untyped (.jsx) modals ──
@@ -567,8 +568,11 @@ function App() {
       style={{ fontFamily: 'sans-serif', background: 'var(--bg)' }}
     >
       <div style={{ display: 'none' }}>
+        {/* tile_manifest_url is a vestigial column (§5 — OpenSeadragon removed);
+            gating on it silently skipped the preload for legacy sheets with a
+            stale manifest value. Preload every sheet that has a base image. */}
         {sheets.map(sheet => (
-          sheet.base_image_url && !sheet.tile_manifest_url && <img key={sheet.id} src={sheet.base_image_url} alt="preload" />
+          sheet.base_image_url && <img key={sheet.id} src={sheet.base_image_url} alt="preload" />
         ))}
       </div>
       <TopHeader
@@ -821,7 +825,7 @@ function App() {
             ? (mapDisplayStatuses.find(s => s.unit_id === quickStatusUnitId && s.track === trackingMode)?.temporal_state || 'none')
             : 'none'
         }
-        onCommit={(unitId: string, type: 'status' | 'activity', val: string, extraProps: Record<string, unknown> = {}) => {
+        onCommit={(unitId: string, type: 'status' | 'activity', val: string, extraProps: CommitStatusExtraProps = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
              extraProps.activityObj = { id: bottleneck.activity_id, name: bottleneck.activityName, color: bottleneck.status_color, track: trackingMode };
@@ -840,10 +844,10 @@ function App() {
             : null
         }
         activities={activities.filter(m => m.track === trackingMode)}
-        onCommit={(unitId: string, type: 'status' | 'activity', val: string, extraProps: Record<string, unknown> = {}) => {
+        onCommit={(unitId: string, type: 'status' | 'activity', val: string, extraProps: CommitStatusExtraProps = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
-             extraProps.temporal_state = bottleneck.temporal_state;
+             extraProps.temporal_state = bottleneck.temporal_state as TemporalState;
           }
           handleQuickUpdate(unitId, type, val, extraProps);
         }}

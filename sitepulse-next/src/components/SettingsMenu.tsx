@@ -4,7 +4,7 @@ import { useUpdateSheetScopes, useAllProjectUnits, useClearProjectUnitTypes, use
 import { parseProcoreDirectoryCsv } from '@/utils/procoreDirectoryCsv';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/types/queryKeys';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
 import type { Activity, Sheet, ProjectContact } from '@/types/domain';
@@ -420,15 +420,22 @@ export default function SettingsMenu({
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   
-  // Set initial display name
+  // Saved display name — fetched via TanStack Query (§2: never useState+useEffect
+  // for DB data); cached across opens and invalidated by the save button. The one
+  // remaining effect below only SYNCS the cached value into the editable input.
+  const userId = session?.user?.id ?? '';
+  const { data: savedDisplayName } = useQuery({
+    queryKey: queryKeys.profileDisplayName(userId),
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await supabase.from('profiles').select('display_name').eq('id', userId).maybeSingle();
+      if (error) throw error;
+      return (data as { display_name: string | null } | null)?.display_name ?? null;
+    },
+    enabled: !!userId,
+  });
   useEffect(() => {
-    async function loadProfile() {
-      if (!session?.user?.id) return;
-      const { data } = await supabase.from('profiles').select('display_name').eq('id', session.user.id).single();
-      if ((data as any)?.display_name) setDisplayNameInput((data as any).display_name);
-    }
-    loadProfile();
-  }, [session]);
+    if (savedDisplayName) setDisplayNameInput(savedDisplayName);
+  }, [savedDisplayName]);
 
   const uniqueScopes = [...new Set(activities.map(m => m.track))];
   if (uniqueScopes.length === 0) uniqueScopes.push('Production');
@@ -1187,7 +1194,11 @@ export default function SettingsMenu({
                       // save shows the button returning to normal as if saved.
                       const { error } = await supabase.from('profiles').upsert({ id: session.user.id, display_name: displayNameInput } as any);
                       setIsSavingProfile(false);
-                      if (error) window.alert(`Couldn't update your display name: ${error.message}`);
+                      if (error) {
+                        window.alert(`Couldn't update your display name: ${error.message}`);
+                      } else {
+                        queryClient.invalidateQueries({ queryKey: queryKeys.profileDisplayName(session.user.id) });
+                      }
                     }}
                     className="w-full sm:w-auto px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold rounded-lg shadow-sm hover:opacity-90 transition-opacity disabled:opacity-50"
                   >

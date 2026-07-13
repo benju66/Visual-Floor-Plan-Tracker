@@ -9,6 +9,7 @@ import { summarizeUnit } from '@/utils/unitProgress';
 import { formatArea } from '@/utils/scale';
 import { useUnitHistory, useProjectMembers } from '@/hooks/useProjectQueries';
 import type { Activity, StatusLog, TemporalState, Unit } from '@/types/domain';
+import type { CommitStatusExtraProps } from '@/types/mutations';
 import { STATUS_DOT_CLASS } from '@/utils/statusColors';
 
 export interface UnitInspectorProps {
@@ -23,7 +24,7 @@ export interface UnitInspectorProps {
   onRenameUnitInitiate: (id: string) => void;
   onDeleteUnit: (id: string) => void;
   /** Immediate commit — same path the map quick-edit uses (commitUnitActivity). */
-  onCommitStatus: (unit: Unit, activity: Activity, state: TemporalState, extraProps?: Record<string, unknown>) => void;
+  onCommitStatus: (unit: Unit, activity: Activity, state: TemporalState, extraProps?: CommitStatusExtraProps) => void;
   onToggleApplicability: (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState) => void;
   onOpenHistory: (unitId: string) => void;
 }

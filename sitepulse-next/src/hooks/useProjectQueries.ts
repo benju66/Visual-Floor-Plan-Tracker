@@ -1056,7 +1056,14 @@ export function useBulkUpdateStatus(sheetId: string) {
 
         if (keepExisting) {
           if (temporal_state !== '__KEEP_EXISTING__') {
-            const newLogs: any[] = [];
+            // Write rows for the (unit_id, activity_id) upsert — always fully
+            // formed here (both branches pick explicit fields; id/created_at
+            // never ride a write). client_timestamp is stamped on the safe copy.
+            type SlotWrite = Pick<StatusLog,
+              'unit_id' | 'activity_id' | 'status_color' | 'temporal_state' | 'track' |
+              'planned_start_date' | 'planned_end_date' | 'logged_date'
+            > & { client_timestamp?: StatusLog['client_timestamp'] };
+            const newLogs: SlotWrite[] = [];
 
             if (bottlenecks && bottlenecks.length > 0) {
               for (const id of chunkIds) {
@@ -1114,15 +1121,12 @@ export function useBulkUpdateStatus(sheetId: string) {
               const today = new Date().toISOString().split('T')[0];
               const clientTimestamp = new Date().toISOString();
               const safeNewLogs = newLogs.map(l => {
-                const copy = { ...l };
+                const copy = { ...l, client_timestamp: clientTimestamp };
                 // Today is stamped ONLY for a genuinely-new completion (state is
                 // 'completed' and no date survived the merge) — a bulk "mark Planned/
                 // Ongoing" must never fabricate a completion date (mirrors
                 // commitUnitActivity's single-path rule).
                 if (copy.logged_date === null && temporal_state === 'completed') copy.logged_date = today;
-                delete copy.created_at;
-                delete copy.id;
-                copy.client_timestamp = clientTimestamp;
                 return copy;
               });
               const { error: upsertError } = await supabase.from('status_logs').upsert(safeNewLogs, { onConflict: 'unit_id,activity_id' });

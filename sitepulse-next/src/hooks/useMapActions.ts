@@ -8,6 +8,7 @@ import {
   useDeleteUnit, useUpdateStatus, useClearStatus, useUpdateActivity, useBulkUpdateStatus
 } from '@/hooks/useProjectQueries';
 import type { Project, Unit, PercentPoint, StatusLog, Activity, TemporalState, Sheet, ActivityOverride, TopLevelRole } from '@/types/domain';
+import type { BulkUpdateStatusVars, CommitStatusExtraProps } from '@/types/mutations';
 import { queryKeys } from '@/types/queryKeys';
 import { buildApplicabilityIndex } from '@/utils/applicability';
 import { planAutoAdvance, type AutoAdvanceTarget } from '@/utils/autoAdvance';
@@ -507,7 +508,7 @@ export function useMapActions(project: Project | null | undefined) {
     activity: Partial<Activity> & { isClearAction?: boolean },
     currentTemporalState: TemporalState = 'none',
     isUndoRedo = false,
-    extraProps: any = {}
+    extraProps: CommitStatusExtraProps = {}
   ): Promise<{ ok: boolean }> => {
     setSavingUnitId(unit.id);
     const activeSheetStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
@@ -697,7 +698,7 @@ export function useMapActions(project: Project | null | undefined) {
     }
   };
 
-  const handleQuickUpdate = (unitId: string, type: 'status' | 'activity', value: string, extraProps: any = {}) => {
+  const handleQuickUpdate = (unitId: string, type: 'status' | 'activity', value: string, extraProps: CommitStatusExtraProps = {}) => {
     const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
     const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
     const activities = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
@@ -735,7 +736,9 @@ export function useMapActions(project: Project | null | undefined) {
     }
   };
 
-  const handleApplyBulkStatus = async ({ unitIds, activityName, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks = [] }: any, isUndoRedo = false) => {
+  // The vars the bulk dock supplies — everything the mutation needs except the
+  // stable activity_id, which THIS handler resolves from the name (below).
+  const handleApplyBulkStatus = async ({ unitIds, activityName, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks = [] }: Omit<BulkUpdateStatusVars, 'activity_id'>, isUndoRedo = false) => {
     const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
     const activitiesForBulk = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
     // Resolve the applied activity name → its stable activity_id (the slot key). Null

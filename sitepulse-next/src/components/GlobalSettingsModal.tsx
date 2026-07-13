@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings, Folder, Trash2, AlertTriangle, Sparkles, ListChecks, Hash } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/supabaseClient';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/types/queryKeys';
 import { useAuth } from '@/providers/AuthProvider';
 import LocationLibraryPanel from '@/components/taxonomy/LocationLibraryPanel';
 import ActivityLibraryPanel from '@/components/schedule/ActivityLibraryPanel';
@@ -94,38 +95,26 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
   const [trainingOverrides, setTrainingOverrides] = useState<Record<string, boolean>>({});
   const [trainingSavingId, setTrainingSavingId] = useState<string | null>(null);
 
-  // New State for Global Team
-  const [globalTeam, setGlobalTeam] = useState<TeamMember[]>([]);
-  const [loadingTeam, setLoadingTeam] = useState(false);
-
-  useEffect(() => {
-    async function fetchGlobalTeam() {
-      if (!isOpen || !adminProjects || adminProjects.length === 0) return;
-
-      setLoadingTeam(true);
-
+  // Global team directory — fetched via TanStack Query (§2: never
+  // useState+useEffect for DB data). Cached across opens; the assignment save
+  // appends a newly-assigned user to this cache via setQueryData.
+  const { data: globalTeam = [], isLoading: loadingTeam } = useQuery({
+    queryKey: queryKeys.globalTeamDirectory(),
+    queryFn: async (): Promise<TeamMember[]> => {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, email, display_name');
-
-      if (data && !error) {
-        // Sort alphabetically by display_name or email. `email` is asserted
-        // non-null here (see TeamMember) — every profile carries a login email.
-        const allUsers = (data as TeamMember[]).sort((a, b) => {
-          const nameA = (a.display_name || a.email).toLowerCase();
-          const nameB = (b.display_name || b.email).toLowerCase();
-          return nameA.localeCompare(nameB);
-        });
-
-        setGlobalTeam(allUsers);
-      } else {
-        console.error("Error fetching global team:", error);
-      }
-      setLoadingTeam(false);
-    }
-
-    fetchGlobalTeam();
-  }, [isOpen, adminProjects]);
+      if (error) throw error;
+      // Sort alphabetically by display_name or email. `email` is asserted
+      // non-null here (see TeamMember) — every profile carries a login email.
+      return (data as TeamMember[]).sort((a, b) => {
+        const nameA = (a.display_name || a.email).toLowerCase();
+        const nameB = (b.display_name || b.email).toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+    },
+    enabled: isOpen && !!adminProjects && adminProjects.length > 0,
+  });
 
   // When modal closes, reset state
   useEffect(() => {
@@ -292,16 +281,15 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
       } else {
         setSaveStatus({ type: 'success', message: 'All assignments updated successfully!' });
 
-        // Add new user to global team list instantly if they aren't there
-        setGlobalTeam(prev => {
-          if (!prev.find(u => u.id === targetUser.id)) {
-            return [...prev, targetUser].sort((a, b) => {
-              const nameA = (a.display_name || a.email).toLowerCase();
-              const nameB = (b.display_name || b.email).toLowerCase();
-              return nameA.localeCompare(nameB);
-            });
-          }
-          return prev;
+        // Add new user to the cached global team list instantly if they aren't there
+        queryClient.setQueryData<TeamMember[]>(queryKeys.globalTeamDirectory(), prev => {
+          const list = prev ?? [];
+          if (list.find(u => u.id === targetUser.id)) return list;
+          return [...list, targetUser].sort((a, b) => {
+            const nameA = (a.display_name || a.email).toLowerCase();
+            const nameB = (b.display_name || b.email).toLowerCase();
+            return nameA.localeCompare(nameB);
+          });
         });
       }
 
