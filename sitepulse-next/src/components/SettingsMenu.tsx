@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, X, Palette, Monitor, PenTool, Plus, Trash2, Pencil, Calendar, CalendarRange, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle, Layers } from 'lucide-react';
-import { useUpdateSheetScopes, useAllProjectUnits, useUpdateUnitFields, useUpdateSheetScale, useProject, useUpdateProject, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, useImportProjectContacts, type ProjectContactFields } from '@/hooks/useProjectQueries';
+import { useUpdateSheetScopes, useAllProjectUnits, useClearProjectUnitTypes, useUpdateSheetScale, useProject, useUpdateProject, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, useImportProjectContacts, type ProjectContactFields } from '@/hooks/useProjectQueries';
 import { parseProcoreDirectoryCsv } from '@/utils/procoreDirectoryCsv';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
@@ -437,7 +437,7 @@ export default function SettingsMenu({
 
   const updateSheetScopesMutation = useUpdateSheetScopes(projectId);
   const updateSheetScaleMutation = useUpdateSheetScale(projectId);
-  const updateUnitFieldsMutation = useUpdateUnitFields('');
+  const clearUnitTypesMutation = useClearProjectUnitTypes();
   const updateMemberRoleMutation = useUpdateProjectMemberRole(projectId);
 
   const { data: project } = useProject(projectId);
@@ -1104,16 +1104,27 @@ export default function SettingsMenu({
               
               <div className="border-t border-slate-200 dark:border-white/10 pt-4">
                 <h3 className="font-bold text-sm mb-3 text-red-600 dark:text-red-400">Danger Zone</h3>
+                {/* Label matches what the write actually does: it clears each
+                    location's TYPE only (assignees were never touched, despite
+                    the old "Type & Assignee" label). One chunked, error-checked
+                    bulk mutation replaces the old per-unit fire-and-forget loop
+                    that pointed at a nonexistent cache and reported nothing. */}
                 <button
                   type="button"
-                  onClick={() => {
-                    if (window.confirm("Are you sure? This will remove all assigned location types and assignees from all units in the project. This cannot be undone.")) {
-                      allUnits.forEach(u => updateUnitFieldsMutation.mutate({ unitId: u.id, updates: { unit_type: null as any } }));
+                  disabled={clearUnitTypesMutation.isPending || allUnits.length === 0}
+                  onClick={async () => {
+                    if (!window.confirm("Are you sure? This will remove the assigned location type from every location in the project. This cannot be undone.")) return;
+                    try {
+                      const n = await clearUnitTypesMutation.mutateAsync(allUnits.map(u => u.id));
+                      window.alert(`Cleared the location type on ${n} location${n === 1 ? '' : 's'}.`);
+                    } catch (err) {
+                      const message = err instanceof Error ? err.message : (err as { message?: string })?.message ?? 'unknown error';
+                      window.alert(`Couldn't clear location types: ${message}. Some locations may already have been cleared — reopen this menu to see the current state.`);
                     }
                   }}
-                  className="px-4 py-2 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/20 rounded-lg text-sm font-semibold hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors w-full sm:w-auto"
+                  className="px-4 py-2 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/20 rounded-lg text-sm font-semibold hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors w-full sm:w-auto disabled:opacity-50"
                 >
-                  Clear All Field Data (Type & Assignee)
+                  {clearUnitTypesMutation.isPending ? 'Clearing…' : 'Clear All Location Types'}
                 </button>
               </div>
             </div>

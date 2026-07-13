@@ -625,6 +625,38 @@ export function useUpdateUnitFields(sheetId: string) {
 }
 
 /**
+ * Danger-zone bulk clear of `units.unit_type` across a whole project (Settings →
+ * Location Types). Replaces the old per-unit `useUpdateUnitFields('')` fan-out,
+ * which fired one unhandled PATCH per location simultaneously, pointed its
+ * optimistic edits/invalidations at a nonexistent `units('')` cache, and
+ * reported nothing on failure. Chunked (200 ids/request — the same URL-limit
+ * rule as fetchAllIn), error-checked, and deliberately NOT optimistic — on
+ * settle the `['units']` prefix invalidation refetches every sheet's list to
+ * server truth. Returns the number of locations cleared.
+ */
+export function useClearProjectUnitTypes() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async (unitIds: string[]): Promise<number> => {
+      const ID_CHUNK = 200;
+      for (let i = 0; i < unitIds.length; i += ID_CHUNK) {
+        const { error } = await supabase
+          .from('units')
+          .update({ unit_type: null })
+          .in('id', unitIds.slice(i, i + ID_CHUNK));
+        if (error) throw error;
+      }
+      return unitIds.length;
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['units'] });
+      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+    }
+  });
+}
+
+/**
  * Bulk-refresh `units.computed_area` for a drawing (Scale, Measure & Production
  * Rates — Phase 3, "Recalculate areas"). The caller (ScaleControl) has already
  * recomputed each area from the sheet's current `scale_units_per_px`; this hook

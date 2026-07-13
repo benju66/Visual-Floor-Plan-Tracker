@@ -52,7 +52,12 @@ const unitsUpdateEq = {
     onRejected?: (e: unknown) => unknown,
   ) => unitsWriteResult().then(onFulfilled, onRejected),
 };
-const unitsUpdate = vi.fn(() => ({ eq: () => unitsUpdateEq }));
+// update().in(ids) is the danger-zone bulk clear path; record its chunks.
+let unitsUpdateInCalls: string[][] = [];
+const unitsUpdate = vi.fn(() => ({
+  eq: () => unitsUpdateEq,
+  in: (_col: string, ids: string[]) => { unitsUpdateInCalls.push(ids); return unitsWriteResult(); },
+}));
 const unitsDelete = vi.fn(() => ({ eq: () => unitsWriteResult() }));
 const statusLogsDelete = vi.fn(() => ({ eq: () => Promise.resolve({ error: null }) }));
 
@@ -116,6 +121,7 @@ import {
   useCreateUnit,
   useUpdateUnitFields,
   useDeleteUnit,
+  useClearProjectUnitTypes,
 } from './useProjectQueries';
 import { queryKeys } from '@/types/queryKeys';
 
@@ -136,6 +142,7 @@ beforeEach(() => {
   unitsDelete.mockClear();
   statusLogsDelete.mockClear();
   unitsWriteError = null;
+  unitsUpdateInCalls = [];
   from.mockClear();
   rangeCalls = [];
   pagedRows = {};
@@ -651,5 +658,35 @@ describe('unit CRUD mutations — optimistic rollback on failure', () => {
     });
 
     expect(unitIds(client)).toEqual(['u1']); // the location is back, matching reality
+  });
+});
+
+// ── Danger-zone bulk type clear (audit Group A4) ─────────────────────────────
+// The old implementation fired one unhandled per-unit PATCH via
+// useUpdateUnitFields('') — optimistic edits/invalidations aimed at a
+// nonexistent units('') cache, hundreds of parallel requests, zero failure
+// feedback. Pin the replacement: one mutation, chunked ≤200 ids per request,
+// and a failed chunk rejects (so the caller can tell the user).
+describe('useClearProjectUnitTypes — chunked, error-checked bulk clear', () => {
+  it('chunks the id list to ≤200 per request and reports the cleared count', async () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `u${i}`);
+    const { result } = renderHook(() => useClearProjectUnitTypes(), { wrapper });
+
+    let cleared = 0;
+    await act(async () => {
+      cleared = await result.current.mutateAsync(ids);
+    });
+
+    expect(cleared).toBe(250);
+    expect(unitsUpdateInCalls.map(c => c.length)).toEqual([200, 50]);
+  });
+
+  it('a failed chunk rejects instead of silently pretending success', async () => {
+    unitsWriteError = { message: 'update denied' };
+    const { result } = renderHook(() => useClearProjectUnitTypes(), { wrapper });
+
+    await act(async () => {
+      await expect(result.current.mutateAsync(['u1'])).rejects.toMatchObject({ message: 'update denied' });
+    });
   });
 });
