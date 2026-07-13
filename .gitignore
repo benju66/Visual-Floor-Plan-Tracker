@@ -90,3 +90,9 @@ docs/procore_project_directory_export.csv
 /*.png
 /*.pdf
 sitepulse-next/Notes/exports/
+
+# Generated analysis output / verification screenshots (CLAUDE.md: artifacts/ is
+# generated, not source). `artifacts/*` (not `artifacts/`) so the negation below
+# can re-include the one deliberately tracked file.
+artifacts/*
+!artifacts/analysis_results.md
