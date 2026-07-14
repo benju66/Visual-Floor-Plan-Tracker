@@ -67,7 +67,7 @@ The user is the product owner, not a trained developer. When responding:
 - Stick to Tailwind utilities for new implementations; do not introduce custom CSS files unless fundamentally required for Konva DOM overlays.
 
 ## 5. Hybrid Vector-Snapping Engine
-- The backend parses CAD/PDF files via PyMuPDF into percentage-normalized line data.
+- The backend parses CAD/PDF files via PyMuPDF into percentage-normalized line data. Extraction output is filtered/deduped, **5-decimal-rounded, and hard-capped at the `VECTOR_CAP_LINES` longest segments** (default 40k, env-overridable) so the `sheet_vectors` upsert always fits the database's 8s `statement_timeout` (a role-level DB setting, not in this repo). Do not remove the cap or store unrounded coords — pinned by `sitepulse-backend/tests/test_vector_extraction.py`.
 - The frontend loads this array via `useSnappingVectors()` (which checks the `sheet_vectors` cache table first, then falls back to the backend API with write-through caching).
 - **CRITICAL:** Do NOT attempt to persist instantiated `RBush` class objects into TanStack Query state, as this will crash the `@tanstack/react-query-persist-client` IndexedDB serialization. Always return raw JSON arrays from the hook, and instantiate `RBush` inside `useState` + deferred `useEffect(setTimeout(10))` blocks on the rendering side to avoid blocking the initial render — the canonical home is `src/hooks/useCanvasSnapping.ts` (the canvas's snapping engine, consumed by `FloorplanCanvas`).
 - Rely on `getSnappedCoordinate()` in `src/utils/geometry.ts` for aspect-ratio aware mathematical snapping and "Gravity" corner-snapping. The `mixAlpha()` utility in the same file is the single source of truth for CSS color → rgba() conversion (handles hex, rgb, rgba inputs).

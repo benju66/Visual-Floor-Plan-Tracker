@@ -571,6 +571,35 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
 # IndexedDB-persisted query cache small (see AGENTS.md §5/§7).
 MIN_SEGMENT_PTS = 1.0
 
+# Hard cap on snapping vectors per sheet. A pathologically dense sheet can still
+# yield ~66k lines AFTER the filters above, and that payload is too large for the
+# sheet_vectors upsert to finish inside the DB's 8s statement_timeout (a role
+# setting on authenticated/authenticator — configured in the database, not this
+# repo). Over the cap we keep the LONGEST segments: walls are long; the tail is
+# dimension ticks / hatching that snapping can't use anyway. Prod sheets up to
+# ~43k lines write comfortably; 40k leaves margin under the 8s cliff.
+VECTOR_CAP_LINES = int(os.environ.get("VECTOR_CAP_LINES", "40000"))
+
+
+def cap_vector_payload(lines: list, width: float, height: float, cap: int) -> list:
+    """Keep at most `cap` segments, preferring the longest.
+
+    Under the cap the input is returned unchanged. Over it, segments are ranked
+    by true length in PDF points (pct deltas scaled by the page dimensions, so
+    ranking is aspect-correct like the MIN_SEGMENT_PTS filter), ties broken by
+    original position, and the survivors are returned in original order.
+    """
+    if len(lines) <= cap:
+        return lines
+
+    def length_sq(line):
+        dx = (line["end"]["pctX"] - line["start"]["pctX"]) * width
+        dy = (line["end"]["pctY"] - line["start"]["pctY"]) * height
+        return dx * dx + dy * dy
+
+    ranked = sorted(range(len(lines)), key=lambda i: (-length_sq(lines[i]), i))
+    return [lines[i] for i in sorted(ranked[:cap])]
+
 
 def extract_vectors_from_pdf(pdf_bytes: bytes) -> list:
     """Extract structural line vectors from a PDF page.
@@ -636,9 +665,19 @@ def extract_vectors_from_pdf(pdf_bytes: bytes) -> list:
         if key in seen:
             continue
         seen.add(key)
-        clean_lines.append({"start": start, "end": end})
+        # Store the ROUNDED coords (original start->end orientation) — 5 decimals
+        # is lossless at drawing scale (~0.03px on a 10k-px sheet) and shrinks the
+        # cached JSON payload by roughly a third.
+        clean_lines.append({
+            "start": {"pctX": a[0], "pctY": a[1]},
+            "end": {"pctX": b[0], "pctY": b[1]},
+        })
 
-    return clean_lines
+    raw_count = len(clean_lines)
+    capped = cap_vector_payload(clean_lines, width, height, VECTOR_CAP_LINES)
+    if len(capped) < raw_count:
+        print(f"[INFO] vector payload capped: kept {len(capped)} of {raw_count} lines")
+    return capped
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> list:
