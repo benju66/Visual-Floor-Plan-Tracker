@@ -257,7 +257,12 @@ export type PlaybookItemInsert = Database['public']['Tables']['playbook_items'][
 export type PlaybookWithItems = Playbook & { items: PlaybookItem[] };
 
 export type TemporalState = 'planned' | 'ongoing' | 'completed' | 'none';
-export type MemberRole    = 'admin' | 'pm' | 'superintendent' | 'viewer';
+// Ground truth (2026-07-15): `'owner'` is assigned by `create_new_project` and
+// checked in RLS `role IN ('owner','admin','pm')`; `'sub'` (Subcontractor) is a
+// recognized, view-only value. The legacy misspelling `'super'` is NOT a member
+// of this union — it is normalized to `'superintendent'` via `normalizeLegacyRole`
+// (src/utils/roles.ts). Keep this in sync with `ROLES` there.
+export type MemberRole    = 'owner' | 'admin' | 'pm' | 'superintendent' | 'sub' | 'viewer';
 export type TrackName     = string;
 export type TrackingMode  = TrackName;
 

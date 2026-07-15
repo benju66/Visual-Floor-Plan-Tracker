@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useIsFetching } from '@tanstack/react-query';
 import { useCurrentUserRole } from '@/hooks/useProjectQueries';
 import { controlVisibility } from '@/utils/viewRouting';
+import { normalizeLegacyRole } from '@/utils/roles';
 import type { Project, Sheet } from '@/types/domain';
 import type { ActivityMenuState } from '@/store/useUIStore';
 import type { UndoAction } from '@/hooks/useUndoRedo';
@@ -55,7 +56,10 @@ function TopHeader({
   triggerUndo, triggerRedo, undoStack, redoStack
 }: TopHeaderProps) {
   const isFetching = useIsFetching();
-  const { data: currentUserRole } = useCurrentUserRole(project?.id as string);
+  // Normalize the legacy `'super'` value to `'superintendent'` so the gates below
+  // treat a not-yet-backfilled row as a superintendent.
+  const { data: currentUserRoleRaw } = useCurrentUserRole(project?.id as string);
+  const currentUserRole = normalizeLegacyRole(currentUserRoleRaw);
 
   // Per-view control matrix (Nav plan Phase 3): show only what this view uses.
   const vis = controlVisibility(viewMode);

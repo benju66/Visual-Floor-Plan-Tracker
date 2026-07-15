@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Settings, X, Palette, Monitor, PenTool, Plus, Trash2, Pencil, Calendar, CalendarRange, User, Users, Shield, Contact, Building2, Upload, FileText, AlertCircle, Layers } from 'lucide-react';
 import { useUpdateSheetScopes, useAllProjectUnits, useClearProjectUnitTypes, useUpdateSheetScale, useProject, useUpdateProject, useProjectMembers, useCurrentUserRole, useUpdateProjectMemberRole, useProjectContacts, useCreateProjectContact, useUpdateProjectContact, useDeleteProjectContact, useImportProjectContacts, type ProjectContactFields } from '@/hooks/useProjectQueries';
 import { parseProcoreDirectoryCsv } from '@/utils/procoreDirectoryCsv';
+import { ROLE_OPTIONS, normalizeLegacyRole, isPrivilegedRole } from '@/utils/roles';
 import { useAuth } from '@/providers/AuthProvider';
 import { supabase } from '@/supabaseClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -410,7 +411,10 @@ export default function SettingsMenu({
 }: SettingsMenuProps) {
   const { session } = useAuth() as any;
   const queryClient = useQueryClient();
-  const { data: currentUserRole } = useCurrentUserRole(projectId);
+  // Normalize the legacy `'super'` value to `'superintendent'` at the source, so
+  // every gate below treats a not-yet-backfilled row as a superintendent.
+  const { data: currentUserRoleRaw } = useCurrentUserRole(projectId);
+  const currentUserRole = normalizeLegacyRole(currentUserRoleRaw);
   const { data: projectMembers = [] } = useProjectMembers(projectId);
 
   const [activeTab, setActiveTab] = useState('appearance');
@@ -895,7 +899,7 @@ export default function SettingsMenu({
           {activeTab === 'contacts' && (
             <ContactsManager
               projectId={projectId}
-              canEdit={currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'pm' || currentUserRole === 'superintendent'}
+              canEdit={isPrivilegedRole(currentUserRole) || currentUserRole === 'superintendent'}
             />
           )}
 
@@ -1227,15 +1231,13 @@ export default function SettingsMenu({
                          <div className="flex items-center gap-3 shrink-0">
                            <select
                              disabled={member.user_id === session?.user?.id || currentUserRole !== 'admin'}
-                             value={member.role ?? ''}
+                             value={normalizeLegacyRole(member.role) ?? ''}
                              onChange={(e) => updateMemberRoleMutation.mutate({ memberId: member.id, role: e.target.value })}
                              className="text-xs font-semibold bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 outline-none disabled:opacity-50"
                            >
-                             <option value="admin">Admin</option>
-                             <option value="pm">Project Manager</option>
-                             <option value="super">Superintendent</option>
-                             <option value="sub">Subcontractor</option>
-                             <option value="viewer">Viewer</option>
+                             {ROLE_OPTIONS.map((opt) => (
+                               <option key={opt.value} value={opt.value}>{opt.label}</option>
+                             ))}
                            </select>
                            
                            {currentUserRole === 'admin' && member.user_id !== session?.user?.id && (
@@ -1302,16 +1304,14 @@ export default function SettingsMenu({
                          onChange={e => setNewMemberEmail(e.target.value)}
                          className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
                        />
-                       <select 
+                       <select
                          value={newMemberRole}
                          onChange={e => setNewMemberRole(e.target.value)}
                          className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none font-semibold w-full sm:w-40"
                        >
-                         <option value="admin">Admin</option>
-                         <option value="pm">PM</option>
-                         <option value="super">Super</option>
-                         <option value="sub">Sub</option>
-                         <option value="viewer">Viewer</option>
+                         {ROLE_OPTIONS.map((opt) => (
+                           <option key={opt.value} value={opt.value}>{opt.label}</option>
+                         ))}
                        </select>
                        <button 
                          type="submit" 
