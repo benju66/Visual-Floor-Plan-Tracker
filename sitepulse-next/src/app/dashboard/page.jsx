@@ -90,17 +90,19 @@ export default function DashboardPage() {
     
     setCreating(true);
     try {
-      // Call the server-side API route to bypass RLS issues
+      // Call the server-side API route to bypass RLS issues. Send the login token
+      // so the server derives the creating user from the VERIFIED token — the
+      // route no longer trusts a user_id in the body.
       const response = await fetch('/api/projects', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           name: newProjectName.trim(),
           procore_project_id: linkProcoreProject,
           project_type: newProjectType || null,
-          user_id: session.user.id
         }),
       });
 

@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getUserFromRequest } from '@/utils/serverAuth';
 
 // Bootstrap (find-or-create) the SINGLE hidden Location Labeling Workbench
 // container — a `projects` row flagged `kind='workbench'`. Mirrors
-// `src/app/api/projects/route.js`: it runs with the service-role key SERVER-SIDE
-// ONLY (so we never widen client RLS) and assigns the creating user the
-// `'admin'` role (a plain `.insert`, NOT the `create_new_project` RPC — same as
-// api/projects). That admin membership satisfies the privileged-write RLS on
-// workbench_sheets / sheets / units the later phases rely on.
+// `src/app/api/projects/route.js`: it requires the caller's VERIFIED login token
+// (never a body-supplied user_id — an unauthenticated caller can no longer create
+// the container or grant themselves membership), runs with the service-role key
+// SERVER-SIDE ONLY (so we never widen client RLS), and assigns the creating user
+// the `'admin'` role (a plain `.insert`, NOT the `create_new_project` RPC — same
+// as api/projects). That admin membership satisfies the privileged-write RLS on
+// workbench_sheets / sheets / units the later phases rely on. Client-facing
+// errors are generic; the real detail goes to `console.error` only.
 //
 // Lazy-create on first privileged visit (the plan's default): if a workbench
 // container already exists we return it untouched and add no membership — v1
@@ -16,14 +20,13 @@ import { createClient } from '@supabase/supabase-js';
 const WORKBENCH_CONTAINER_NAME = 'Drawing Library';
 
 export async function POST(request: Request) {
+  // Require a real login token and derive the user from it.
+  const { user, error: authError } = await getUserFromRequest(request);
+  if (authError) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: authError.status });
+  }
+
   try {
-    const body = await request.json();
-    const { user_id } = body as { user_id?: string };
-
-    if (!user_id) {
-      return NextResponse.json({ error: 'Missing user_id' }, { status: 400 });
-    }
-
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL as string,
       process.env.SUPABASE_SERVICE_ROLE_KEY as string,
@@ -54,17 +57,27 @@ export async function POST(request: Request) {
 
     if (createError) throw createError;
 
-    // 3. Make the creating user an admin (mirrors api/projects).
+    // 3. Make the VERIFIED user an admin (mirrors api/projects).
     const { error: memberError } = await supabaseAdmin
       .from('project_members')
-      .insert([{ project_id: container.id, user_id, role: 'admin' }]);
+      .insert([{ project_id: container.id, user_id: user.id, role: 'admin' }]);
 
-    if (memberError) throw memberError;
+    if (memberError) {
+      // The membership row failed on a container we just created, so it would be
+      // an orphan. Best-effort delete it before failing (mirrors api/projects).
+      const { error: cleanupError } = await supabaseAdmin
+        .from('projects')
+        .delete()
+        .eq('id', container.id);
+      if (cleanupError) {
+        console.error('Workbench container cleanup after member-insert failure also failed:', cleanupError);
+      }
+      throw memberError;
+    }
 
     return NextResponse.json(container);
   } catch (error) {
     console.error('Workbench Container Bootstrap Error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Could not resolve the workbench container.' }, { status: 500 });
   }
 }

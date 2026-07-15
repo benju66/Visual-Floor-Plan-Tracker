@@ -34,10 +34,16 @@ export function useWorkbenchContainer(userId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.workbenchContainer(),
     queryFn: async (): Promise<Project> => {
+      // Send the login token; the route derives the user from the VERIFIED token
+      // and no longer trusts a body user_id. (`userId` stays only for `enabled:`.)
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        throw new Error('You must be logged in to open the workbench.');
+      }
       const res = await fetch('/api/workbench/container', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
