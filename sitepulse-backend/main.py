@@ -388,7 +388,7 @@ async def upload_and_convert_floorplan(
 
         import asyncio
         public_url = await asyncio.to_thread(process_upload)
-        return {"status": "success", "image_url": public_url, "tile_manifest_url": None}
+        return {"status": "success", "image_url": public_url, "base_image_url": public_url}
 
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))

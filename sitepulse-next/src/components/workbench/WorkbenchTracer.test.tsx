@@ -86,8 +86,10 @@ vi.mock('@/hooks/useSheetGridlines', () => ({
 }));
 vi.mock('@/hooks/useProjectQueries', () => ({
   useUnits: () => ({ data: [] }),
-  useSnappingVectors: () => ({ isFetching: false }),
   useDeleteUnit: () => ({ mutate: vi.fn() }),
+}));
+vi.mock('@/hooks/useSnappingVectors', () => ({
+  useSnappingVectors: () => ({ isFetching: false }),
 }));
 vi.mock('@/hooks/useWorkbenchActions', () => ({
   useCreateWorkbenchLabel: () => ({ mutateAsync: mocks.createLabelAsync, isPending: false, error: null }),

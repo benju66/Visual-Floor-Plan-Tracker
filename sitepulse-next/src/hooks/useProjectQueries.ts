@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
-import { extractVectorsService } from '@/services/api';
 import { paginateAll } from '@/utils/pagination';
 import { queryKeys } from '@/types/queryKeys';
 import type {
@@ -349,87 +348,6 @@ export function useUnits(sheetId: string) {
     },
     enabled: !!sheetId,
     select: selectUnitsWithOpeningEdges,
-  });
-}
-
-// Ensure the return matches snapping vectors UI expectations
-export interface SnappingVectorLine {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-  lineData: any;
-}
-
-export function useSnappingVectors(sheetId: string) {
-  return useQuery({
-    queryKey: queryKeys.snappingVectors(sheetId),
-    queryFn: async (): Promise<SnappingVectorLine[] | null> => {
-      if (!sheetId) return null;
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn('[useSnappingVectors] No active session — vector snapping disabled');
-        return null;
-      }
-
-      // Helper to format raw vector JSON into RBush-compatible items
-      const formatVectors = (vectors: any[]): SnappingVectorLine[] => {
-        return vectors.map((line: any) => ({
-          minX: Math.min(line.start.pctX, line.end.pctX),
-          minY: Math.min(line.start.pctY, line.end.pctY),
-          maxX: Math.max(line.start.pctX, line.end.pctX),
-          maxY: Math.max(line.start.pctY, line.end.pctY),
-          lineData: line
-        }));
-      };
-
-      try {
-        // P1: Check cached vectors in sheet_vectors table first
-        const { data: cachedRow } = await supabase
-          .from('sheet_vectors')
-          .select('vectors')
-          .eq('sheet_id', sheetId)
-          .maybeSingle();
-
-        if (cachedRow?.vectors && Array.isArray(cachedRow.vectors)) {
-          return cachedRow.vectors.length > 0 ? formatVectors(cachedRow.vectors as any[]) : [];
-        }
-
-        // Cache miss — extract from backend API
-        const json = await extractVectorsService(sheetId, session.access_token);
-        const formattedData = formatVectors(json.vectors);
-
-        // Write-through: cache the raw vectors in the database for next time (fire-and-forget)
-        if (json.vectors && json.vectors.length > 0) {
-          void (async () => {
-            try {
-              await supabase
-                .from('sheet_vectors')
-                .upsert(
-                  { sheet_id: sheetId, vectors: json.vectors as unknown as import('@/types/database.types').Json },
-                  { onConflict: 'sheet_id' }
-                );
-            } catch (err: any) {
-              console.error('[sheet_vectors] Write-through cache upsert failed:', err.message);
-            }
-          })();
-        }
-        
-        return formattedData;
-      } catch (err: any) {
-        console.warn('Vector snapping unavailable for this sheet:', err.message);
-        return null;
-      }
-    },
-    enabled: !!sheetId,
-    staleTime: Infinity,
-    retry: (failureCount, error) => {
-      // Retry once for transient fetch failures, not for 404/401
-      if (failureCount < 1 && (error as Error)?.message?.includes('Failed to fetch')) return true;
-      return false;
-    },
-    retryDelay: 5000,
   });
 }
 

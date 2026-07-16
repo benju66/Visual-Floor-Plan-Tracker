@@ -105,9 +105,9 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
 
       if (!token) throw new Error('Missing auth token for file upload');
 
-      const { base_image_url } = await uploadFloorplanService(sheetId, selectedFile, pdfPageNumber, token);
-
-      await supabase.from('sheets').update({ base_image_url }).eq('id', sheetId);
+      // The backend writes sheets.base_image_url itself (authoritative) during the
+      // conversion, so no client write-back is needed — just run the upload/convert.
+      await uploadFloorplanService(sheetId, selectedFile, pdfPageNumber, token);
 
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets(project.id) });
       // F7: Invalidate cached vectors so snapping uses fresh data

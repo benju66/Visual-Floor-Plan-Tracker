@@ -98,35 +98,45 @@ A unit is **stalled** when it has work in flight but no status write in 14+ days
 ## 🛠️ Local Development Setup
 
 ### Prerequisites
-* Node.js (v18+)
+* Node.js (v20+) — Next.js 16 requires Node 20 or newer
 * Python 3.10+
 * A [Supabase](https://supabase.com) Project
 
-### 1. Supabase Environment Configuration
-SitePulse relies heavily on Supabase. Both the frontend and backend need access to your Supabase keys.
+### 1. Environment Configuration
+SitePulse relies heavily on Supabase. Both the frontend and backend need access to your keys. Each app ships a committed **`.env.example`** template listing every variable with comments — copy it and fill in the blanks:
 
-**Create `.env.local` in `sitepulse-next/`:**
+**Frontend — copy `sitepulse-next/.env.example` → `sitepulse-next/.env.local`:**
 ```env
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-NEXT_PUBLIC_API_URL=http://localhost:8000
+# Server-side only (Next.js API routes). Required to create a project from the dashboard.
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+# Local backend runs on port 8001 (see below)
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8001
+# Procore SSO — optional; leave blank for non-SSO local dev
+NEXT_PUBLIC_PROCORE_CLIENT_ID=
+PROCORE_CLIENT_SECRET=
+PROCORE_ALLOWED_EMAIL_DOMAINS=
 ```
 
-**Create `.env` in `sitepulse-backend/`:**
+**Backend — copy `sitepulse-backend/.env.example` → `sitepulse-backend/.env`:**
 ```env
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_KEY=your_supabase_service_role_or_anon_key
-SUPABASE_JWT_SECRET=your_supabase_jwt_secret
-FRONTEND_URL=http://localhost:3000
+SUPABASE_JWT_SECRET=your_supabase_jwt_secret   # legacy startup check only (verification is JWKS/ES256)
+FRONTEND_URL=http://localhost:3010             # must match the frontend dev port for CORS
+# Optional (defaults shown):
+MAX_UPLOAD_MB=80
+VECTOR_CAP_LINES=40000
 ```
 
 ### 2. Frontend Initialization
 ```bash
 cd sitepulse-next
 npm install
-npm run dev
+npm run dev:3010
 ```
-*Your frontend will be running on `http://localhost:3000`*
+*Your frontend will be running on `http://localhost:3010`*
 
 ### 3. Backend Initialization
 ```bash
@@ -138,9 +148,9 @@ venv\Scripts\activate
 source venv/bin/activate
 
 pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn main:app --reload --port 8001
 ```
-*Your backend will be running on `http://localhost:8000`*
+*Your backend will be running on `http://localhost:8001`*
 
 ## 🧪 Testing
 

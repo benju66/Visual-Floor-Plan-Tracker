@@ -136,28 +136,23 @@ export function useCreateWorkbenchDrawing(containerId: string | undefined) {
         const token = session?.access_token;
         if (!token) throw new Error('Missing auth token for file upload');
 
-        const { base_image_url } = await uploadFloorplanService(
+        // The backend writes sheets.base_image_url itself (authoritative) during the
+        // conversion — like handleAddLevel, no client write-back is needed here.
+        await uploadFloorplanService(
           sheetId,
           input.file,
           input.pdfPageNumber,
           token,
         );
 
-        // 3. Persist the converted-preview URL on the sheet (like handleAddLevel).
-        const { error: updateErr } = await supabase
-          .from('sheets')
-          .update({ base_image_url })
-          .eq('id', sheetId);
-        if (updateErr) throw updateErr;
-
-        // 4. Capture the per-drawing metadata sidecar (only after a successful
+        // 3. Capture the per-drawing metadata sidecar (only after a successful
         //    upload, so a half-converted drawing never gets a metadata row).
         const { error: sidecarErr } = await supabase
           .from('workbench_sheets')
           .insert([buildWorkbenchSidecarInsert(sheetId, input)]);
         if (sidecarErr) throw sidecarErr;
 
-        // 5. Manual architect/firm fallback → sheet_metadata (Phase 3a). The firm
+        // 4. Manual architect/firm fallback → sheet_metadata (Phase 3a). The firm
         //    lives in sheet_metadata (its home), not the sidecar. Best-effort and
         //    non-fatal: the drawing is already created, so a metadata hiccup must
         //    not roll back a successful upload — the title-block reader can still

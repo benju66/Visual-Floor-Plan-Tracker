@@ -39,8 +39,9 @@ export async function exportToPDFService(activeSheetId: string, payload: ExportP
 }
 
 export interface UploadFloorplanResult {
+  status: string;
+  image_url: string;
   base_image_url: string;
-  [key: string]: unknown;
 }
 
 export async function uploadFloorplanService(sheetId: string, file: File, pdfPageNumber: number, token: string): Promise<UploadFloorplanResult> {

@@ -197,6 +197,30 @@ def test_upload_floorplan_overwrites_in_place_never_removes_first(client, fake_s
         assert options.get("upsert") == "true"
 
 
+# ── Upload response contract ─────────────────────────────────────────────────
+# The frontend (`UploadFloorplanResult`) reads `base_image_url` off this response;
+# the old shape returned `tile_manifest_url` (vestigial — the DZI tile path was
+# removed, AGENTS.md §5) and no `base_image_url`, so the client destructured
+# `undefined` and its write-back silently no-op'd. Pin the truthful shape.
+
+def test_upload_floorplan_response_contract(client, fake_supabase):
+    res = client.post(
+        "/upload-floorplan/sheet-1",
+        files={"file": ("plans.pdf", _tiny_pdf_bytes(), "application/pdf")},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    # The converted-preview public URL the fake bucket hands back for this sheet.
+    expected_url = "https://storage.test/converted/sheet-1.png"
+    assert body == {
+        "status": "success",
+        "image_url": expected_url,
+        "base_image_url": expected_url,
+    }
+    # The vestigial key must be gone (nothing reads it; its presence was the lie).
+    assert "tile_manifest_url" not in body
+
+
 # ── 3. Project delete: authoritative row delete BEFORE the storage sweep ────
 
 def test_delete_project_deletes_row_before_sweeping_storage(client, fake_supabase):

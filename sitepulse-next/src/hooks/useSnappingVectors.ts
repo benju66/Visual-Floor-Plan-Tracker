@@ -28,7 +28,7 @@ export interface SnappingVectorLine {
  * enough for 60fps and required by Konva's synchronous dragBoundFunc.
  */
 export function useSnappingVectors(sheetId: string | null) {
-  const { data: vectors = null, isLoading, error } = useQuery({
+  const { data: vectors = null, isLoading, isFetching, error } = useQuery({
     queryKey: queryKeys.snappingVectors(sheetId as string),
     queryFn: async (): Promise<SnappingVectorLine[] | null> => {
       if (!sheetId) return null;
@@ -86,7 +86,14 @@ export function useSnappingVectors(sheetId: string | null) {
     },
     enabled: !!sheetId,
     staleTime: Infinity,
+    retry: (failureCount, error) => {
+      // Retry once for a transient network failure (e.g. getSession's fetch),
+      // never for a 404/401 — those won't recover on a retry.
+      if (failureCount < 1 && (error as Error)?.message?.includes('Failed to fetch')) return true;
+      return false;
+    },
+    retryDelay: 5000,
   });
 
-  return { vectors, isLoading, error, hasVectors: !!vectors && vectors.length > 0 };
+  return { vectors, isLoading, isFetching, error, hasVectors: !!vectors && vectors.length > 0 };
 }

@@ -56,6 +56,8 @@ describe('useSnappingVectors', () => {
       { minX: 0.2, minY: 0.4, maxX: 0.6, maxY: 0.8, lineData: LINE },
     ]);
     expect(extractVectorsService).not.toHaveBeenCalled();
+    // The spinner flag the consumers read (page.tsx + WorkbenchTracer) settles false.
+    expect(result.current.isFetching).toBe(false);
   });
 
   it('falls back to the backend on a cache miss and write-throughs to sheet_vectors', async () => {

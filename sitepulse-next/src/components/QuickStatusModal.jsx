@@ -1,10 +1,21 @@
-import React, { useState, startTransition } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 
 export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatus, onCommit }) {
   const [selectedState, setSelectedState] = useState(currentStatus || 'none');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  
+
+  // The modal is permanently mounted (the `if (!isOpen) return null` below guards
+  // rendering, not mounting), so the `useState` seeds only once per app load. Re-seed
+  // the local selection whenever the target location or its current status changes —
+  // otherwise reopening on location B shows location A's leftover picks. Mirrors
+  // QuickActivityModal's resync effect.
+  useEffect(() => {
+    setSelectedState(currentStatus || 'none');
+    setStartDate('');
+    setEndDate('');
+  }, [currentStatus, unitId, isOpen]);
+
   if (!isOpen) return null;
 
   return (
