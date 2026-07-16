@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   frontend:
-    name: Frontend (typecheck · test · build)
+    name: Frontend (build · typecheck · test)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -37,14 +37,18 @@ jobs:
       # postinstall copies the pdf worker from pdfjs-dist — works headless.
       - run: npm ci
 
+      # MUST run before the standalone `tsc --noEmit`: `next build` generates
+      # next-env.d.ts + .next/types (Next's ambient *.css module declarations,
+      # typed routes), which a fresh checkout lacks (both are gitignored). Without
+      # them, typecheck can't resolve CSS side-effect imports and fails with TS2882.
+      # Build also validates the production bundle; supabaseClient.ts has hardcoded
+      # fallbacks, so it needs no NEXT_PUBLIC_* env.
+      - run: npm run build
+
+      # Full tsc, including test files (which `next build` does not type-check).
       - run: npm run typecheck
 
       - run: npm run test
-
-      # Optional but cheap here; catches App Router / server-component / bundling
-      # errors that typecheck + unit tests miss. supabaseClient.ts has hardcoded
-      # fallbacks, so the build needs no NEXT_PUBLIC_* env.
-      - run: npm run build
 
   backend:
     name: Backend (pytest)
