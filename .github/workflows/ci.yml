@@ -1,0 +1,74 @@
+name: CI
+
+# Runs the full frontend + backend checks on every push to main and on all PRs.
+# Vercel (frontend) and Render (backend) still own deploys — this is a gate only.
+# No repository secrets: the pytest suite is hermetic (conftest.py sets fake
+# SUPABASE_* before importing main) and the frontend checks need no env.
+# Lint is deliberately NOT a check — the repo carries ~1850 pre-existing lint
+# problems (see AGENTS.md / repo memory). Correctness gates are typecheck + tests.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel an in-progress run when a newer commit lands on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (build · typecheck · test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sitepulse-next
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sitepulse-next/package-lock.json
+
+      # postinstall copies the pdf worker from pdfjs-dist — works headless.
+      - run: npm ci
+
+      # MUST run before the standalone `tsc --noEmit`: `next build` generates
+      # next-env.d.ts + .next/types (Next's ambient *.css module declarations,
+      # typed routes), which a fresh checkout lacks (both are gitignored). Without
+      # them, typecheck can't resolve CSS side-effect imports and fails with TS2882.
+      # Build also validates the production bundle; supabaseClient.ts has hardcoded
+      # fallbacks, so it needs no NEXT_PUBLIC_* env.
+      - run: npm run build
+
+      # Full tsc, including test files (which `next build` does not type-check).
+      - run: npm run typecheck
+
+      - run: npm run test
+
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sitepulse-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python 3.11 matches sitepulse-backend/Dockerfile (FROM python:3.11-slim).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            sitepulse-backend/requirements.txt
+            sitepulse-backend/requirements-dev.txt
+
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - run: python -m pytest -q
