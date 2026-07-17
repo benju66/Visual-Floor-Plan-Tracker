@@ -151,3 +151,29 @@ def test_hex_to_rgb_never_raises_on_malformed_input():
     assert main.hex_to_rgb(None) == (0, 0, 0)
     assert main.hex_to_rgb("") == (0, 0, 0)
     assert main.hex_to_rgb("#3366aa") == pytest.approx((0.2, 0.4, 170 / 255))
+
+
+# ── 6. Corrupt / non-PDF upload → friendly 400 (not a leaked 500) ────────────
+# A file that passes the filename `.pdf` check but isn't a real PDF hits
+# fitz.open, which raises fitz.FileDataError. Both upload routes now translate
+# that to a 400 "not a valid PDF" — retrying can't help, so don't say "try again".
+
+CORRUPT_PDF = b"this is not a pdf, just some bytes named .pdf"
+
+
+def test_upload_floorplan_corrupt_pdf_is_400(client):
+    res = client.post(
+        "/upload-floorplan/sheet-1",
+        files={"file": ("plans.pdf", CORRUPT_PDF, "application/pdf")},
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "The file is not a valid PDF."
+
+
+def test_attach_original_corrupt_pdf_is_400(client):
+    res = client.post(
+        "/attach-original/sheet-1",
+        files={"file": ("drawing.pdf", CORRUPT_PDF, "application/pdf")},
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "The file is not a valid PDF."
