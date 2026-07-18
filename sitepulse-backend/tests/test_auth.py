@@ -1,4 +1,4 @@
-"""Tests for local Supabase JWT validation (main.get_current_user).
+"""Tests for local Supabase JWT validation (core.auth.get_current_user).
 
 This is the security-critical auth path. This Supabase project signs user access
 tokens with an ASYMMETRIC key (ES256), so get_current_user verifies the signature
@@ -18,8 +18,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
-import main
-from main import get_current_user
+from core import auth
+from core.auth import get_current_user
 
 
 def _make_es256_keypair():
@@ -33,9 +33,9 @@ _SERVER_PRIV, _SERVER_PUB = _make_es256_keypair()
 
 @pytest.fixture(autouse=True)
 def _stub_jwks(monkeypatch):
-    """Point main's cached JWKS client at our in-test public key (no network)."""
+    """Point core.auth's cached JWKS client at our in-test public key (no network)."""
     monkeypatch.setattr(
-        main._jwk_client,
+        auth._jwk_client,
         "get_signing_key_from_jwt",
         lambda token: types.SimpleNamespace(key=_SERVER_PUB),
     )

@@ -8,7 +8,7 @@ space (0..1, word-bbox center / page dimensions) used by extract_vectors_from_pd
 import fitz
 import pytest
 
-from main import extract_text_from_pdf
+from core.extraction import extract_text_from_pdf
 
 PAGE_W = 200.0
 PAGE_H = 100.0

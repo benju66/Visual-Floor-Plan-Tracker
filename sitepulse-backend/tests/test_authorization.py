@@ -17,7 +17,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-import main
+from core import auth, supabase_client
 from main import app
 
 
@@ -63,7 +63,7 @@ def install_supabase(monkeypatch):
 
     def _install(**kwargs):
         fake = _FakeSupabase(**kwargs)
-        monkeypatch.setattr(main, "supabase", fake)
+        monkeypatch.setattr(supabase_client, "supabase", fake)
         return fake
 
     return _install
@@ -74,20 +74,20 @@ def install_supabase(monkeypatch):
 def test_sheet_access_missing_sheet_is_404(install_supabase):
     install_supabase(sheets=[])  # no sheet row
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(main.verify_sheet_access("sheet-x", "user-1"))
+        asyncio.run(auth.verify_sheet_access("sheet-x", "user-1"))
     assert exc.value.status_code == 404
 
 
 def test_sheet_access_non_member_is_403(install_supabase):
     install_supabase(sheets=[{"project_id": "proj-1"}], members=[])
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(main.verify_sheet_access("sheet-1", "user-1"))
+        asyncio.run(auth.verify_sheet_access("sheet-1", "user-1"))
     assert exc.value.status_code == 403
 
 
 def test_sheet_access_member_returns_project_id(install_supabase):
     install_supabase(sheets=[{"project_id": "proj-1"}], members=[{"id": "m-1"}])
-    assert asyncio.run(main.verify_sheet_access("sheet-1", "user-1")) == "proj-1"
+    assert asyncio.run(auth.verify_sheet_access("sheet-1", "user-1")) == "proj-1"
 
 
 # ── verify_project_admin (helper, direct) ────────────────────────────────────
@@ -95,7 +95,7 @@ def test_sheet_access_member_returns_project_id(install_supabase):
 def test_project_admin_non_member_is_403(install_supabase):
     install_supabase(members=[])
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(main.verify_project_admin("proj-1", "user-1"))
+        asyncio.run(auth.verify_project_admin("proj-1", "user-1"))
     assert exc.value.status_code == 403
 
 
@@ -103,7 +103,7 @@ def test_project_admin_non_member_is_403(install_supabase):
 def test_project_admin_underprivileged_is_403(install_supabase, role):
     install_supabase(members=[{"role": role}])
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(main.verify_project_admin("proj-1", "user-1"))
+        asyncio.run(auth.verify_project_admin("proj-1", "user-1"))
     assert exc.value.status_code == 403
 
 
@@ -111,14 +111,14 @@ def test_project_admin_underprivileged_is_403(install_supabase, role):
 def test_project_admin_privileged_proceeds(install_supabase, role):
     install_supabase(members=[{"role": role}])
     # Success path: no raise, returns None.
-    assert asyncio.run(main.verify_project_admin("proj-1", "user-1")) is None
+    assert asyncio.run(auth.verify_project_admin("proj-1", "user-1")) is None
 
 
 def test_project_admin_privileged_among_multiple_roles_proceeds(install_supabase):
     # A caller holding several rows counts as privileged if ANY row is owner/admin
     # (the `roles & {"owner","admin"}` set logic).
     install_supabase(members=[{"role": "viewer"}, {"role": "admin"}])
-    assert asyncio.run(main.verify_project_admin("proj-1", "user-1")) is None
+    assert asyncio.run(auth.verify_project_admin("proj-1", "user-1")) is None
 
 
 # ── Route-level wiring: a helper's 404/403 reaches the client (not a 500) ─────
@@ -127,10 +127,10 @@ def test_project_admin_privileged_among_multiple_roles_proceeds(install_supabase
 
 @pytest.fixture()
 def client():
-    app.dependency_overrides[main.get_current_user] = lambda: AUTH_USER
+    app.dependency_overrides[auth.get_current_user] = lambda: AUTH_USER
     with TestClient(app) as c:
         yield c
-    app.dependency_overrides.pop(main.get_current_user, None)
+    app.dependency_overrides.pop(auth.get_current_user, None)
 
 
 def test_sheet_route_missing_sheet_propagates_404(client, install_supabase):

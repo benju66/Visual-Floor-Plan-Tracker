@@ -8,7 +8,7 @@ Usage:
 import os
 from dotenv import load_dotenv
 from supabase import create_client
-from main import extract_vectors_from_pdf
+from core.extraction import extract_vectors_from_pdf
 
 load_dotenv()
 
