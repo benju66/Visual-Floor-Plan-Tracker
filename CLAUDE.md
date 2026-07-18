@@ -4,7 +4,7 @@ This file is a directory map for orienting a fresh session at the repo root. It 
 
 ## Active code
 - **sitepulse-next/** — the live Next.js app (frontend). Read `sitepulse-next/CLAUDE.md` (imports `AGENTS.md`) before changing anything here — it has the load-bearing rules (state management, offline sync, canvas engine, TypeScript guardrails, testing conventions).
-- **sitepulse-backend/** — the live FastAPI backend (Python). No local CLAUDE.md; its conventions (auth, Supabase client config, dependency notes) are documented in `sitepulse-next/AGENTS.md` §7-8.
+- **sitepulse-backend/** — the live FastAPI backend (Python): `main.py` (assembly) + `core/` (non-route layers) + `routers/` (routes). No local CLAUDE.md; its conventions (auth, Supabase client config, the module/seam layout, dependency notes) are documented in `sitepulse-next/AGENTS.md` §7-8.
 
 ## Planning & workflow docs
 - **sitepulse-next/Notes/plans/** — long-form multi-phase workstream plans (`<Workstream>-Plan.md`).
