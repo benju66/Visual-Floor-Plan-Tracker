@@ -9,8 +9,8 @@ normal pages pass through uncapped, and stored coords are 5-decimal rounded.
 import fitz
 import pytest
 
-import main
-from main import cap_vector_payload, extract_vectors_from_pdf
+from core import config
+from core.extraction import cap_vector_payload, extract_vectors_from_pdf
 
 PAGE_W = 200.0
 PAGE_H = 100.0
@@ -71,7 +71,7 @@ TICKS = [(20 + 5 * i, 80, 23 + 5 * i, 80) for i in range(8)]      # 3 pts each
 
 
 def test_over_cap_extraction_keeps_only_walls(monkeypatch, capsys):
-    monkeypatch.setattr(main, "VECTOR_CAP_LINES", 3)
+    monkeypatch.setattr(config, "VECTOR_CAP_LINES", 3)
     result = extract_vectors_from_pdf(_build_pdf(WALLS, TICKS))
 
     assert len(result) == 3

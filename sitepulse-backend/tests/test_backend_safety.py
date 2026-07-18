@@ -23,7 +23,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile
 
-import main
+from core import auth, config, supabase_client
+from core.pdf import preview_matrix, read_upload_capped
 from main import app
 
 
@@ -34,7 +35,7 @@ AUTH_USER = {"sub": "user-1", "role": "authenticated"}
 def client(monkeypatch):
     """TestClient with auth passed and per-resource checks stubbed (the auth
     path itself is pinned by test_auth.py / test_endpoints.py)."""
-    app.dependency_overrides[main.get_current_user] = lambda: AUTH_USER
+    app.dependency_overrides[auth.get_current_user] = lambda: AUTH_USER
 
     async def fake_sheet_access(sheet_id, user_id):
         return "project-1"
@@ -42,11 +43,11 @@ def client(monkeypatch):
     async def fake_project_admin(project_id, user_id):
         return None
 
-    monkeypatch.setattr(main, "verify_sheet_access", fake_sheet_access)
-    monkeypatch.setattr(main, "verify_project_admin", fake_project_admin)
+    monkeypatch.setattr(auth, "verify_sheet_access", fake_sheet_access)
+    monkeypatch.setattr(auth, "verify_project_admin", fake_project_admin)
     with TestClient(app) as c:
         yield c
-    app.dependency_overrides.pop(main.get_current_user, None)
+    app.dependency_overrides.pop(auth.get_current_user, None)
 
 
 # ── In-test Supabase recorder ────────────────────────────────────────────────
@@ -110,7 +111,7 @@ class _FakeSupabase:
 @pytest.fixture()
 def fake_supabase(monkeypatch):
     fake = _FakeSupabase()
-    monkeypatch.setattr(main, "supabase", fake)
+    monkeypatch.setattr(supabase_client, "supabase", fake)
     return fake
 
 
@@ -123,7 +124,7 @@ def _tiny_pdf_bytes() -> bytes:
 # ── 1. Upload size cap ───────────────────────────────────────────────────────
 
 def test_oversized_upload_is_rejected_413_before_processing(client, fake_supabase, monkeypatch):
-    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 1024)  # keep the test body small
+    monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 1024)  # keep the test body small
     res = client.post(
         "/upload-floorplan/sheet-1",
         files={"file": ("plans.pdf", b"%PDF-" + b"x" * 4096, "application/pdf")},
@@ -137,29 +138,29 @@ def test_oversized_upload_is_rejected_413_before_processing(client, fake_supabas
 def test_read_upload_capped_passes_an_under_cap_file_through():
     payload = b"%PDF-under-cap"
     uf = UploadFile(file=io.BytesIO(payload), filename="ok.pdf")
-    assert asyncio.run(main.read_upload_capped(uf)) == payload
+    assert asyncio.run(read_upload_capped(uf)) == payload
 
 
 def test_read_upload_capped_rejects_over_cap_stream(monkeypatch):
-    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 10)
+    monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 10)
     uf = UploadFile(file=io.BytesIO(b"x" * 11), filename="big.pdf")
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(main.read_upload_capped(uf))
+        asyncio.run(read_upload_capped(uf))
     assert exc.value.status_code == 413
 
 
 def test_preview_matrix_keeps_standard_sheets_at_4x_and_clamps_oversized_pages():
     # E-size 36x24" = 2592x1728 pt -> ~72 MP at 4x: inside budget, zoom unchanged.
     e_size = SimpleNamespace(rect=SimpleNamespace(width=2592, height=1728))
-    assert main.preview_matrix(e_size).a == pytest.approx(4.0)
+    assert preview_matrix(e_size).a == pytest.approx(4.0)
 
     # A degenerate 10x-oversized page gets its zoom scaled down so the render
     # stays inside MAX_RENDER_PIXELS instead of allocating ~10x the budget.
     huge = SimpleNamespace(rect=SimpleNamespace(width=25920, height=17280))
-    mat = main.preview_matrix(huge)
+    mat = preview_matrix(huge)
     assert mat.a < 4.0
     rendered_px = (huge.rect.width * mat.a) * (huge.rect.height * mat.b)
-    assert rendered_px <= main.MAX_RENDER_PIXELS * 1.001
+    assert rendered_px <= config.MAX_RENDER_PIXELS * 1.001
 
 
 # ── 2. Overwrite-mode uploads (no remove-then-upload window) ─────────────────

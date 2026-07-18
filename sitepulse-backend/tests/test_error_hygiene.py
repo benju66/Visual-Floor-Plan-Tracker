@@ -24,7 +24,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from storage3.exceptions import StorageApiError
 
-import main
+from core import auth, supabase_client
+from core.pdf import content_disposition_attachment, hex_to_rgb
 from main import app
 
 
@@ -33,15 +34,15 @@ AUTH_USER = {"sub": "user-1", "role": "authenticated"}
 
 @pytest.fixture()
 def client(monkeypatch):
-    app.dependency_overrides[main.get_current_user] = lambda: AUTH_USER
+    app.dependency_overrides[auth.get_current_user] = lambda: AUTH_USER
 
     async def fake_sheet_access(sheet_id, user_id):
         return "project-1"
 
-    monkeypatch.setattr(main, "verify_sheet_access", fake_sheet_access)
+    monkeypatch.setattr(auth, "verify_sheet_access", fake_sheet_access)
     with TestClient(app) as c:
         yield c
-    app.dependency_overrides.pop(main.get_current_user, None)
+    app.dependency_overrides.pop(auth.get_current_user, None)
 
 
 def _export_body(project_name="Proj", sheet_name="Level 1", legend=None):
@@ -55,10 +56,10 @@ def _export_body(project_name="Proj", sheet_name="Level 1", legend=None):
 
 
 def _stub_download(monkeypatch, download_fn):
-    """Replace main.supabase with a storage-only stub whose download is download_fn."""
+    """Replace the supabase client with a storage-only stub whose download is download_fn."""
     bucket = types.SimpleNamespace(download=download_fn)
     monkeypatch.setattr(
-        main, "supabase",
+        supabase_client, "supabase",
         types.SimpleNamespace(storage=types.SimpleNamespace(from_=lambda name: bucket)),
     )
 
@@ -75,7 +76,7 @@ def test_export_pdf_authz_denial_is_403_not_500(client, monkeypatch):
     async def denied(sheet_id, user_id):
         raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
-    monkeypatch.setattr(main, "verify_sheet_access", denied)
+    monkeypatch.setattr(auth, "verify_sheet_access", denied)
     res = client.post("/export-pdf/sheet-1", json=_export_body())
     assert res.status_code == 403  # was 500 with detail "403: Not authorized..."
 
@@ -140,17 +141,17 @@ def test_export_survives_unicode_name_and_malformed_legend(client, monkeypatch):
 
 
 def test_content_disposition_attachment_is_latin1_safe():
-    value = main.content_disposition_attachment("Café Tower — 2_Status.pdf")
+    value = content_disposition_attachment("Café Tower — 2_Status.pdf")
     value.encode("latin-1")  # must not raise — Starlette encodes headers latin-1
     assert 'filename="Caf_ Tower _ 2_Status.pdf"' in value
     assert "filename*=UTF-8''Caf%C3%A9%20Tower%20%E2%80%94%202_Status.pdf" in value
 
 
 def test_hex_to_rgb_never_raises_on_malformed_input():
-    assert main.hex_to_rgb("#zzzzzz") == (0, 0, 0)
-    assert main.hex_to_rgb(None) == (0, 0, 0)
-    assert main.hex_to_rgb("") == (0, 0, 0)
-    assert main.hex_to_rgb("#3366aa") == pytest.approx((0.2, 0.4, 170 / 255))
+    assert hex_to_rgb("#zzzzzz") == (0, 0, 0)
+    assert hex_to_rgb(None) == (0, 0, 0)
+    assert hex_to_rgb("") == (0, 0, 0)
+    assert hex_to_rgb("#3366aa") == pytest.approx((0.2, 0.4, 170 / 255))
 
 
 # ── 6. Corrupt / non-PDF upload → friendly 400 (not a leaked 500) ────────────
