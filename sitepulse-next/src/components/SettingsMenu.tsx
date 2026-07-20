@@ -409,7 +409,7 @@ export default function SettingsMenu({
   projectId,
   navigateToView
 }: SettingsMenuProps) {
-  const { session } = useAuth() as any;
+  const { session } = useAuth();
   const queryClient = useQueryClient();
   // Normalize the legacy `'super'` value to `'superintendent'` at the source, so
   // every gate below treats a not-yet-backfilled row as a superintendent.

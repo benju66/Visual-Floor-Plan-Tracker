@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import type { Theme, Accent, Flag } from "./types";
 import { STATUS_INLINE } from "@/utils/statusColors";
 
-// Centralized font stacks — wired to the app's loaded fonts (`src/app/layout.js`
+// Centralized font stacks — wired to the app's loaded fonts (`src/app/layout.tsx`
 // exposes Outfit as `--font-outfit` and Roboto Mono as `--font-roboto-mono`).
 // The prototype's `'Geist'` was never loaded by SitePulse, so it silently fell
 // back to the OS default; these vars make Look-Ahead match the rest of the app.

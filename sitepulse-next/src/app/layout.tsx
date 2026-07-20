@@ -1,3 +1,5 @@
+import type { Metadata, Viewport } from "next";
+import type { ReactNode } from "react";
 import { Outfit, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 import QueryProvider from "@/providers/QueryProvider";
@@ -15,19 +17,19 @@ const robotoMono = Roboto_Mono({
   subsets: ["latin"],
 });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "SitePulse Visual Tracker",
   description: "Visually track construction progress on floor plans.",
 };
 
-export const viewport = {
+export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
 };
 
-export default function RootLayout({ children }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"

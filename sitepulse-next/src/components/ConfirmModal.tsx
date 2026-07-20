@@ -1,6 +1,12 @@
 import React from 'react';
+import type { ConfirmModal as ConfirmModalState } from '@/store/useUIStore';
 
-export default function ConfirmModal({ confirmModal, setConfirmModal }) {
+interface ConfirmModalProps {
+  confirmModal: ConfirmModalState | null;
+  setConfirmModal: (val: ConfirmModalState | null) => void;
+}
+
+export default function ConfirmModal({ confirmModal, setConfirmModal }: ConfirmModalProps) {
   if (!confirmModal) return null;
 
   return (

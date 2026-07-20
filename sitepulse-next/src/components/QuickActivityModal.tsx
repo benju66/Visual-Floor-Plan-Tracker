@@ -1,7 +1,27 @@
 import React, { startTransition } from 'react';
+import type { Activity } from '@/types/domain';
+import type { CommitStatusExtraProps } from '@/types/mutations';
 
-export default function QuickActivityModal({ isOpen, onClose, unitId, currentActivityId, activities, onCommit }) {
-  const [selectedActivityId, setSelectedActivityId] = React.useState(currentActivityId);
+interface QuickActivityModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  /** Null while the modal is closed (the page keeps it mounted; `isOpen` gates rendering). */
+  unitId: string | null;
+  /** Misnomer (pre-existing, flagged for W3): holds the activity NAME, not its id. */
+  currentActivityId: string | null;
+  /** `status_color` is not an `activities` column — the render fallback below reads it
+      off legacy-shaped rows; typed optional to keep that runtime fallback (flagged). */
+  activities: Array<Activity & { status_color?: string }>;
+  onCommit: (
+    unitId: string | null,
+    type: 'status' | 'activity',
+    val: string | null,
+    extraProps?: CommitStatusExtraProps
+  ) => void;
+}
+
+export default function QuickActivityModal({ isOpen, onClose, unitId, currentActivityId, activities, onCommit }: QuickActivityModalProps) {
+  const [selectedActivityId, setSelectedActivityId] = React.useState<string | null>(currentActivityId);
 
   React.useEffect(() => {
     setSelectedActivityId(currentActivityId);

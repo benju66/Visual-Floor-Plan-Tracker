@@ -1,6 +1,23 @@
 import React, { useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import TaxonomyPicker from './TaxonomyPicker';
+import type { ProjectType, Subtype } from '@/types/domain';
+import type { TaxonomyResult } from '@/utils/subtypes';
+
+export interface UnitNamingPopoverProps {
+  editingUnitId: string | null;
+  newUnitName: string;
+  setNewUnitName: (val: string) => void;
+  subtypes?: Subtype[];
+  projectType?: ProjectType | null;
+  initialSubtypeId?: string | null;
+  initialUnitType?: string | null;
+  initialPick?: TaxonomyResult | null;
+  isSuggested?: boolean;
+  recentSubtypeIds?: string[];
+  saveNewUnitFromPopover: (pick?: TaxonomyResult | null) => void | Promise<void>;
+  cancelUnitNaming: () => void;
+}
 
 export default function UnitNamingPopover({
   editingUnitId,
@@ -15,17 +32,17 @@ export default function UnitNamingPopover({
   recentSubtypeIds = [],
   saveNewUnitFromPopover,
   cancelUnitNaming,
-}) {
+}: UnitNamingPopoverProps) {
   // The active taxonomy pick for THIS save, or null = "leave type unchanged"
   // (on rename, preserves the location's existing role/sub-type; on create, no type).
   // Seeded from the AI suggestion (Phase 4) so an accepted name/type saves WITH its
   // type even if the user never opens the picker; null for rename / a plain draw.
-  const [pick, setPick] = useState(initialPick);
+  const [pick, setPick] = useState<TaxonomyResult | null>(initialPick);
 
   // Keyboard flow: name → Tab → type search → Tab → Save → Enter. Save here is
   // never disabled, so focusing it directly (no effect) is fine.
-  const searchRef = useRef(null);
-  const saveRef = useRef(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const saveRef = useRef<HTMLButtonElement>(null);
 
   const selectedSubtypeId = pick
     ? (pick.kind === 'subtype' ? pick.subtypeId : null)

@@ -1,4 +1,18 @@
-import React from 'react';
+import React, { type FormEvent } from 'react';
+
+interface AddLevelModalProps {
+  handleAddLevel: (e: FormEvent<HTMLFormElement>) => void | Promise<void>;
+  newLevelName: string;
+  setNewLevelName: (val: string) => void;
+  /** `number | string`: the page-number input writes `e.target.value` (a string)
+      straight into the store, so the store slot honestly holds either (see
+      useMapStore). Flagged for a W3 parse-at-the-input cleanup. */
+  pdfPageNumber: number | string;
+  setPdfPageNumber: (val: string) => void;
+  setSelectedFile: (val: File | null) => void;
+  setIsModalOpen: (val: boolean) => void;
+  isUploading: boolean;
+}
 
 export default function AddLevelModal({
   handleAddLevel,
@@ -9,7 +23,7 @@ export default function AddLevelModal({
   setSelectedFile,
   setIsModalOpen,
   isUploading
-}) {
+}: AddLevelModalProps) {
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="p-6 rounded-2xl shadow-2xl w-full max-w-md border glass-panel">
@@ -46,7 +60,7 @@ export default function AddLevelModal({
               type="file"
               accept=".pdf"
               className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-sm bg-white/60 dark:bg-black/25"
-              onChange={(e) => setSelectedFile(e.target.files[0])}
+              onChange={(e) => setSelectedFile(e.target.files![0])}
               required
             />
           </div>

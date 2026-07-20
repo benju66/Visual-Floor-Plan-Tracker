@@ -698,7 +698,11 @@ export function useMapActions(project: Project | null | undefined) {
     }
   };
 
-  const handleQuickUpdate = (unitId: string, type: 'status' | 'activity', value: string, extraProps: CommitStatusExtraProps = {}) => {
+  // `unitId`/`value` admit null because the quick modals stay mounted while closed
+  // (their `unitId` prop is null then, and QuickActivityModal's selection can be null
+  // when the slot has no activity). Both paths already no-op safely on null (the
+  // `find` misses → early return / no matching activity).
+  const handleQuickUpdate = (unitId: string | null, type: 'status' | 'activity', value: string | null, extraProps: CommitStatusExtraProps = {}) => {
     const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
     const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
     const activities = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
