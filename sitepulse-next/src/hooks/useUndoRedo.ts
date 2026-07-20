@@ -63,7 +63,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           });
         }
         if (unit && logs?.length) {
-          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
             const without = (old || []).filter(s => s.unit_id !== unit.id);
             return [...without, ...logs];
           });
@@ -82,7 +82,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
       }
 
       case 'UPDATE_STATUS':
-        queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+        queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
           if (!old) return old;
           const ref = action.oldLog ?? action.newLog;
           const activityId = ref?.activity_id;
@@ -111,7 +111,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         if (action.secondary && action.secondary.newLog) {
           const secUnitId = action.secondary.unitId;
           const secLog = action.secondary.newLog;
-          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
             if (!old) return old;
             const filtered = old.filter(s => !(s.unit_id === secUnitId && s.activity_id === secLog.activity_id));
             return [...filtered, { unit_id: secUnitId, track: secLog.track, activity_id: secLog.activity_id, activityName: secLog.activityName ?? '', temporal_state: 'none', id: `temp_${Date.now()}`, created_at: new Date().toISOString() } as StatusLog];
@@ -121,7 +121,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         break;
 
       case 'BULK_UPDATE_STATUS':
-        queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+        queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
           if (!old) return old;
           
           let filtered: StatusLog[];
@@ -194,7 +194,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         const unit = action.unitData;
         if (unit) {
           queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => old ? old.filter(u => u.id !== unit.id) : old);
-          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => old ? old.filter(s => s.unit_id !== unit.id) : old);
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => old ? old.filter(s => s.unit_id !== unit.id) : old);
           // Remove status rows before the unit (mirror useDeleteUnit; FK-safe).
           await supabase.from('status_logs').delete().eq('unit_id', unit.id);
           await supabase.from('units').delete().eq('id', unit.id);
@@ -203,7 +203,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
       }
 
       case 'UPDATE_STATUS':
-        queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+        queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
           if (!old) return old;
           const ref = action.newLog ?? action.oldLog;
           const activityId = ref?.activity_id;
@@ -223,7 +223,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         if (action.secondary && action.secondary.newLog) {
           const secUnitId = action.secondary.unitId;
           const secLog = action.secondary.newLog;
-          queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
             if (!old) return old;
             const filtered = old.filter(s => !(s.unit_id === secUnitId && s.activity_id === secLog.activity_id));
             return [...filtered, secLog];
@@ -234,7 +234,7 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         break;
 
       case 'BULK_UPDATE_STATUS':
-        queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, (old) => {
+        queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
           if (!old) return old;
           let filtered: StatusLog[];
           if (action.activityName && action.activityName !== '__KEEP_EXISTING__') {

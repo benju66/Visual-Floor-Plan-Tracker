@@ -272,7 +272,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, on
       const results = await Promise.allSettled(promises);
       const failures = settledSupabaseFailures(results);
 
-      queryClient.invalidateQueries({ queryKey: ['project_members'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectMembersAll() });
 
       if (failures.length > 0) {
         console.error("Some saves failed:", failures);

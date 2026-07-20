@@ -1,6 +1,9 @@
 export const queryKeys = {
   project:            (id: string)              => ['project', id]          as const,
   sheets:             (projectId: string)       => ['sheets', projectId]    as const,
+  // Single sheet by primary key (used by useSheetById — works on both the live map
+  // and the workbench, where there's no projectId to key `sheets(projectId)` by).
+  sheet:              (sheetId: string)         => ['sheet', sheetId]       as const,
   units:              (sheetId: string)         => ['units', sheetId]       as const,
   activities:         (projectId: string)       => ['activities', projectId] as const,
   projectContacts:    (projectId: string)       => ['project_contacts', projectId] as const,
@@ -8,6 +11,21 @@ export const queryKeys = {
   statuses:           (sheetId: string, unitIds: string[]) => ['statuses', sheetId, ...unitIds] as const,
   allProjectUnits:    (sheetIds: string[])      => ['all_project_units', ...sheetIds] as const,
   allProjectStatuses: (unitIds: string[])       => ['all_project_statuses', ...unitIds] as const,
+  //
+  // ── Prefix / partial-match invalidation accessors ───────────────────────────
+  // These emit the SHORTER leading prefixes of the variadic families above, for the
+  // ~call sites that invalidate/read/cancel by prefix — react-query partial-matches a
+  // stored key like ['statuses', sheetId, ...unitIds] against a shorter prefix. Each
+  // MUST stay byte-identical to the literal it replaced; a one-element drift silently
+  // breaks cache invalidation (pinned by queryKeys.test.ts). Do NOT "upgrade" a prefix
+  // read to the full `statuses(sheetId, unitIds)` key — that narrows the lookup.
+  statusesBySheet:       (sheetId: string)      => ['statuses', sheetId] as const,
+  statusesAll:           ()                     => ['statuses'] as const,
+  allProjectStatusesAll: ()                     => ['all_project_statuses'] as const,
+  allProjectUnitsAll:    ()                     => ['all_project_units'] as const,
+  unitsAll:              ()                     => ['units'] as const,
+  activitiesAll:         ()                     => ['activities'] as const,
+  projectMembersAll:     ()                     => ['project_members'] as const,
   unitHistory:        (unitId: string)          => ['unit_history', unitId]  as const,
   statusHistory:      (...unitIds: string[])    => ['status_history', ...unitIds] as const,
   snappingVectors:    (sheetId: string)         => ['snapping_vectors_v2', sheetId] as const,

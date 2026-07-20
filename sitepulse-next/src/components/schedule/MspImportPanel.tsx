@@ -8,6 +8,7 @@ import {
   useBulkInsertStatusLogs,
   useUpdateSheetSchedule,
 } from '@/hooks/useProjectQueries';
+import { queryKeys } from '@/types/queryKeys';
 import { useScheduleBaselines, useSetScheduleBaseline, useDeleteScheduleBaseline } from '@/hooks/useScheduleBaselines';
 import { buildBaselineSnapshot, baselineDelta, mergeLevelWindows, resolveCurrentBaseline } from '@/utils/scheduleBaseline';
 import BaselineControl from './BaselineControl';
@@ -319,7 +320,7 @@ export default function MspImportPanel({
       }
       // The import can write ACROSS levels; refresh every per-sheet status cache,
       // not just the active one the hook invalidates.
-      queryClient.invalidateQueries({ queryKey: ['statuses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesAll() });
       setToast({
         message: `Imported ${plan.writes.length} planned date${plan.writes.length === 1 ? '' : 's'} across ${plan.affectedUnitCount} location${plan.affectedUnitCount === 1 ? '' : 's'}.`,
         type: 'success',

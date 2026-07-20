@@ -766,7 +766,7 @@ export function useUpdateWorkbenchLabel(sheetId: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     },
   });
 }
@@ -846,7 +846,7 @@ export function useUpdateWorkbenchOpeningEdges(sheetId: string) {
     onError: () => {},
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     },
   });
 }
@@ -930,7 +930,7 @@ export function useUpdateWorkbenchGeometry(sheetId: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     },
   });
 }
