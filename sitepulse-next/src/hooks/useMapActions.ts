@@ -426,7 +426,7 @@ export function useMapActions(project: Project | null | undefined) {
       message: 'Are you sure you want to delete this location markup?',
       onConfirm: async () => {
         const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
-        const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
+        const activeStatuses = queryClient.getQueryData<StatusLog[]>(queryKeys.statusesBySheet(activeSheetId)) || [];
         const unitToDelete = units.find(u => u.id === unitId);
         const statusesToDelete = activeStatuses.filter(s => s.unit_id === unitId);
 
@@ -457,7 +457,7 @@ export function useMapActions(project: Project | null | undefined) {
       message: `Delete ${unitIds.length} selected locations? This removes their markups and recorded status.`,
       onConfirm: async () => {
         const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
-        const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
+        const activeStatuses = queryClient.getQueryData<StatusLog[]>(queryKeys.statusesBySheet(activeSheetId)) || [];
         const deleted: { unitData?: Unit; statusLogs?: StatusLog[] }[] = [];
         let failed = 0;
 
@@ -511,7 +511,7 @@ export function useMapActions(project: Project | null | undefined) {
     extraProps: CommitStatusExtraProps = {}
   ): Promise<{ ok: boolean }> => {
     setSavingUnitId(unit.id);
-    const activeSheetStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
+    const activeSheetStatuses = queryClient.getQueryData<StatusLog[]>(queryKeys.statusesBySheet(activeSheetId)) || [];
     // In all-levels editing the unit may live on a different sheet than the active one, so its
     // prior logs aren't in the active-sheet cache. Fall back to the cross-sheet cache for this
     // unit so undo (oldStatus) and the auto-advance gap check see its real history. Same-sheet
@@ -521,7 +521,7 @@ export function useMapActions(project: Project | null | undefined) {
       : [
           ...activeSheetStatuses,
           ...queryClient
-            .getQueriesData<StatusLog[]>({ queryKey: ['all_project_statuses'] })
+            .getQueriesData<StatusLog[]>({ queryKey: queryKeys.allProjectStatusesAll() })
             .flatMap(([, d]) => d ?? [])
             .filter(s => s.unit_id === unit.id),
         ];
@@ -704,7 +704,7 @@ export function useMapActions(project: Project | null | undefined) {
   // `find` misses → early return / no matching activity).
   const handleQuickUpdate = (unitId: string | null, type: 'status' | 'activity', value: string | null, extraProps: CommitStatusExtraProps = {}) => {
     const units = queryClient.getQueryData<Unit[]>(queryKeys.units(activeSheetId)) || [];
-    const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
+    const activeStatuses = queryClient.getQueryData<StatusLog[]>(queryKeys.statusesBySheet(activeSheetId)) || [];
     const activities = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
     const unit = units.find(u => u.id === unitId);
     if (!unit) return;
@@ -743,7 +743,7 @@ export function useMapActions(project: Project | null | undefined) {
   // The vars the bulk dock supplies — everything the mutation needs except the
   // stable activity_id, which THIS handler resolves from the name (below).
   const handleApplyBulkStatus = async ({ unitIds, activityName, color, temporal_state, track, planned_start_date, planned_end_date, logged_date, bottlenecks = [] }: Omit<BulkUpdateStatusVars, 'activity_id'>, isUndoRedo = false) => {
-    const activeStatuses = queryClient.getQueryData<StatusLog[]>(['statuses', activeSheetId]) || [];
+    const activeStatuses = queryClient.getQueryData<StatusLog[]>(queryKeys.statusesBySheet(activeSheetId)) || [];
     const activitiesForBulk = queryClient.getQueryData<Activity[]>(queryKeys.activities(project?.id as string)) || [];
     // Resolve the applied activity name → its stable activity_id (the slot key). Null
     // for the '__KEEP_EXISTING__' / null sentinels — the bulk hook treats those as

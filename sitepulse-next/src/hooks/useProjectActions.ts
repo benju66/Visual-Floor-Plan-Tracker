@@ -71,7 +71,7 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: queryKeys.activities(project?.id || projectId) });
-      queryClient.invalidateQueries({ queryKey: ['statuses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesAll() });
       // FS dependency edges cascade-delete with the activity (Phase 3b) — refresh
       // the cached graph so a surviving successor's chip doesn't go stale.
       queryClient.invalidateQueries({ queryKey: queryKeys.activityDependencies(project?.id || projectId) });

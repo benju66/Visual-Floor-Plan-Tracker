@@ -482,7 +482,7 @@ export function useCreateUnit(sheetId: string) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
       // Invalidate all project units prefix
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     }
   });
 }
@@ -509,7 +509,7 @@ export function useUpdateUnitGeometry(sheetId: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     }
   });
 }
@@ -537,7 +537,7 @@ export function useUpdateUnitFields(sheetId: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     }
   });
 }
@@ -568,8 +568,8 @@ export function useClearProjectUnitTypes() {
       return unitIds.length;
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['units'] });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.unitsAll() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     }
   });
 }
@@ -616,7 +616,7 @@ export function useRecalculateSheetAreas(sheetId: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     }
   });
 }
@@ -644,8 +644,8 @@ export function useDeleteUnit(sheetId: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     }
   });
 }
@@ -683,8 +683,8 @@ export function useUpdateStatus(sheetId: string) {
       return data;
     },
     onMutate: async (newLogData) => {
-      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
-      await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.allProjectStatusesAll() });
       
       const optimisticLog = { 
         ...newLogData, 
@@ -692,13 +692,13 @@ export function useUpdateStatus(sheetId: string) {
         created_at: new Date().toISOString() 
       } as StatusLog;
 
-      queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, old => {
+      queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, old => {
         if (!old) return old;
         const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.activity_id === newLogData.activity_id));
         return [...filtered, optimisticLog];
       });
 
-      queryClient.setQueriesData<StatusLog[]>({ queryKey: ['all_project_statuses'] }, old => {
+      queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.allProjectStatusesAll() }, old => {
         if (!old) return old;
         const filtered = old.filter(s => !(s.unit_id === newLogData.unit_id && s.activity_id === newLogData.activity_id));
         return [...filtered, optimisticLog];
@@ -708,8 +708,8 @@ export function useUpdateStatus(sheetId: string) {
     },
     onError: () => {},
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
-      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
     }
   });
 }
@@ -740,8 +740,8 @@ export function useClearStatus(sheetId: string) {
       if (error) throw error;
     },
     onMutate: async ({ unitId, track, activityId, activityName }) => {
-      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
-      await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.allProjectStatusesAll() });
 
       const optimisticLog = {
         unit_id: unitId,
@@ -758,13 +758,13 @@ export function useClearStatus(sheetId: string) {
         client_timestamp: null
       } as StatusLog;
 
-      queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, old => {
+      queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, old => {
         if (!old) return old;
         const filtered = old.filter(s => !(s.unit_id === unitId && s.activity_id === activityId));
         return [...filtered, optimisticLog];
       });
 
-      queryClient.setQueriesData<StatusLog[]>({ queryKey: ['all_project_statuses'] }, old => {
+      queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.allProjectStatusesAll() }, old => {
         if (!old) return old;
         const filtered = old.filter(s => !(s.unit_id === unitId && s.activity_id === activityId));
         return [...filtered, optimisticLog];
@@ -774,8 +774,8 @@ export function useClearStatus(sheetId: string) {
     },
     onError: () => {},
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
-      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
     }
   });
 }
@@ -801,8 +801,8 @@ export function useUpdateActivity(projectId: string, sheetId: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) });
-      queryClient.invalidateQueries({ queryKey: ['statuses'] });
-      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesAll() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
     }
   });
 }
@@ -1085,8 +1085,8 @@ export function useBulkUpdateStatus(sheetId: string) {
       }
     },
     onMutate: async ({ unitIds, activityName, activity_id, color, temporal_state, track, planned_start_date, planned_end_date, logged_date }) => {
-      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
-      await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.allProjectStatusesAll() });
 
       const updateCache = (old: StatusLog[] | undefined) => {
         if (!old) return old;
@@ -1139,15 +1139,15 @@ export function useBulkUpdateStatus(sheetId: string) {
         return [...filtered, ...optimisticLogs];
       };
 
-      queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, updateCache);
-      queryClient.setQueriesData<StatusLog[]>({ queryKey: ['all_project_statuses'] }, updateCache);
+      queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, updateCache);
+      queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.allProjectStatusesAll() }, updateCache);
 
       return {};
     },
     onError: () => {},
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
-      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
     }
   });
 }
@@ -1185,8 +1185,8 @@ export function useBulkInsertStatusLogs(sheetId: string) {
       }
     },
     onMutate: async (logsArray) => {
-      await queryClient.cancelQueries({ queryKey: ['statuses', sheetId] });
-      await queryClient.cancelQueries({ queryKey: ['all_project_statuses'] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.allProjectStatusesAll() });
 
       const updateCache = (old: StatusLog[] | undefined) => {
         if (!old) return old;
@@ -1202,14 +1202,14 @@ export function useBulkInsertStatusLogs(sheetId: string) {
         return [...filtered, ...optimisticLogs];
       };
 
-      queryClient.setQueriesData<StatusLog[]>({ queryKey: ['statuses', sheetId] }, updateCache);
-      queryClient.setQueriesData<StatusLog[]>({ queryKey: ['all_project_statuses'] }, updateCache);
+      queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, updateCache);
+      queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.allProjectStatusesAll() }, updateCache);
       return {};
     },
     onError: () => {},
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', sheetId] });
-      queryClient.invalidateQueries({ queryKey: ['all_project_statuses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
     }
   });
 }
@@ -1244,7 +1244,7 @@ export function useUpdateSheetScopes(projectId: string) {
  */
 export function useSheetById(sheetId: string | null | undefined) {
   return useQuery({
-    queryKey: ['sheet', sheetId ?? ''] as const,
+    queryKey: queryKeys.sheet(sheetId ?? ''),
     queryFn: async (): Promise<Sheet | null> => {
       if (!sheetId) return null;
       const { data, error } = await supabase.from('sheets').select('*').eq('id', sheetId).maybeSingle();
@@ -1293,18 +1293,18 @@ export function useUpdateSheetScale(projectId: string) {
     onMutate: async (vars) => {
       const patch = buildPatch(vars);
       await queryClient.cancelQueries({ queryKey: queryKeys.sheets(projectId) });
-      await queryClient.cancelQueries({ queryKey: ['sheet', vars.sheetId] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.sheet(vars.sheetId) });
       queryClient.setQueriesData<Sheet[]>({ queryKey: queryKeys.sheets(projectId) }, old => {
         if (!old) return old;
         return old.map(s => s.id === vars.sheetId ? { ...s, ...patch } as Sheet : s);
       });
-      queryClient.setQueryData<Sheet | null>(['sheet', vars.sheetId], old =>
+      queryClient.setQueryData<Sheet | null>(queryKeys.sheet(vars.sheetId), old =>
         old ? ({ ...old, ...patch } as Sheet) : old);
       return {};
     },
     onSettled: (_data, _err, vars) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets(projectId) });
-      queryClient.invalidateQueries({ queryKey: ['sheet', vars.sheetId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheet(vars.sheetId) });
     }
   });
 }
@@ -1461,7 +1461,7 @@ export function useUpdateWalkSequence(sheetId: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: ['all_project_units'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     }
   });
 }

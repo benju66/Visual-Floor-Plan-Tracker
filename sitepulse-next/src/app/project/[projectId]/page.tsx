@@ -25,6 +25,7 @@ import { useProjectActions } from '@/hooks/useProjectActions';
 import { useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { isValidViewMode, resolveInitialView, MOBILE_VIEWS } from '@/utils/viewRouting';
+import { queryKeys } from '@/types/queryKeys';
 
 import TopHeader from '@/components/TopHeader';
 import MobileViewTabBar from '@/components/MobileViewTabBar';
@@ -200,8 +201,8 @@ function App() {
             role: 'viewer' 
           }]);
           // Refresh the user's role and the team list
-          queryClient.invalidateQueries({ queryKey: ['current_user_role', projectId] });
-          queryClient.invalidateQueries({ queryKey: ['project_members', projectId] });
+          queryClient.invalidateQueries({ queryKey: queryKeys.currentUserRole(projectId) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.projectMembers(projectId) });
         }
       }
     }

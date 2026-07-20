@@ -10,6 +10,7 @@ import { useSettingsStore, useHydratedStore } from '@/store/useSettingsStore';
 import ResizableDivider from './ResizableDivider';
 import { useAllProjectUnits, useAllProjectStatuses, useUpdateStatus, useBulkInsertStatusLogs } from '@/hooks/useProjectQueries';
 import { useActivityDependencies } from '@/hooks/useActivityDependencies';
+import { queryKeys } from '@/types/queryKeys';
 import ActivityManagerPanel from './ActivityManagerPanel';
 import ScheduleSetupWizard from './ScheduleSetupWizard';
 import SchedulePlanPanel from './SchedulePlanPanel';
@@ -246,7 +247,7 @@ export default function ScheduleWorkspace({
       await bulkInsert.mutateAsync(writes as unknown as StatusLog[]);
       // The unit may live on another sheet (all-levels scope) — refresh every
       // per-sheet status cache, not just the active one the hook invalidates.
-      queryClient.invalidateQueries({ queryKey: ['statuses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.statusesAll() });
       setToast({
         message: `Shifted ${writes.length} downstream date${writes.length === 1 ? '' : 's'} on ${ripple.unitLabel}.`,
         type: 'success',
