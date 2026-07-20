@@ -7,6 +7,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  type DragEndEvent,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -17,8 +18,15 @@ import {
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useUpdateWalkSequence } from '@/hooks/useProjectQueries';
+import type { Unit } from '@/types/domain';
 
-function SortableItem({ id, unit, onRemove }) {
+interface SortableItemProps {
+  id: string;
+  unit: Unit;
+  onRemove: (id: string) => void;
+}
+
+function SortableItem({ id, unit, onRemove }: SortableItemProps) {
   const {
     attributes,
     listeners,
@@ -69,10 +77,16 @@ function SortableItem({ id, unit, onRemove }) {
   );
 }
 
-export default function WalkSequenceModal({ units, sheetId, onClose }) {
-  const [routed, setRouted] = useState(() => {
+interface WalkSequenceModalProps {
+  units: Unit[];
+  sheetId: string;
+  onClose: () => void;
+}
+
+export default function WalkSequenceModal({ units, sheetId, onClose }: WalkSequenceModalProps) {
+  const [routed, setRouted] = useState<Unit[]>(() => {
     return [...units]
-      .filter(u => typeof u.walk_sequence === 'number')
+      .filter((u): u is Unit & { walk_sequence: number } => typeof u.walk_sequence === 'number')
       .sort((a, b) => a.walk_sequence - b.walk_sequence);
   });
 
@@ -91,7 +105,7 @@ export default function WalkSequenceModal({ units, sheetId, onClose }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const handleDragEnd = (event) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
@@ -103,18 +117,18 @@ export default function WalkSequenceModal({ units, sheetId, onClose }) {
     }
   };
 
-  const handleRemove = (id) => {
+  const handleRemove = (id: string) => {
     setRouted(prev => prev.filter(u => u.id !== id));
   };
 
-  const handleAdd = (unit) => {
+  const handleAdd = (unit: Unit) => {
     setRouted(prev => [...prev, unit]);
   };
 
   const handleSave = async () => {
     setIsSaving(true);
-    const updates = [];
-    
+    const updates: { id: string; walk_sequence: number | null }[] = [];
+
     // Map routed units to sequence (1-indexed)
     routed.forEach((u, index) => {
       updates.push({ id: u.id, walk_sequence: index + 1 });

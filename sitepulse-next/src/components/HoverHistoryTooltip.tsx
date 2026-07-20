@@ -1,6 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { computeUnitVariance, varianceFill, varianceLabel } from '@/utils/progressAnalytics';
-import { isActivityApplicable, applicableActivities } from '@/utils/applicability';
+import { isActivityApplicable, applicableActivities, type ApplicabilityIndex } from '@/utils/applicability';
+import type { Unit, Activity, StatusLog } from '@/types/domain';
+
+interface HoverHistoryTooltipProps {
+  /** The hovered unit's ID (matched against `units[].id`); null when nothing is hovered. */
+  hoveredUnit: string | null;
+  /** Reads the current pointer position lazily from the pointer store. */
+  getPointerPos?: () => { x: number; y: number } | null;
+  units: Unit[];
+  rawStatuses: StatusLog[];
+  trackingMode: string;
+  activities: Activity[];
+  dimensions: { width: number; height: number };
+  toolMode: string;
+  /** Canvas context-menu state — only its truthiness is read here. */
+  contextMenu: unknown;
+  applicabilityIndex?: ApplicabilityIndex;
+}
 
 export default function HoverHistoryTooltip({
   hoveredUnit,
@@ -13,13 +30,13 @@ export default function HoverHistoryTooltip({
   toolMode,
   contextMenu,
   applicabilityIndex
-}) {
-  const [activeUnit, setActiveUnit] = useState(null);
-  const [activePos, setActivePos] = useState(null);
-  const timeoutRef = useRef(null);
+}: HoverHistoryTooltipProps) {
+  const [activeUnit, setActiveUnit] = useState<string | null>(null);
+  const [activePos, setActivePos] = useState<{ x: number; y: number } | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHoveredRef = useRef(false);
-  const anchoredUnitRef = useRef(null);
-  const containerRef = useRef(null);
+  const anchoredUnitRef = useRef<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Hide tooltip if interacting with context menus or map editing modes
@@ -30,7 +47,7 @@ export default function HoverHistoryTooltip({
     }
 
     if (hoveredUnit) {
-      clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setActiveUnit(hoveredUnit);
     } else {
       // Small debounce to keep tooltip alive while cursor transitions
@@ -42,7 +59,7 @@ export default function HoverHistoryTooltip({
       }, 150);
     }
     
-    return () => clearTimeout(timeoutRef.current);
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, [hoveredUnit, contextMenu, toolMode]);
 
   // Anchor the position ONLY ONCE per hovered unit. The pointer position is read
@@ -63,7 +80,7 @@ export default function HoverHistoryTooltip({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const handleNativeWheel = (e) => {
+    const handleNativeWheel = (e: WheelEvent) => {
       e.stopPropagation();
     };
     el.addEventListener('wheel', handleNativeWheel, { passive: false });
@@ -97,7 +114,7 @@ export default function HoverHistoryTooltip({
       ref={containerRef}
       onMouseEnter={() => {
         isHoveredRef.current = true;
-        clearTimeout(timeoutRef.current);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
       }}
       onMouseLeave={() => {
         isHoveredRef.current = false;
