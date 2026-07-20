@@ -4,11 +4,8 @@ interface AddLevelModalProps {
   handleAddLevel: (e: FormEvent<HTMLFormElement>) => void | Promise<void>;
   newLevelName: string;
   setNewLevelName: (val: string) => void;
-  /** `number | string`: the page-number input writes `e.target.value` (a string)
-      straight into the store, so the store slot honestly holds either (see
-      useMapStore). Flagged for a W3 parse-at-the-input cleanup. */
-  pdfPageNumber: number | string;
-  setPdfPageNumber: (val: string) => void;
+  pdfPageNumber: number;
+  setPdfPageNumber: (val: number) => void;
   setSelectedFile: (val: File | null) => void;
   setIsModalOpen: (val: boolean) => void;
   isUploading: boolean;
@@ -48,7 +45,7 @@ export default function AddLevelModal({
               min="1"
               className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg bg-white/60 dark:bg-black/25"
               value={pdfPageNumber}
-              onChange={(e) => setPdfPageNumber(e.target.value)}
+              onChange={(e) => setPdfPageNumber(parseInt(e.target.value, 10) || 1)}
               required
             />
             <p className="text-xs text-slate-500 mt-1">Which page contains this specific floor plan?</p>
@@ -60,7 +57,7 @@ export default function AddLevelModal({
               type="file"
               accept=".pdf"
               className="w-full border border-slate-300/80 dark:border-white/15 p-2 rounded-lg text-sm bg-white/60 dark:bg-black/25"
-              onChange={(e) => setSelectedFile(e.target.files![0])}
+              onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
               required
             />
           </div>

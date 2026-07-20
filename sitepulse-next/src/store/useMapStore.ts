@@ -101,12 +101,8 @@ export interface MapState {
   selectedFile: File | null;
   setSelectedFile: (val: Updater<File | null>) => void;
 
-  // `number | string`: seeded 1, but AddLevelModal writes the raw input value (a
-  // string) on every keystroke — the type records that reality (W2 Phase 1 surfaced
-  // it; parse-at-the-input cleanup flagged for W3). The upload service interpolates
-  // it into a URL, so both shapes behave identically downstream.
-  pdfPageNumber: number | string;
-  setPdfPageNumber: (val: Updater<number | string>) => void;
+  pdfPageNumber: number;
+  setPdfPageNumber: (val: Updater<number>) => void;
 
   isUploading: boolean;
   setIsUploading: (val: Updater<boolean>) => void;

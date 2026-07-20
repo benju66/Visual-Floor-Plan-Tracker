@@ -10,10 +10,9 @@ interface AuthContextValue {
   session: Session | null;
 }
 
-// The default is only reachable outside <AuthProvider> (the whole app is wrapped in
-// layout.tsx). Kept as the original `{}` via assertion rather than `{ session: null }`
-// so the conversion stays byte-identical at runtime.
-const AuthContext = createContext<AuthContextValue>({} as AuthContextValue);
+// Default is only reachable outside <AuthProvider> (the whole app is wrapped in
+// layout.tsx); `{ session: null }` reads the same as a logged-out session.
+const AuthContext = createContext<AuthContextValue>({ session: null });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);

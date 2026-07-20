@@ -810,7 +810,7 @@ function App() {
         isOpen={!!quickActivityUnitId}
         onClose={() => setQuickActivityUnitId(null)}
         unitId={quickActivityUnitId}
-        currentActivityId={
+        currentActivityName={
           quickActivityUnitId
             ? (mapDisplayStatuses.find(s => s.unit_id === quickActivityUnitId && s.track === trackingMode)?.activityName || null)
             : null
