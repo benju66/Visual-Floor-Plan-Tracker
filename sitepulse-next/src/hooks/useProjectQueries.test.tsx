@@ -690,3 +690,87 @@ describe('useClearProjectUnitTypes — chunked, error-checked bulk clear', () =>
     });
   });
 });
+
+// ── onSettled invalidation targets (Frontend Structure W3, Phase 2 safety net) ──
+// The split (P4 Units, P5 Statuses) moves these mutations to new files. Their
+// onSettled invalidations flow through the P1 queryKeys factory; pin the EXACT
+// prefix keys so a fat-fingered move that drops or drifts an invalidation goes red
+// instead of silently leaving a stale map/list after a write. (The write contracts
+// above are already pinned; this covers the cache-refresh side the split must keep.)
+describe('status + unit mutations — onSettled invalidation targets', () => {
+  function ctx() {
+    const client = makeTestQueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const w = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return { invalidate, w };
+  }
+
+  const statusVars = {
+    unit_id: 'u1', activity_id: 'act-42', status_color: '#3366aa',
+    temporal_state: 'completed', track: 'Production',
+  } as unknown as UpdateStatusVars;
+
+  it('useUpdateStatus invalidates statusesBySheet + allProjectStatusesAll', async () => {
+    const { invalidate, w } = ctx();
+    const { result } = renderHook(() => useUpdateStatus('sheet-1'), { wrapper: w });
+    await act(async () => { await result.current.mutateAsync(statusVars); });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statusesBySheet('sheet-1') });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.allProjectStatusesAll() });
+  });
+
+  it('useClearStatus invalidates statusesBySheet + allProjectStatusesAll', async () => {
+    const { invalidate, w } = ctx();
+    const { result } = renderHook(() => useClearStatus('sheet-1'), { wrapper: w });
+    await act(async () => {
+      await result.current.mutateAsync({ unitId: 'u1', track: 'Production', activityId: 'act-42' });
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statusesBySheet('sheet-1') });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.allProjectStatusesAll() });
+  });
+
+  it('useBulkUpdateStatus invalidates statusesBySheet + allProjectStatusesAll', async () => {
+    const { invalidate, w } = ctx();
+    const { result } = renderHook(() => useBulkUpdateStatus('sheet-1'), { wrapper: w });
+    await act(async () => {
+      await result.current.mutateAsync({
+        unitIds: ['u1'], activityName: 'Drywall', activity_id: 'act-42',
+        color: '#3366aa', temporal_state: 'completed', track: 'Production',
+      });
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statusesBySheet('sheet-1') });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.allProjectStatusesAll() });
+  });
+
+  it('useBulkInsertStatusLogs invalidates statusesBySheet + allProjectStatusesAll', async () => {
+    const { invalidate, w } = ctx();
+    const { result } = renderHook(() => useBulkInsertStatusLogs('sheet-1'), { wrapper: w });
+    await act(async () => {
+      await result.current.mutateAsync([
+        { unit_id: 'u1', activity_id: 'act-42', temporal_state: 'completed', track: 'Production', status_color: '#3366aa' },
+      ] as unknown as StatusLog[]);
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statusesBySheet('sheet-1') });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.allProjectStatusesAll() });
+  });
+
+  it('useUpdateUnitFields invalidates units + allProjectUnitsAll', async () => {
+    const { invalidate, w } = ctx();
+    const { result } = renderHook(() => useUpdateUnitFields('sheet-1'), { wrapper: w });
+    await act(async () => {
+      await result.current.mutateAsync({ unitId: 'u1', updates: { unit_number: 'Renamed' } });
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.units('sheet-1') });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.allProjectUnitsAll() });
+  });
+
+  it('useDeleteUnit invalidates units + statusesBySheet + allProjectUnitsAll', async () => {
+    const { invalidate, w } = ctx();
+    const { result } = renderHook(() => useDeleteUnit('sheet-1'), { wrapper: w });
+    await act(async () => { await result.current.mutateAsync('u1'); });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.units('sheet-1') });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statusesBySheet('sheet-1') });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.allProjectUnitsAll() });
+  });
+});
