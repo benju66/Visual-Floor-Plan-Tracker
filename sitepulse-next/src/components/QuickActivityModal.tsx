@@ -7,11 +7,9 @@ interface QuickActivityModalProps {
   onClose: () => void;
   /** Null while the modal is closed (the page keeps it mounted; `isOpen` gates rendering). */
   unitId: string | null;
-  /** Misnomer (pre-existing, flagged for W3): holds the activity NAME, not its id. */
-  currentActivityId: string | null;
-  /** `status_color` is not an `activities` column — the render fallback below reads it
-      off legacy-shaped rows; typed optional to keep that runtime fallback (flagged). */
-  activities: Array<Activity & { status_color?: string }>;
+  /** The current activity's NAME (the write path keys 'activity' commits by name). */
+  currentActivityName: string | null;
+  activities: Activity[];
   onCommit: (
     unitId: string | null,
     type: 'status' | 'activity',
@@ -20,12 +18,12 @@ interface QuickActivityModalProps {
   ) => void;
 }
 
-export default function QuickActivityModal({ isOpen, onClose, unitId, currentActivityId, activities, onCommit }: QuickActivityModalProps) {
-  const [selectedActivityId, setSelectedActivityId] = React.useState<string | null>(currentActivityId);
+export default function QuickActivityModal({ isOpen, onClose, unitId, currentActivityName, activities, onCommit }: QuickActivityModalProps) {
+  const [selectedActivityName, setSelectedActivityName] = React.useState<string | null>(currentActivityName);
 
   React.useEffect(() => {
-    setSelectedActivityId(currentActivityId);
-  }, [currentActivityId, isOpen]);
+    setSelectedActivityName(currentActivityName);
+  }, [currentActivityName, isOpen]);
 
   if (!isOpen) return null;
 
@@ -45,12 +43,12 @@ export default function QuickActivityModal({ isOpen, onClose, unitId, currentAct
           ) : activities.map((activity) => (
             <button
               key={activity.id}
-              onClick={() => setSelectedActivityId(activity.name)}
-              className={`p-4 rounded-xl font-bold border-2 transition-all flex items-center gap-4 text-left ${selectedActivityId === activity.name ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+              onClick={() => setSelectedActivityName(activity.name)}
+              className={`p-4 rounded-xl font-bold border-2 transition-all flex items-center gap-4 text-left ${selectedActivityName === activity.name ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20 shadow-sm' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
             >
-              <div 
-                className="w-5 h-5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm" 
-                style={{ backgroundColor: activity.color || activity.status_color }} 
+              <div
+                className="w-5 h-5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm"
+                style={{ backgroundColor: activity.color }}
               />
               <span className="flex-1 text-slate-800 dark:text-slate-200 text-lg">{activity.name}</span>
             </button>
@@ -66,7 +64,7 @@ export default function QuickActivityModal({ isOpen, onClose, unitId, currentAct
           <button
             onClick={() => { 
               startTransition(() => {
-                onCommit(unitId, 'activity', selectedActivityId); 
+                onCommit(unitId, 'activity', selectedActivityName);
               });
               onClose(); 
             }}

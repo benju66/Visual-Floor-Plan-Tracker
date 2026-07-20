@@ -44,9 +44,7 @@ export interface UploadFloorplanResult {
   base_image_url: string;
 }
 
-// `pdfPageNumber` is `number | string` because the AddLevelModal path stores the raw
-// input value (see useMapStore) — it's interpolated into the query string either way.
-export async function uploadFloorplanService(sheetId: string, file: File, pdfPageNumber: number | string, token: string): Promise<UploadFloorplanResult> {
+export async function uploadFloorplanService(sheetId: string, file: File, pdfPageNumber: number, token: string): Promise<UploadFloorplanResult> {
   const formData = new FormData();
   formData.append('file', file);
 
