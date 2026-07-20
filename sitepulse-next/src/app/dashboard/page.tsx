@@ -9,14 +9,29 @@ import { LayoutDashboard, Plus, Loader2, Folder, Shield, ArrowRight, X, Info, Se
 import GlobalSettingsModal from '@/components/GlobalSettingsModal';
 import SubcontractorBenchmark from '@/components/dashboard/SubcontractorBenchmark';
 import { PROJECT_TYPES } from '@/utils/locationTaxonomy';
+import type { Project } from '@/types/domain';
+
+// The embedded-select row: a `project_members` row with its joined project.
+// `project_members` has no generated relationship metadata, so Supabase can't
+// type the `projects (*)` embed — the shape is asserted at the query boundary and
+// narrowed by the workbench-contamination guard below (AGENTS §6). `role` is
+// derived faithfully from `project_members.role` (nullable free text).
+interface MembershipRow {
+  role: string | null;
+  projects: Project | null;
+}
+// A live membership after the contamination guard: `projects` is guaranteed
+// non-null, so downstream sort/derefs are safe.
+type LiveMembership = MembershipRow & { projects: Project };
+
 export default function DashboardPage() {
   const { session } = useAuth();
   const router = useRouter();
-  const [projects, setProjects] = useState([]);
+  const [projects, setProjects] = useState<LiveMembership[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   // NEW: Read link_procore_project parameter
-  const [linkProcoreProject, setLinkProcoreProject] = useState(null);
+  const [linkProcoreProject, setLinkProcoreProject] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -28,7 +43,7 @@ export default function DashboardPage() {
       }, 100);
     }
   }, []);
-  
+
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState(false);
@@ -40,8 +55,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!session?.user?.id) return;
-    
-    async function fetchProjects() {
+
+    // Pass the id as a parameter so it reaches the closure already narrowed to
+    // `string` (control-flow narrowing of `session` doesn't cross the function
+    // boundary). Same value as the old inline `session.user.id` — behavior-identical.
+    async function fetchProjects(userId: string) {
       // Fetch projects via project_members
       const { data, error } = await supabase
         .from('project_members')
@@ -49,45 +67,50 @@ export default function DashboardPage() {
           role,
           projects (*)
         `)
-        .eq('user_id', session.user.id);
-        
+        .eq('user_id', userId);
+
       if (!error && data) {
         // Contamination guard: never let the hidden workbench container
         // (kind='workbench') into the live Projects Dashboard. Post-filter in JS
         // BEFORE the sort — a PostgREST filter on the embedded `projects` only
         // nulls the embed (leaving the row), and the sort below dereferences
-        // `r.projects.created_at`, so a nulled row would throw.
-        const liveProjects = data.filter((r) => r.projects && r.projects.kind !== 'workbench');
-        // Sort projects by created_at descending
-        const sorted = liveProjects.sort((a, b) => new Date(b.projects.created_at) - new Date(a.projects.created_at));
+        // `r.projects.created_at`, so a nulled row would throw. The predicate is a
+        // type guard so downstream sees non-null `projects`.
+        const liveProjects = (data as unknown as MembershipRow[]).filter(
+          (r): r is LiveMembership => !!r.projects && r.projects.kind !== 'workbench'
+        );
+        // Sort projects by created_at descending. `.getTime()` arithmetic (TS won't
+        // subtract Dates); `?? 0` keeps a null created_at sorting as epoch-oldest,
+        // matching the old `new Date(null)` coercion. Behavior-identical.
+        const sorted = liveProjects.sort((a, b) => new Date(b.projects.created_at ?? 0).getTime() - new Date(a.projects.created_at ?? 0).getTime());
         setProjects(sorted);
       }
       setLoading(false);
     }
-    
-    fetchProjects();
+
+    fetchProjects(session.user.id);
   }, [session]);
 
   // After an admin deletes a project from Global Settings, drop it from local
   // state so it disappears from the grid (and recomputes `adminProjects`)
   // without a full refetch.
-  const handleProjectDeleted = (projectId) => {
+  const handleProjectDeleted = (projectId: string) => {
     setProjects(prev => prev.filter(p => p.projects?.id !== projectId));
   };
 
   // After an admin toggles a project setting in Global Settings (e.g. the
   // AI-training opt-out), patch the nested project in local state so the change
   // sticks without a full refetch.
-  const handleProjectUpdated = (projectId, patch) => {
+  const handleProjectUpdated = (projectId: string, patch: Partial<Project>) => {
     setProjects(prev => prev.map(p => (
       p.projects?.id === projectId ? { ...p, projects: { ...p.projects, ...patch } } : p
     )));
   };
 
-  const handleCreateProject = async (e) => {
+  const handleCreateProject = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!newProjectName.trim() || !session?.user?.id) return;
-    
+
     setCreating(true);
     try {
       // Call the server-side API route to bypass RLS issues. Send the login token
@@ -107,12 +130,12 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: { error?: string } = await response.json();
         throw new Error(errorData.error || 'Failed to create project');
       }
 
-      const projectRecord = await response.json();
-      
+      const projectRecord: { id: string } = await response.json();
+
       // 3. Redirect
       router.push(`/project/${projectRecord.id}`);
     } catch (err) {
@@ -187,7 +210,7 @@ export default function DashboardPage() {
             >
               {/* Subtle gradient bg focus effect */}
               <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-sky-400 to-blue-600 scale-x-0 group-hover:scale-x-100 transition-transform origin-left" />
-              
+
               <div className="flex justify-between items-start mb-6">
                 <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-300">
                   <Folder size={24} />
@@ -199,14 +222,14 @@ export default function DashboardPage() {
                   </span>
                 </div>
               </div>
-              
+
               <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2 line-clamp-1 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
                 {project.name}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
-                Created on {new Date(project.created_at).toLocaleDateString()}
+                Created on {new Date(project.created_at ?? 0).toLocaleDateString()}
               </p>
-              
+
               <div className="flex justify-end items-center mt-auto">
                 <span className="text-sm font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1 opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all">
                   Open <ArrowRight size={16} />
@@ -216,7 +239,7 @@ export default function DashboardPage() {
           ))}
 
           {projects.length === 0 && (
-            <div 
+            <div
               onClick={() => setIsModalOpen(true)}
               className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/50 hover:border-slate-400 dark:hover:border-slate-500 transition-all min-h-[220px]"
             >
@@ -246,16 +269,16 @@ export default function DashboardPage() {
                 <Folder size={20} className="text-sky-500" />
                 New Project
               </h2>
-              <button 
+              <button
                 onClick={() => !creating && setIsModalOpen(false)}
                 className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <X size={20} />
               </button>
             </div>
-            
+
             <form onSubmit={handleCreateProject} className="p-5">
-              
+
               {/* NEW: Show linking indicator */}
               {linkProcoreProject && (
                 <div className="mb-5 p-3 bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-xl text-sm font-medium text-sky-700 dark:text-sky-300 flex items-center gap-2">
