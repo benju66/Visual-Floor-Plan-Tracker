@@ -10,22 +10,34 @@ import {
   CartesianGrid,
   Tooltip,
   ReferenceLine,
+  type TooltipContentProps,
 } from 'recharts';
 
 /**
  * VelocityChart — stateless presenter for the Burn-Up + Daily Velocity chart.
- *
- * Props:
- *   chartData — { date, label, dailyVelocity, cumulativeCompleted, totalScope }[]
- *               Pre-computed by ProjectDashboard's useMemo.
+ * Rows are pre-computed by ProjectDashboard's chartData useMemo.
  */
+export interface VelocityDatum {
+  date: string;
+  label: string;
+  dailyVelocity: number;
+  cumulativeCompleted: number;
+  plannedCumulative: number;
+  totalScope: number;
+}
 
-function ChartTooltip({ active, payload, label }) {
+// recharts v3 injects active/payload/label into a cloned `content` element; those
+// props live on TooltipContentProps (numeric values in this chart). All optional via
+// Partial so `<ChartTooltip />` type-checks at the call site below.
+function ChartTooltip({ active, payload, label }: Partial<TooltipContentProps<number, string>>) {
   if (!active || !payload?.length) return null;
-  const cumulative = payload.find(p => p.dataKey === 'cumulativeCompleted')?.value ?? 0;
-  const daily = payload.find(p => p.dataKey === 'dailyVelocity')?.value ?? 0;
-  const planned = payload[0]?.payload?.plannedCumulative;
-  const totalScope = payload[0]?.payload?.totalScope ?? 0;
+  // recharts types payload `.value` as its loose ValueType; these series are numeric
+  // by construction (VelocityDatum), so assert number for the arithmetic below.
+  const cumulative = (payload.find(p => p.dataKey === 'cumulativeCompleted')?.value as number | undefined) ?? 0;
+  const daily = (payload.find(p => p.dataKey === 'dailyVelocity')?.value as number | undefined) ?? 0;
+  const row = payload[0]?.payload as VelocityDatum | undefined;
+  const planned = row?.plannedCumulative;
+  const totalScope = row?.totalScope ?? 0;
   const pct = totalScope > 0 ? Math.round((cumulative / totalScope) * 100) : 0;
 
   return (
@@ -53,7 +65,7 @@ function ChartTooltip({ active, payload, label }) {
   );
 }
 
-export default function VelocityChart({ chartData }) {
+export default function VelocityChart({ chartData }: { chartData: VelocityDatum[] }) {
   if (!chartData || chartData.length === 0) {
     return (
       <div className="h-48 flex items-center justify-center text-slate-400 dark:text-slate-500 text-sm italic">

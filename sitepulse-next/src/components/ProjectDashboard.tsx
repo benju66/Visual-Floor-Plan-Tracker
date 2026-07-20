@@ -23,6 +23,7 @@ import type { Unit, Activity, StatusLog, Sheet, TrackingMode } from '@/types/dom
 
 // Lazy-load recharts via next/dynamic — prevents SSR hydration crash
 // (recharts uses ResizeObserver and window which don't exist server-side)
+import type { VelocityDatum } from './VelocityChart';
 const VelocityChart = dynamic(() => import('./VelocityChart'), {
   ssr: false,
   loading: () => <ChartSkeleton />,
@@ -308,7 +309,7 @@ export default function ProjectDashboard({ activities, trackingMode, sheets = []
   }, [displayUnits, displayStatuses, currentTrackActivities, trackingMode, applicabilityIndex]);
 
   // ----- Velocity Chart Data Engine -----
-  const chartData = useMemo(() => {
+  const chartData = useMemo<VelocityDatum[]>(() => {
     const scopedHistory = trackHistory.filter(log => log.unit_id && displayUnitIds.has(log.unit_id as string));
     if (scopedHistory.length === 0) return [];
 
