@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { X, Search, Loader2, Save, User, AlertCircle, CheckCircle2, Users, Library, Settings, Folder, Trash2, AlertTriangle, Sparkles, ListChecks, Hash } from 'lucide-react';
-import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/supabaseClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/types/queryKeys';
@@ -62,7 +61,7 @@ function toErrorMessage(err: unknown, fallback: string): string {
 }
 
 export default function GlobalSettingsModal({ isOpen, onClose, adminProjects, onProjectDeleted, onProjectUpdated }: GlobalSettingsModalProps) {
-  const { session } = useAuth() as { session: Session | null };
+  const { session } = useAuth();
   const queryClient = useQueryClient();
 
   const [searchEmail, setSearchEmail] = useState('');

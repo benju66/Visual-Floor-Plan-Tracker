@@ -62,9 +62,7 @@ import type { WorkbenchDrawing } from '@/types/domain';
 // upload arrives in Phase 5, tracing in Phase 6.
 
 export default function WorkbenchPage() {
-  // AuthProvider is JS and exposes an untyped context — narrow it here at the
-  // boundary so the rest of the component is type-clean (AGENTS.md §6).
-  const { session } = useAuth() as { session: { user?: { id?: string } } | null };
+  const { session } = useAuth();
   const userId = session?.user?.id;
 
   const {

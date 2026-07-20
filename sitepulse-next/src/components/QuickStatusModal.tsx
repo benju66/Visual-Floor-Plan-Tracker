@@ -1,6 +1,24 @@
 import React, { useState, useEffect, startTransition } from 'react';
+import type { CommitStatusExtraProps } from '@/types/mutations';
 
-export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatus, onCommit }) {
+interface QuickStatusModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  /** Null while the modal is closed (the page keeps it mounted; `isOpen` gates rendering). */
+  unitId: string | null;
+  /** The bottleneck slot's temporal state ('none' when clear). Plain `string`, not
+      `TemporalState` — `status_logs.temporal_state` is typed `string` in the DB row,
+      and this flows straight from it. */
+  currentStatus: string;
+  onCommit: (
+    unitId: string | null,
+    type: 'status' | 'activity',
+    val: string,
+    extraProps?: CommitStatusExtraProps
+  ) => void;
+}
+
+export default function QuickStatusModal({ isOpen, onClose, unitId, currentStatus, onCommit }: QuickStatusModalProps) {
   const [selectedState, setSelectedState] = useState(currentStatus || 'none');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');

@@ -1,6 +1,20 @@
 "use client";
 import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
+import type { Activity } from '@/types/domain';
+
+/** What the palette hands back: a real activity row, or the Clear Status action.
+    Consumers narrow on `isClearAction` (`commitUnitActivity` already accepts both). */
+export type ActivityCommandSelection = Activity | { isClearAction: true; name: string; color: string };
+
+export interface ActivityCommandMenuProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (pick: ActivityCommandSelection) => void;
+  title?: string;
+  description?: string;
+  activities?: Activity[];
+}
 
 /** Command palette for activities; Cmd/Ctrl+K toggles from parent. */
 export default function ActivityCommandMenu({
@@ -10,10 +24,10 @@ export default function ActivityCommandMenu({
   title = 'Set status',
   description,
   activities = [],
-}) {
+}: ActivityCommandMenuProps) {
   useEffect(() => {
     if (!open) return;
-    const down = (e) => {
+    const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         onOpenChange(false);

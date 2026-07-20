@@ -1,14 +1,22 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/supabaseClient';
 import { Loader2 } from 'lucide-react';
+import type { Session } from '@supabase/supabase-js';
 
-const AuthContext = createContext({});
+interface AuthContextValue {
+  session: Session | null;
+}
 
-export function AuthProvider({ children }) {
-  const [session, setSession] = useState(null);
+// The default is only reachable outside <AuthProvider> (the whole app is wrapped in
+// layout.tsx). Kept as the original `{}` via assertion rather than `{ session: null }`
+// so the conversion stays byte-identical at runtime.
+const AuthContext = createContext<AuthContextValue>({} as AuthContextValue);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();

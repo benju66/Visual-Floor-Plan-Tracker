@@ -20,8 +20,7 @@ export default function WorkbenchTracerPage() {
   const params = useParams();
   const sheetId = params?.sheetId as string;
 
-  // AuthProvider is JS / untyped — narrow at the boundary (AGENTS.md §6).
-  const { session } = useAuth() as { session: { user?: { id?: string } } | null };
+  const { session } = useAuth();
   const userId = session?.user?.id;
 
   const {

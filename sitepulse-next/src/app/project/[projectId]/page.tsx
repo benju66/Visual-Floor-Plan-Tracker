@@ -6,7 +6,7 @@ import FieldStatusTable from '@/components/FieldStatusTable';
 import ScheduleWorkspace from '@/components/schedule/ScheduleWorkspace';
 import LookaheadWorkspace from '@/lookahead/LookaheadWorkspace';
 import BulkActionDock from '@/components/BulkActionDock';
-import ActivityCommandMenuJs from '@/components/ActivityCommandMenu';
+import ActivityCommandMenu, { type ActivityCommandSelection } from '@/components/ActivityCommandMenu';
 import SettingsMenu from '@/components/SettingsMenu';
 import ProjectManagementMenu from '@/components/ProjectManagementMenu';
 import ProjectDashboard from '@/components/ProjectDashboard';
@@ -29,8 +29,8 @@ import { isValidViewMode, resolveInitialView, MOBILE_VIEWS } from '@/utils/viewR
 import TopHeader from '@/components/TopHeader';
 import MobileViewTabBar from '@/components/MobileViewTabBar';
 import MapSidebar from '@/components/MapSidebar';
-import UnitNamingPopoverJs from '@/components/UnitNamingPopover';
-import { recentSubtypeIdsFromUnits, type TaxonomyResult } from '@/utils/subtypes';
+import UnitNamingPopover from '@/components/UnitNamingPopover';
+import { recentSubtypeIdsFromUnits } from '@/utils/subtypes';
 import MapHorizontalToolbar from '@/components/MapHorizontalToolbar';
 import AddLevelModal from '@/components/AddLevelModal';
 import ConfirmModal from '@/components/ConfirmModal';
@@ -38,41 +38,9 @@ import QuickStatusModal from '@/components/QuickStatusModal';
 import QuickActivityModal from '@/components/QuickActivityModal';
 import { exportToPDFService, uploadFloorplanService, attachOriginalService, type ExportPDFPayload } from '@/services/api';
 import { prefetchOriginalPdfs } from '@/utils/pdfSource';
-import { isStringArray, type Unit, type Activity, type Subtype, type TemporalState } from '@/types/domain';
+import { isStringArray, type Unit, type Activity, type ProjectType, type TemporalState } from '@/types/domain';
 import type { CommitStatusExtraProps } from '@/types/mutations';
 import type { Toast } from '@/store/useUIStore';
-
-// ── Typed boundaries for still-untyped (.jsx) modals ──
-// UnitNamingPopover and ActivityCommandMenu are JS/untyped, so importing them into
-// this typed page infers `never[]`/`null` prop types from their default values.
-// Give them a real prop contract here (AGENTS.md §6 — narrow untyped JS at the seam)
-// so this page's prop-threading is type-checked. Behavior is unchanged — these are
-// the same components, just with a typed view; a later phase converts them properly.
-interface UnitNamingPopoverProps {
-  editingUnitId: string | null;
-  newUnitName: string;
-  setNewUnitName: (val: string) => void;
-  subtypes?: Subtype[];
-  projectType?: string | null;
-  initialSubtypeId?: string | null;
-  initialUnitType?: string | null;
-  initialPick?: TaxonomyResult | null;
-  isSuggested?: boolean;
-  recentSubtypeIds?: string[];
-  saveNewUnitFromPopover: (pick?: TaxonomyResult | null) => void | Promise<void>;
-  cancelUnitNaming: () => void;
-}
-const UnitNamingPopover = UnitNamingPopoverJs as unknown as React.FC<UnitNamingPopoverProps>;
-
-interface ActivityCommandMenuProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSelect: (m: Activity) => void;
-  title?: string;
-  description?: string;
-  activities?: Activity[];
-}
-const ActivityCommandMenu = ActivityCommandMenuJs as unknown as React.FC<ActivityCommandMenuProps>;
 
 // The subset of FloorplanCanvas's imperative handle this page uses (the canvas is
 // forwardRef<any>, decomposed in a later slice). Only `zoomToFit` is consumed here.
@@ -539,7 +507,10 @@ function App() {
 
 
 
-  const handleActivityMenuSelect = (m: Activity) => {
+  // `ActivityCommandSelection` = Activity | the Clear Status action. No runtime
+  // narrowing needed: `commitUnitActivity` and `activityMenu.onSelect` both already
+  // accept `Partial<Activity> & { isClearAction?: boolean }`-shaped values.
+  const handleActivityMenuSelect = (m: ActivityCommandSelection) => {
     if (activityMenu?.mode === 'filter') {
       setFilterActivity(m.name);
     } else if (activityMenu?.mode === 'unit') {
@@ -715,7 +686,7 @@ function App() {
                   newUnitName={newUnitName}
                   setNewUnitName={setNewUnitName}
                   subtypes={subtypes}
-                  projectType={project?.project_type || null}
+                  projectType={(project?.project_type || null) as ProjectType | null}
                   initialSubtypeId={editingUnitId ? (units.find(u => u.id === editingUnitId)?.subtype_id || null) : null}
                   initialUnitType={editingUnitId ? (units.find(u => u.id === editingUnitId)?.unit_type || null) : null}
                   initialPick={stampPick ?? suggestedPick}
@@ -826,7 +797,7 @@ function App() {
             ? (mapDisplayStatuses.find(s => s.unit_id === quickStatusUnitId && s.track === trackingMode)?.temporal_state || 'none')
             : 'none'
         }
-        onCommit={(unitId: string, type: 'status' | 'activity', val: string, extraProps: CommitStatusExtraProps = {}) => {
+        onCommit={(unitId: string | null, type: 'status' | 'activity', val: string, extraProps: CommitStatusExtraProps = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
              extraProps.activityObj = { id: bottleneck.activity_id, name: bottleneck.activityName, color: bottleneck.status_color, track: trackingMode };
@@ -845,7 +816,7 @@ function App() {
             : null
         }
         activities={activities.filter(m => m.track === trackingMode)}
-        onCommit={(unitId: string, type: 'status' | 'activity', val: string, extraProps: CommitStatusExtraProps = {}) => {
+        onCommit={(unitId: string | null, type: 'status' | 'activity', val: string | null, extraProps: CommitStatusExtraProps = {}) => {
           const bottleneck = mapDisplayStatuses.find(s => s.unit_id === unitId && s.track === trackingMode);
           if (bottleneck) {
              extraProps.temporal_state = bottleneck.temporal_state as TemporalState;
