@@ -2,28 +2,29 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { supabase } from '@/supabaseClient';
 import { queryKeys } from '@/types/queryKeys';
 import type {
-  Project, Unit, Activity, StatusLog, Profile, ProjectMember,
-  TemporalState, ActivityOverride
+  Project, StatusLog, Profile, ProjectMember, TemporalState
 } from '@/types/domain';
-import { isOpeningEdgeArray } from '@/types/domain';
 import type {
-  UpdateUnitGeometryVars, BulkUpdateStatusVars, UpdateStatusVars
+  BulkUpdateStatusVars, UpdateStatusVars
 } from '@/types/mutations';
 // The shared 1000-row-cap-safe readers, split out in P3 (also re-exported below).
 // The Statuses/Units hooks still inline here (until P4/P5) keep consuming them.
 import { fetchAllIn, fetchStatusLogsForUnits } from './projectQueries/shared';
 
-// ==== Barrel re-exports (Frontend Structure W3 — Phase 3 split wave 1) ====
+// ==== Barrel re-exports (Frontend Structure W3 — split waves 1+2) ====
 // This file is becoming a re-export barrel: extracted domains live under
 // ./projectQueries/ and are re-exported here so every importer keeps resolving
 // from '@/hooks/useProjectQueries' (or './useProjectQueries') unchanged —
-// `export *` carries values AND types. The not-yet-split domains
-// (Project/Members, Units, WalkSequence, Statuses, Activities, Applicability,
-// bulk) stay defined inline below until P4/P5.
+// `export *` carries values AND types. Only Project/Members and Statuses
+// (the offline-sync write contract) stay defined inline below until P5.
 export * from './projectQueries/shared';
 export * from './projectQueries/contacts';
 export * from './projectQueries/history';
 export * from './projectQueries/sheets';
+export * from './projectQueries/units';
+export * from './projectQueries/walkSequence';
+export * from './projectQueries/activities';
+export * from './projectQueries/applicability';
 
 export type MemberWithProfile = ProjectMember & { profiles: Pick<Profile, 'id' | 'email' | 'display_name'> | null };
 
@@ -111,69 +112,6 @@ export function useUpdateProject(projectId: string) {
   });
 }
 
-export function useActivities(projectId: string) {
-  return useQuery({
-    queryKey: queryKeys.activities(projectId),
-    queryFn: async (): Promise<Activity[]> => {
-      if (!projectId) return [];
-      const { data, error } = await supabase.from('activities')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('sequence_order', { ascending: true })
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!projectId
-  });
-}
-
-export function useActivityOverrides(projectId: string) {
-  return useQuery({
-    queryKey: queryKeys.activityOverrides(projectId),
-    queryFn: async (): Promise<ActivityOverride[]> => {
-      if (!projectId) return [];
-      // Inner-join filter scopes the fetch to this project's activities.
-      const { data, error } = await supabase
-        .from('activity_applicability_overrides')
-        .select('*, activities!inner(project_id)')
-        .eq('activities.project_id', projectId);
-      if (error) throw error;
-      // Strip the embedded join object so the cache stays a flat Row array.
-      return (data || []).map(({ activities, ...row }: any) => row as ActivityOverride);
-    },
-    enabled: !!projectId
-  });
-}
-
-/**
- * Narrow units' `opening_edges` JSONB (Phase 4a) on EVERY read — not just a fresh
- * fetch. The units query is persisted to IndexedDB (offline-first), so a drawing
- * cached BEFORE this column existed rehydrates with rows that lack the field; a
- * consumer that trusts the non-null `Unit['opening_edges']` type would then read
- * `undefined.length` and crash. Running this in React Query's `select` (not the
- * queryFn) applies it to rehydrated + optimistic cache too (AGENTS.md §6). Defined
- * at module scope so the select stays referentially stable (no extra re-renders),
- * and only the rows that actually need fixing get a new object (ref-stable otherwise).
- */
-function selectUnitsWithOpeningEdges(rows: Unit[]): Unit[] {
-  return rows.map((u) => (isOpeningEdgeArray(u.opening_edges) ? u : { ...u, opening_edges: [] }));
-}
-
-export function useUnits(sheetId: string) {
-  return useQuery({
-    queryKey: queryKeys.units(sheetId),
-    queryFn: async (): Promise<Unit[]> => {
-      if (!sheetId) return [];
-      const { data, error } = await supabase.from('units').select('*').eq('sheet_id', sheetId);
-      if (error) throw error;
-      return data as unknown as Unit[];
-    },
-    enabled: !!sheetId,
-    select: selectUnitsWithOpeningEdges,
-  });
-}
-
 export function useStatuses(sheetId: string, unitIds: string[]) {
   const validUnitIds = unitIds?.filter(id => !String(id).startsWith('temp_')) || [];
   
@@ -188,17 +126,6 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
     },
     enabled: !!sheetId && validUnitIds.length > 0,
     placeholderData: keepPreviousData
-  });
-}
-
-export function useAllProjectUnits(sheetIds: string[]) {
-  return useQuery({
-    queryKey: queryKeys.allProjectUnits(sheetIds),
-    queryFn: async (): Promise<Unit[]> => {
-      if (!sheetIds || sheetIds.length === 0) return [];
-      return fetchAllIn<Unit>('units', 'sheet_id', sheetIds);
-    },
-    enabled: !!sheetIds && sheetIds.length > 0
   });
 }
 
@@ -218,207 +145,6 @@ export function useAllProjectStatuses(unitIds: string[]) {
 }
 
 // ==== Mutations ====
-
-// The unit-CRUD mutations below are ONLINE-ONLY (they never enter the offline
-// queue — that is status_logs territory, AGENTS §2), so a failure is final and
-// the optimistic cache edit MUST be rolled back: without it a failed create
-// leaves a phantom, unsaveable location on the canvas and a failed delete hides
-// a location that still exists. Each hook snapshots every matching cache entry
-// in onMutate (getQueriesData — setQueriesData partial-matches, so restore must
-// too) and restores the snapshot in onError; error MESSAGING stays at the call
-// sites (the map handlers already toast). The onSettled invalidation then
-// re-confirms server truth whenever it can reach the server.
-
-export function useCreateUnit(sheetId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (newUnit: Partial<Unit> & { status_logs?: any }) => {
-      const { status_logs, ...dbUnit } = newUnit;
-      const { data, error } = await supabase.from('units').insert([dbUnit as any]).select().single();
-      if (error) throw error;
-      return data as Unit;
-    },
-    onMutate: async (newUnit) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
-      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
-      const tempId = `temp_${Date.now()}`;
-      const tempUnit = { ...newUnit, id: tempId } as Unit;
-      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => old ? [...old, tempUnit] : [tempUnit]);
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      // Invalidate all project units prefix
-      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
-    }
-  });
-}
-
-export function useUpdateUnitGeometry(sheetId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ unitId, polygon_coordinates }: UpdateUnitGeometryVars) => {
-      const { data, error } = await supabase.from('units').update({ polygon_coordinates: polygon_coordinates as any }).eq('id', unitId).select().single();
-      if (error) throw error;
-      return data;
-    },
-    onMutate: async ({ unitId, polygon_coordinates }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
-      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
-      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => {
-        if (!old) return old;
-        return old.map(u => u.id === unitId ? { ...u, polygon_coordinates: polygon_coordinates as any } : u);
-      });
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
-    }
-  });
-}
-
-export function useUpdateUnitFields(sheetId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ unitId, updates }: { unitId: string, updates: Partial<Unit> & { status_logs?: any } }) => {
-      const { status_logs, ...dbUpdates } = updates;
-      const { data, error } = await supabase.from('units').update(dbUpdates as any).eq('id', unitId).select().single();
-      if (error) throw error;
-      return data;
-    },
-    onMutate: async ({ unitId, updates }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
-      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
-      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => {
-        if (!old) return old;
-        return old.map(u => u.id === unitId ? { ...u, ...updates } as Unit : u);
-      });
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
-    }
-  });
-}
-
-/**
- * Danger-zone bulk clear of `units.unit_type` across a whole project (Settings →
- * Location Types). Replaces the old per-unit `useUpdateUnitFields('')` fan-out,
- * which fired one unhandled PATCH per location simultaneously, pointed its
- * optimistic edits/invalidations at a nonexistent `units('')` cache, and
- * reported nothing on failure. Chunked (200 ids/request — the same URL-limit
- * rule as fetchAllIn), error-checked, and deliberately NOT optimistic — on
- * settle the `['units']` prefix invalidation refetches every sheet's list to
- * server truth. Returns the number of locations cleared.
- */
-export function useClearProjectUnitTypes() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: async (unitIds: string[]): Promise<number> => {
-      const ID_CHUNK = 200;
-      for (let i = 0; i < unitIds.length; i += ID_CHUNK) {
-        const { error } = await supabase
-          .from('units')
-          .update({ unit_type: null })
-          .in('id', unitIds.slice(i, i + ID_CHUNK));
-        if (error) throw error;
-      }
-      return unitIds.length;
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.unitsAll() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
-    }
-  });
-}
-
-/**
- * Bulk-refresh `units.computed_area` for a drawing (Scale, Measure & Production
- * Rates — Phase 3, "Recalculate areas"). The caller (ScaleControl) has already
- * recomputed each area from the sheet's current `scale_units_per_px`; this hook
- * only writes them. Each write is a plain `units.computed_area` column update via
- * the same online path as the other unit mutations — NOT `status_logs`, NOT the
- * offline `pendingChanges` buffer (AGENTS.md §2; online-first is intentional).
- *
- * Sequential writes keep it simple and cache-consistent — a sheet holds at most a
- * few dozen units. Returns the number of rows written.
- */
-export interface RecalculateAreaUpdate {
-  unitId: string;
-  computed_area: number | null;
-}
-
-export function useRecalculateSheetAreas(sheetId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: async (updates: RecalculateAreaUpdate[]): Promise<number> => {
-      for (const { unitId, computed_area } of updates) {
-        const { error } = await supabase.from('units').update({ computed_area }).eq('id', unitId);
-        if (error) throw error;
-      }
-      return updates.length;
-    },
-    onMutate: async (updates) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
-      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
-      const byId = new Map(updates.map(u => [u.unitId, u.computed_area]));
-      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => {
-        if (!old) return old;
-        return old.map(u => byId.has(u.id) ? { ...u, computed_area: byId.get(u.id) ?? null } : u);
-      });
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
-    }
-  });
-}
-
-export function useDeleteUnit(sheetId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (unitId: string) => {
-      // The status rows go first (FK-safe) and their delete error must surface
-      // too — a failed log delete followed by a "successful" mutation would
-      // leave the slot rows orphaned while the UI reports the unit deleted.
-      const { error: logError } = await supabase.from('status_logs').delete().eq('unit_id', unitId);
-      if (logError) throw logError;
-      const { error } = await supabase.from('units').delete().eq('id', unitId);
-      if (error) throw error;
-    },
-    onMutate: async (unitId) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
-      const prev = queryClient.getQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) });
-      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => old ? old.filter(u => u.id !== unitId) : old);
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
-    }
-  });
-}
 
 export function useUpdateStatus(sheetId: string) {
   const queryClient = useQueryClient();
@@ -547,184 +273,6 @@ export function useClearStatus(sheetId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
     }
-  });
-}
-
-export function useUpdateActivity(projectId: string, sheetId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, newName, newColor }: { id: string, oldName?: string, newName: string, newColor: string }) => {
-      const { error } = await supabase.from('activities').update({ name: newName, color: newColor }).eq('id', id);
-      if (error) throw error;
-
-      // Renaming an activity no longer touches status_logs — the rows key to the
-      // stable activity_id, so history is never orphaned (the whole point of Phase 1).
-      // Only the denormalized status_color needs syncing to existing rows, scoped by
-      // activity_id (project-specific, so no cross-project name collision to guard).
-      if (newColor) {
-        const { error: colorErr } = await supabase
-          .from('status_logs')
-          .update({ status_color: newColor })
-          .eq('activity_id', id);
-        if (colorErr) throw colorErr;
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.statusesAll() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
-    }
-  });
-}
-
-export function useSetActivityApplicability(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ activityId, unitId, isApplicable }: { activityId: string, unitId: string, isApplicable: boolean }) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      // Idempotent slot upsert — safe for offline mutation replay.
-      const { data, error } = await supabase
-        .from('activity_applicability_overrides')
-        .upsert({
-          activity_id: activityId,
-          unit_id: unitId,
-          is_applicable: isApplicable,
-          created_by: session?.user?.id || null,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'activity_id,unit_id' })
-        .select()
-        .single();
-      if (error) throw error;
-      return data as ActivityOverride;
-    },
-    onMutate: async ({ activityId, unitId, isApplicable }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.activityOverrides(projectId) });
-      queryClient.setQueriesData<ActivityOverride[]>({ queryKey: queryKeys.activityOverrides(projectId) }, old => {
-        if (!old) return old;
-        const filtered = old.filter(o => !(o.activity_id === activityId && o.unit_id === unitId));
-        const optimistic = {
-          id: `temp_${Date.now()}`,
-          activity_id: activityId,
-          unit_id: unitId,
-          is_applicable: isApplicable,
-          created_by: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        } as ActivityOverride;
-        return [...filtered, optimistic];
-      });
-      return {};
-    },
-    onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activityOverrides(projectId) })
-  });
-}
-
-export function useBulkSetApplicability(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ activityId, unitIds, isApplicable }: { activityId: string, unitIds: string[], isApplicable: boolean }) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const now = new Date().toISOString();
-      const rows = unitIds.map(unitId => ({
-        activity_id: activityId,
-        unit_id: unitId,
-        is_applicable: isApplicable,
-        created_by: session?.user?.id || null,
-        updated_at: now
-      }));
-      const CHUNK_SIZE = 800;
-      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-        const { error } = await supabase
-          .from('activity_applicability_overrides')
-          .upsert(rows.slice(i, i + CHUNK_SIZE), { onConflict: 'activity_id,unit_id' });
-        if (error) throw error;
-      }
-    },
-    onMutate: async ({ activityId, unitIds, isApplicable }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.activityOverrides(projectId) });
-      queryClient.setQueriesData<ActivityOverride[]>({ queryKey: queryKeys.activityOverrides(projectId) }, old => {
-        if (!old) return old;
-        const unitSet = new Set(unitIds);
-        const filtered = old.filter(o => !(o.activity_id === activityId && unitSet.has(o.unit_id)));
-        const now = new Date().toISOString();
-        const optimistic = unitIds.map((unitId, idx) => ({
-          id: `temp_${Date.now()}_${idx}`,
-          activity_id: activityId,
-          unit_id: unitId,
-          is_applicable: isApplicable,
-          created_by: null,
-          created_at: now,
-          updated_at: now
-        } as ActivityOverride));
-        return [...filtered, ...optimistic];
-      });
-      return {};
-    },
-    onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activityOverrides(projectId) })
-  });
-}
-
-export function useUpdateActivityRules(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, applies_to_unit_types }: { id: string, applies_to_unit_types: string[] | null }) => {
-      const { data, error } = await supabase
-        .from('activities')
-        .update({ applies_to_unit_types })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data as Activity;
-    },
-    onMutate: async ({ id, applies_to_unit_types }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.activities(projectId) });
-      queryClient.setQueriesData<Activity[]>({ queryKey: queryKeys.activities(projectId) }, old => {
-        if (!old) return old;
-        return old.map(a => a.id === id ? { ...a, applies_to_unit_types } as Activity : a);
-      });
-      return {};
-    },
-    onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
-  });
-}
-
-/**
- * Assign (or clear) the subcontractor on a project activity — activities.subcontractor_id
- * (Scheduling Analytics Slice B, Phase 5). Project-scoped (a GC uses different subs per
- * job), online-first, RLS-enforced (owner/admin/pm). Pass `subcontractorId: null` to
- * clear. Optimistic over queryKeys.activities(projectId); rolls back on error. Mirrors
- * useUpdateActivityRules.
- */
-export function useSetActivitySubcontractor(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, subcontractorId }: { id: string; subcontractorId: string | null }) => {
-      const { data, error } = await supabase
-        .from('activities')
-        .update({ subcontractor_id: subcontractorId })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data as Activity;
-    },
-    onMutate: async ({ id, subcontractorId }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.activities(projectId) });
-      const prev = queryClient.getQueriesData<Activity[]>({ queryKey: queryKeys.activities(projectId) });
-      queryClient.setQueriesData<Activity[]>({ queryKey: queryKeys.activities(projectId) }, old => {
-        if (!old) return old;
-        return old.map(a => a.id === id ? { ...a, subcontractor_id: subcontractorId } as Activity : a);
-      });
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      ctx?.prev?.forEach(([key, data]) => queryClient.setQueryData(key, data));
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
   });
 }
 
@@ -980,108 +528,6 @@ export function useBulkInsertStatusLogs(sheetId: string) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
-    }
-  });
-}
-
-// One-shot bulk activity creation for the Schedule view's first-run wizard
-// (Scheduling Foundation Slice A, Phase 3a: "start from your dictionary").
-// A single INSERT with explicit sequence_order values — the per-row
-// handleAddActivity path reads max(sequence_order) from the cache, which
-// doesn't refresh between calls in a loop, so seeding N activities that way
-// would collide their ordering. Online-first (schedule authoring).
-export interface NewActivityRow {
-  name: string;
-  color: string;
-  track: string;
-  sequence_order: number;
-  dictionary_id: string | null;
-  type: string;
-}
-
-export function useCreateActivitiesBulk(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (rows: NewActivityRow[]) => {
-      if (rows.length === 0) return;
-      const { error } = await supabase
-        .from('activities')
-        .insert(rows.map(r => ({ ...r, project_id: projectId })));
-      if (error) throw error;
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
-  });
-}
-
-export function useReorderActivities(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (updatedActivities: Activity[]) => {
-      const CHUNK_SIZE = 800;
-      for (const a of updatedActivities) {
-        const { error } = await supabase.from('activities')
-          .update({ sequence_order: a.sequence_order })
-          .eq('id', a.id);
-        if (error) throw error;
-      }
-    },
-    onMutate: async (updatedActivities) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.activities(projectId) });
-      queryClient.setQueriesData<Activity[]>({ queryKey: queryKeys.activities(projectId) }, old => {
-        if (!old) return old;
-        const updatesMap: Record<string, number | null> = {};
-        updatedActivities.forEach(ua => updatesMap[ua.id] = ua.sequence_order);
-
-        return old.map(a => {
-          if (updatesMap[a.id] !== undefined) {
-            return { ...a, sequence_order: updatesMap[a.id] };
-          }
-          return a;
-        }).sort((a, b) => {
-          const aOrder = typeof a.sequence_order === 'number' ? a.sequence_order : Infinity;
-          const bOrder = typeof b.sequence_order === 'number' ? b.sequence_order : Infinity;
-          if (aOrder !== bOrder) {
-            return aOrder - bOrder;
-          }
-          return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
-        });
-      });
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
-  });
-}
-
-export function useUpdateWalkSequence(sheetId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (sequenceUpdates: { id: string, walk_sequence: number | null }[]) => {
-      const CHUNK_SIZE = 800;
-      for (let i = 0; i < sequenceUpdates.length; i += CHUNK_SIZE) {
-        const chunk = sequenceUpdates.slice(i, i + CHUNK_SIZE);
-        for (const update of chunk) {
-          const { error } = await supabase
-            .from('units')
-            // Using any here as walk_sequence is not formally defined in the public schema provided, 
-            // but is present in the logic map.
-            .update({ walk_sequence: update.walk_sequence } as any)
-            .eq('id', update.id);
-          if (error) throw error;
-        }
-      }
-    },
-    onMutate: async (sequenceUpdates) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, old => {
-        if (!old) return old;
-        const updateMap = new Map(sequenceUpdates.map(u => [u.id, u.walk_sequence]));
-        return old.map(u => 
-          updateMap.has(u.id) ? { ...u, walk_sequence: updateMap.get(u.id) } as unknown as Unit : u
-        );
-      });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.allProjectUnitsAll() });
     }
   });
 }
