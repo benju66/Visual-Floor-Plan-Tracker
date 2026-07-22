@@ -163,6 +163,12 @@ export function swipeRightLabel(
  * Choose-status staging rule: picking an activity on an untouched ('none') card
  * stages it as completed (the field-crew "I picked it because it's done"
  * default); any other current state is kept as-is.
+ *
+ * NOTE (Swipe Deck Excellence P1, 2026-07-22): this helper is currently
+ * UNCONSUMED by production — its only caller was the dead mobile choose-status
+ * wiring (SwipeCard rendered no trigger for it), which was deleted this phase.
+ * It is retained because it is pinned by swipeDeck.test.ts; flagged for removal
+ * whenever that suite is next revised (see the plan's "Open decisions").
  */
 export function chooseStatusState(currentState: TemporalState | string): TemporalState {
   return currentState === 'none' ? 'completed' : (currentState as TemporalState);
