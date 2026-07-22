@@ -1,17 +1,29 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
-import { paginateAll } from '@/utils/pagination';
 import { queryKeys } from '@/types/queryKeys';
 import type {
-  Project, Sheet, Unit, Activity, StatusLog, Profile, ProjectMember,
-  TemporalState, ActivityOverride, ProjectContact, ProjectContactInsert,
-  ScaleCalibration
+  Project, Unit, Activity, StatusLog, Profile, ProjectMember,
+  TemporalState, ActivityOverride
 } from '@/types/domain';
 import { isOpeningEdgeArray } from '@/types/domain';
-import type { Database, Json } from '@/types/database.types';
-import type { 
-  UpdateUnitGeometryVars, BulkUpdateStatusVars, UpdateStatusVars 
+import type {
+  UpdateUnitGeometryVars, BulkUpdateStatusVars, UpdateStatusVars
 } from '@/types/mutations';
+// The shared 1000-row-cap-safe readers, split out in P3 (also re-exported below).
+// The Statuses/Units hooks still inline here (until P4/P5) keep consuming them.
+import { fetchAllIn, fetchStatusLogsForUnits } from './projectQueries/shared';
+
+// ==== Barrel re-exports (Frontend Structure W3 — Phase 3 split wave 1) ====
+// This file is becoming a re-export barrel: extracted domains live under
+// ./projectQueries/ and are re-exported here so every importer keeps resolving
+// from '@/hooks/useProjectQueries' (or './useProjectQueries') unchanged —
+// `export *` carries values AND types. The not-yet-split domains
+// (Project/Members, Units, WalkSequence, Statuses, Activities, Applicability,
+// bulk) stay defined inline below until P4/P5.
+export * from './projectQueries/shared';
+export * from './projectQueries/contacts';
+export * from './projectQueries/history';
+export * from './projectQueries/sheets';
 
 export type MemberWithProfile = ProjectMember & { profiles: Pick<Profile, 'id' | 'email' | 'display_name'> | null };
 
@@ -99,46 +111,6 @@ export function useUpdateProject(projectId: string) {
   });
 }
 
-export function useUnitHistory(unitId: string, enabled: boolean = true) {
-  return useQuery({
-    queryKey: queryKeys.unitHistory(unitId),
-    queryFn: async (): Promise<StatusLog[]> => {
-      if (!unitId) return [];
-      // Re-pointed to status_audit_log: the append-only audit table preserves
-      // full state-change history, unlike status_logs which is now slot-unique.
-      // Map its `activity_name` snapshot onto the domain `activityName` field.
-      const { data, error } = await supabase.from('status_audit_log')
-        .select('*')
-        .eq('unit_id', unitId)
-        .order('changed_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(r => ({ ...r, activityName: r.activity_name })) as unknown as StatusLog[];
-    },
-    // `enabled` lets a caller defer the fetch until it's actually needed — the List's
-    // expanded rows pass their near-viewport presence so "expand all" doesn't fire N
-    // history queries at once (List View Performance — Phase 2). Default true keeps
-    // every existing caller (Unit History modal, inspector) fetching eagerly.
-    enabled: !!unitId && enabled
-  });
-}
-
-export function useSheets(projectId: string) {
-  return useQuery({
-    queryKey: queryKeys.sheets(projectId),
-    queryFn: async (): Promise<Sheet[]> => {
-      if (!projectId) return [];
-      const { data, error } = await supabase.from('sheets')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('sequence_order', { ascending: true })
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!projectId
-  });
-}
-
 export function useActivities(projectId: string) {
   return useQuery({
     queryKey: queryKeys.activities(projectId),
@@ -153,155 +125,6 @@ export function useActivities(projectId: string) {
       return data;
     },
     enabled: !!projectId
-  });
-}
-
-// ==== Project Contacts ====
-// A shared project-level contact directory (one row per person, grouped by
-// company). Managed in the Settings menu; READ = any member, WRITE = privileged
-// roles (enforced by RLS — see 20260623_project_contacts.sql). Mutations mirror
-// the activity-hook conventions: optimistic cache update + invalidate.
-
-// The editable fields a Settings form provides. id / project_id / created_by /
-// timestamps are set by the hook or the DB, never by the caller.
-export type ProjectContactFields = Omit<
-  ProjectContactInsert,
-  'id' | 'project_id' | 'created_by' | 'created_at' | 'updated_at'
->;
-
-export function useProjectContacts(projectId: string) {
-  return useQuery({
-    queryKey: queryKeys.projectContacts(projectId),
-    queryFn: async (): Promise<ProjectContact[]> => {
-      if (!projectId) return [];
-      const { data, error } = await supabase.from('project_contacts')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('company', { ascending: true })
-        .order('last_name', { ascending: true, nullsFirst: false })
-        .order('first_name', { ascending: true, nullsFirst: false });
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!projectId
-  });
-}
-
-export function useCreateProjectContact(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (fields: ProjectContactFields): Promise<ProjectContact> => {
-      const { data, error } = await supabase.from('project_contacts')
-        .insert({ ...fields, project_id: projectId })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onMutate: async (fields) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.projectContacts(projectId) });
-      const now = new Date().toISOString();
-      const optimistic: ProjectContact = {
-        id: `temp_${Date.now()}`,
-        project_id: projectId,
-        company: fields.company,
-        first_name: fields.first_name ?? null,
-        last_name: fields.last_name ?? null,
-        job_title: fields.job_title ?? null,
-        mobile_phone: fields.mobile_phone ?? null,
-        email: fields.email ?? null,
-        procore_id: fields.procore_id ?? null,
-        created_by: null,
-        created_at: now,
-        updated_at: now
-      };
-      queryClient.setQueriesData<ProjectContact[]>({ queryKey: queryKeys.projectContacts(projectId) }, old =>
-        old ? [...old, optimistic] : [optimistic]);
-      return {};
-    },
-    onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.projectContacts(projectId) })
-  });
-}
-
-export function useUpdateProjectContact(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, updates }: { id: string, updates: Partial<ProjectContactFields> }): Promise<ProjectContact> => {
-      const { data, error } = await supabase.from('project_contacts')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onMutate: async ({ id, updates }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.projectContacts(projectId) });
-      queryClient.setQueriesData<ProjectContact[]>({ queryKey: queryKeys.projectContacts(projectId) }, old => {
-        if (!old) return old;
-        return old.map(c => c.id === id ? { ...c, ...updates } as ProjectContact : c);
-      });
-      return {};
-    },
-    onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.projectContacts(projectId) })
-  });
-}
-
-export function useDeleteProjectContact(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('project_contacts').delete().eq('id', id);
-      if (error) throw error;
-    },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.projectContacts(projectId) });
-      queryClient.setQueriesData<ProjectContact[]>({ queryKey: queryKeys.projectContacts(projectId) }, old =>
-        old ? old.filter(c => c.id !== id) : old);
-      return {};
-    },
-    onError: () => {},
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.projectContacts(projectId) })
-  });
-}
-
-// Bulk-import contacts (Phase 2 — Procore CSV). Upserts on the table's
-// UNIQUE(project_id, email) so re-importing the same file UPDATES people with an
-// email instead of duplicating them. NULL emails are distinct under that key, so
-// blank-email rows each insert as their own row (by design — see the plan).
-//
-// De-dupe within the payload first: a single `INSERT … ON CONFLICT` command
-// cannot touch the same (project_id, email) twice ("cannot affect row a second
-// time"), so two rows sharing a non-null email in one file are collapsed to the
-// last occurrence (the same end state the UNIQUE key would force anyway). The
-// chunked upsert mirrors the 800-row bulk-status pattern.
-export function useImportProjectContacts(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (contacts: ProjectContactFields[]): Promise<number> => {
-      // Collapse duplicate non-null emails (keep last); keep every null-email row.
-      const byEmail = new Map<string, ProjectContactFields>();
-      const noEmail: ProjectContactFields[] = [];
-      for (const c of contacts) {
-        const email = c.email?.trim();
-        if (email) byEmail.set(email.toLowerCase(), c);
-        else noEmail.push(c);
-      }
-      const deduped = [...byEmail.values(), ...noEmail];
-
-      const rows = deduped.map(c => ({ ...c, project_id: projectId }));
-      const CHUNK_SIZE = 800;
-      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-        const { error } = await supabase
-          .from('project_contacts')
-          .upsert(rows.slice(i, i + CHUNK_SIZE), { onConflict: 'project_id,email' });
-        if (error) throw error;
-      }
-      return rows.length;
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.projectContacts(projectId) })
   });
 }
 
@@ -366,59 +189,6 @@ export function useStatuses(sheetId: string, unitIds: string[]) {
     enabled: !!sheetId && validUnitIds.length > 0,
     placeholderData: keepPreviousData
   });
-}
-
-/**
- * Fetch every row of `table` whose `column` is in `values`, defeating PostgREST's
- * per-request row cap (1000 by default) AND its request-URL length limit.
- *
- * The id list is sliced into chunks (so the `.in(...)` URL stays well under header
- * limits), and each chunk is paged with `.range()` under a stable `.order('id')`
- * until exhausted. Without this, the all-levels views silently truncate once a
- * project exceeds 1000 status rows — completed activities beyond the cap read back
- * as "not started" (see paginateAll). Exported for every cross-sheet/cross-unit
- * aggregation read (dashboard, workbench corpus, sheet delete) — any new
- * `.in(<ids>)` read over an unbounded id list should go through here.
- */
-export async function fetchAllIn<T>(
-  table: 'status_logs' | 'units',
-  column: 'unit_id' | 'sheet_id',
-  values: string[],
-  select: string = '*'
-): Promise<T[]> {
-  const ID_CHUNK = 200; // keep each .in(...) URL comfortably under the ~8KB header limit
-  const out: T[] = [];
-  for (let i = 0; i < values.length; i += ID_CHUNK) {
-    const slice = values.slice(i, i + ID_CHUNK);
-    const rows = await paginateAll<T>(async (from, size) => {
-      const { data, error } = await supabase
-        .from(table)
-        .select(select)
-        .in(column, slice)
-        .order('id', { ascending: true })
-        .range(from, from + size - 1);
-      if (error) throw error;
-      return (data ?? []) as unknown as T[];
-    });
-    out.push(...rows);
-  }
-  return out;
-}
-
-/**
- * status_logs keys by `activity_id` (the stable id). The status pipeline still
- * correlates + displays by the activity's NAME, so every read joins `activities(name)`
- * and flattens it onto a synthesized `activityName` field — keeping `StatusLog` shape-
- * compatible with the rest of the app while the DB stays id-keyed (Scheduling
- * Foundation Slice A, Phase 1). Renaming an activity changes only this synthesized
- * name on the next read; the stored history is never touched.
- */
-type StatusRowWithActivity = Omit<StatusLog, 'activityName'> & { activities: { name: string } | null };
-async function fetchStatusLogsForUnits(unitIds: string[]): Promise<StatusLog[]> {
-  const rows = await fetchAllIn<StatusRowWithActivity>(
-    'status_logs', 'unit_id', unitIds, '*, activities(name)'
-  );
-  return rows.map(({ activities, ...r }) => ({ ...r, activityName: activities?.name ?? '' } as StatusLog));
 }
 
 export function useAllProjectUnits(sheetIds: string[]) {
@@ -1214,121 +984,6 @@ export function useBulkInsertStatusLogs(sheetId: string) {
   });
 }
 
-export function useUpdateSheetScopes(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ sheetId, active_scopes }: { sheetId: string, active_scopes: any }) => {
-      const { data, error } = await supabase.from('sheets').update({ active_scopes }).eq('id', sheetId).select().single();
-      if (error) throw error;
-      return data;
-    },
-    onMutate: async ({ sheetId, active_scopes }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.sheets(projectId) });
-      queryClient.setQueriesData<Sheet[]>({ queryKey: queryKeys.sheets(projectId) }, old => {
-        if (!old) return old;
-        return old.map(s => s.id === sheetId ? { ...s, active_scopes } as Sheet : s);
-      });
-      return {};
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sheets(projectId) })
-  });
-}
-
-/**
- * Read a single sheet by primary key. The universal way the scale tooling reads
- * the active drawing's scale: it works on BOTH the live map (sheet lives in the
- * project-scoped `sheets` cache) and the workbench (sheet lives in the
- * container-scoped `workbenchSheets` cache, and there's no `projectId` route
- * param) — a PK read needs neither. Kept in sync optimistically + on settle by
- * {@link useUpdateSheetScale}.
- */
-export function useSheetById(sheetId: string | null | undefined) {
-  return useQuery({
-    queryKey: queryKeys.sheet(sheetId ?? ''),
-    queryFn: async (): Promise<Sheet | null> => {
-      if (!sheetId) return null;
-      const { data, error } = await supabase.from('sheets').select('*').eq('id', sheetId).maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!sheetId,
-  });
-}
-
-/**
- * The scale write. One mutation for the whole scale story (Scale, Measure &
- * Production Rates — Phase 2): the legacy `scale_preset` / `scale_ratio` (kept in
- * sync for back-compat + the SettingsMenu dropdown) PLUS the canonical
- * `scale_units_per_px`, `scale_unit`, and `scale_calibration` provenance. The
- * three new fields are optional so the legacy SettingsMenu call site (preset +
- * ratio only) still type-checks; only supplied fields are written.
- */
-export interface UpdateSheetScaleVars {
-  sheetId: string;
-  scale_preset: string;
-  scale_ratio: number;
-  scale_units_per_px?: number | null;
-  scale_unit?: string | null;
-  scale_calibration?: ScaleCalibration | null;
-}
-
-export function useUpdateSheetScale(projectId: string) {
-  const queryClient = useQueryClient();
-  // The partial written to BOTH the DB and the two caches. Only include the new
-  // fields when the caller supplied them, so the legacy path stays untouched.
-  const buildPatch = (v: UpdateSheetScaleVars): Partial<Sheet> => {
-    const p: Partial<Sheet> = { scale_preset: v.scale_preset, scale_ratio: v.scale_ratio };
-    if (v.scale_units_per_px !== undefined) p.scale_units_per_px = v.scale_units_per_px;
-    if (v.scale_unit !== undefined) p.scale_unit = v.scale_unit;
-    if (v.scale_calibration !== undefined) p.scale_calibration = v.scale_calibration as unknown as Json;
-    return p;
-  };
-  return useMutation({
-    mutationFn: async (vars: UpdateSheetScaleVars) => {
-      const patch = buildPatch(vars) as Database['public']['Tables']['sheets']['Update'];
-      const { data, error } = await supabase.from('sheets').update(patch).eq('id', vars.sheetId).select().single();
-      if (error) throw error;
-      return data;
-    },
-    onMutate: async (vars) => {
-      const patch = buildPatch(vars);
-      await queryClient.cancelQueries({ queryKey: queryKeys.sheets(projectId) });
-      await queryClient.cancelQueries({ queryKey: queryKeys.sheet(vars.sheetId) });
-      queryClient.setQueriesData<Sheet[]>({ queryKey: queryKeys.sheets(projectId) }, old => {
-        if (!old) return old;
-        return old.map(s => s.id === vars.sheetId ? { ...s, ...patch } as Sheet : s);
-      });
-      queryClient.setQueryData<Sheet | null>(queryKeys.sheet(vars.sheetId), old =>
-        old ? ({ ...old, ...patch } as Sheet) : old);
-      return {};
-    },
-    onSettled: (_data, _err, vars) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sheets(projectId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sheet(vars.sheetId) });
-    }
-  });
-}
-
-export function useUpdateSheetSchedule(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ sheetId, activity_schedules }: { sheetId: string, activity_schedules: any }) => {
-      const { data, error } = await supabase.from('sheets').update({ activity_schedules }).eq('id', sheetId).select().single();
-      if (error) throw error;
-      return data;
-    },
-    onMutate: async ({ sheetId, activity_schedules }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.sheets(projectId) });
-      queryClient.setQueriesData<Sheet[]>({ queryKey: queryKeys.sheets(projectId) }, old => {
-        if (!old) return old;
-        return old.map(s => s.id === sheetId ? { ...s, activity_schedules } as Sheet : s);
-      });
-      return {};
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sheets(projectId) })
-  });
-}
-
 // One-shot bulk activity creation for the Schedule view's first-run wizard
 // (Scheduling Foundation Slice A, Phase 3a: "start from your dictionary").
 // A single INSERT with explicit sequence_order values — the per-row
@@ -1393,41 +1048,6 @@ export function useReorderActivities(projectId: string) {
       });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) })
-  });
-}
-
-export function useReorderSheets(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (updatedSheets: Sheet[]) => {
-      for (const sheet of updatedSheets) {
-        const { error } = await supabase.from('sheets')
-          .update({ sequence_order: sheet.sequence_order })
-          .eq('id', sheet.id);
-        if (error) throw error;
-      }
-    },
-    onMutate: async (updatedSheets) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.sheets(projectId) });
-      queryClient.setQueriesData<Sheet[]>({ queryKey: queryKeys.sheets(projectId) }, old => {
-        if (!old) return old;
-        const updatesMap: Record<string, number | null> = {};
-        updatedSheets.forEach(us => updatesMap[us.id] = us.sequence_order);
-        
-        return old.map(s => {
-          if (s.id in updatesMap) {
-            return { ...s, sequence_order: updatesMap[s.id] };
-          }
-          return s;
-        }).sort((a,b) => {
-          const aOrder = typeof a.sequence_order === 'number' ? a.sequence_order : Infinity;
-          const bOrder = typeof b.sequence_order === 'number' ? b.sequence_order : Infinity;
-          return aOrder - bOrder;
-        });
-      });
-      return {};
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sheets(projectId) })
   });
 }
 
@@ -1499,56 +1119,5 @@ export function useUpdateProjectMemberRole(projectId: string) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.projectMembers(projectId) });
     }
-  });
-}
-
-export type StatusHistoryEvent = Pick<StatusLog, 'unit_id' | 'activity_id' | 'activityName' | 'track' | 'logged_date'>;
-
-export function useStatusHistory(unitIds: string[]) {
-  const validUnitIds = unitIds?.filter(id => !String(id).startsWith('temp_')) || [];
-  return useQuery({
-    queryKey: queryKeys.statusHistory(...validUnitIds),
-    queryFn: async (): Promise<StatusHistoryEvent[]> => {
-      if (validUnitIds.length === 0) return [];
-      // Re-pointed to status_audit_log: the audit table has the full append-only
-      // history of completed activities, used by the dashboard timeline chart AND
-      // (Scheduling Analytics Phase 6) the production-rate math, which needs the
-      // stable `activity_id` to join a completion to its cost code / subcontractor.
-      // Map its `activity_name` snapshot onto the domain `activityName` field.
-      //
-      // Chunked + paginated (the fetchAllIn pattern, inlined for the audit-table
-      // filters): the dashboard calls this with EVERY unit id in the project, so a
-      // single `.in(...)` blows the ~8KB request-URL limit past ~200 ids (hard
-      // failure → empty timeline) and silently truncates at PostgREST's 1000-row
-      // cap (pace / weekly velocity / Monte Carlo quietly undercount). Ordering is
-      // re-applied client-side because chunks return independently.
-      type AuditRow = {
-        unit_id: string; activity_id: string; activity_name: string; track: string;
-        logged_date: string; client_timestamp: string | null; user_id: string | null;
-      };
-      const ID_CHUNK = 200; // keep each .in(...) URL comfortably under the header limit
-      const rows: AuditRow[] = [];
-      for (let i = 0; i < validUnitIds.length; i += ID_CHUNK) {
-        const slice = validUnitIds.slice(i, i + ID_CHUNK);
-        const chunkRows = await paginateAll<AuditRow>(async (from, size) => {
-          const { data, error } = await supabase
-            .from('status_audit_log')
-            .select('unit_id, activity_id, activity_name, track, logged_date, client_timestamp, user_id')
-            .in('unit_id', slice)
-            .eq('temporal_state', 'completed')
-            .not('logged_date', 'is', null)
-            .order('id', { ascending: true })
-            .range(from, from + size - 1);
-          if (error) throw error;
-          return (data ?? []) as unknown as AuditRow[];
-        });
-        rows.push(...chunkRows);
-      }
-      rows.sort((a, b) => (a.logged_date < b.logged_date ? -1 : a.logged_date > b.logged_date ? 1 : 0));
-      return rows.map(({ activity_name, ...r }) => ({ ...r, activityName: activity_name })) as unknown as StatusHistoryEvent[];
-    },
-    enabled: validUnitIds.length > 0,
-    staleTime: 1000 * 60 * 5,
-    placeholderData: keepPreviousData,
   });
 }
