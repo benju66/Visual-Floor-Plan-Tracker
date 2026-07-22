@@ -109,4 +109,4 @@ Lint is NOT a gate (~1850 pre-existing problems). Live click-throughs via `npm r
 ## Open decisions
 - **P7 (MobileSwipeDeck) go/skip** — decide at the P6 close. It's independent; W3's core is P1–P6.
 - **Master-plan annotation** — whether to mark Codebase-Health Slice 2 Target 2 as "redirected into W3" (recommended, one line) to keep the plan set self-consistent. Cosmetic; not blocking.
-- **`walk_sequence` schema-type gap** — whether to patch `database.types.ts` to delete the one `as any` (only if it exactly matches the live column) or leave it flagged. Resolve in P4 when Units moves.
+- **`walk_sequence` schema-type gap** — **RESOLVED in P4 (2026-07-22):** `database.types.ts` already carried `units.walk_sequence: number | null` (added by the 2026-07-14 drift audit); the live prod column was verified read-only (`integer`, nullable — exact match), so the stale `as any` was simply deleted. No type patch was needed.
