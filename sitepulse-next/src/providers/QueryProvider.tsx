@@ -4,10 +4,19 @@ import { QueryClient, MutationCache, defaultShouldDehydrateMutation } from '@tan
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useState, useEffect } from 'react';
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { persister } from '@/utils/persister';
 import { supabase } from '@/supabaseClient';
+import { queryKeys } from '@/types/queryKeys';
+import type { Activity, StatusLog } from '@/types/domain';
+import type { Database } from '@/types/database.types';
 
-export default function QueryProvider({ children }) {
+// The realtime payload carries a RAW status_logs row — no synthesized
+// `activityName` (that name is joined on by the read hooks; the injector
+// mirrors it below so injected rows stay shape-consistent with fetched ones).
+type StatusLogRow = Database['public']['Tables']['status_logs']['Row'];
+
+export default function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -30,23 +39,23 @@ export default function QueryProvider({ children }) {
     // Listen to global status updates and surgically inject them into the caches
     const channel = supabase.channel('sitepulse-global-sync')
       .on(
-        'postgres_changes', 
+        'postgres_changes',
         // With slot-unique status_logs, most writes are UPSERTs which fire as UPDATE events.
         // Listen to all change types (INSERT, UPDATE, DELETE) to keep caches in sync.
-        { event: '*', schema: 'public', table: 'status_logs' }, 
-        (payload) => {
+        { event: '*', schema: 'public', table: 'status_logs' },
+        (payload: RealtimePostgresChangesPayload<StatusLogRow>) => {
           if (payload.eventType === 'DELETE') {
             // Remove deleted log from all caches
             const oldLog = payload.old;
-            const removeFromCache = (old) => {
+            const removeFromCache = (old: StatusLog[] | undefined) => {
               if (!old) return old;
               return old.filter(s => s.id !== oldLog.id);
             };
-            const queries = queryClient.getQueriesData({ queryKey: ['statuses'] });
+            const queries = queryClient.getQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesAll() });
             queries.forEach(([queryKey]) => {
-              queryClient.setQueryData(queryKey, removeFromCache);
+              queryClient.setQueryData<StatusLog[]>(queryKey, removeFromCache);
             });
-            queryClient.setQueriesData({ queryKey: ['all_project_statuses'] }, removeFromCache);
+            queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.allProjectStatusesAll() }, removeFromCache);
             return;
           }
 
@@ -58,16 +67,16 @@ export default function QueryProvider({ children }) {
           // is (unit_id, activity_id).
           const raw = payload.new;
           const activityName = queryClient
-            .getQueriesData({ queryKey: ['activities'] })
+            .getQueriesData<Activity[]>({ queryKey: queryKeys.activitiesAll() })
             .flatMap(([, list]) => list ?? [])
             .find(a => a.id === raw.activity_id)?.name ?? '';
-          const newLog = { ...raw, activityName };
+          const newLog: StatusLog = { ...raw, activityName };
 
           // 1. Inject into the specific sheet's cache
-          const queries = queryClient.getQueriesData({ queryKey: ['statuses'] });
+          const queries = queryClient.getQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesAll() });
           queries.forEach(([queryKey, oldData]) => {
             if (!oldData) return;
-            queryClient.setQueryData(queryKey, (old) => {
+            queryClient.setQueryData<StatusLog[]>(queryKey, (old) => {
               if (!old) return old;
               const filtered = old.filter(s => !(s.unit_id === newLog.unit_id && s.activity_id === newLog.activity_id));
               return [...filtered, newLog];
@@ -75,7 +84,7 @@ export default function QueryProvider({ children }) {
           });
 
           // 2. Inject into the global dashboard cache
-          queryClient.setQueriesData({ queryKey: ['all_project_statuses'] }, (old) => {
+          queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.allProjectStatusesAll() }, (old) => {
             if (!old) return old;
             const filtered = old.filter(s => !(s.unit_id === newLog.unit_id && s.activity_id === newLog.activity_id));
             return [...filtered, newLog];
