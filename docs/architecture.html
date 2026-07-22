@@ -80,7 +80,18 @@ main{flex:1;display:flex;min-height:0;border-top:1px solid var(--line)}
 
 /* ---- Diagram ---- */
 #diagram{position:relative}
+#zoomLayer{position:relative;transform-origin:0 0;will-change:transform}
 #connectors{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
+
+/* ---- Zoom control ---- */
+.zoomctl{position:fixed;right:26px;bottom:22px;z-index:45;display:flex;gap:3px;align-items:center;
+  background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(8px);
+  border:1px solid var(--line);border-radius:12px;padding:5px;box-shadow:var(--shadow)}
+.zoomctl button{min-width:34px;height:34px;border:none;background:transparent;color:var(--ink2);
+  border-radius:8px;font-size:17px;line-height:1;cursor:pointer;display:grid;place-items:center;transition:.14s}
+.zoomctl button:hover{background:var(--panel2);color:var(--ink)}
+.zoomctl .zlabel{font-size:12px;font-weight:650;font-variant-numeric:tabular-nums;min-width:50px;letter-spacing:.02em}
+@media(max-width:720px){ .zoomctl{right:12px;bottom:14px} }
 #connectors path{fill:none;stroke-width:1.6;opacity:.55;transition:opacity .18s,stroke-width .18s}
 #connectors path.hot{opacity:1;stroke-width:2.8}
 #connectors path.dim{opacity:.06}
@@ -208,10 +219,17 @@ aside.detail.open{width:390px}
           <div class="grp" id="leg-tiers"></div>
           <span class="sep"></span>
           <div class="grp" id="leg-edges"></div>
-          <span class="hint">Click a tier or protocol to filter · click a module for details</span>
+          <span class="hint">Click to filter / inspect · ⌘/Ctrl-scroll or the +/− buttons to zoom</span>
         </div>
         <div id="diagram">
-          <svg id="connectors" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div id="zoomLayer">
+            <svg id="connectors" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+          <div class="zoomctl" id="zoomctl">
+            <button data-z="out" title="Zoom out (Ctrl/⌘ −)">−</button>
+            <button class="zlabel" data-z="reset" id="zoomlabel" title="Reset to 100% (Ctrl/⌘ 0)">100%</button>
+            <button data-z="in" title="Zoom in (Ctrl/⌘ +)">+</button>
+          </div>
         </div>
         <div class="footer">Static analysis of the repo (AGENTS.md, SUPABASE_SCHEMA.md, source tree, migrations).</div>
       </section>
@@ -262,7 +280,10 @@ function toggleTheme(){
 
 /* ---------- DIAGRAM ---------- */
 const diagram = $("#diagram");
+const zoomLayer = $("#zoomLayer");
 const svg = $("#connectors");
+const clamp = (v,a,b)=> Math.max(a,Math.min(b,v));
+const state = { zoom:1, baseWidth:0 };
 let bands = {};
 DATA.nodes.forEach(n=>{ (bands[n.band]=bands[n.band]||[]).push(n); });
 const bandKeys = Object.keys(bands).map(Number).sort((a,b)=>a-b);
@@ -292,16 +313,18 @@ function renderDiagram(){
     const row = el("div","band-row");
     bands[bk].forEach(n=> row.appendChild(nodeCard(n)));
     band.appendChild(row);
-    diagram.appendChild(band);
+    zoomLayer.appendChild(band);
   });
 }
 
 /* ---------- Connectors ---------- */
 function center(rect, box){ return {x:rect.left-box.left+rect.width/2, y:rect.top-box.top+rect.height/2}; }
 function drawConnectors(){
-  const box = diagram.getBoundingClientRect();
-  svg.setAttribute("viewBox","0 0 "+box.width+" "+box.height);
-  svg.setAttribute("width",box.width); svg.setAttribute("height",box.height);
+  const z = state.zoom || 1;
+  const box = zoomLayer.getBoundingClientRect();     // scaled screen rect
+  const natW = zoomLayer.offsetWidth, natH = zoomLayer.offsetHeight; // unscaled
+  svg.setAttribute("viewBox","0 0 "+natW+" "+natH);
+  svg.setAttribute("width",natW); svg.setAttribute("height",natH);
   while(svg.lastChild) svg.removeChild(svg.lastChild);
   // arrow defs
   const defs=document.createElementNS("http://www.w3.org/2000/svg","defs");
@@ -321,20 +344,23 @@ function drawConnectors(){
   DATA.edges.forEach((e,i)=>{
     const a=cardRect[e.from], b=cardRect[e.to]; if(!a||!b) return;
     const na=nodeById[e.from], nb=nodeById[e.to];
+    // unscaled local rects (screen deltas divided by the zoom factor)
+    const la={l:(a.left-box.left)/z, t:(a.top-box.top)/z, w:a.width/z, h:a.height/z};
+    const lb={l:(b.left-box.left)/z, t:(b.top-box.top)/z, w:b.width/z, h:b.height/z};
     const sameBand = na.band===nb.band;
     let p1,p2,c1,c2;
     if(sameBand){
       // side to side
-      const aRight = a.left<=b.left;
-      p1={x:(aRight?a.right:a.left)-box.left, y:a.top-box.top+a.height/2};
-      p2={x:(aRight?b.left:b.right)-box.left, y:b.top-box.top+b.height/2};
+      const aRight = la.l<=lb.l;
+      p1={x:(aRight?la.l+la.w:la.l), y:la.t+la.h/2};
+      p2={x:(aRight?lb.l:lb.l+lb.w), y:lb.t+lb.h/2};
       const dx=Math.max(40,Math.abs(p2.x-p1.x)*.5);
       c1={x:p1.x+(aRight?dx:-dx), y:p1.y+18};
       c2={x:p2.x+(aRight?-dx:dx), y:p2.y+18};
     } else {
       const down = na.band<nb.band;
-      p1={x:a.left-box.left+a.width/2, y:(down?a.bottom:a.top)-box.top};
-      p2={x:b.left-box.left+b.width/2, y:(down?b.top:b.bottom)-box.top};
+      p1={x:la.l+la.w/2, y:down?la.t+la.h:la.t};
+      p2={x:lb.l+lb.w/2, y:down?lb.t:lb.t+lb.h};
       const dy=Math.max(30,Math.abs(p2.y-p1.y)*.4);
       // slight horizontal spread to reduce overlap for long edges
       const spread = ((i%5)-2)*10;
@@ -350,6 +376,37 @@ function drawConnectors(){
     svg.appendChild(path);
   });
   applyHighlight();
+}
+
+/* ---------- Zoom ---------- */
+function measureBase(){
+  diagram.style.width=""; diagram.style.height="";
+  zoomLayer.style.width=""; zoomLayer.style.transform="none";
+  state.baseWidth = diagram.clientWidth;
+}
+function applyZoom(){
+  const z=state.zoom;
+  zoomLayer.style.width=state.baseWidth+"px";
+  zoomLayer.style.transform="scale("+z+")";
+  const natH=zoomLayer.offsetHeight;
+  diagram.style.width=(state.baseWidth*z)+"px";
+  diagram.style.height=(natH*z)+"px";
+  const lbl=$("#zoomlabel"); if(lbl) lbl.textContent=Math.round(z*100)+"%";
+}
+function relayout(){ measureBase(); applyZoom(); drawConnectors(); }
+function setZoom(z){ state.zoom=clamp(z,0.5,2); applyZoom(); drawConnectors(); }
+function wheelZoom(ev){
+  if(!(ev.ctrlKey||ev.metaKey)) return;
+  ev.preventDefault();
+  const stage=diagram.closest(".stage"), sr=stage.getBoundingClientRect();
+  const offL=diagram.offsetLeft, offT=diagram.offsetTop;
+  const sx=stage.scrollLeft+(ev.clientX-sr.left), sy=stage.scrollTop+(ev.clientY-sr.top);
+  const oldZ=state.zoom, factor=ev.deltaY<0?1.12:1/1.12, newZ=clamp(oldZ*factor,0.5,2);
+  if(newZ===oldZ) return;
+  const ux=(sx-offL)/oldZ, uy=(sy-offT)/oldZ;
+  state.zoom=newZ; applyZoom(); drawConnectors();
+  stage.scrollLeft=(offL+ux*newZ)-(ev.clientX-sr.left);
+  stage.scrollTop =(offT+uy*newZ)-(ev.clientY-sr.top);
 }
 
 /* ---------- Selection / highlight ---------- */
@@ -412,9 +469,9 @@ function openDetail(id){
   $(".close",dInner).addEventListener("click",clearSelection);
   $$(".conn",dInner).forEach(c=> c.addEventListener("click",()=> selectNode(c.dataset.go)));
   aside.classList.add("open");
-  requestAnimationFrame(drawConnectors);
+  requestAnimationFrame(relayout);
 }
-function closeDetail(){ aside.classList.remove("open"); requestAnimationFrame(drawConnectors); }
+function closeDetail(){ aside.classList.remove("open"); requestAnimationFrame(relayout); }
 
 /* ---------- Legend ---------- */
 function syncLegend(){ $$(".leg[data-kind]").forEach(l=> l.classList.toggle("mute", legendFilter && l.dataset.kind!==legendFilter)); }
@@ -526,7 +583,7 @@ function renderMigrations(){
 function switchTab(id){
   $$(".tab").forEach(t=> t.classList.toggle("active",t.dataset.tab===id));
   $$(".view").forEach(v=> v.classList.toggle("active",v.id==="view-"+id));
-  if(id==="map") requestAnimationFrame(()=>requestAnimationFrame(drawConnectors));
+  if(id==="map") requestAnimationFrame(()=>requestAnimationFrame(relayout));
 }
 
 /* ---------- Init ---------- */
@@ -538,10 +595,23 @@ function init(){
   $("#searchbox").addEventListener("input",e=> runSearch(e.target.value));
   $("#resetbtn").addEventListener("click",()=>{ $("#searchbox").value=""; legendFilter=null; syncLegend(); clearSelection(); $$(".node").forEach(c=>c.classList.remove("dim","hot","active")); $$("#connectors path").forEach(p=>p.classList.remove("dim","hot")); });
   diagram.addEventListener("click",()=>{ if(selected) clearSelection(); });
-  const ro=new ResizeObserver(()=>{ clearTimeout(window.__rt); window.__rt=setTimeout(drawConnectors,60); });
-  ro.observe(diagram);
-  window.addEventListener("resize",()=>{ clearTimeout(window.__rt); window.__rt=setTimeout(drawConnectors,60); });
-  requestAnimationFrame(()=>requestAnimationFrame(drawConnectors));
+  // zoom controls
+  $("#zoomctl").addEventListener("click",e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    const a=b.dataset.z;
+    if(a==="in") setZoom(state.zoom*1.15);
+    else if(a==="out") setZoom(state.zoom/1.15);
+    else if(a==="reset") setZoom(1);
+  });
+  diagram.addEventListener("wheel", wheelZoom, {passive:false});
+  window.addEventListener("keydown",e=>{
+    if(!(e.ctrlKey||e.metaKey)) return;
+    if(e.key==="=" || e.key==="+"){ e.preventDefault(); setZoom(state.zoom*1.15); }
+    else if(e.key==="-"){ e.preventDefault(); setZoom(state.zoom/1.15); }
+    else if(e.key==="0"){ e.preventDefault(); setZoom(1); }
+  });
+  window.addEventListener("resize",()=>{ clearTimeout(window.__rt); window.__rt=setTimeout(relayout,80); });
+  requestAnimationFrame(()=>requestAnimationFrame(relayout));
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init); else init();
 })();
