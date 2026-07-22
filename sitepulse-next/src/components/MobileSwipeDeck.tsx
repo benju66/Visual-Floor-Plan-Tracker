@@ -10,6 +10,23 @@ import SyncIndicator from '@/components/ui/SyncIndicator';
 import { useUIStore } from '@/store/useUIStore';
 import type { Unit, StatusLog, Activity, Sheet, PendingChangesMap, PendingChange, TemporalState, StatusLogAugmented } from '@/types/domain';
 import type { ApplicabilityIndex } from '@/utils/applicability';
+// The deck's pure decision logic (W3 P7): ordering, skip queue, undo/redo
+// snapshot + map restores, and the swipe→status machine — all characterization-
+// pinned by swipeDeck.test.ts. This component keeps only gesture/JSX wiring.
+import {
+  collectTimelinePayloads as collectTimelinePayloadsPure,
+  orderDeck,
+  buildHistoryEntry,
+  restorePendingPayload,
+  restoreTimelinePayloads,
+  skipToBack,
+  unskipLast,
+  resolveCurrentState,
+  nextSwipeState,
+  swipeRightLabel as swipeRightLabelFor,
+  chooseStatusState,
+  type SwipeHistoryEntry,
+} from '@/utils/swipeDeck';
 
 interface MobileSwipeDeckProps {
   visible: Array<{ unit: Unit; log: StatusLog | undefined | null }>;
@@ -50,13 +67,6 @@ interface MobileSwipeDeckProps {
   onToggleApplicability?: (unit: Unit, activity: Activity, isApplicable: boolean, currentState?: TemporalState | string | null) => void;
 }
 
-type HistoryEntry = {
-  unitId: string;
-  previousPendingPayload: PendingChange | undefined;
-  previousTimelinePayloads: PendingChange[];
-  wasSkippedToBack: boolean;
-};
-
 export default function MobileSwipeDeck({
   visible,
   pendingChanges,
@@ -91,9 +101,9 @@ export default function MobileSwipeDeck({
   onToggleApplicability,
 }: MobileSwipeDeckProps) {
   const router = useRouter();
-  const [swipedHistory, setSwipedHistory] = useState<HistoryEntry[]>([]);
+  const [swipedHistory, setSwipedHistory] = useState<SwipeHistoryEntry[]>([]);
   const [skippedToBack, setSkippedToBack] = useState<string[]>([]);
-  const [cardRedoStack, setCardRedoStack] = useState<HistoryEntry[]>([]);
+  const [cardRedoStack, setCardRedoStack] = useState<SwipeHistoryEntry[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [actionDirection, setActionDirection] = useState<'left' | 'right' | 'none'>('none');
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
@@ -111,21 +121,12 @@ export default function MobileSwipeDeck({
     setIsFiltersOpen(false);
   }, [typeFilter]);
 
-  const collectTimelinePayloads = (unitId: string) => {
-    return Object.keys(pendingTimelineChanges)
-      .filter(k => k.startsWith(`${unitId}_`))
-      .map(k => pendingTimelineChanges[k]);
-  };
+  const collectTimelinePayloads = (unitId: string) => collectTimelinePayloadsPure(pendingTimelineChanges, unitId);
 
-  const orderedCards = useMemo(() => {
-    const swipedIds = swipedHistory.map((h) => h.unitId);
-    const visibleCards = visible.filter((r) => !swipedIds.includes(r.unit.id));
-    const main = visibleCards.filter((c) => !skippedToBack.includes(c.unit.id));
-    const skipped = skippedToBack
-      .map((id) => visibleCards.find((c) => c.unit.id === id))
-      .filter((c): c is { unit: Unit; log: StatusLog | undefined | null } => Boolean(c));
-    return [...main, ...skipped];
-  }, [visible, swipedHistory, skippedToBack]);
+  const orderedCards = useMemo(
+    () => orderDeck(visible, swipedHistory, skippedToBack),
+    [visible, swipedHistory, skippedToBack]
+  );
 
   const handleLocalUndo = () => {
     if (swipedHistory.length === 0) return;
@@ -136,17 +137,9 @@ export default function MobileSwipeDeck({
     setActionDirection(action.wasSkippedToBack ? 'left' : 'right');
     setToast({ message: 'Action undone', type: 'info' });
 
-    const currentPayload = pendingChanges[action.unitId];
-    const currentTimelinePayloads = collectTimelinePayloads(action.unitId);
-
     setCardRedoStack((prev) => [
       ...prev,
-      { 
-        unitId: action.unitId, 
-        previousPendingPayload: currentPayload, 
-        previousTimelinePayloads: currentTimelinePayloads,
-        wasSkippedToBack: action.wasSkippedToBack 
-      },
+      buildHistoryEntry(action.unitId, pendingChanges, pendingTimelineChanges, action.wasSkippedToBack),
     ]);
     setSwipedHistory(newHist);
 
@@ -154,27 +147,8 @@ export default function MobileSwipeDeck({
       setSkippedToBack((prev) => prev.filter((id) => id !== action.unitId));
     }
 
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (action.previousPendingPayload) {
-        next[action.unitId] = action.previousPendingPayload;
-      } else {
-        delete next[action.unitId];
-      }
-      return next;
-    });
-
-    setPendingTimelineChanges((prev) => {
-      const next = { ...prev };
-      Object.keys(next).forEach(k => {
-        if (k.startsWith(`${action.unitId}_`)) delete next[k];
-      });
-      action.previousTimelinePayloads.forEach(p => {
-        const mName = p.extraProps?.activityObj?.name || p.log?.activityName;
-        next[`${action.unitId}_${mName}`] = p;
-      });
-      return next;
-    });
+    setPendingChanges((prev) => restorePendingPayload(prev, action.unitId, action.previousPendingPayload));
+    setPendingTimelineChanges((prev) => restoreTimelinePayloads(prev, action.unitId, action.previousTimelinePayloads));
   };
 
   const handleLocalRedo = () => {
@@ -186,45 +160,18 @@ export default function MobileSwipeDeck({
     setActionDirection(action.wasSkippedToBack ? 'left' : 'right');
     setToast({ message: 'Action re-applied', type: 'info' });
 
-    const currentPayload = pendingChanges[action.unitId];
-    const currentTimelinePayloads = collectTimelinePayloads(action.unitId);
-
     setSwipedHistory((prev) => [
       ...prev,
-      { 
-        unitId: action.unitId, 
-        previousPendingPayload: currentPayload,
-        previousTimelinePayloads: currentTimelinePayloads,
-        wasSkippedToBack: action.wasSkippedToBack 
-      },
+      buildHistoryEntry(action.unitId, pendingChanges, pendingTimelineChanges, action.wasSkippedToBack),
     ]);
 
     if (action.wasSkippedToBack) {
       setSkippedToBack((prev) => [...prev, action.unitId]);
     }
 
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (action.previousPendingPayload) {
-        next[action.unitId] = action.previousPendingPayload;
-      } else {
-        delete next[action.unitId];
-      }
-      return next;
-    });
+    setPendingChanges((prev) => restorePendingPayload(prev, action.unitId, action.previousPendingPayload));
+    setPendingTimelineChanges((prev) => restoreTimelinePayloads(prev, action.unitId, action.previousTimelinePayloads));
 
-    setPendingTimelineChanges((prev) => {
-      const next = { ...prev };
-      Object.keys(next).forEach(k => {
-        if (k.startsWith(`${action.unitId}_`)) delete next[k];
-      });
-      action.previousTimelinePayloads.forEach(p => {
-        const mName = p.extraProps?.activityObj?.name || p.log?.activityName;
-        next[`${action.unitId}_${mName}`] = p;
-      });
-      return next;
-    });
-    
     setCardRedoStack(newRedo);
   };
 
@@ -232,20 +179,13 @@ export default function MobileSwipeDeck({
     const topCard = orderedCards[0];
     if (topCard) {
       setActionDirection('left');
-      setSkippedToBack((prev) => {
-        const filtered = prev.filter((id) => id !== topCard.unit.id);
-        return [...filtered, topCard.unit.id];
-      });
+      setSkippedToBack((prev) => skipToBack(prev, topCard.unit.id));
     }
   };
 
   const handlePrevCard = () => {
     setActionDirection('left');
-    setSkippedToBack((prev) => {
-      const next = [...prev];
-      next.pop();
-      return next;
-    });
+    setSkippedToBack((prev) => unskipLast(prev));
   };
 
   const handleDrawerItemRemove = (unitId: string, activityName: string | null) => {
@@ -439,16 +379,13 @@ export default function MobileSwipeDeck({
 
             const unitPending = pendingChanges[unit.id];
             const hasExistingPending = !!unitPending;
-            const currentState = unitPending?.state
-              || pendingTimelineChanges[`${unit.id}_${log?.activityName}`]?.state
-              || log?.temporal_state || 'none';
+            const currentState = resolveCurrentState(
+              unitPending,
+              pendingTimelineChanges[`${unit.id}_${log?.activityName}`],
+              log?.temporal_state
+            );
 
-            let swipeRightLabel = '✓';
-            if (!hasExistingPending) {
-              if (currentState === 'completed') swipeRightLabel = '→';
-              else if (currentState === 'none') swipeRightLabel = 'PLN';
-              else if (currentState === 'planned') swipeRightLabel = 'ONG';
-            }
+            const swipeRightLabel = swipeRightLabelFor(hasExistingPending, currentState);
 
             return (
               <SwipeCard
@@ -485,7 +422,7 @@ export default function MobileSwipeDeck({
                 onSwipeLeft={() => {
                   setSwipedHistory((prev) => [
                     ...prev,
-                    { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], previousTimelinePayloads: collectTimelinePayloads(unit.id), wasSkippedToBack: true },
+                    buildHistoryEntry(unit.id, pendingChanges, pendingTimelineChanges, true),
                   ]);
                   setSkippedToBack((prev) => [...prev, unit.id]);
                   setCardRedoStack([]);
@@ -493,14 +430,11 @@ export default function MobileSwipeDeck({
                 }}
                 onSwipeRight={() => {
                   if (!hasExistingPending && currentState !== 'completed') {
-                    let nextState: TemporalState = 'planned';
-                    if (currentState === 'planned') nextState = 'ongoing';
-                    else if (currentState === 'ongoing') nextState = 'completed';
-                    handleLocalUpdate(unit, log || null, nextState);
+                    handleLocalUpdate(unit, log || null, nextSwipeState(currentState));
                   }
                   setSwipedHistory((prev) => [
                     ...prev,
-                    { unitId: unit.id, previousPendingPayload: pendingChanges[unit.id], previousTimelinePayloads: collectTimelinePayloads(unit.id), wasSkippedToBack: false },
+                    buildHistoryEntry(unit.id, pendingChanges, pendingTimelineChanges, false),
                   ]);
                   setCardRedoStack([]);
                   setActionDirection('none');
@@ -514,7 +448,7 @@ export default function MobileSwipeDeck({
                     handleLocalUpdate(
                       unit,
                       log || null,
-                      currentState === 'none' ? 'completed' : (currentState as TemporalState),
+                      chooseStatusState(currentState),
                       { activityObj: m },
                     ),
                   )
