@@ -434,7 +434,6 @@ export default function FieldStatusTable({
           failedCount={failedCount}
           failedKeys={failedKeys}
           handleRetryItem={handleRetryItem}
-          onChooseStatus={onChooseStatus}
           savingUnitId={savingUnitId}
           currentActivities={currentActivities}
           rawStatuses={rawStatuses}

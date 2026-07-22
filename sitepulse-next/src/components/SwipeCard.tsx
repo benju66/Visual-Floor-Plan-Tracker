@@ -45,7 +45,6 @@ interface SwipeCardProps {
   pendingTimelineChanges: Record<string, PendingChange>;
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
-  onChooseStatus: () => void;
   onStageUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState) => void;
   onTimelineUpdate: (unit: Unit, log: StatusLog | null, state: TemporalState, extraProps: any) => void;
   hasPendingUpdate: boolean;
@@ -66,7 +65,6 @@ const SwipeCard = ({
   pendingTimelineChanges,
   onSwipeLeft,
   onSwipeRight,
-  onChooseStatus,
   onStageUpdate,
   onTimelineUpdate,
   hasPendingUpdate,
@@ -157,9 +155,23 @@ const SwipeCard = ({
     return state === 'completed';
   }).length;
 
-  const outOfSequenceItems = activities.filter(m => 
+  const outOfSequenceItems = activities.filter(m =>
     log?.outOfSequence?.some(oos => oos.activityName === m.name)
   );
+
+  // Fit-always face (Swipe Deck Excellence P1): the card face no longer scrolls,
+  // so the unit label steps its font size down as the name gets longer and clamps
+  // to two lines. Long names like "114 Housekeeping" fit without a scroll region,
+  // which is what let the phone browser steal diagonal swipes as scrolls.
+  const unitLabel = unit.unit_number || '';
+  const unitLabelSize =
+    unitLabel.length <= 5
+      ? 'text-5xl sm:text-6xl'
+      : unitLabel.length <= 9
+        ? 'text-4xl sm:text-5xl'
+        : unitLabel.length <= 15
+          ? 'text-2xl sm:text-3xl'
+          : 'text-xl sm:text-2xl';
 
   return (
     <motion.div
@@ -231,13 +243,13 @@ const SwipeCard = ({
         )}
 
         <div className="relative z-10 flex flex-col h-full w-full">
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-2 min-h-0 overflow-y-auto no-scrollbar touch-pan-y overscroll-contain">
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-2 min-h-0 overflow-hidden">
             <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 inline-block shadow-sm">
               {unit.unit_type || 'Unknown'} · {completedCount}/{applicableUnitActivities.length}
             </span>
 
-            <div className="flex items-center justify-center gap-2 mb-1 relative">
-              <h2 className="text-5xl sm:text-6xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
+            <div className="flex items-center justify-center gap-2 mb-1 relative w-full">
+              <h2 className={`${unitLabelSize} font-black text-slate-900 dark:text-white tracking-tighter leading-tight line-clamp-2 break-words max-w-full`}>
                 {unit.unit_number}
               </h2>
             </div>
@@ -246,7 +258,7 @@ const SwipeCard = ({
               <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">
                 Current Activity
               </p>
-              <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">
+              <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight line-clamp-2 break-words max-w-full">
                 {log?.activityName || 'Unassigned'}
               </p>
               {lastActivity && (
