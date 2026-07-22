@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>SitePulse — Architecture Map</title>
+<style>/* ===== SitePulse Architecture Map — styles ===== */
+:root{
+  --bg:#0b0f17; --bg2:#0f1420; --panel:#131a28; --panel2:#182133;
+  --line:#243049; --line2:#33415f; --ink:#e7ecf5; --ink2:#aeb9ce; --ink3:#75839e;
+  --shadow:0 10px 30px rgba(0,0,0,.45); --radius:14px;
+  /* tier accents */
+  --t-client:#6366f1; --t-next:#0ea5e9; --t-fastapi:#22c55e; --t-supabase:#f59e0b; --t-external:#a855f7;
+  /* edge/protocol colors */
+  --e-compose:#64748b; --e-state:#a855f7; --e-query:#3b82f6; --e-sdk:#10b981;
+  --e-rest:#f97316; --e-oauth:#ec4899; --e-worker:#06b6d4; --e-storage:#f59e0b;
+  --e-auth:#ef4444; --e-internal:#8b98b4;
+}
+:root[data-theme="light"]{
+  --bg:#eef1f7; --bg2:#e6eaf3; --panel:#ffffff; --panel2:#f4f6fb; --line:#d8deec; --line2:#c2cadd;
+  --ink:#1a2233; --ink2:#41506c; --ink3:#7683a0; --shadow:0 8px 24px rgba(20,30,60,.12);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:radial-gradient(1200px 600px at 80% -10%, rgba(99,102,241,.10), transparent 60%),
+             radial-gradient(1000px 500px at -10% 110%, rgba(245,158,11,.08), transparent 55%),
+             var(--bg);
+  color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit}
+.app{display:flex;flex-direction:column;min-height:100vh}
+
+/* ---- Header ---- */
+header.top{
+  position:sticky;top:0;z-index:40;backdrop-filter:blur(10px);
+  background:color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom:1px solid var(--line);
+  padding:14px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+}
+.brand{display:flex;flex-direction:column;gap:2px;margin-right:auto}
+.brand h1{margin:0;font-size:18px;letter-spacing:.2px;font-weight:700}
+.brand h1 .accent{background:linear-gradient(90deg,var(--t-client),var(--t-supabase));-webkit-background-clip:text;background-clip:text;color:transparent}
+.brand p{margin:0;color:var(--ink3);font-size:12px}
+.stats{display:flex;gap:8px;flex-wrap:wrap}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--ink2);white-space:nowrap}
+.stat b{color:var(--ink);font-weight:700}
+.ctrls{display:flex;gap:8px;align-items:center}
+.btn{background:var(--panel);border:1px solid var(--line);color:var(--ink2);border-radius:10px;padding:7px 11px;font-size:12px;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--line2);color:var(--ink)}
+.search{position:relative}
+.search input{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:7px 12px 7px 30px;font-size:13px;width:210px;outline:none}
+.search input:focus{border-color:var(--t-client)}
+.search svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);opacity:.5}
+
+/* ---- Tabs ---- */
+nav.tabs{display:flex;gap:4px;padding:10px 22px 0;flex-wrap:wrap}
+.tab{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--ink3);padding:9px 15px;border-radius:10px 10px 0 0;cursor:pointer;font-size:13px;font-weight:600;transition:.15s}
+.tab:hover{color:var(--ink)}
+.tab.active{color:var(--ink);background:var(--panel);border-color:var(--line)}
+
+/* ---- Layout ---- */
+main{flex:1;display:flex;min-height:0;border-top:1px solid var(--line)}
+.stage{flex:1;min-width:0;position:relative;overflow:auto}
+.view{display:none;padding:20px 22px 60px}
+.view.active{display:block}
+
+/* ---- Legend ---- */
+.legendbar{display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:2px 2px 16px;color:var(--ink2);font-size:12px}
+.legendbar .grp{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.leg{display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:3px 8px;border-radius:999px;border:1px solid transparent}
+.leg:hover{border-color:var(--line)}
+.leg.mute{opacity:.35}
+.leg .swatch{width:22px;height:0;border-top:3px solid var(--c);border-radius:2px}
+.leg .dot{width:11px;height:11px;border-radius:3px;background:var(--c)}
+.legendbar .sep{width:1px;height:16px;background:var(--line)}
+.hint{color:var(--ink3);font-size:11.5px;margin-left:auto}
+
+/* ---- Diagram ---- */
+#diagram{position:relative}
+#connectors{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
+#connectors path{fill:none;stroke-width:1.6;opacity:.55;transition:opacity .18s,stroke-width .18s}
+#connectors path.hot{opacity:1;stroke-width:2.8}
+#connectors path.dim{opacity:.06}
+.band{position:relative;z-index:2;margin:0 0 26px}
+.band-label{display:flex;align-items:center;gap:10px;margin:0 0 10px;color:var(--ink3);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.band-label .ln{flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+.band-label .tierpill{color:var(--tc);border:1px solid color-mix(in srgb,var(--tc) 45%,transparent);background:color-mix(in srgb,var(--tc) 12%,transparent);padding:2px 9px;border-radius:999px;letter-spacing:.06em}
+.band-row{display:flex;gap:14px;flex-wrap:wrap}
+
+.node{
+  position:relative;z-index:3;flex:1 1 210px;min-width:190px;max-width:340px;
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--line);border-left:3px solid var(--tc);
+  border-radius:12px;padding:12px 13px;cursor:pointer;transition:.16s;
+}
+.node:hover{border-color:var(--tc);transform:translateY(-2px);box-shadow:var(--shadow)}
+.node.active{border-color:var(--tc);box-shadow:0 0 0 2px color-mix(in srgb,var(--tc) 50%,transparent),var(--shadow)}
+.node.hot{border-color:var(--tc)}
+.node.dim{opacity:.28;filter:saturate(.5)}
+.node .n-head{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.node .n-ico{width:24px;height:24px;flex:none;border-radius:7px;display:grid;place-items:center;background:color-mix(in srgb,var(--tc) 16%,transparent);color:var(--tc);font-size:13px}
+.node .n-title{font-weight:700;font-size:13.5px;line-height:1.2}
+.node .n-type{font-size:10.5px;color:var(--tc);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.node .n-desc{color:var(--ink2);font-size:11.5px;line-height:1.4;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.node .n-meta{margin-top:7px;display:flex;gap:5px;flex-wrap:wrap}
+.chip{font-size:10px;color:var(--ink3);background:color-mix(in srgb,var(--ink3) 12%,transparent);border-radius:6px;padding:2px 6px;white-space:nowrap}
+
+/* ---- Detail panel ---- */
+aside.detail{width:0;flex:none;background:var(--panel);border-left:1px solid var(--line);overflow:hidden;transition:width .22s ease;position:sticky;top:0;height:calc(100vh - 0px);align-self:flex-start}
+aside.detail.open{width:390px}
+.detail-inner{width:390px;height:100%;overflow-y:auto;padding:18px 18px 40px}
+.detail .close{float:right;border:none;background:transparent;color:var(--ink3);font-size:20px;cursor:pointer;line-height:1}
+.detail .close:hover{color:var(--ink)}
+.d-tier{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--tc)}
+.detail h2{margin:6px 0 2px;font-size:20px;font-weight:750}
+.d-sub{color:var(--ink3);font-size:12px;margin-bottom:14px}
+.detail h3{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin:18px 0 8px;font-weight:700}
+.detail p{color:var(--ink2);font-size:13px;margin:0 0 6px}
+.detail .tags{display:flex;flex-wrap:wrap;gap:6px}
+.detail .tag{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:3px 8px;font-size:11.5px;color:var(--ink2)}
+.detail ul{margin:4px 0;padding-left:16px;color:var(--ink2);font-size:12.5px}
+.detail ul li{margin:4px 0}
+.detail code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.filelist{display:flex;flex-direction:column;gap:4px}
+.filelist code{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 7px;color:var(--ink2);word-break:break-all}
+.conns{display:flex;flex-direction:column;gap:6px}
+.conn{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink2);cursor:pointer;padding:4px 6px;border-radius:7px}
+.conn:hover{background:var(--panel2)}
+.conn .arw{color:var(--ink3)}
+.conn .ekind{width:9px;height:9px;border-radius:3px;flex:none}
+.conn b{color:var(--ink);font-weight:650}
+
+/* ---- Generic cards views (data model, tech, migrations) ---- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:12px;padding:14px 15px}
+.card.acc{border-top:3px solid var(--ac,var(--t-client))}
+.card h4{margin:0 0 4px;font-size:14px;display:flex;align-items:center;gap:8px}
+.card h4 .tag{margin-left:auto}
+.card .sub{color:var(--ink3);font-size:11.5px;margin-bottom:8px}
+.card p{color:var(--ink2);font-size:12.5px;margin:0 0 6px}
+.cols{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.col{font-size:11px;font-family:ui-monospace,Menlo,monospace;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--ink2)}
+.col.pk{border-color:color-mix(in srgb,var(--t-supabase) 55%,transparent);color:var(--t-supabase)}
+.col.fk{border-color:color-mix(in srgb,var(--t-client) 55%,transparent);color:#9aa4ff}
+.sectionhead{margin:6px 0 12px}
+.sectionhead h2{margin:0 0 3px;font-size:17px}
+.sectionhead p{margin:0;color:var(--ink3);font-size:12.5px;max-width:70ch}
+.note{background:color-mix(in srgb,var(--t-supabase) 9%,transparent);border:1px solid color-mix(in srgb,var(--t-supabase) 30%,transparent);border-radius:10px;padding:11px 13px;color:var(--ink2);font-size:12.5px;margin:14px 0}
+.note b{color:var(--ink)}
+
+/* migrations timeline */
+.timeline{position:relative;margin-left:8px;padding-left:22px}
+.timeline:before{content:"";position:absolute;left:5px;top:4px;bottom:4px;width:2px;background:linear-gradient(180deg,var(--t-client),var(--t-supabase))}
+.mrow{position:relative;padding:7px 0}
+.mrow:before{content:"";position:absolute;left:-21px;top:12px;width:10px;height:10px;border-radius:50%;background:var(--panel);border:2px solid var(--t-client)}
+.mrow .mdate{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--t-supabase)}
+.mrow .mname{font-weight:650;font-size:13px;color:var(--ink)}
+.mrow .mdesc{font-size:12px;color:var(--ink2)}
+
+.flowlist{display:flex;flex-direction:column;gap:8px}
+.flowrow{display:grid;grid-template-columns:200px 24px 200px 1fr;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 13px}
+.flowrow .src,.flowrow .dst{font-weight:650;font-size:12.5px}
+.flowrow .via{font-size:11px;color:var(--ink2)}
+.flowrow .kdot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.flowrow .arw{text-align:center;color:var(--ink3)}
+@media(max-width:720px){
+  .flowrow{grid-template-columns:1fr;gap:3px}
+  .flowrow .arw{text-align:left}
+  aside.detail.open{width:100vw;position:fixed;inset:0;z-index:60;height:100vh}
+  .detail-inner{width:100vw}
+}
+.footer{color:var(--ink3);font-size:11.5px;text-align:center;padding:22px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1><span class="accent">SitePulse</span> · Architecture Map</h1>
+      <p>Visual Floor Plan Tracker — click any module to inspect · generated 2026-07-22</p>
+    </div>
+    <div id="stats" class="stats"></div>
+    <div class="ctrls">
+      <label class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <input id="searchbox" type="search" placeholder="Search modules, files, tech…"/>
+      </label>
+      <button id="resetbtn" class="btn">Reset</button>
+      <button id="themebtn" class="btn">◐ Theme</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="map">Architecture Map</button>
+    <button class="tab" data-tab="data">Data Model</button>
+    <button class="tab" data-tab="flows">Data Flows</button>
+    <button class="tab" data-tab="tech">Tech Stack</button>
+    <button class="tab" data-tab="mig">Schema Evolution</button>
+  </nav>
+
+  <main>
+    <div class="stage">
+      <section id="view-map" class="view active">
+        <div class="legendbar">
+          <div class="grp" id="leg-tiers"></div>
+          <span class="sep"></span>
+          <div class="grp" id="leg-edges"></div>
+          <span class="hint">Click a tier or protocol to filter · click a module for details</span>
+        </div>
+        <div id="diagram">
+          <svg id="connectors" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="footer">Static analysis of the repo (AGENTS.md, SUPABASE_SCHEMA.md, source tree, migrations).</div>
+      </section>
+      <section id="view-data" class="view"></section>
+      <section id="view-flows" class="view"></section>
+      <section id="view-tech" class="view"></section>
+      <section id="view-mig" class="view"></section>
+    </div>
+    <aside id="detail" class="detail"><div id="detail-inner" class="detail-inner"></div></aside>
+  </main>
+</div>
+
+<script id="arch-data" type="application/json">{"meta":{"name":"SitePulse — Application Architecture","subtitle":"Visual Floor Plan Tracker · full-stack map","generated":"2026-07-22","source":"Static analysis of the repo (AGENTS.md, SUPABASE_SCHEMA.md, source tree, migrations)."},"tiers":[{"id":"client","label":"Browser Client"},{"id":"next","label":"Next.js Server"},{"id":"fastapi","label":"FastAPI Backend"},{"id":"supabase","label":"Supabase"},{"id":"external","label":"External"}],"edgeKinds":[{"id":"compose","label":"UI composition"},{"id":"state","label":"Client state (Zustand)"},{"id":"query","label":"Server state (TanStack Query)"},{"id":"sdk","label":"Supabase SDK"},{"id":"rest","label":"REST / fetch"},{"id":"oauth","label":"OAuth (Procore)"},{"id":"worker","label":"Web Worker"},{"id":"storage","label":"Object storage"},{"id":"auth","label":"Auth / JWT"},{"id":"internal","label":"Internal call"}],"bandLabels":{"0":{"label":"Entry & Routing","tier":"client"},"1":{"label":"Feature Modules (UI)","tier":"client"},"2":{"label":"State & Server-State","tier":"client"},"3":{"label":"Client Compute & SDKs","tier":"client"},"4":{"label":"Next.js Server (BFF)","tier":"next"},"5":{"label":"FastAPI — HTTP Surface","tier":"fastapi"},"6":{"label":"FastAPI — Core Layers","tier":"fastapi"},"7":{"label":"Supabase Platform","tier":"supabase"},"8":{"label":"External Services","tier":"external"}},"nodes":[{"id":"pages","tier":"client","band":0,"type":"Routes","icon":"⌂","label":"App Router Pages","desc":"Next.js App-Router entry points: login, dashboard, project workspace, workbench.","long":"The route layer. The project workspace (project/[projectId]) is the central orchestrator that threads data + navigateToView down into each feature view. View navigation is URL-first (?view=\u003cmode>).","tech":["Next.js 16 App Router","React 19"],"files":["app/layout.tsx","app/page.tsx","app/login/page.tsx","app/dashboard/page.tsx","app/project/[projectId]/page.tsx","app/workbench/page.tsx","app/workbench/[sheetId]/page.tsx"],"rules":["View is owned by the ?view= query param; navigateToView() mirrors into useUIStore.viewMode.","Theme is applied once at the root via ThemeApplier in layout.tsx."]},{"id":"chrome","tier":"client","band":0,"type":"UI Shell","icon":"▤","label":"App Chrome & Modals","desc":"Header, mobile tab bar, settings, global modals — context-aware controls.","long":"Persistent shell around the views. Header controls (Level selector, Scope tabs, Activities, Export) are gated per-view by a control-visibility matrix; phones navigate via a bottom tab bar.","tech":["React 19","Tailwind v4","Lucide"],"files":["components/TopHeader.tsx","components/MobileViewTabBar.tsx","components/SettingsMenu.tsx","components/GlobalSettingsModal.tsx","components/ThemeApplier.tsx","components/DevDbBanner.tsx"],"rules":["Header controls gated by controlVisibility(viewMode) in utils/viewRouting.ts — never ad-hoc hide in JSX."]},{"id":"canvas-ui","tier":"client","band":1,"type":"Feature","icon":"▦","label":"Floorplan Canvas Engine","desc":"Interactive React-Konva map — polygons, stamps, tracing, measure, lag-mode recolor.","long":"The heart of the app. FloorplanCanvas is a thin coordinator; its logic lives in useCanvas*/useTraceTool/useStampTool/useMeasureTools hooks and pure canvasLayout/canvasRecolor utils. Renders three Konva layers: base → units → overlay.","tech":["React-Konva","Konva","RBush"],"count":"FloorplanCanvas + 25 canvas components","files":["components/FloorplanCanvas.tsx","components/canvas/CanvasBaseLayer.tsx","components/canvas/CanvasUnitsLayer.tsx","components/canvas/CanvasOverlayLayer.tsx","hooks/useCanvasViewport.ts","hooks/useTraceTool.ts","hooks/useStampTool.ts"],"rules":["Extend a hook or layer component — do not bloat the coordinator.","Lag-mode recolor happens on copies (recolorForLag); never recolor the write-path array in page.tsx."]},{"id":"field-list","tier":"client","band":1,"type":"Feature","icon":"☑","label":"Field Status List","desc":"Container/Presenter status list — desktop table + mobile swipe deck, offline staging.","long":"Where field crews log progress. FieldStatusTable (container) calls useFieldData for shared logic, then renders StatusTable (desktop) or the lazy-loaded MobileSwipeDeck (mobile). Rows are memoized; expanded-row audits are viewport-gated.","tech":["React 19","dnd-kit"],"files":["components/FieldStatusTable.tsx","components/StatusTable.tsx","components/MobileSwipeDeck.tsx","components/manage/LocationRow.tsx","hooks/useFieldData.ts"],"rules":["pendingChanges is intentionally local useState — it feeds the IndexedDB offline queue, don't move it to global state.","LocationRow is React.memo — feed it per-row primitives, never the shared maps."]},{"id":"schedule-ui","tier":"client","band":1,"type":"Feature","icon":"📅","label":"Schedule Workspace","desc":"Activity manager, cascade planner, Gantt, MS-Project import, baselines.","long":"The single home for building & sequencing a project's activities. Level planned dates flow through a pure level-window engine (ganttMath cascade/reflow + dateRipple FS chaining). Imports MSPDI XML and captures immutable baselines.","tech":["React 19","pure ganttMath"],"count":"14 schedule components","files":["components/schedule/ScheduleWorkspace.tsx","components/schedule/ActivityManagerPanel.tsx","components/schedule/CascadePanel.tsx","components/schedule/GanttTimeline.tsx","components/schedule/MspImportPanel.tsx","components/schedule/BaselineControl.tsx"],"rules":["Activity editing lives ONLY here (moved out of Settings).","Correctness lives in pure utils (ganttMath, scheduleReconcile, scheduleBaseline) — never forked in components."]},{"id":"dashboard-ui","tier":"client","band":1,"type":"Feature","icon":"📊","label":"Project Dashboard","desc":"FloorPulse rollups, Risk Radar, Type Scorecard, subcontractor benchmarks, forecasts.","long":"All-project analytics. The FloorPulse rail is both the rollup view and the scope control. Confidence bands come from a bootstrap Monte-Carlo layer beside the point-forecast math; forecasts are suppressed (not faked) for thin samples.","tech":["Recharts","pure analytics"],"files":["components/ProjectDashboard.tsx","components/dashboard/FloorPulse.tsx","components/dashboard/RiskRadar.tsx","components/dashboard/TypeScorecard.tsx","components/dashboard/SubcontractorBenchmark.tsx"],"rules":["Always fetches all-project units/statuses/history.","Forecasts suppressed for small samples & zero pace — keep that honesty."]},{"id":"lookahead-ui","tier":"client","band":1,"type":"Feature","icon":"🗓","label":"Look-Ahead Planner","desc":"Self-contained weekly look-ahead module with its own store + persistence.","long":"A near-standalone planning surface (own Zustand session store, own gesture/selection/view libs, own persistence layer) that also reads the project's activities & units.","tech":["Zustand","local persistence"],"count":"1 workspace + 8 components + lib","files":["lookahead/LookaheadWorkspace.tsx","lookahead/components/LookAhead.tsx","lookahead/store/useStore.ts","lookahead/store/useSession.ts","lookahead/persistence.ts","lookahead/lib/schedule.ts"]},{"id":"workbench-ui","tier":"client","band":1,"type":"Feature","icon":"✎","label":"Workbench (Vectorization)","desc":"Sheet prep — PDF tracing, title-block parse, gridlines, opening detection, review.","long":"The drawing-preparation surface: trace polygons over a PDF, parse title blocks & gridlines, detect openings, and review/label before a sheet goes live.","tech":["React-Konva","pdf.js"],"count":"12 workbench components","files":["components/workbench/WorkbenchTracer.tsx","components/workbench/GridlinePanel.tsx","components/workbench/OpeningModePanel.tsx","components/workbench/WorkbenchReviewTable.tsx","app/workbench/[sheetId]/page.tsx"]},{"id":"taxonomy-ui","tier":"client","band":1,"type":"Feature","icon":"🏷","label":"Taxonomy & Cost Codes","desc":"Governed location subtypes & cost-code library admin panels.","long":"Admin surfaces for the two global governed dictionaries (location subtypes, activity dictionary) plus the estimate cost-code catalog.","tech":["React 19"],"files":["components/taxonomy/LocationLibraryPanel.tsx","components/costcodes/CostCodeLibraryPanel.tsx","components/ActivityDictionaryField.tsx","components/TaxonomyPicker.tsx"]},{"id":"zustand","tier":"client","band":2,"type":"Client State","icon":"◉","label":"Zustand Stores","desc":"Global UI + persisted settings — modularized, hydration-safe.","long":"All floating UI state (active tools, selected units, filters, modals) + persisted settings. Split into focused stores. Persisted props must be read through useHydratedStore to avoid hydration mismatch.","tech":["Zustand 5"],"files":["store/useMapStore.ts","store/useUIStore.ts","store/useSettingsStore.ts","store/useWorkbenchStore.ts","store/useManageStore.ts","store/useTaxonomyAdminStore.ts"],"rules":["Never use useState/useEffect for global UI state.","viewMode is a read mirror only — never enters TanStack Query."]},{"id":"react-query","tier":"client","band":2,"type":"Server State","icon":"⇄","label":"TanStack Query Hooks","desc":"All server reads/writes — query hooks, mutation actions, realtime cache injection.","long":"The data-access layer. Query hooks fetch; action hooks mutate. Server state is offline-first via a persisted client; realtime cache injections resolve thundering herds. Status writes are idempotent through upsert_status_log / onConflict upserts.","tech":["TanStack Query 5"],"count":"40+ hooks","files":["hooks/useProjectQueries.ts","hooks/useMapActions.ts","hooks/useProjectActions.ts","hooks/projectQueries/","hooks/useWorkbenchActions.ts","types/queryKeys.ts","types/mutations.ts"],"rules":["Never use useState/useEffect for DB data.","Slot key is activity_id (not the name); strip synthesized activityName before writes."]},{"id":"offline-sync","tier":"client","band":2,"type":"Persistence","icon":"⭳","label":"Offline Sync Queue","desc":"Offline-first mutation queue persisted to IndexedDB; per-item checkpoint replay.","long":"Durable disconnected mutations. The persister writes the query cache to IndexedDB; a separate project-scoped store persists the pending-changes staging buffer. Sync dequeues per-item so a mid-sync crash only leaves unsynced items.","tech":["react-query-persist-client","IndexedDB","idb-keyval"],"files":["utils/persister.ts","utils/pendingChangesStore.ts"],"rules":["Everything in the cache must be JSON-serializable — no RBush/Map/Set/DOM.","client_timestamp is stamped at capture time, not sync time."]},{"id":"pure-utils","tier":"client","band":3,"type":"Domain Logic","icon":"ƒ","label":"Pure Logic Library","desc":"Framework-free business math — analytics, scheduling, geometry, forecasting.","long":"~75 side-effect-free, unit-tested modules that hold the load-bearing invariants: variance analytics, gantt/cascade math, Monte-Carlo forecasting, snapping geometry, auto-advance, status-color language, view routing. Each is the single source of truth for its math.","tech":["TypeScript","Vitest"],"count":"~75 modules (each *.test.ts)","files":["utils/progressAnalytics.ts","utils/ganttMath.ts","utils/monteCarloForecast.ts","utils/geometry.ts","utils/autoAdvance.ts","utils/scheduleBaseline.ts","utils/viewRouting.ts","utils/statusColors.ts"],"rules":["Single source of truth — never fork the math into components.","Additive forecast layers sit beside progressAnalytics, never fork it."]},{"id":"pdf-worker","tier":"client","band":3,"type":"Web Worker","icon":"⚙","label":"PDF Render Worker","desc":"Off-main-thread pdf.js rasterization — LOD pyramid + sharp viewport crops.","long":"Renders the floor-plan drawing in a dedicated Web Worker and transfers ImageBitmaps back: a 1×/2× LOD pyramid eagerly, 4× lazily, and debounced sharp crops past deep-zoom. usePdfRenderer is a thin client over an LRU byte cache.","tech":["Web Worker","pdf.js","ImageBitmap"],"files":["workers/pdfRender.worker.ts","workers/pdfRenderProtocol.ts","hooks/usePdfRenderer.ts","utils/pdfByteCache.ts","utils/pdfRenderMath.ts","utils/pdfSource.ts"],"rules":["Never call pdf.js page.render on the main thread (janks Konva).","PDF bytes fetched via versioned public URLs (?v=pdf_version) for long-term caching."]},{"id":"snapping","tier":"client","band":3,"type":"Client Compute","icon":"⌖","label":"Vector Snapping Engine","desc":"RBush spatial index over CAD linework for gravity/corner snapping.","long":"Loads percentage-normalized CAD linework (cache-first, backend fallback) and builds an RBush index for aspect-ratio-aware mathematical snapping while drawing polygons.","tech":["RBush"],"files":["hooks/useSnappingVectors.ts","hooks/useCanvasSnapping.ts","utils/geometry.ts"],"rules":["Never persist instantiated RBush objects into query cache — return raw JSON, build RBush on the render side."]},{"id":"supabase-js","tier":"client","band":3,"type":"SDK","icon":"⬡","label":"Supabase Browser Client","desc":"Direct RLS-governed reads/writes, auth session, storage URLs, realtime.","long":"The browser talks to Supabase directly with the publishable (anon) key — Row-Level Security is the enforcement boundary. Handles most CRUD, the upsert_status_log RPC, auth sessions, storage URLs, and realtime channels.","tech":["@supabase/supabase-js"],"files":["supabaseClient.ts"],"rules":["RLS membership policies (join units→sheets→project_members) are the security boundary, not the client."]},{"id":"api-client","tier":"client","band":3,"type":"SDK","icon":"⇢","label":"Backend REST Client","desc":"Typed fetch wrappers to FastAPI — uploads, export, extraction, storage deletes.","long":"Everything the browser can't do directly (PyMuPDF work, PDF export, capped uploads, cascade deletes) goes through these Bearer-JWT fetch calls: exportToPDF, uploadFloorplan, attachOriginal, deleteSheetStorage, deleteProject, extractVectors, extractText.","tech":["fetch","Bearer JWT"],"files":["services/api.ts"]},{"id":"api-data","tier":"next","band":4,"type":"API Route","icon":"⚡","label":"Server Data Routes","desc":"Privileged Route Handlers using the Supabase service-role key.","long":"Server-only work that needs elevated privileges: creating a project (and enrolling the owner) and provisioning a workbench container. The service-role key never reaches the browser.","tech":["Next Route Handlers","service role"],"files":["app/api/projects/route.ts","app/api/workbench/container/route.ts"],"rules":["SUPABASE_SERVICE_ROLE_KEY is server-side only.","create_new_project assigns the 'owner' role."]},{"id":"api-procore","tier":"next","band":4,"type":"OAuth","icon":"🔗","label":"Procore SSO Routes","desc":"OAuth authorize/callback + marketplace deep-link launch; domain-restricted provisioning.","long":"Native Procore SSO: /start builds the authorize URL with a signed state, /callback exchanges the code and auto-provisions domain-allowed users, /launch deep-links a Procore project into its SitePulse canvas.","tech":["OAuth 2.0"],"files":["app/api/auth/procore/start/route.ts","app/api/auth/procore/launch/route.ts","app/api/auth/procore/callback/route.ts","utils/procoreState.ts"],"rules":["Nonce cookie + isSafeReturnPath guard against CSRF & open-redirect."]},{"id":"be-main","tier":"fastapi","band":5,"type":"Entrypoint","icon":"▶","label":"App Assembly","desc":"FastAPI() + lifespan validation + CORS + health route + 4 routers.","long":"main.py is assembly ONLY. The lifespan context manager fails fast if Supabase sub-clients (auth/storage/postgrest) didn't initialize, converting silent import crashes into clear deploy-time errors. `uvicorn main:app` is the deploy entrypoint.","tech":["FastAPI","uvicorn","Render"],"files":["main.py"],"rules":["Assembly only — non-route layers live in core/, handlers in routers/."]},{"id":"be-routers","tier":"fastapi","band":5,"type":"Routes","icon":"⇉","label":"HTTP Routers","desc":"Full-path handlers — uploads, storage deletes, extraction, PDF export.","long":"Seven endpoints: POST /upload-floorplan, POST /attach-original, DELETE /sheet-storage, DELETE /project, GET /extract-vectors, GET /extract-text, POST /export-pdf. Every route uses Depends(get_current_user).","tech":["FastAPI Router"],"count":"7 endpoints across 4 files","files":["routers/uploads.py","routers/storage.py","routers/extraction.py","routers/export.py"],"rules":["The `except HTTPException: raise` branch is load-bearing on every route.","User-uploaded bad bytes → 400; a missing/corrupt STORED PDF → 404.","Seam rule: reference shared state by module-attribute lookup (db.supabase, auth.verify_*)."]},{"id":"be-core-auth","tier":"fastapi","band":6,"type":"Core","icon":"🔐","label":"Auth Layer","desc":"Local JWT verification with PyJWT — JWKS/ES256, cached, no network per request.","long":"get_current_user validates the Supabase user JWT locally against the project's JWKS public key (ES256). JWKS is fetched once and cached in a module-level PyJWKClient, so steady-state verification does no network I/O.","tech":["PyJWT","ES256 / JWKS"],"files":["core/auth.py"],"rules":["Never call supabase.auth.get_user() (caused /extract-vectors 500 timeouts).","No python-jose (CVE-2024-33663); no HS256 fallback without a real secret."]},{"id":"be-core-extract","tier":"fastapi","band":6,"type":"Core","icon":"⛭","label":"Extraction Layer","desc":"Pure PyMuPDF vector/text parsing + preview & vector compositing.","long":"core/extraction.py is pure fitz (imports no Supabase, env-free). core/sheet_assets.py composites results into storage/cache: render_and_store_preview, cache_sheet_vectors. Output is filtered, 5-decimal-rounded, and capped at VECTOR_CAP_LINES.","tech":["PyMuPDF (fitz)"],"files":["core/extraction.py","core/sheet_assets.py"],"rules":["Cap + rounding keep the sheet_vectors upsert under the DB's 8s statement_timeout.","Every fitz.open(...) is a `with` block so docs close on error paths."]},{"id":"be-core-pdf","tier":"fastapi","band":6,"type":"Core","icon":"⧉","label":"PDF & Config","desc":"Upload caps, render-pixel clamps, header/color utils, env-derived config.","long":"core/pdf.py holds upload/render safety (read_upload_capped → 413 past MAX_UPLOAD_BYTES; preview_matrix clamps to MAX_RENDER_PIXELS). core/config.py holds env-derived, all-defaulted constants; core/models.py holds Pydantic models.","tech":["Python","Pydantic"],"files":["core/pdf.py","core/config.py","core/models.py"],"rules":["Never bare `await file.read()` — a client Content-Length can lie."]},{"id":"be-core-db","tier":"fastapi","band":6,"type":"Core","icon":"⬢","label":"Supabase Access","desc":"Service-role Supabase client with safe timeouts; PDF download + version bump.","long":"core/supabase_client.py builds the service-role client with SafeClientOptions (25s timeouts, under Render's 30s deadline). Exposes download_original_pdf (translates a missing file to a clean 404) and bump_pdf_version.","tech":["supabase-py","SafeClientOptions"],"files":["core/supabase_client.py"],"rules":["Storage writes overwrite in place (upsert:true) — never remove-then-upload.","25s timeouts must stay below Render's 30s platform deadline."]},{"id":"pg","tier":"supabase","band":7,"type":"Database","icon":"⛁","label":"PostgreSQL","desc":"30+ RLS-protected tables; event-sourced status + append-only audit.","long":"The system of record. status_logs holds one current-state row per (unit, activity) slot; status_audit_log is the append-only full timeline written by a trigger. RLS anchors on project_members via units→sheets→project.","tech":["Postgres","Row-Level Security"],"count":"30+ tables · 30 migrations","files":["sitepulse-next/SUPABASE_SCHEMA.md"],"rules":["status_logs = current state; status_audit_log = full history (history hooks read the audit table).","RLS write policies use role in ('owner','admin','pm'); anon is never granted."]},{"id":"rpc","tier":"supabase","band":7,"type":"Stored Proc","icon":"∫","label":"RPC & Triggers","desc":"upsert_status_log (idempotent, LWW) + the audit trigger function.","long":"upsert_status_log is the single-mutation write path: SECURITY INVOKER, a Last-Write-Wins timestamp guard, and omit-preserves / present-clears field semantics. fn_status_log_audit writes the audit row on every change.","tech":["plpgsql"],"files":["supabase/migrations/20260518_status_logs_idempotency.sql","supabase/migrations/20260712_status_logs_preserve_omitted_fields.sql"],"rules":["SECURITY INVOKER — RLS governs writes; anon never granted EXECUTE.","Omit a field to PRESERVE it; send it present (null/'') to CLEAR it."]},{"id":"storage","tier":"supabase","band":7,"type":"Object Store","icon":"🗄","label":"Storage Buckets","desc":"Public floorplans bucket — original PDFs + server-rendered preview PNGs.","long":"The `floorplans` bucket holds originals/\u003csheetId>.pdf (source of truth) and converted/\u003csheetId>.png (a server-rendered preview that doubles as an instant placeholder LOD). Public by design (capability URLs keyed by sheet UUID).","tech":["Supabase Storage"],"files":["core/sheet_assets.py","core/supabase_client.py"],"rules":["Public by design for the versioned-URL caching pipeline — revisit before sensitive/multi-tenant drawings."]},{"id":"auth","tier":"supabase","band":7,"type":"Identity","icon":"👤","label":"Supabase Auth","desc":"User identity + sessions; asymmetric ES256-signed JWTs verified via JWKS.","long":"Issues access tokens signed with an asymmetric key (ES256). Both the browser (session) and the FastAPI backend (JWKS public key) verify tokens locally — no per-request network round-trip.","tech":["Supabase Auth","ES256","JWKS"],"files":[]},{"id":"procore","tier":"external","band":8,"type":"External SaaS","icon":"🏗","label":"Procore","desc":"Construction platform — SSO/OAuth identity + App-Marketplace deep-linking.","long":"The construction system-of-record SitePulse integrates with: OAuth 2.0 SSO with domain-restricted auto-provisioning, project auto-enrollment, and native deep-linking from the Procore App Marketplace straight into a project canvas.","tech":["OAuth 2.0","Procore API"],"files":["utils/procoreState.ts","utils/procoreDirectoryCsv.ts"]}],"edges":[{"from":"pages","to":"chrome","kind":"compose","label":"renders shell"},{"from":"pages","to":"canvas-ui","kind":"compose","label":"Map view"},{"from":"pages","to":"field-list","kind":"compose","label":"List view"},{"from":"pages","to":"schedule-ui","kind":"compose","label":"Schedule view"},{"from":"pages","to":"dashboard-ui","kind":"compose","label":"Dashboard view"},{"from":"pages","to":"lookahead-ui","kind":"compose","label":"Look-Ahead view"},{"from":"pages","to":"workbench-ui","kind":"compose","label":"/workbench"},{"from":"pages","to":"taxonomy-ui","kind":"compose","label":"admin panels"},{"from":"canvas-ui","to":"pure-utils","kind":"compose","label":"geometry / recolor"},{"from":"schedule-ui","to":"pure-utils","kind":"compose","label":"gantt / cascade"},{"from":"dashboard-ui","to":"pure-utils","kind":"compose","label":"analytics / forecast"},{"from":"canvas-ui","to":"snapping","kind":"compose","label":"gravity snapping"},{"from":"chrome","to":"zustand","kind":"state","label":"settings / view"},{"from":"canvas-ui","to":"zustand","kind":"state","label":"tools / selection"},{"from":"field-list","to":"zustand","kind":"state","label":"selection / filters"},{"from":"workbench-ui","to":"zustand","kind":"state","label":"workbench UI"},{"from":"react-query","to":"offline-sync","kind":"state","label":"queue mutations (offline)"},{"from":"canvas-ui","to":"react-query","kind":"query","label":"units / statuses"},{"from":"field-list","to":"react-query","kind":"query","label":"status logs / audit"},{"from":"schedule-ui","to":"react-query","kind":"query","label":"activities / baselines"},{"from":"dashboard-ui","to":"react-query","kind":"query","label":"all-project rollups"},{"from":"lookahead-ui","to":"react-query","kind":"query","label":"activities / units"},{"from":"workbench-ui","to":"react-query","kind":"query","label":"sheets / vectors"},{"from":"taxonomy-ui","to":"react-query","kind":"query","label":"subtypes / cost codes"},{"from":"canvas-ui","to":"pdf-worker","kind":"worker","label":"render request"},{"from":"react-query","to":"supabase-js","kind":"sdk","label":"queries + mutations"},{"from":"snapping","to":"supabase-js","kind":"sdk","label":"sheet_vectors cache"},{"from":"supabase-js","to":"pg","kind":"sdk","label":"RLS reads/writes"},{"from":"supabase-js","to":"rpc","kind":"sdk","label":"upsert_status_log"},{"from":"supabase-js","to":"auth","kind":"auth","label":"session / login"},{"from":"supabase-js","to":"storage","kind":"storage","label":"floorplan image URLs"},{"from":"api-data","to":"pg","kind":"sdk","label":"service-role insert"},{"from":"api-procore","to":"pg","kind":"sdk","label":"auto-enroll project"},{"from":"be-core-db","to":"pg","kind":"sdk","label":"service-role queries"},{"from":"rpc","to":"pg","kind":"internal","label":"atomic upsert"},{"from":"react-query","to":"api-client","kind":"rest","label":"backend actions"},{"from":"snapping","to":"api-client","kind":"rest","label":"extract-vectors fallback"},{"from":"react-query","to":"api-data","kind":"rest","label":"create project / container"},{"from":"api-client","to":"be-routers","kind":"rest","label":"REST + Bearer JWT"},{"from":"pdf-worker","to":"storage","kind":"storage","label":"download PDF bytes"},{"from":"be-core-db","to":"storage","kind":"storage","label":"read/write sheet assets"},{"from":"be-core-extract","to":"be-core-db","kind":"internal","label":"cache vectors + preview"},{"from":"pages","to":"api-procore","kind":"oauth","label":"Login with Procore"},{"from":"procore","to":"api-procore","kind":"oauth","label":"callback / deep-link"},{"from":"api-procore","to":"procore","kind":"oauth","label":"authorize redirect"},{"from":"api-procore","to":"auth","kind":"auth","label":"provision user"},{"from":"be-main","to":"be-routers","kind":"internal","label":"include_router"},{"from":"be-routers","to":"be-core-auth","kind":"auth","label":"Depends(get_current_user)"},{"from":"be-routers","to":"be-core-extract","kind":"internal","label":"PyMuPDF parse"},{"from":"be-routers","to":"be-core-pdf","kind":"internal","label":"caps / clamps"},{"from":"be-routers","to":"be-core-db","kind":"internal","label":"download / persist"},{"from":"be-core-auth","to":"auth","kind":"auth","label":"JWKS (cached once)"}],"dataModel":{"intro":"Supabase Postgres is the system of record. Progress tracking is event-sourced: status_logs holds one current-state row per (unit × activity) slot, while status_audit_log is the append-only timeline. Every table is Row-Level-Security protected, anchored on project_members.","note":"\u003cb>Event sourcing:\u003c/b> writes go through the idempotent upsert_status_log RPC (Last-Write-Wins) — never plain INSERT. \u003cb>RLS:\u003c/b> read = any project member; write = owner/admin/pm (some tables + superintendent); \u003cb>anon is never granted.\u003c/b> \u003cb>* = primary key · → = foreign key.\u003c/b>","tables":[{"name":"projects","tag":"core","purpose":"Top-level project; owner dates + Procore link.","cols":["*id","name","unit_types (jsonb)","project_type","procore_project_id","construction_start_date","contract_completion_date"]},{"name":"sheets","purpose":"A drawing/level; holds level×activity plan windows.","cols":["*id","project_id →projects","sheet_name","base_image_url","active_scopes (jsonb)","activity_schedules (jsonb)","pdf_version","scale_ratio"]},{"name":"units","purpose":"A location (unit/room) polygon on a sheet.","cols":["*id","sheet_id →sheets","unit_number","unit_type","top_level_role","subtype_id →subtypes","polygon_coordinates (jsonb)","computed_area","walk_sequence","assigned_to","opening_edges (jsonb)"]},{"name":"activities","tag":"renamed","purpose":"Project scope-of-work step (was project_milestones).","cols":["*id","project_id →projects","name","track","color","sequence_order","type","dictionary_id →activity_dictionary","applies_to_unit_types (jsonb)"]},{"name":"status_logs","tag":"event-sourced","purpose":"Current state per slot; idempotent LWW upsert.","cols":["*unit_id →units","*activity_id →activities","status_color","temporal_state","track","planned_start_date","planned_end_date","actual_start_date","logged_date","client_timestamp"]},{"name":"status_audit_log","tag":"append-only","purpose":"Full progress timeline (trigger-written).","cols":["*id","unit_id →units","activity_id →activities","activity_name","temporal_state","track","logged_date","created_at"]},{"name":"activity_dictionary","tag":"governed","purpose":"Global canonical activities (mirrors subtypes).","cols":["*id","name (unique)","status","type","track","aliases (jsonb)","default_project_types (jsonb)","cost_code_id"]},{"name":"subtypes","tag":"governed","purpose":"Global location sub-type dictionary.","cols":["*id","name","status","role","aliases (jsonb)","default_project_types (jsonb)"]},{"name":"activity_dependencies","purpose":"Light Finish-to-Start edges (no critical-path math).","cols":["*id","predecessor_activity_id →activities","successor_activity_id →activities","type (FS)","lag_days"]},{"name":"activity_applicability_overrides","purpose":"Per-unit N/A overrides (was milestone_…).","cols":["*id","activity_id →activities","unit_id →units","is_applicable"]},{"name":"schedule_baselines","tag":"immutable","purpose":"Immutable whole-project plan snapshots (no progress).","cols":["*id","project_id →projects","name","snapshot (jsonb)","created_at"]},{"name":"project_members","tag":"RLS anchor","purpose":"Membership + role — the RLS anchor.","cols":["*id","project_id →projects","user_id →profiles","role"]},{"name":"profiles","purpose":"User profile (mirrors auth.users).","cols":["*id →auth.users","display_name","email"]},{"name":"project_contacts","purpose":"People on a project (Procore CSV de-dupe).","cols":["*id","project_id →projects","company","first_name","last_name","email","procore_id"]},{"name":"sheet_vectors","tag":"cache","purpose":"Cached CAD linework for snapping (write-through).","cols":["*sheet_id →sheets","vectors (jsonb)"]},{"name":"sheet_text / gridlines / metadata","tag":"cache","purpose":"Per-sheet extraction caches (room-name match, gridlines, title block).","cols":["sheet_id →sheets","text / gridlines / metadata (jsonb)"]},{"name":"cost_codes","purpose":"Estimate cost-code catalog.","cols":["*id","project_id →projects","code","description"]},{"name":"companies","purpose":"Companies / subcontractors (dashboard benchmarks).","cols":["*id","name","is_subcontractor"]},{"name":"activity_playbooks / activity_scopes","purpose":"Reusable activity templates + scope grouping.","cols":["*id","project_id →projects","…"]},{"name":"lookahead_plans","purpose":"Persisted weekly look-ahead planner blobs.","cols":["*id","project_id →projects","plan (jsonb)"]}],"storage":[{"name":"floorplans","kind":"bucket (public)","desc":"originals/\u003csheetId>.pdf (source of truth) + converted/\u003csheetId>.png (server preview / placeholder LOD). Public capability URLs keyed by sheet UUID; versioned with ?v=pdf_version."},{"name":"upsert_status_log","kind":"RPC","desc":"Single-mutation status write — SECURITY INVOKER, Last-Write-Wins guard, omit-preserves / present-clears field semantics."},{"name":"fn_status_log_audit","kind":"trigger fn","desc":"Writes an append-only status_audit_log row on every status change (SECURITY DEFINER + fixed search_path)."},{"name":"create_new_project","kind":"RPC","desc":"Creates a project and enrolls the caller as 'owner'."}]},"techIntro":"A client-heavy Next.js app that talks directly to Supabase (RLS-enforced) for most data, with a thin FastAPI service for the PyMuPDF-heavy PDF work it can't do in the browser.","tech":[{"title":"Frontend","sub":"Client-heavy React","tier":"client","items":["Next.js 16 (App Router)","React 19","TypeScript (strict, incremental JS→TS)","Tailwind CSS v4","Lucide icons","Zustand 5","TanStack Query 5","React-Konva / Konva","pdf.js","RBush","Recharts","dnd-kit","Framer Motion","date-fns"]},{"title":"Backend","sub":"FastAPI on Render","tier":"fastapi","items":["Python","FastAPI","uvicorn","PyMuPDF (fitz)","PyJWT (ES256 / JWKS)","supabase-py","httpx","pytest"]},{"title":"Data & Auth","sub":"Supabase platform","tier":"supabase","items":["Postgres + Row-Level Security","Supabase Storage","Supabase Auth (ES256 / JWKS)","Event-sourced status_logs + audit","Idempotent upsert RPC (LWW)"]},{"title":"Offline & Sync","sub":"Offline-first field use","tier":"client","items":["IndexedDB","@tanstack/react-query-persist-client","idb-keyval","Per-item checkpoint queue","Capture-time timestamps","Realtime cache injection"]},{"title":"Canvas & Rendering","sub":"60fps floor-plan map","tier":"client","items":["React-Konva 3-layer engine","Off-main-thread pdf.js worker","LOD pyramid + sharp crops","RBush vector snapping","Versioned public-URL caching"]},{"title":"Testing","sub":"Unit-first, no E2E yet","tier":"next","items":["Vitest + React Testing Library","pytest (hermetic auth tests)","~200 co-located test files","renderWithQuery harness","Playwright deferred"]},{"title":"Integrations & Hosting","sub":"Deploy targets","tier":"external","items":["Procore SSO (OAuth 2.0)","Vercel (frontend)","Render (backend)","Supabase (managed Postgres/Storage/Auth)"]}],"migrations":[{"date":"2026-05-18","name":"Status idempotency","desc":"Slot-unique constraint, status_audit_log + trigger, upsert_status_log RPC with LWW guard."},{"date":"2026-06-10","name":"Milestone applicability","desc":"Per-unit N/A override table."},{"date":"2026-06-16","name":"Location taxonomy","desc":"top_level_role + subtype_id + global subtypes dictionary; project_type."},{"date":"2026-06-17","name":"Taxonomy correction","desc":"Backfill / mapping fixes for the taxonomy."},{"date":"2026-06-17","name":"Unit assignment","desc":"units.assigned_to (crew / assignee)."},{"date":"2026-06-17","name":"Workbench schema","desc":"Sheet-prep / tracing corpus tables."},{"date":"2026-06-18","name":"Workbench soft-delete","desc":"Soft-delete flag for workbench rows."},{"date":"2026-06-23","name":"Look-ahead plans","desc":"Persisted weekly look-ahead planner blobs."},{"date":"2026-06-23","name":"Project contacts","desc":"Per-project people directory (Procore CSV de-dupe)."},{"date":"2026-06-25","name":"Sheet gridlines","desc":"Parsed structural gridlines cache."},{"date":"2026-06-25","name":"Sheet metadata","desc":"Title-block / sheet metadata."},{"date":"2026-06-25","name":"Sheet text","desc":"Cached PDF text for room-name matching."},{"date":"2026-06-25","name":"Trace capture","desc":"Tracing capture geometry."},{"date":"2026-06-26","name":"Opening edges","desc":"units.opening_edges (doors / openings)."},{"date":"2026-06-26","name":"Fully-traced flag","desc":"Workbench sheet completion flag."},{"date":"2026-06-29","name":"AI training opt-out","desc":"Per-project AI-training opt-out flag."},{"date":"2026-07-01","name":"Activity model (rename+re-key)","desc":"project_milestones→activities; status_logs re-keyed to activity_id; audit + overrides renamed."},{"date":"2026-07-01","name":"Sheet scale columns","desc":"scale_ratio / scale_preset on sheets."},{"date":"2026-07-02","name":"Activity dictionary","desc":"Global governed canonical activities (mirrors subtypes)."},{"date":"2026-07-03","name":"Activity dependencies","desc":"Light Finish-to-Start edges (no CPM)."},{"date":"2026-07-04","name":"Activity playbooks","desc":"Reusable activity templates."},{"date":"2026-07-05","name":"Activity scopes","desc":"Scope-of-work grouping for activities."},{"date":"2026-07-06","name":"Audit activity_name","desc":"Rename audit milestone→activity_name snapshot."},{"date":"2026-07-07","name":"Dependency ripple flag","desc":"Toggle for schedule ripple propagation."},{"date":"2026-07-08","name":"Cost codes","desc":"Estimate cost-code catalog."},{"date":"2026-07-09","name":"Companies / subs","desc":"Companies + is_subcontractor for benchmarks."},{"date":"2026-07-10","name":"Schedule baselines","desc":"Immutable whole-project plan snapshots."},{"date":"2026-07-11","name":"Actual start date","desc":"status_logs.actual_start_date."},{"date":"2026-07-12","name":"Project dates","desc":"construction_start + contract_completion dates."},{"date":"2026-07-12","name":"Preserve omitted fields","desc":"upsert_status_log omit-preserves / present-clears semantics."}]}</script>
+<script>/* ===== SitePulse Architecture Map — app ===== */
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("arch-data").textContent);
+const $ = (s,r)=> (r||document).querySelector(s);
+const $$ = (s,r)=> Array.prototype.slice.call((r||document).querySelectorAll(s));
+const el = (t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+
+const nodeById = {}; DATA.nodes.forEach(n=> nodeById[n.id]=n);
+const tierById = {}; DATA.tiers.forEach(t=> tierById[t.id]=t);
+const edgeColor = k => "var(--e-"+k+")";
+const tierColor = t => "var(--t-"+t+")";
+
+/* ---------- Theme ---------- */
+const root = document.documentElement;
+try{ const saved=localStorage.getItem("arch-theme"); if(saved) root.setAttribute("data-theme",saved); }catch(e){}
+function toggleTheme(){
+  const cur = root.getAttribute("data-theme")==="light" ? "dark":"light";
+  root.setAttribute("data-theme",cur);
+  try{ localStorage.setItem("arch-theme",cur); }catch(e){}
+}
+
+/* ---------- Build header stats ---------- */
+(function stats(){
+  const s=$("#stats");
+  const items=[
+    ["Tiers", DATA.tiers.length],
+    ["Modules", DATA.nodes.length],
+    ["Data flows", DATA.edges.length],
+    ["DB tables", DATA.dataModel.tables.length],
+    ["Migrations", DATA.migrations.length],
+  ];
+  items.forEach(([k,v])=> s.appendChild(el("span","stat","<b>"+v+"</b> "+k)));
+})();
+
+/* ---------- DIAGRAM ---------- */
+const diagram = $("#diagram");
+const svg = $("#connectors");
+let bands = {};
+DATA.nodes.forEach(n=>{ (bands[n.band]=bands[n.band]||[]).push(n); });
+const bandKeys = Object.keys(bands).map(Number).sort((a,b)=>a-b);
+
+function nodeCard(n){
+  const c = el("div","node");
+  c.style.setProperty("--tc", tierColor(n.tier));
+  c.dataset.id=n.id;
+  c.innerHTML =
+    '<div class="n-head"><div class="n-ico">'+(n.icon||"◆")+'</div>'+
+    '<div><div class="n-type">'+n.type+'</div><div class="n-title">'+n.label+'</div></div></div>'+
+    '<div class="n-desc">'+n.desc+'</div>'+
+    '<div class="n-meta">'+ (n.tech||[]).slice(0,3).map(t=>'<span class="chip">'+t+'</span>').join('') +'</div>';
+  c.addEventListener("click",e=>{ e.stopPropagation(); selectNode(n.id); });
+  return c;
+}
+function renderDiagram(){
+  bandKeys.forEach(bk=>{
+    const meta = DATA.bandLabels[bk] || {label:"", tier:null};
+    const band = el("div","band");
+    const lab = el("div","band-label");
+    const tc = meta.tier? tierColor(meta.tier):"var(--ink3)";
+    lab.style.setProperty("--tc", tc);
+    lab.innerHTML = (meta.tier? '<span class="tierpill" style="--tc:'+tc+'">'+tierById[meta.tier].label+'</span>':'')+
+                    '<span>'+meta.label+'</span><span class="ln"></span>';
+    band.appendChild(lab);
+    const row = el("div","band-row");
+    bands[bk].forEach(n=> row.appendChild(nodeCard(n)));
+    band.appendChild(row);
+    diagram.appendChild(band);
+  });
+}
+
+/* ---------- Connectors ---------- */
+function center(rect, box){ return {x:rect.left-box.left+rect.width/2, y:rect.top-box.top+rect.height/2}; }
+function drawConnectors(){
+  const box = diagram.getBoundingClientRect();
+  svg.setAttribute("viewBox","0 0 "+box.width+" "+box.height);
+  svg.setAttribute("width",box.width); svg.setAttribute("height",box.height);
+  while(svg.lastChild) svg.removeChild(svg.lastChild);
+  // arrow defs
+  const defs=document.createElementNS("http://www.w3.org/2000/svg","defs");
+  const kinds=[...new Set(DATA.edges.map(e=>e.kind))];
+  kinds.forEach(k=>{
+    const m=document.createElementNS("http://www.w3.org/2000/svg","marker");
+    m.setAttribute("id","ar-"+k); m.setAttribute("viewBox","0 0 10 10"); m.setAttribute("refX","8");
+    m.setAttribute("refY","5"); m.setAttribute("markerWidth","6"); m.setAttribute("markerHeight","6");
+    m.setAttribute("orient","auto-start-reverse");
+    const p=document.createElementNS("http://www.w3.org/2000/svg","path");
+    p.setAttribute("d","M0,0 L10,5 L0,10 z"); p.setAttribute("fill",edgeColor(k));
+    m.appendChild(p); defs.appendChild(m);
+  });
+  svg.appendChild(defs);
+  const cardRect={};
+  $$(".node",diagram).forEach(c=> cardRect[c.dataset.id]=c.getBoundingClientRect());
+  DATA.edges.forEach((e,i)=>{
+    const a=cardRect[e.from], b=cardRect[e.to]; if(!a||!b) return;
+    const na=nodeById[e.from], nb=nodeById[e.to];
+    const sameBand = na.band===nb.band;
+    let p1,p2,c1,c2;
+    if(sameBand){
+      // side to side
+      const aRight = a.left<=b.left;
+      p1={x:(aRight?a.right:a.left)-box.left, y:a.top-box.top+a.height/2};
+      p2={x:(aRight?b.left:b.right)-box.left, y:b.top-box.top+b.height/2};
+      const dx=Math.max(40,Math.abs(p2.x-p1.x)*.5);
+      c1={x:p1.x+(aRight?dx:-dx), y:p1.y+18};
+      c2={x:p2.x+(aRight?-dx:dx), y:p2.y+18};
+    } else {
+      const down = na.band<nb.band;
+      p1={x:a.left-box.left+a.width/2, y:(down?a.bottom:a.top)-box.top};
+      p2={x:b.left-box.left+b.width/2, y:(down?b.top:b.bottom)-box.top};
+      const dy=Math.max(30,Math.abs(p2.y-p1.y)*.4);
+      // slight horizontal spread to reduce overlap for long edges
+      const spread = ((i%5)-2)*10;
+      c1={x:p1.x+spread, y:p1.y+(down?dy:-dy)};
+      c2={x:p2.x-spread, y:p2.y-(down?dy:-dy)};
+    }
+    const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("d","M"+p1.x+","+p1.y+" C"+c1.x+","+c1.y+" "+c2.x+","+c2.y+" "+p2.x+","+p2.y);
+    path.setAttribute("stroke",edgeColor(e.kind));
+    path.setAttribute("marker-end","url(#ar-"+e.kind+")");
+    path.dataset.from=e.from; path.dataset.to=e.to; path.dataset.kind=e.kind;
+    path.style.setProperty("--ec",edgeColor(e.kind));
+    svg.appendChild(path);
+  });
+  applyHighlight();
+}
+
+/* ---------- Selection / highlight ---------- */
+let selected=null, legendFilter=null;
+function selectNode(id){ selected=id; legendFilter=null; syncLegend(); applyHighlight(); openDetail(id); }
+function clearSelection(){ selected=null; applyHighlight(); closeDetail(); }
+function applyHighlight(){
+  const paths=$$("#connectors path"); const cards=$$(".node");
+  if(legendFilter){
+    cards.forEach(c=> c.classList.remove("active","hot","dim"));
+    paths.forEach(p=> p.classList.toggle("dim", p.dataset.kind!==legendFilter) || p.classList.toggle("hot", p.dataset.kind===legendFilter));
+    paths.forEach(p=>{ const on=p.dataset.kind===legendFilter; p.classList.toggle("hot",on); p.classList.toggle("dim",!on); });
+    return;
+  }
+  if(!selected){ cards.forEach(c=>c.classList.remove("active","hot","dim")); paths.forEach(p=>p.classList.remove("hot","dim")); return; }
+  const near=new Set([selected]);
+  DATA.edges.forEach(e=>{ if(e.from===selected)near.add(e.to); if(e.to===selected)near.add(e.from); });
+  cards.forEach(c=>{
+    const id=c.dataset.id;
+    c.classList.toggle("active", id===selected);
+    c.classList.toggle("hot", near.has(id)&&id!==selected);
+    c.classList.toggle("dim", !near.has(id));
+  });
+  paths.forEach(p=>{
+    const on = p.dataset.from===selected||p.dataset.to===selected;
+    p.classList.toggle("hot",on); p.classList.toggle("dim",!on);
+  });
+}
+
+/* ---------- Detail panel ---------- */
+const aside=$("#detail"), dInner=$("#detail-inner");
+function connRows(id){
+  const out=DATA.edges.filter(e=>e.from===id), inc=DATA.edges.filter(e=>e.to===id);
+  const row=(e,dir)=>{
+    const other = dir==="out"? nodeById[e.to]:nodeById[e.from];
+    return '<div class="conn" data-go="'+other.id+'">'+
+      '<span class="ekind" style="background:'+edgeColor(e.kind)+'"></span>'+
+      (dir==="out"?'<span class="arw">→</span>':'<span class="arw">←</span>')+
+      '<b>'+other.label+'</b><span style="color:var(--ink3)"> · '+e.label+'</span></div>';
+  };
+  let h="";
+  if(out.length){ h+='<h3>Sends to ('+out.length+')</h3><div class="conns">'+out.map(e=>row(e,"out")).join("")+'</div>'; }
+  if(inc.length){ h+='<h3>Receives from ('+inc.length+')</h3><div class="conns">'+inc.map(e=>row(e,"in")).join("")+'</div>'; }
+  return h;
+}
+function openDetail(id){
+  const n=nodeById[id], t=tierById[n.tier];
+  aside.style.setProperty("--tc",tierColor(n.tier));
+  dInner.style.setProperty("--tc",tierColor(n.tier));
+  dInner.innerHTML =
+    '<button class="close" title="Close">×</button>'+
+    '<div class="d-tier" style="color:'+tierColor(n.tier)+'">'+t.label+'</div>'+
+    '<h2>'+n.label+'</h2>'+
+    '<div class="d-sub">'+n.type+(n.count?' · '+n.count:'')+'</div>'+
+    '<p>'+n.long+'</p>'+
+    (n.tech&&n.tech.length? '<h3>Tech</h3><div class="tags">'+n.tech.map(x=>'<span class="tag">'+x+'</span>').join('')+'</div>':'')+
+    (n.files&&n.files.length? '<h3>Key files</h3><div class="filelist">'+n.files.map(f=>'<code>'+f+'</code>').join('')+'</div>':'')+
+    (n.rules&&n.rules.length? '<h3>Load-bearing rules</h3><ul>'+n.rules.map(r=>'<li>'+r+'</li>').join('')+'</ul>':'')+
+    connRows(id);
+  $(".close",dInner).addEventListener("click",clearSelection);
+  $$(".conn",dInner).forEach(c=> c.addEventListener("click",()=> selectNode(c.dataset.go)));
+  aside.classList.add("open");
+  requestAnimationFrame(drawConnectors);
+}
+function closeDetail(){ aside.classList.remove("open"); requestAnimationFrame(drawConnectors); }
+
+/* ---------- Legend ---------- */
+function syncLegend(){ $$(".leg[data-kind]").forEach(l=> l.classList.toggle("mute", legendFilter && l.dataset.kind!==legendFilter)); }
+function buildLegend(){
+  const twrap=$("#leg-tiers"), ewrap=$("#leg-edges");
+  DATA.tiers.forEach(t=>{
+    const l=el("span","leg"); l.innerHTML='<span class="dot" style="--c:'+tierColor(t.id)+'"></span>'+t.label;
+    l.addEventListener("click",()=>{ // highlight all nodes of a tier
+      selected=null; closeDetail();
+      const on = twrap.dataset.on!==t.id; twrap.dataset.on = on? t.id:"";
+      $$(".node").forEach(c=> c.classList.toggle("dim", on && nodeById[c.dataset.id].tier!==t.id));
+      $$(".node").forEach(c=> c.classList.toggle("hot", on && nodeById[c.dataset.id].tier===t.id));
+      $$("#connectors path").forEach(p=> p.classList.toggle("dim",on));
+    });
+    twrap.appendChild(l);
+  });
+  DATA.edgeKinds.forEach(k=>{
+    const l=el("span","leg"); l.dataset.kind=k.id;
+    l.innerHTML='<span class="swatch" style="--c:'+edgeColor(k.id)+'"></span>'+k.label;
+    l.addEventListener("click",()=>{
+      legendFilter = legendFilter===k.id? null : k.id; selected=null; closeDetail();
+      $$(".node").forEach(c=>c.classList.remove("dim","hot","active"));
+      syncLegend(); applyHighlight();
+    });
+    ewrap.appendChild(l);
+  });
+}
+
+/* ---------- Search ---------- */
+function runSearch(q){
+  q=q.trim().toLowerCase(); selected=null; legendFilter=null; syncLegend(); closeDetail();
+  const paths=$$("#connectors path");
+  if(!q){ $$(".node").forEach(c=>c.classList.remove("dim","hot","active")); paths.forEach(p=>p.classList.remove("dim","hot")); return; }
+  const hit=id=>{ const n=nodeById[id]; return (n.label+" "+n.desc+" "+n.long+" "+(n.tech||[]).join(" ")+" "+(n.files||[]).join(" ")+" "+n.type).toLowerCase().includes(q); };
+  $$(".node").forEach(c=>{ const on=hit(c.dataset.id); c.classList.toggle("hot",on); c.classList.toggle("dim",!on); c.classList.remove("active"); });
+  paths.forEach(p=> p.classList.add("dim"));
+}
+
+/* ---------- Other views ---------- */
+function renderDataModel(){
+  const wrap=$("#view-data");
+  wrap.appendChild(el("div","sectionhead","<h2>Data Model — Supabase Postgres</h2><p>"+DATA.dataModel.intro+"</p>"));
+  if(DATA.dataModel.note) wrap.appendChild(el("div","note",DATA.dataModel.note));
+  const grid=el("div","grid");
+  DATA.dataModel.tables.forEach(t=>{
+    const c=el("div","card acc"); c.style.setProperty("--ac",tierColor("supabase"));
+    c.innerHTML='<h4>'+t.name+(t.tag?'<span class="tag">'+t.tag+'</span>':'')+'</h4>'+
+      '<div class="sub">'+(t.purpose||'')+'</div>'+
+      '<div class="cols">'+(t.cols||[]).map(col=>{
+        const cls = col.startsWith("*")?"col pk":(col.indexOf("→")>-1?"col fk":"col");
+        return '<span class="'+cls+'">'+col.replace(/^\*/,'')+'</span>';
+      }).join('')+'</div>';
+    grid.appendChild(c);
+  });
+  wrap.appendChild(grid);
+  if(DATA.dataModel.storage){
+    wrap.appendChild(el("div","sectionhead","<h2>Storage & RPCs</h2>"));
+    const g2=el("div","grid");
+    DATA.dataModel.storage.forEach(s=>{
+      const c=el("div","card acc"); c.style.setProperty("--ac",tierColor("supabase"));
+      c.innerHTML='<h4>'+s.name+'<span class="tag">'+s.kind+'</span></h4><p>'+s.desc+'</p>';
+      g2.appendChild(c);
+    });
+    wrap.appendChild(g2);
+  }
+}
+function renderFlows(){
+  const wrap=$("#view-flows");
+  wrap.appendChild(el("div","sectionhead","<h2>Data Flows</h2><p>Every connection in the map, grouped by protocol. Click a row to open it in the architecture view.</p>"));
+  const list=el("div","flowlist");
+  const order = DATA.edgeKinds.map(k=>k.id);
+  DATA.edges.slice().sort((a,b)=> order.indexOf(a.kind)-order.indexOf(b.kind)).forEach(e=>{
+    const r=el("div","flowrow");
+    r.innerHTML='<div class="src">'+nodeById[e.from].label+'</div>'+
+      '<div class="arw">→</div>'+
+      '<div class="dst">'+nodeById[e.to].label+'</div>'+
+      '<div class="via"><span class="kdot" style="background:'+edgeColor(e.kind)+'"></span>'+e.label+'</div>';
+    r.style.cursor="pointer";
+    r.addEventListener("click",()=>{ switchTab("map"); selectNode(e.from); });
+    list.appendChild(r);
+  });
+  wrap.appendChild(list);
+}
+function renderTech(){
+  const wrap=$("#view-tech");
+  wrap.appendChild(el("div","sectionhead","<h2>Tech Stack</h2><p>"+DATA.techIntro+"</p>"));
+  const grid=el("div","grid");
+  DATA.tech.forEach(group=>{
+    const c=el("div","card acc"); c.style.setProperty("--ac",tierColor(group.tier||"client"));
+    c.innerHTML='<h4>'+group.title+'</h4><div class="sub">'+(group.sub||'')+'</div>'+
+      '<div class="tags">'+group.items.map(i=>'<span class="tag">'+i+'</span>').join('')+'</div>';
+    grid.appendChild(c);
+  });
+  wrap.appendChild(grid);
+}
+function renderMigrations(){
+  const wrap=$("#view-mig");
+  wrap.appendChild(el("div","sectionhead","<h2>Schema Evolution</h2><p>"+DATA.migrations.length+" SQL migrations in <code>sitepulse-next/supabase/migrations/</code>, applied manually via the Supabase SQL editor. Newest last.</p>"));
+  const tl=el("div","timeline");
+  DATA.migrations.forEach(m=>{
+    const r=el("div","mrow");
+    r.innerHTML='<div class="mdate">'+m.date+'</div><div class="mname">'+m.name+'</div><div class="mdesc">'+m.desc+'</div>';
+    tl.appendChild(r);
+  });
+  wrap.appendChild(tl);
+}
+
+/* ---------- Tabs ---------- */
+function switchTab(id){
+  $$(".tab").forEach(t=> t.classList.toggle("active",t.dataset.tab===id));
+  $$(".view").forEach(v=> v.classList.toggle("active",v.id==="view-"+id));
+  if(id==="map") requestAnimationFrame(()=>requestAnimationFrame(drawConnectors));
+}
+
+/* ---------- Init ---------- */
+function init(){
+  renderDiagram(); buildLegend();
+  renderDataModel(); renderFlows(); renderTech(); renderMigrations();
+  $$(".tab").forEach(t=> t.addEventListener("click",()=>switchTab(t.dataset.tab)));
+  $("#themebtn").addEventListener("click",()=>{ toggleTheme(); requestAnimationFrame(drawConnectors); });
+  $("#searchbox").addEventListener("input",e=> runSearch(e.target.value));
+  $("#resetbtn").addEventListener("click",()=>{ $("#searchbox").value=""; legendFilter=null; syncLegend(); clearSelection(); $$(".node").forEach(c=>c.classList.remove("dim","hot","active")); $$("#connectors path").forEach(p=>p.classList.remove("dim","hot")); });
+  diagram.addEventListener("click",()=>{ if(selected) clearSelection(); });
+  const ro=new ResizeObserver(()=>{ clearTimeout(window.__rt); window.__rt=setTimeout(drawConnectors,60); });
+  ro.observe(diagram);
+  window.addEventListener("resize",()=>{ clearTimeout(window.__rt); window.__rt=setTimeout(drawConnectors,60); });
+  requestAnimationFrame(()=>requestAnimationFrame(drawConnectors));
+}
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init); else init();
+})();
+</script>
+</body>
+</html>

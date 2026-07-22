@@ -1,0 +1,1630 @@
+{
+  "meta": {
+    "name": "SitePulse — Application Architecture",
+    "subtitle": "Visual Floor Plan Tracker · full-stack map",
+    "generated": "2026-07-22",
+    "source": "Static analysis of the repo (AGENTS.md, SUPABASE_SCHEMA.md, source tree, migrations)."
+  },
+  "tiers": [
+    {
+      "id": "client",
+      "label": "Browser Client"
+    },
+    {
+      "id": "next",
+      "label": "Next.js Server"
+    },
+    {
+      "id": "fastapi",
+      "label": "FastAPI Backend"
+    },
+    {
+      "id": "supabase",
+      "label": "Supabase"
+    },
+    {
+      "id": "external",
+      "label": "External"
+    }
+  ],
+  "edgeKinds": [
+    {
+      "id": "compose",
+      "label": "UI composition"
+    },
+    {
+      "id": "state",
+      "label": "Client state (Zustand)"
+    },
+    {
+      "id": "query",
+      "label": "Server state (TanStack Query)"
+    },
+    {
+      "id": "sdk",
+      "label": "Supabase SDK"
+    },
+    {
+      "id": "rest",
+      "label": "REST / fetch"
+    },
+    {
+      "id": "oauth",
+      "label": "OAuth (Procore)"
+    },
+    {
+      "id": "worker",
+      "label": "Web Worker"
+    },
+    {
+      "id": "storage",
+      "label": "Object storage"
+    },
+    {
+      "id": "auth",
+      "label": "Auth / JWT"
+    },
+    {
+      "id": "internal",
+      "label": "Internal call"
+    }
+  ],
+  "bandLabels": {
+    "0": {
+      "label": "Entry & Routing",
+      "tier": "client"
+    },
+    "1": {
+      "label": "Feature Modules (UI)",
+      "tier": "client"
+    },
+    "2": {
+      "label": "State & Server-State",
+      "tier": "client"
+    },
+    "3": {
+      "label": "Client Compute & SDKs",
+      "tier": "client"
+    },
+    "4": {
+      "label": "Next.js Server (BFF)",
+      "tier": "next"
+    },
+    "5": {
+      "label": "FastAPI — HTTP Surface",
+      "tier": "fastapi"
+    },
+    "6": {
+      "label": "FastAPI — Core Layers",
+      "tier": "fastapi"
+    },
+    "7": {
+      "label": "Supabase Platform",
+      "tier": "supabase"
+    },
+    "8": {
+      "label": "External Services",
+      "tier": "external"
+    }
+  },
+  "nodes": [
+    {
+      "id": "pages",
+      "tier": "client",
+      "band": 0,
+      "type": "Routes",
+      "icon": "⌂",
+      "label": "App Router Pages",
+      "desc": "Next.js App-Router entry points: login, dashboard, project workspace, workbench.",
+      "long": "The route layer. The project workspace (project/[projectId]) is the central orchestrator that threads data + navigateToView down into each feature view. View navigation is URL-first (?view=<mode>).",
+      "tech": [
+        "Next.js 16 App Router",
+        "React 19"
+      ],
+      "files": [
+        "app/layout.tsx",
+        "app/page.tsx",
+        "app/login/page.tsx",
+        "app/dashboard/page.tsx",
+        "app/project/[projectId]/page.tsx",
+        "app/workbench/page.tsx",
+        "app/workbench/[sheetId]/page.tsx"
+      ],
+      "rules": [
+        "View is owned by the ?view= query param; navigateToView() mirrors into useUIStore.viewMode.",
+        "Theme is applied once at the root via ThemeApplier in layout.tsx."
+      ]
+    },
+    {
+      "id": "chrome",
+      "tier": "client",
+      "band": 0,
+      "type": "UI Shell",
+      "icon": "▤",
+      "label": "App Chrome & Modals",
+      "desc": "Header, mobile tab bar, settings, global modals — context-aware controls.",
+      "long": "Persistent shell around the views. Header controls (Level selector, Scope tabs, Activities, Export) are gated per-view by a control-visibility matrix; phones navigate via a bottom tab bar.",
+      "tech": [
+        "React 19",
+        "Tailwind v4",
+        "Lucide"
+      ],
+      "files": [
+        "components/TopHeader.tsx",
+        "components/MobileViewTabBar.tsx",
+        "components/SettingsMenu.tsx",
+        "components/GlobalSettingsModal.tsx",
+        "components/ThemeApplier.tsx",
+        "components/DevDbBanner.tsx"
+      ],
+      "rules": [
+        "Header controls gated by controlVisibility(viewMode) in utils/viewRouting.ts — never ad-hoc hide in JSX."
+      ]
+    },
+    {
+      "id": "canvas-ui",
+      "tier": "client",
+      "band": 1,
+      "type": "Feature",
+      "icon": "▦",
+      "label": "Floorplan Canvas Engine",
+      "desc": "Interactive React-Konva map — polygons, stamps, tracing, measure, lag-mode recolor.",
+      "long": "The heart of the app. FloorplanCanvas is a thin coordinator; its logic lives in useCanvas*/useTraceTool/useStampTool/useMeasureTools hooks and pure canvasLayout/canvasRecolor utils. Renders three Konva layers: base → units → overlay.",
+      "tech": [
+        "React-Konva",
+        "Konva",
+        "RBush"
+      ],
+      "count": "FloorplanCanvas + 25 canvas components",
+      "files": [
+        "components/FloorplanCanvas.tsx",
+        "components/canvas/CanvasBaseLayer.tsx",
+        "components/canvas/CanvasUnitsLayer.tsx",
+        "components/canvas/CanvasOverlayLayer.tsx",
+        "hooks/useCanvasViewport.ts",
+        "hooks/useTraceTool.ts",
+        "hooks/useStampTool.ts"
+      ],
+      "rules": [
+        "Extend a hook or layer component — do not bloat the coordinator.",
+        "Lag-mode recolor happens on copies (recolorForLag); never recolor the write-path array in page.tsx."
+      ]
+    },
+    {
+      "id": "field-list",
+      "tier": "client",
+      "band": 1,
+      "type": "Feature",
+      "icon": "☑",
+      "label": "Field Status List",
+      "desc": "Container/Presenter status list — desktop table + mobile swipe deck, offline staging.",
+      "long": "Where field crews log progress. FieldStatusTable (container) calls useFieldData for shared logic, then renders StatusTable (desktop) or the lazy-loaded MobileSwipeDeck (mobile). Rows are memoized; expanded-row audits are viewport-gated.",
+      "tech": [
+        "React 19",
+        "dnd-kit"
+      ],
+      "files": [
+        "components/FieldStatusTable.tsx",
+        "components/StatusTable.tsx",
+        "components/MobileSwipeDeck.tsx",
+        "components/manage/LocationRow.tsx",
+        "hooks/useFieldData.ts"
+      ],
+      "rules": [
+        "pendingChanges is intentionally local useState — it feeds the IndexedDB offline queue, don't move it to global state.",
+        "LocationRow is React.memo — feed it per-row primitives, never the shared maps."
+      ]
+    },
+    {
+      "id": "schedule-ui",
+      "tier": "client",
+      "band": 1,
+      "type": "Feature",
+      "icon": "📅",
+      "label": "Schedule Workspace",
+      "desc": "Activity manager, cascade planner, Gantt, MS-Project import, baselines.",
+      "long": "The single home for building & sequencing a project's activities. Level planned dates flow through a pure level-window engine (ganttMath cascade/reflow + dateRipple FS chaining). Imports MSPDI XML and captures immutable baselines.",
+      "tech": [
+        "React 19",
+        "pure ganttMath"
+      ],
+      "count": "14 schedule components",
+      "files": [
+        "components/schedule/ScheduleWorkspace.tsx",
+        "components/schedule/ActivityManagerPanel.tsx",
+        "components/schedule/CascadePanel.tsx",
+        "components/schedule/GanttTimeline.tsx",
+        "components/schedule/MspImportPanel.tsx",
+        "components/schedule/BaselineControl.tsx"
+      ],
+      "rules": [
+        "Activity editing lives ONLY here (moved out of Settings).",
+        "Correctness lives in pure utils (ganttMath, scheduleReconcile, scheduleBaseline) — never forked in components."
+      ]
+    },
+    {
+      "id": "dashboard-ui",
+      "tier": "client",
+      "band": 1,
+      "type": "Feature",
+      "icon": "📊",
+      "label": "Project Dashboard",
+      "desc": "FloorPulse rollups, Risk Radar, Type Scorecard, subcontractor benchmarks, forecasts.",
+      "long": "All-project analytics. The FloorPulse rail is both the rollup view and the scope control. Confidence bands come from a bootstrap Monte-Carlo layer beside the point-forecast math; forecasts are suppressed (not faked) for thin samples.",
+      "tech": [
+        "Recharts",
+        "pure analytics"
+      ],
+      "files": [
+        "components/ProjectDashboard.tsx",
+        "components/dashboard/FloorPulse.tsx",
+        "components/dashboard/RiskRadar.tsx",
+        "components/dashboard/TypeScorecard.tsx",
+        "components/dashboard/SubcontractorBenchmark.tsx"
+      ],
+      "rules": [
+        "Always fetches all-project units/statuses/history.",
+        "Forecasts suppressed for small samples & zero pace — keep that honesty."
+      ]
+    },
+    {
+      "id": "lookahead-ui",
+      "tier": "client",
+      "band": 1,
+      "type": "Feature",
+      "icon": "🗓",
+      "label": "Look-Ahead Planner",
+      "desc": "Self-contained weekly look-ahead module with its own store + persistence.",
+      "long": "A near-standalone planning surface (own Zustand session store, own gesture/selection/view libs, own persistence layer) that also reads the project's activities & units.",
+      "tech": [
+        "Zustand",
+        "local persistence"
+      ],
+      "count": "1 workspace + 8 components + lib",
+      "files": [
+        "lookahead/LookaheadWorkspace.tsx",
+        "lookahead/components/LookAhead.tsx",
+        "lookahead/store/useStore.ts",
+        "lookahead/store/useSession.ts",
+        "lookahead/persistence.ts",
+        "lookahead/lib/schedule.ts"
+      ]
+    },
+    {
+      "id": "workbench-ui",
+      "tier": "client",
+      "band": 1,
+      "type": "Feature",
+      "icon": "✎",
+      "label": "Workbench (Vectorization)",
+      "desc": "Sheet prep — PDF tracing, title-block parse, gridlines, opening detection, review.",
+      "long": "The drawing-preparation surface: trace polygons over a PDF, parse title blocks & gridlines, detect openings, and review/label before a sheet goes live.",
+      "tech": [
+        "React-Konva",
+        "pdf.js"
+      ],
+      "count": "12 workbench components",
+      "files": [
+        "components/workbench/WorkbenchTracer.tsx",
+        "components/workbench/GridlinePanel.tsx",
+        "components/workbench/OpeningModePanel.tsx",
+        "components/workbench/WorkbenchReviewTable.tsx",
+        "app/workbench/[sheetId]/page.tsx"
+      ]
+    },
+    {
+      "id": "taxonomy-ui",
+      "tier": "client",
+      "band": 1,
+      "type": "Feature",
+      "icon": "🏷",
+      "label": "Taxonomy & Cost Codes",
+      "desc": "Governed location subtypes & cost-code library admin panels.",
+      "long": "Admin surfaces for the two global governed dictionaries (location subtypes, activity dictionary) plus the estimate cost-code catalog.",
+      "tech": [
+        "React 19"
+      ],
+      "files": [
+        "components/taxonomy/LocationLibraryPanel.tsx",
+        "components/costcodes/CostCodeLibraryPanel.tsx",
+        "components/ActivityDictionaryField.tsx",
+        "components/TaxonomyPicker.tsx"
+      ]
+    },
+    {
+      "id": "zustand",
+      "tier": "client",
+      "band": 2,
+      "type": "Client State",
+      "icon": "◉",
+      "label": "Zustand Stores",
+      "desc": "Global UI + persisted settings — modularized, hydration-safe.",
+      "long": "All floating UI state (active tools, selected units, filters, modals) + persisted settings. Split into focused stores. Persisted props must be read through useHydratedStore to avoid hydration mismatch.",
+      "tech": [
+        "Zustand 5"
+      ],
+      "files": [
+        "store/useMapStore.ts",
+        "store/useUIStore.ts",
+        "store/useSettingsStore.ts",
+        "store/useWorkbenchStore.ts",
+        "store/useManageStore.ts",
+        "store/useTaxonomyAdminStore.ts"
+      ],
+      "rules": [
+        "Never use useState/useEffect for global UI state.",
+        "viewMode is a read mirror only — never enters TanStack Query."
+      ]
+    },
+    {
+      "id": "react-query",
+      "tier": "client",
+      "band": 2,
+      "type": "Server State",
+      "icon": "⇄",
+      "label": "TanStack Query Hooks",
+      "desc": "All server reads/writes — query hooks, mutation actions, realtime cache injection.",
+      "long": "The data-access layer. Query hooks fetch; action hooks mutate. Server state is offline-first via a persisted client; realtime cache injections resolve thundering herds. Status writes are idempotent through upsert_status_log / onConflict upserts.",
+      "tech": [
+        "TanStack Query 5"
+      ],
+      "count": "40+ hooks",
+      "files": [
+        "hooks/useProjectQueries.ts",
+        "hooks/useMapActions.ts",
+        "hooks/useProjectActions.ts",
+        "hooks/projectQueries/",
+        "hooks/useWorkbenchActions.ts",
+        "types/queryKeys.ts",
+        "types/mutations.ts"
+      ],
+      "rules": [
+        "Never use useState/useEffect for DB data.",
+        "Slot key is activity_id (not the name); strip synthesized activityName before writes."
+      ]
+    },
+    {
+      "id": "offline-sync",
+      "tier": "client",
+      "band": 2,
+      "type": "Persistence",
+      "icon": "⭳",
+      "label": "Offline Sync Queue",
+      "desc": "Offline-first mutation queue persisted to IndexedDB; per-item checkpoint replay.",
+      "long": "Durable disconnected mutations. The persister writes the query cache to IndexedDB; a separate project-scoped store persists the pending-changes staging buffer. Sync dequeues per-item so a mid-sync crash only leaves unsynced items.",
+      "tech": [
+        "react-query-persist-client",
+        "IndexedDB",
+        "idb-keyval"
+      ],
+      "files": [
+        "utils/persister.ts",
+        "utils/pendingChangesStore.ts"
+      ],
+      "rules": [
+        "Everything in the cache must be JSON-serializable — no RBush/Map/Set/DOM.",
+        "client_timestamp is stamped at capture time, not sync time."
+      ]
+    },
+    {
+      "id": "pure-utils",
+      "tier": "client",
+      "band": 3,
+      "type": "Domain Logic",
+      "icon": "ƒ",
+      "label": "Pure Logic Library",
+      "desc": "Framework-free business math — analytics, scheduling, geometry, forecasting.",
+      "long": "~75 side-effect-free, unit-tested modules that hold the load-bearing invariants: variance analytics, gantt/cascade math, Monte-Carlo forecasting, snapping geometry, auto-advance, status-color language, view routing. Each is the single source of truth for its math.",
+      "tech": [
+        "TypeScript",
+        "Vitest"
+      ],
+      "count": "~75 modules (each *.test.ts)",
+      "files": [
+        "utils/progressAnalytics.ts",
+        "utils/ganttMath.ts",
+        "utils/monteCarloForecast.ts",
+        "utils/geometry.ts",
+        "utils/autoAdvance.ts",
+        "utils/scheduleBaseline.ts",
+        "utils/viewRouting.ts",
+        "utils/statusColors.ts"
+      ],
+      "rules": [
+        "Single source of truth — never fork the math into components.",
+        "Additive forecast layers sit beside progressAnalytics, never fork it."
+      ]
+    },
+    {
+      "id": "pdf-worker",
+      "tier": "client",
+      "band": 3,
+      "type": "Web Worker",
+      "icon": "⚙",
+      "label": "PDF Render Worker",
+      "desc": "Off-main-thread pdf.js rasterization — LOD pyramid + sharp viewport crops.",
+      "long": "Renders the floor-plan drawing in a dedicated Web Worker and transfers ImageBitmaps back: a 1×/2× LOD pyramid eagerly, 4× lazily, and debounced sharp crops past deep-zoom. usePdfRenderer is a thin client over an LRU byte cache.",
+      "tech": [
+        "Web Worker",
+        "pdf.js",
+        "ImageBitmap"
+      ],
+      "files": [
+        "workers/pdfRender.worker.ts",
+        "workers/pdfRenderProtocol.ts",
+        "hooks/usePdfRenderer.ts",
+        "utils/pdfByteCache.ts",
+        "utils/pdfRenderMath.ts",
+        "utils/pdfSource.ts"
+      ],
+      "rules": [
+        "Never call pdf.js page.render on the main thread (janks Konva).",
+        "PDF bytes fetched via versioned public URLs (?v=pdf_version) for long-term caching."
+      ]
+    },
+    {
+      "id": "snapping",
+      "tier": "client",
+      "band": 3,
+      "type": "Client Compute",
+      "icon": "⌖",
+      "label": "Vector Snapping Engine",
+      "desc": "RBush spatial index over CAD linework for gravity/corner snapping.",
+      "long": "Loads percentage-normalized CAD linework (cache-first, backend fallback) and builds an RBush index for aspect-ratio-aware mathematical snapping while drawing polygons.",
+      "tech": [
+        "RBush"
+      ],
+      "files": [
+        "hooks/useSnappingVectors.ts",
+        "hooks/useCanvasSnapping.ts",
+        "utils/geometry.ts"
+      ],
+      "rules": [
+        "Never persist instantiated RBush objects into query cache — return raw JSON, build RBush on the render side."
+      ]
+    },
+    {
+      "id": "supabase-js",
+      "tier": "client",
+      "band": 3,
+      "type": "SDK",
+      "icon": "⬡",
+      "label": "Supabase Browser Client",
+      "desc": "Direct RLS-governed reads/writes, auth session, storage URLs, realtime.",
+      "long": "The browser talks to Supabase directly with the publishable (anon) key — Row-Level Security is the enforcement boundary. Handles most CRUD, the upsert_status_log RPC, auth sessions, storage URLs, and realtime channels.",
+      "tech": [
+        "@supabase/supabase-js"
+      ],
+      "files": [
+        "supabaseClient.ts"
+      ],
+      "rules": [
+        "RLS membership policies (join units→sheets→project_members) are the security boundary, not the client."
+      ]
+    },
+    {
+      "id": "api-client",
+      "tier": "client",
+      "band": 3,
+      "type": "SDK",
+      "icon": "⇢",
+      "label": "Backend REST Client",
+      "desc": "Typed fetch wrappers to FastAPI — uploads, export, extraction, storage deletes.",
+      "long": "Everything the browser can't do directly (PyMuPDF work, PDF export, capped uploads, cascade deletes) goes through these Bearer-JWT fetch calls: exportToPDF, uploadFloorplan, attachOriginal, deleteSheetStorage, deleteProject, extractVectors, extractText.",
+      "tech": [
+        "fetch",
+        "Bearer JWT"
+      ],
+      "files": [
+        "services/api.ts"
+      ]
+    },
+    {
+      "id": "api-data",
+      "tier": "next",
+      "band": 4,
+      "type": "API Route",
+      "icon": "⚡",
+      "label": "Server Data Routes",
+      "desc": "Privileged Route Handlers using the Supabase service-role key.",
+      "long": "Server-only work that needs elevated privileges: creating a project (and enrolling the owner) and provisioning a workbench container. The service-role key never reaches the browser.",
+      "tech": [
+        "Next Route Handlers",
+        "service role"
+      ],
+      "files": [
+        "app/api/projects/route.ts",
+        "app/api/workbench/container/route.ts"
+      ],
+      "rules": [
+        "SUPABASE_SERVICE_ROLE_KEY is server-side only.",
+        "create_new_project assigns the 'owner' role."
+      ]
+    },
+    {
+      "id": "api-procore",
+      "tier": "next",
+      "band": 4,
+      "type": "OAuth",
+      "icon": "🔗",
+      "label": "Procore SSO Routes",
+      "desc": "OAuth authorize/callback + marketplace deep-link launch; domain-restricted provisioning.",
+      "long": "Native Procore SSO: /start builds the authorize URL with a signed state, /callback exchanges the code and auto-provisions domain-allowed users, /launch deep-links a Procore project into its SitePulse canvas.",
+      "tech": [
+        "OAuth 2.0"
+      ],
+      "files": [
+        "app/api/auth/procore/start/route.ts",
+        "app/api/auth/procore/launch/route.ts",
+        "app/api/auth/procore/callback/route.ts",
+        "utils/procoreState.ts"
+      ],
+      "rules": [
+        "Nonce cookie + isSafeReturnPath guard against CSRF & open-redirect."
+      ]
+    },
+    {
+      "id": "be-main",
+      "tier": "fastapi",
+      "band": 5,
+      "type": "Entrypoint",
+      "icon": "▶",
+      "label": "App Assembly",
+      "desc": "FastAPI() + lifespan validation + CORS + health route + 4 routers.",
+      "long": "main.py is assembly ONLY. The lifespan context manager fails fast if Supabase sub-clients (auth/storage/postgrest) didn't initialize, converting silent import crashes into clear deploy-time errors. `uvicorn main:app` is the deploy entrypoint.",
+      "tech": [
+        "FastAPI",
+        "uvicorn",
+        "Render"
+      ],
+      "files": [
+        "main.py"
+      ],
+      "rules": [
+        "Assembly only — non-route layers live in core/, handlers in routers/."
+      ]
+    },
+    {
+      "id": "be-routers",
+      "tier": "fastapi",
+      "band": 5,
+      "type": "Routes",
+      "icon": "⇉",
+      "label": "HTTP Routers",
+      "desc": "Full-path handlers — uploads, storage deletes, extraction, PDF export.",
+      "long": "Seven endpoints: POST /upload-floorplan, POST /attach-original, DELETE /sheet-storage, DELETE /project, GET /extract-vectors, GET /extract-text, POST /export-pdf. Every route uses Depends(get_current_user).",
+      "tech": [
+        "FastAPI Router"
+      ],
+      "count": "7 endpoints across 4 files",
+      "files": [
+        "routers/uploads.py",
+        "routers/storage.py",
+        "routers/extraction.py",
+        "routers/export.py"
+      ],
+      "rules": [
+        "The `except HTTPException: raise` branch is load-bearing on every route.",
+        "User-uploaded bad bytes → 400; a missing/corrupt STORED PDF → 404.",
+        "Seam rule: reference shared state by module-attribute lookup (db.supabase, auth.verify_*)."
+      ]
+    },
+    {
+      "id": "be-core-auth",
+      "tier": "fastapi",
+      "band": 6,
+      "type": "Core",
+      "icon": "🔐",
+      "label": "Auth Layer",
+      "desc": "Local JWT verification with PyJWT — JWKS/ES256, cached, no network per request.",
+      "long": "get_current_user validates the Supabase user JWT locally against the project's JWKS public key (ES256). JWKS is fetched once and cached in a module-level PyJWKClient, so steady-state verification does no network I/O.",
+      "tech": [
+        "PyJWT",
+        "ES256 / JWKS"
+      ],
+      "files": [
+        "core/auth.py"
+      ],
+      "rules": [
+        "Never call supabase.auth.get_user() (caused /extract-vectors 500 timeouts).",
+        "No python-jose (CVE-2024-33663); no HS256 fallback without a real secret."
+      ]
+    },
+    {
+      "id": "be-core-extract",
+      "tier": "fastapi",
+      "band": 6,
+      "type": "Core",
+      "icon": "⛭",
+      "label": "Extraction Layer",
+      "desc": "Pure PyMuPDF vector/text parsing + preview & vector compositing.",
+      "long": "core/extraction.py is pure fitz (imports no Supabase, env-free). core/sheet_assets.py composites results into storage/cache: render_and_store_preview, cache_sheet_vectors. Output is filtered, 5-decimal-rounded, and capped at VECTOR_CAP_LINES.",
+      "tech": [
+        "PyMuPDF (fitz)"
+      ],
+      "files": [
+        "core/extraction.py",
+        "core/sheet_assets.py"
+      ],
+      "rules": [
+        "Cap + rounding keep the sheet_vectors upsert under the DB's 8s statement_timeout.",
+        "Every fitz.open(...) is a `with` block so docs close on error paths."
+      ]
+    },
+    {
+      "id": "be-core-pdf",
+      "tier": "fastapi",
+      "band": 6,
+      "type": "Core",
+      "icon": "⧉",
+      "label": "PDF & Config",
+      "desc": "Upload caps, render-pixel clamps, header/color utils, env-derived config.",
+      "long": "core/pdf.py holds upload/render safety (read_upload_capped → 413 past MAX_UPLOAD_BYTES; preview_matrix clamps to MAX_RENDER_PIXELS). core/config.py holds env-derived, all-defaulted constants; core/models.py holds Pydantic models.",
+      "tech": [
+        "Python",
+        "Pydantic"
+      ],
+      "files": [
+        "core/pdf.py",
+        "core/config.py",
+        "core/models.py"
+      ],
+      "rules": [
+        "Never bare `await file.read()` — a client Content-Length can lie."
+      ]
+    },
+    {
+      "id": "be-core-db",
+      "tier": "fastapi",
+      "band": 6,
+      "type": "Core",
+      "icon": "⬢",
+      "label": "Supabase Access",
+      "desc": "Service-role Supabase client with safe timeouts; PDF download + version bump.",
+      "long": "core/supabase_client.py builds the service-role client with SafeClientOptions (25s timeouts, under Render's 30s deadline). Exposes download_original_pdf (translates a missing file to a clean 404) and bump_pdf_version.",
+      "tech": [
+        "supabase-py",
+        "SafeClientOptions"
+      ],
+      "files": [
+        "core/supabase_client.py"
+      ],
+      "rules": [
+        "Storage writes overwrite in place (upsert:true) — never remove-then-upload.",
+        "25s timeouts must stay below Render's 30s platform deadline."
+      ]
+    },
+    {
+      "id": "pg",
+      "tier": "supabase",
+      "band": 7,
+      "type": "Database",
+      "icon": "⛁",
+      "label": "PostgreSQL",
+      "desc": "30+ RLS-protected tables; event-sourced status + append-only audit.",
+      "long": "The system of record. status_logs holds one current-state row per (unit, activity) slot; status_audit_log is the append-only full timeline written by a trigger. RLS anchors on project_members via units→sheets→project.",
+      "tech": [
+        "Postgres",
+        "Row-Level Security"
+      ],
+      "count": "30+ tables · 30 migrations",
+      "files": [
+        "sitepulse-next/SUPABASE_SCHEMA.md"
+      ],
+      "rules": [
+        "status_logs = current state; status_audit_log = full history (history hooks read the audit table).",
+        "RLS write policies use role in ('owner','admin','pm'); anon is never granted."
+      ]
+    },
+    {
+      "id": "rpc",
+      "tier": "supabase",
+      "band": 7,
+      "type": "Stored Proc",
+      "icon": "∫",
+      "label": "RPC & Triggers",
+      "desc": "upsert_status_log (idempotent, LWW) + the audit trigger function.",
+      "long": "upsert_status_log is the single-mutation write path: SECURITY INVOKER, a Last-Write-Wins timestamp guard, and omit-preserves / present-clears field semantics. fn_status_log_audit writes the audit row on every change.",
+      "tech": [
+        "plpgsql"
+      ],
+      "files": [
+        "supabase/migrations/20260518_status_logs_idempotency.sql",
+        "supabase/migrations/20260712_status_logs_preserve_omitted_fields.sql"
+      ],
+      "rules": [
+        "SECURITY INVOKER — RLS governs writes; anon never granted EXECUTE.",
+        "Omit a field to PRESERVE it; send it present (null/'') to CLEAR it."
+      ]
+    },
+    {
+      "id": "storage",
+      "tier": "supabase",
+      "band": 7,
+      "type": "Object Store",
+      "icon": "🗄",
+      "label": "Storage Buckets",
+      "desc": "Public floorplans bucket — original PDFs + server-rendered preview PNGs.",
+      "long": "The `floorplans` bucket holds originals/<sheetId>.pdf (source of truth) and converted/<sheetId>.png (a server-rendered preview that doubles as an instant placeholder LOD). Public by design (capability URLs keyed by sheet UUID).",
+      "tech": [
+        "Supabase Storage"
+      ],
+      "files": [
+        "core/sheet_assets.py",
+        "core/supabase_client.py"
+      ],
+      "rules": [
+        "Public by design for the versioned-URL caching pipeline — revisit before sensitive/multi-tenant drawings."
+      ]
+    },
+    {
+      "id": "auth",
+      "tier": "supabase",
+      "band": 7,
+      "type": "Identity",
+      "icon": "👤",
+      "label": "Supabase Auth",
+      "desc": "User identity + sessions; asymmetric ES256-signed JWTs verified via JWKS.",
+      "long": "Issues access tokens signed with an asymmetric key (ES256). Both the browser (session) and the FastAPI backend (JWKS public key) verify tokens locally — no per-request network round-trip.",
+      "tech": [
+        "Supabase Auth",
+        "ES256",
+        "JWKS"
+      ],
+      "files": []
+    },
+    {
+      "id": "procore",
+      "tier": "external",
+      "band": 8,
+      "type": "External SaaS",
+      "icon": "🏗",
+      "label": "Procore",
+      "desc": "Construction platform — SSO/OAuth identity + App-Marketplace deep-linking.",
+      "long": "The construction system-of-record SitePulse integrates with: OAuth 2.0 SSO with domain-restricted auto-provisioning, project auto-enrollment, and native deep-linking from the Procore App Marketplace straight into a project canvas.",
+      "tech": [
+        "OAuth 2.0",
+        "Procore API"
+      ],
+      "files": [
+        "utils/procoreState.ts",
+        "utils/procoreDirectoryCsv.ts"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "pages",
+      "to": "chrome",
+      "kind": "compose",
+      "label": "renders shell"
+    },
+    {
+      "from": "pages",
+      "to": "canvas-ui",
+      "kind": "compose",
+      "label": "Map view"
+    },
+    {
+      "from": "pages",
+      "to": "field-list",
+      "kind": "compose",
+      "label": "List view"
+    },
+    {
+      "from": "pages",
+      "to": "schedule-ui",
+      "kind": "compose",
+      "label": "Schedule view"
+    },
+    {
+      "from": "pages",
+      "to": "dashboard-ui",
+      "kind": "compose",
+      "label": "Dashboard view"
+    },
+    {
+      "from": "pages",
+      "to": "lookahead-ui",
+      "kind": "compose",
+      "label": "Look-Ahead view"
+    },
+    {
+      "from": "pages",
+      "to": "workbench-ui",
+      "kind": "compose",
+      "label": "/workbench"
+    },
+    {
+      "from": "pages",
+      "to": "taxonomy-ui",
+      "kind": "compose",
+      "label": "admin panels"
+    },
+    {
+      "from": "canvas-ui",
+      "to": "pure-utils",
+      "kind": "compose",
+      "label": "geometry / recolor"
+    },
+    {
+      "from": "schedule-ui",
+      "to": "pure-utils",
+      "kind": "compose",
+      "label": "gantt / cascade"
+    },
+    {
+      "from": "dashboard-ui",
+      "to": "pure-utils",
+      "kind": "compose",
+      "label": "analytics / forecast"
+    },
+    {
+      "from": "canvas-ui",
+      "to": "snapping",
+      "kind": "compose",
+      "label": "gravity snapping"
+    },
+    {
+      "from": "chrome",
+      "to": "zustand",
+      "kind": "state",
+      "label": "settings / view"
+    },
+    {
+      "from": "canvas-ui",
+      "to": "zustand",
+      "kind": "state",
+      "label": "tools / selection"
+    },
+    {
+      "from": "field-list",
+      "to": "zustand",
+      "kind": "state",
+      "label": "selection / filters"
+    },
+    {
+      "from": "workbench-ui",
+      "to": "zustand",
+      "kind": "state",
+      "label": "workbench UI"
+    },
+    {
+      "from": "react-query",
+      "to": "offline-sync",
+      "kind": "state",
+      "label": "queue mutations (offline)"
+    },
+    {
+      "from": "canvas-ui",
+      "to": "react-query",
+      "kind": "query",
+      "label": "units / statuses"
+    },
+    {
+      "from": "field-list",
+      "to": "react-query",
+      "kind": "query",
+      "label": "status logs / audit"
+    },
+    {
+      "from": "schedule-ui",
+      "to": "react-query",
+      "kind": "query",
+      "label": "activities / baselines"
+    },
+    {
+      "from": "dashboard-ui",
+      "to": "react-query",
+      "kind": "query",
+      "label": "all-project rollups"
+    },
+    {
+      "from": "lookahead-ui",
+      "to": "react-query",
+      "kind": "query",
+      "label": "activities / units"
+    },
+    {
+      "from": "workbench-ui",
+      "to": "react-query",
+      "kind": "query",
+      "label": "sheets / vectors"
+    },
+    {
+      "from": "taxonomy-ui",
+      "to": "react-query",
+      "kind": "query",
+      "label": "subtypes / cost codes"
+    },
+    {
+      "from": "canvas-ui",
+      "to": "pdf-worker",
+      "kind": "worker",
+      "label": "render request"
+    },
+    {
+      "from": "react-query",
+      "to": "supabase-js",
+      "kind": "sdk",
+      "label": "queries + mutations"
+    },
+    {
+      "from": "snapping",
+      "to": "supabase-js",
+      "kind": "sdk",
+      "label": "sheet_vectors cache"
+    },
+    {
+      "from": "supabase-js",
+      "to": "pg",
+      "kind": "sdk",
+      "label": "RLS reads/writes"
+    },
+    {
+      "from": "supabase-js",
+      "to": "rpc",
+      "kind": "sdk",
+      "label": "upsert_status_log"
+    },
+    {
+      "from": "supabase-js",
+      "to": "auth",
+      "kind": "auth",
+      "label": "session / login"
+    },
+    {
+      "from": "supabase-js",
+      "to": "storage",
+      "kind": "storage",
+      "label": "floorplan image URLs"
+    },
+    {
+      "from": "api-data",
+      "to": "pg",
+      "kind": "sdk",
+      "label": "service-role insert"
+    },
+    {
+      "from": "api-procore",
+      "to": "pg",
+      "kind": "sdk",
+      "label": "auto-enroll project"
+    },
+    {
+      "from": "be-core-db",
+      "to": "pg",
+      "kind": "sdk",
+      "label": "service-role queries"
+    },
+    {
+      "from": "rpc",
+      "to": "pg",
+      "kind": "internal",
+      "label": "atomic upsert"
+    },
+    {
+      "from": "react-query",
+      "to": "api-client",
+      "kind": "rest",
+      "label": "backend actions"
+    },
+    {
+      "from": "snapping",
+      "to": "api-client",
+      "kind": "rest",
+      "label": "extract-vectors fallback"
+    },
+    {
+      "from": "react-query",
+      "to": "api-data",
+      "kind": "rest",
+      "label": "create project / container"
+    },
+    {
+      "from": "api-client",
+      "to": "be-routers",
+      "kind": "rest",
+      "label": "REST + Bearer JWT"
+    },
+    {
+      "from": "pdf-worker",
+      "to": "storage",
+      "kind": "storage",
+      "label": "download PDF bytes"
+    },
+    {
+      "from": "be-core-db",
+      "to": "storage",
+      "kind": "storage",
+      "label": "read/write sheet assets"
+    },
+    {
+      "from": "be-core-extract",
+      "to": "be-core-db",
+      "kind": "internal",
+      "label": "cache vectors + preview"
+    },
+    {
+      "from": "pages",
+      "to": "api-procore",
+      "kind": "oauth",
+      "label": "Login with Procore"
+    },
+    {
+      "from": "procore",
+      "to": "api-procore",
+      "kind": "oauth",
+      "label": "callback / deep-link"
+    },
+    {
+      "from": "api-procore",
+      "to": "procore",
+      "kind": "oauth",
+      "label": "authorize redirect"
+    },
+    {
+      "from": "api-procore",
+      "to": "auth",
+      "kind": "auth",
+      "label": "provision user"
+    },
+    {
+      "from": "be-main",
+      "to": "be-routers",
+      "kind": "internal",
+      "label": "include_router"
+    },
+    {
+      "from": "be-routers",
+      "to": "be-core-auth",
+      "kind": "auth",
+      "label": "Depends(get_current_user)"
+    },
+    {
+      "from": "be-routers",
+      "to": "be-core-extract",
+      "kind": "internal",
+      "label": "PyMuPDF parse"
+    },
+    {
+      "from": "be-routers",
+      "to": "be-core-pdf",
+      "kind": "internal",
+      "label": "caps / clamps"
+    },
+    {
+      "from": "be-routers",
+      "to": "be-core-db",
+      "kind": "internal",
+      "label": "download / persist"
+    },
+    {
+      "from": "be-core-auth",
+      "to": "auth",
+      "kind": "auth",
+      "label": "JWKS (cached once)"
+    }
+  ],
+  "dataModel": {
+    "intro": "Supabase Postgres is the system of record. Progress tracking is event-sourced: status_logs holds one current-state row per (unit × activity) slot, while status_audit_log is the append-only timeline. Every table is Row-Level-Security protected, anchored on project_members.",
+    "note": "<b>Event sourcing:</b> writes go through the idempotent upsert_status_log RPC (Last-Write-Wins) — never plain INSERT. <b>RLS:</b> read = any project member; write = owner/admin/pm (some tables + superintendent); <b>anon is never granted.</b> <b>* = primary key · → = foreign key.</b>",
+    "tables": [
+      {
+        "name": "projects",
+        "tag": "core",
+        "purpose": "Top-level project; owner dates + Procore link.",
+        "cols": [
+          "*id",
+          "name",
+          "unit_types (jsonb)",
+          "project_type",
+          "procore_project_id",
+          "construction_start_date",
+          "contract_completion_date"
+        ]
+      },
+      {
+        "name": "sheets",
+        "purpose": "A drawing/level; holds level×activity plan windows.",
+        "cols": [
+          "*id",
+          "project_id →projects",
+          "sheet_name",
+          "base_image_url",
+          "active_scopes (jsonb)",
+          "activity_schedules (jsonb)",
+          "pdf_version",
+          "scale_ratio"
+        ]
+      },
+      {
+        "name": "units",
+        "purpose": "A location (unit/room) polygon on a sheet.",
+        "cols": [
+          "*id",
+          "sheet_id →sheets",
+          "unit_number",
+          "unit_type",
+          "top_level_role",
+          "subtype_id →subtypes",
+          "polygon_coordinates (jsonb)",
+          "computed_area",
+          "walk_sequence",
+          "assigned_to",
+          "opening_edges (jsonb)"
+        ]
+      },
+      {
+        "name": "activities",
+        "tag": "renamed",
+        "purpose": "Project scope-of-work step (was project_milestones).",
+        "cols": [
+          "*id",
+          "project_id →projects",
+          "name",
+          "track",
+          "color",
+          "sequence_order",
+          "type",
+          "dictionary_id →activity_dictionary",
+          "applies_to_unit_types (jsonb)"
+        ]
+      },
+      {
+        "name": "status_logs",
+        "tag": "event-sourced",
+        "purpose": "Current state per slot; idempotent LWW upsert.",
+        "cols": [
+          "*unit_id →units",
+          "*activity_id →activities",
+          "status_color",
+          "temporal_state",
+          "track",
+          "planned_start_date",
+          "planned_end_date",
+          "actual_start_date",
+          "logged_date",
+          "client_timestamp"
+        ]
+      },
+      {
+        "name": "status_audit_log",
+        "tag": "append-only",
+        "purpose": "Full progress timeline (trigger-written).",
+        "cols": [
+          "*id",
+          "unit_id →units",
+          "activity_id →activities",
+          "activity_name",
+          "temporal_state",
+          "track",
+          "logged_date",
+          "created_at"
+        ]
+      },
+      {
+        "name": "activity_dictionary",
+        "tag": "governed",
+        "purpose": "Global canonical activities (mirrors subtypes).",
+        "cols": [
+          "*id",
+          "name (unique)",
+          "status",
+          "type",
+          "track",
+          "aliases (jsonb)",
+          "default_project_types (jsonb)",
+          "cost_code_id"
+        ]
+      },
+      {
+        "name": "subtypes",
+        "tag": "governed",
+        "purpose": "Global location sub-type dictionary.",
+        "cols": [
+          "*id",
+          "name",
+          "status",
+          "role",
+          "aliases (jsonb)",
+          "default_project_types (jsonb)"
+        ]
+      },
+      {
+        "name": "activity_dependencies",
+        "purpose": "Light Finish-to-Start edges (no critical-path math).",
+        "cols": [
+          "*id",
+          "predecessor_activity_id →activities",
+          "successor_activity_id →activities",
+          "type (FS)",
+          "lag_days"
+        ]
+      },
+      {
+        "name": "activity_applicability_overrides",
+        "purpose": "Per-unit N/A overrides (was milestone_…).",
+        "cols": [
+          "*id",
+          "activity_id →activities",
+          "unit_id →units",
+          "is_applicable"
+        ]
+      },
+      {
+        "name": "schedule_baselines",
+        "tag": "immutable",
+        "purpose": "Immutable whole-project plan snapshots (no progress).",
+        "cols": [
+          "*id",
+          "project_id →projects",
+          "name",
+          "snapshot (jsonb)",
+          "created_at"
+        ]
+      },
+      {
+        "name": "project_members",
+        "tag": "RLS anchor",
+        "purpose": "Membership + role — the RLS anchor.",
+        "cols": [
+          "*id",
+          "project_id →projects",
+          "user_id →profiles",
+          "role"
+        ]
+      },
+      {
+        "name": "profiles",
+        "purpose": "User profile (mirrors auth.users).",
+        "cols": [
+          "*id →auth.users",
+          "display_name",
+          "email"
+        ]
+      },
+      {
+        "name": "project_contacts",
+        "purpose": "People on a project (Procore CSV de-dupe).",
+        "cols": [
+          "*id",
+          "project_id →projects",
+          "company",
+          "first_name",
+          "last_name",
+          "email",
+          "procore_id"
+        ]
+      },
+      {
+        "name": "sheet_vectors",
+        "tag": "cache",
+        "purpose": "Cached CAD linework for snapping (write-through).",
+        "cols": [
+          "*sheet_id →sheets",
+          "vectors (jsonb)"
+        ]
+      },
+      {
+        "name": "sheet_text / gridlines / metadata",
+        "tag": "cache",
+        "purpose": "Per-sheet extraction caches (room-name match, gridlines, title block).",
+        "cols": [
+          "sheet_id →sheets",
+          "text / gridlines / metadata (jsonb)"
+        ]
+      },
+      {
+        "name": "cost_codes",
+        "purpose": "Estimate cost-code catalog.",
+        "cols": [
+          "*id",
+          "project_id →projects",
+          "code",
+          "description"
+        ]
+      },
+      {
+        "name": "companies",
+        "purpose": "Companies / subcontractors (dashboard benchmarks).",
+        "cols": [
+          "*id",
+          "name",
+          "is_subcontractor"
+        ]
+      },
+      {
+        "name": "activity_playbooks / activity_scopes",
+        "purpose": "Reusable activity templates + scope grouping.",
+        "cols": [
+          "*id",
+          "project_id →projects",
+          "…"
+        ]
+      },
+      {
+        "name": "lookahead_plans",
+        "purpose": "Persisted weekly look-ahead planner blobs.",
+        "cols": [
+          "*id",
+          "project_id →projects",
+          "plan (jsonb)"
+        ]
+      }
+    ],
+    "storage": [
+      {
+        "name": "floorplans",
+        "kind": "bucket (public)",
+        "desc": "originals/<sheetId>.pdf (source of truth) + converted/<sheetId>.png (server preview / placeholder LOD). Public capability URLs keyed by sheet UUID; versioned with ?v=pdf_version."
+      },
+      {
+        "name": "upsert_status_log",
+        "kind": "RPC",
+        "desc": "Single-mutation status write — SECURITY INVOKER, Last-Write-Wins guard, omit-preserves / present-clears field semantics."
+      },
+      {
+        "name": "fn_status_log_audit",
+        "kind": "trigger fn",
+        "desc": "Writes an append-only status_audit_log row on every status change (SECURITY DEFINER + fixed search_path)."
+      },
+      {
+        "name": "create_new_project",
+        "kind": "RPC",
+        "desc": "Creates a project and enrolls the caller as 'owner'."
+      }
+    ]
+  },
+  "techIntro": "A client-heavy Next.js app that talks directly to Supabase (RLS-enforced) for most data, with a thin FastAPI service for the PyMuPDF-heavy PDF work it can't do in the browser.",
+  "tech": [
+    {
+      "title": "Frontend",
+      "sub": "Client-heavy React",
+      "tier": "client",
+      "items": [
+        "Next.js 16 (App Router)",
+        "React 19",
+        "TypeScript (strict, incremental JS→TS)",
+        "Tailwind CSS v4",
+        "Lucide icons",
+        "Zustand 5",
+        "TanStack Query 5",
+        "React-Konva / Konva",
+        "pdf.js",
+        "RBush",
+        "Recharts",
+        "dnd-kit",
+        "Framer Motion",
+        "date-fns"
+      ]
+    },
+    {
+      "title": "Backend",
+      "sub": "FastAPI on Render",
+      "tier": "fastapi",
+      "items": [
+        "Python",
+        "FastAPI",
+        "uvicorn",
+        "PyMuPDF (fitz)",
+        "PyJWT (ES256 / JWKS)",
+        "supabase-py",
+        "httpx",
+        "pytest"
+      ]
+    },
+    {
+      "title": "Data & Auth",
+      "sub": "Supabase platform",
+      "tier": "supabase",
+      "items": [
+        "Postgres + Row-Level Security",
+        "Supabase Storage",
+        "Supabase Auth (ES256 / JWKS)",
+        "Event-sourced status_logs + audit",
+        "Idempotent upsert RPC (LWW)"
+      ]
+    },
+    {
+      "title": "Offline & Sync",
+      "sub": "Offline-first field use",
+      "tier": "client",
+      "items": [
+        "IndexedDB",
+        "@tanstack/react-query-persist-client",
+        "idb-keyval",
+        "Per-item checkpoint queue",
+        "Capture-time timestamps",
+        "Realtime cache injection"
+      ]
+    },
+    {
+      "title": "Canvas & Rendering",
+      "sub": "60fps floor-plan map",
+      "tier": "client",
+      "items": [
+        "React-Konva 3-layer engine",
+        "Off-main-thread pdf.js worker",
+        "LOD pyramid + sharp crops",
+        "RBush vector snapping",
+        "Versioned public-URL caching"
+      ]
+    },
+    {
+      "title": "Testing",
+      "sub": "Unit-first, no E2E yet",
+      "tier": "next",
+      "items": [
+        "Vitest + React Testing Library",
+        "pytest (hermetic auth tests)",
+        "~200 co-located test files",
+        "renderWithQuery harness",
+        "Playwright deferred"
+      ]
+    },
+    {
+      "title": "Integrations & Hosting",
+      "sub": "Deploy targets",
+      "tier": "external",
+      "items": [
+        "Procore SSO (OAuth 2.0)",
+        "Vercel (frontend)",
+        "Render (backend)",
+        "Supabase (managed Postgres/Storage/Auth)"
+      ]
+    }
+  ],
+  "migrations": [
+    {
+      "date": "2026-05-18",
+      "name": "Status idempotency",
+      "desc": "Slot-unique constraint, status_audit_log + trigger, upsert_status_log RPC with LWW guard."
+    },
+    {
+      "date": "2026-06-10",
+      "name": "Milestone applicability",
+      "desc": "Per-unit N/A override table."
+    },
+    {
+      "date": "2026-06-16",
+      "name": "Location taxonomy",
+      "desc": "top_level_role + subtype_id + global subtypes dictionary; project_type."
+    },
+    {
+      "date": "2026-06-17",
+      "name": "Taxonomy correction",
+      "desc": "Backfill / mapping fixes for the taxonomy."
+    },
+    {
+      "date": "2026-06-17",
+      "name": "Unit assignment",
+      "desc": "units.assigned_to (crew / assignee)."
+    },
+    {
+      "date": "2026-06-17",
+      "name": "Workbench schema",
+      "desc": "Sheet-prep / tracing corpus tables."
+    },
+    {
+      "date": "2026-06-18",
+      "name": "Workbench soft-delete",
+      "desc": "Soft-delete flag for workbench rows."
+    },
+    {
+      "date": "2026-06-23",
+      "name": "Look-ahead plans",
+      "desc": "Persisted weekly look-ahead planner blobs."
+    },
+    {
+      "date": "2026-06-23",
+      "name": "Project contacts",
+      "desc": "Per-project people directory (Procore CSV de-dupe)."
+    },
+    {
+      "date": "2026-06-25",
+      "name": "Sheet gridlines",
+      "desc": "Parsed structural gridlines cache."
+    },
+    {
+      "date": "2026-06-25",
+      "name": "Sheet metadata",
+      "desc": "Title-block / sheet metadata."
+    },
+    {
+      "date": "2026-06-25",
+      "name": "Sheet text",
+      "desc": "Cached PDF text for room-name matching."
+    },
+    {
+      "date": "2026-06-25",
+      "name": "Trace capture",
+      "desc": "Tracing capture geometry."
+    },
+    {
+      "date": "2026-06-26",
+      "name": "Opening edges",
+      "desc": "units.opening_edges (doors / openings)."
+    },
+    {
+      "date": "2026-06-26",
+      "name": "Fully-traced flag",
+      "desc": "Workbench sheet completion flag."
+    },
+    {
+      "date": "2026-06-29",
+      "name": "AI training opt-out",
+      "desc": "Per-project AI-training opt-out flag."
+    },
+    {
+      "date": "2026-07-01",
+      "name": "Activity model (rename+re-key)",
+      "desc": "project_milestones→activities; status_logs re-keyed to activity_id; audit + overrides renamed."
+    },
+    {
+      "date": "2026-07-01",
+      "name": "Sheet scale columns",
+      "desc": "scale_ratio / scale_preset on sheets."
+    },
+    {
+      "date": "2026-07-02",
+      "name": "Activity dictionary",
+      "desc": "Global governed canonical activities (mirrors subtypes)."
+    },
+    {
+      "date": "2026-07-03",
+      "name": "Activity dependencies",
+      "desc": "Light Finish-to-Start edges (no CPM)."
+    },
+    {
+      "date": "2026-07-04",
+      "name": "Activity playbooks",
+      "desc": "Reusable activity templates."
+    },
+    {
+      "date": "2026-07-05",
+      "name": "Activity scopes",
+      "desc": "Scope-of-work grouping for activities."
+    },
+    {
+      "date": "2026-07-06",
+      "name": "Audit activity_name",
+      "desc": "Rename audit milestone→activity_name snapshot."
+    },
+    {
+      "date": "2026-07-07",
+      "name": "Dependency ripple flag",
+      "desc": "Toggle for schedule ripple propagation."
+    },
+    {
+      "date": "2026-07-08",
+      "name": "Cost codes",
+      "desc": "Estimate cost-code catalog."
+    },
+    {
+      "date": "2026-07-09",
+      "name": "Companies / subs",
+      "desc": "Companies + is_subcontractor for benchmarks."
+    },
+    {
+      "date": "2026-07-10",
+      "name": "Schedule baselines",
+      "desc": "Immutable whole-project plan snapshots."
+    },
+    {
+      "date": "2026-07-11",
+      "name": "Actual start date",
+      "desc": "status_logs.actual_start_date."
+    },
+    {
+      "date": "2026-07-12",
+      "name": "Project dates",
+      "desc": "construction_start + contract_completion dates."
+    },
+    {
+      "date": "2026-07-12",
+      "name": "Preserve omitted fields",
+      "desc": "upsert_status_log omit-preserves / present-clears semantics."
+    }
+  ]
+}
