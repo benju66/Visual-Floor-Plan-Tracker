@@ -12,6 +12,9 @@ import {
   nextSwipeState,
   swipeRightLabel,
   chooseStatusState,
+  resolveSwipeGesture,
+  SWIPE_OFFSET_THRESHOLD,
+  SWIPE_VELOCITY_THRESHOLD,
 } from './swipeDeck';
 
 // Minimal PendingChange fixtures — only the fields the deck logic reads.
@@ -180,5 +183,62 @@ describe('chooseStatusState', () => {
     expect(chooseStatusState('planned')).toBe('planned');
     expect(chooseStatusState('ongoing')).toBe('ongoing');
     expect(chooseStatusState('completed')).toBe('completed');
+  });
+});
+
+describe('resolveSwipeGesture (Swipe Deck Excellence P2 — flick-to-commit)', () => {
+  it('commits by drag distance alone, direction from offset sign', () => {
+    expect(resolveSwipeGesture(120, 0)).toBe('right');
+    expect(resolveSwipeGesture(-120, 0)).toBe('left');
+  });
+
+  it('commits a fast flick below the offset threshold, direction from velocity sign', () => {
+    expect(resolveSwipeGesture(40, 600)).toBe('right');
+    expect(resolveSwipeGesture(-40, -600)).toBe('left');
+  });
+
+  it('does not commit when a flick fights the drag direction (sign disagreement)', () => {
+    // Flick left while the card sits right of centre must NOT commit right.
+    expect(resolveSwipeGesture(40, -600)).toBeNull();
+    expect(resolveSwipeGesture(-40, 600)).toBeNull();
+  });
+
+  it('commits a dead-centre flick in the velocity direction (no drag to disagree)', () => {
+    expect(resolveSwipeGesture(0, 600)).toBe('right');
+    expect(resolveSwipeGesture(0, -600)).toBe('left');
+  });
+
+  it('does not commit when both offset and velocity are sub-threshold', () => {
+    expect(resolveSwipeGesture(40, 200)).toBeNull();
+    expect(resolveSwipeGesture(-40, -200)).toBeNull();
+    expect(resolveSwipeGesture(0, 0)).toBeNull();
+  });
+
+  it('offset wins outright — a disagreeing late flick cannot flip a long drag', () => {
+    expect(resolveSwipeGesture(150, -600)).toBe('right');
+    expect(resolveSwipeGesture(-150, 600)).toBe('left');
+  });
+
+  it('is inclusive at both thresholds (boundary values commit)', () => {
+    expect(resolveSwipeGesture(SWIPE_OFFSET_THRESHOLD, 0)).toBe('right');
+    expect(resolveSwipeGesture(-SWIPE_OFFSET_THRESHOLD, 0)).toBe('left');
+    expect(resolveSwipeGesture(10, SWIPE_VELOCITY_THRESHOLD)).toBe('right');
+    expect(resolveSwipeGesture(-10, -SWIPE_VELOCITY_THRESHOLD)).toBe('left');
+    // Just under either threshold with the other quiet → no commit.
+    expect(resolveSwipeGesture(SWIPE_OFFSET_THRESHOLD - 1, SWIPE_VELOCITY_THRESHOLD - 1)).toBeNull();
+  });
+
+  it('is a superset of the old `offset.x > 100` rule (everything that committed still commits)', () => {
+    for (const off of [101, 150, 300, 5000]) {
+      expect(resolveSwipeGesture(off, 0)).toBe('right');
+      expect(resolveSwipeGesture(-off, 0)).toBe('left');
+    }
+  });
+
+  it('honours caller-supplied thresholds', () => {
+    expect(resolveSwipeGesture(60, 0, { offset: 50 })).toBe('right');
+    expect(resolveSwipeGesture(60, 0, { offset: 200 })).toBeNull();
+    expect(resolveSwipeGesture(10, 300, { velocity: 250 })).toBe('right');
+    expect(resolveSwipeGesture(10, 300, { velocity: 400 })).toBeNull();
   });
 });

@@ -173,3 +173,57 @@ export function swipeRightLabel(
 export function chooseStatusState(currentState: TemporalState | string): TemporalState {
   return currentState === 'none' ? 'completed' : (currentState as TemporalState);
 }
+
+/** Default drag-distance (px) at/above which a swipe commits, regardless of speed. */
+export const SWIPE_OFFSET_THRESHOLD = 100;
+/** Default drag-speed (px/s) at/above which a quick flick commits, even below the
+ *  offset threshold — as long as flick and drag agree in direction. */
+export const SWIPE_VELOCITY_THRESHOLD = 500;
+
+export interface SwipeGestureThresholds {
+  /** Distance (px) that commits by drag alone. Defaults to SWIPE_OFFSET_THRESHOLD. */
+  offset?: number;
+  /** Speed (px/s) that commits by flick. Defaults to SWIPE_VELOCITY_THRESHOLD. */
+  velocity?: number;
+}
+
+/**
+ * Decide whether a drag-release commits a swipe, and which way (Swipe Deck
+ * Excellence P2 — the "flick to commit" rule). Pure + deterministic: framer's
+ * `info.offset.x` / `info.velocity.x` are passed IN, thresholds are constants
+ * (no Date.now, no env). Behavior is a strict SUPERSET of the old
+ * `offset.x > 100` check — everything that committed before still commits.
+ *
+ * Commit when EITHER:
+ *  - `|offsetX| >= offset` — dragged far enough; direction = offset sign. Offset
+ *    wins outright (velocity is ignored), so a long drag that eased off at release
+ *    still commits its drag direction.
+ *  - `|velocityX| >= velocity` AND the flick agrees in sign with the drag (or the
+ *    card sits dead-centre) — a fast flick that didn't travel the full distance;
+ *    direction = velocity sign. Sign-agreement is what stops a hard flick LEFT
+ *    while the card sits RIGHT of centre from wrongly committing right.
+ *
+ * Otherwise returns null (spring back — no commit).
+ */
+export function resolveSwipeGesture(
+  offsetX: number,
+  velocityX: number,
+  opts: SwipeGestureThresholds = {}
+): 'left' | 'right' | null {
+  const offsetThreshold = opts.offset ?? SWIPE_OFFSET_THRESHOLD;
+  const velocityThreshold = opts.velocity ?? SWIPE_VELOCITY_THRESHOLD;
+
+  // Offset-committed: dragged far enough. Direction from the drag's sign; a
+  // disagreeing late flick can't flip it (matches/extends the old > 100 rule).
+  if (Math.abs(offsetX) >= offsetThreshold) {
+    return offsetX > 0 ? 'right' : 'left';
+  }
+
+  // Flick-committed: fast enough, and not fighting the drag's direction.
+  if (Math.abs(velocityX) >= velocityThreshold) {
+    const agrees = offsetX === 0 || (offsetX > 0) === (velocityX > 0);
+    if (agrees) return velocityX > 0 ? 'right' : 'left';
+  }
+
+  return null;
+}
