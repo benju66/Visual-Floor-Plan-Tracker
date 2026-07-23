@@ -63,3 +63,43 @@ export function stampCompletionDate<T extends { logged_date?: unknown; temporal_
   }
   return log;
 }
+
+/**
+ * Resolve ONE planned date (start or end) for a status write, preserving a stored
+ * date that the edit doesn't touch (post-W3 fix for status taps clobbering planned
+ * dates on levels with no schedule window).
+ *
+ * The distinction that matters is whether the edit CARRIES the field:
+ * - **Carried** (`carried !== undefined` — a date, `null`, or `''`, e.g. a date-cell
+ *   edit or a bulk write): behaves exactly as the old inline chain — `carried ||
+ *   sheetWindow || null`. Editing dates is unchanged, byte-for-byte.
+ * - **Not carried** (`undefined` — a status tap: swipe / PLN·ONG·✓ / quick modal
+ *   that never mentions dates): `sheetWindow || stored || null`. The level's window
+ *   still wins when it has one; otherwise the STORED date is preserved instead of
+ *   being overwritten with null. This is the whole bug fix, and it's scoped to the
+ *   not-carried case so no date-editing path changes.
+ *
+ * Both keys always ride the write (present) — this resolves the VALUE, it does not
+ * omit-shape keys (that stays caller-intent, per this module's header note).
+ */
+export function resolvePlannedDate(
+  carried: string | null | undefined,
+  sheetWindow: string | null | undefined,
+  stored: string | null | undefined
+): string | null {
+  if (carried !== undefined) return carried || sheetWindow || null;
+  return sheetWindow || stored || null;
+}
+
+/** Resolve the planned start+end window for a status write via {@link resolvePlannedDate}. */
+export function resolvePlannedWindow(
+  explicit: { startDate?: string | null; endDate?: string | null },
+  sheetWindow: { start_date?: string | null; end_date?: string | null } | null | undefined,
+  stored: { planned_start_date?: string | null; planned_end_date?: string | null } | null | undefined
+): { planned_start_date: string | null; planned_end_date: string | null } {
+  const win = sheetWindow ?? {};
+  return {
+    planned_start_date: resolvePlannedDate(explicit.startDate, win.start_date, stored?.planned_start_date),
+    planned_end_date: resolvePlannedDate(explicit.endDate, win.end_date, stored?.planned_end_date),
+  };
+}

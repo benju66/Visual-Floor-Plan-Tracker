@@ -339,6 +339,45 @@ describe('commitUnitActivity', () => {
     expect(args.log_data.actual_start_date).toBe('2026-06-20');
   });
 
+  // Post-W3 fix: a status TAP carries no dates. When the level has no schedule
+  // window (activeSheet unseeded here → sheetSchedule is empty), the pre-fix code
+  // sent planned_*: null and the RPC then WIPED the activity's real planned window.
+  // The tap must now preserve the stored planned dates.
+  it('preserves stored planned dates when a status tap carries none and the level has no schedule window', async () => {
+    useSettingsStore.setState({ settings: { auto_advance_tracks: { Production: false } } as never });
+    useMapStore.setState({ activeSheetId: 's1' });
+
+    const client = makeTestQueryClient();
+    client.setQueryData(queryKeys.activities('proj-1'), [drywallB]);
+    // Drywall already carries a real planned window (e.g. set earlier or imported).
+    client.setQueryData(['statuses', 's1'], [
+      {
+        id: 'log-B', unit_id: 'u1', activity_id: 'act-B', activityName: 'Drywall',
+        track: 'Production', temporal_state: 'completed', status_color: '#222222',
+        planned_start_date: '2026-06-10', planned_end_date: '2026-06-25',
+        logged_date: '2026-07-01', actual_start_date: '2026-06-20',
+      },
+    ]);
+    const seededWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useMapActions(project), { wrapper: seededWrapper });
+
+    // A tap: re-commit the same state with NO startDate/endDate in extraProps.
+    await act(async () => {
+      await result.current.commitUnitActivity(unit, drywallB, 'completed', false, {
+        client_timestamp: '2026-07-05T00:00:00.000Z',
+      });
+    });
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const [, args] = rpc.mock.calls[0] as unknown as [string, { log_data: Record<string, unknown> }];
+    // The stored planned window survives the tap (pre-fix both were null).
+    expect(args.log_data.planned_start_date).toBe('2026-06-10');
+    expect(args.log_data.planned_end_date).toBe('2026-06-25');
+  });
+
   // The other side of the rule: a genuinely-NEW completion (no prior log / no prior
   // logged_date) with no supplied loggedDate still defaults to today — normal
   // completion stamping must not regress.
