@@ -12,6 +12,7 @@ import type { BulkUpdateStatusVars, CommitStatusExtraProps } from '@/types/mutat
 import { queryKeys } from '@/types/queryKeys';
 import { buildApplicabilityIndex } from '@/utils/applicability';
 import { planAutoAdvance, type AutoAdvanceTarget } from '@/utils/autoAdvance';
+import { resolvePlannedWindow } from '@/utils/statusWrite';
 import { resolveActivityId } from '@/utils/resolveActivityId';
 import { useProposePendingSubtype, useSubtypes } from '@/hooks/useSubtypes';
 import { taxonomyResultToUnitFields, type TaxonomyResult, type TaxonomyUnitFields } from '@/utils/subtypes';
@@ -570,6 +571,16 @@ export function useMapActions(project: Project | null | undefined) {
         );
       }
 
+      // Planned window: an edit that CARRIES dates (date cells, bulk) behaves exactly
+      // as before; a status tap that carries NONE preserves the stored planned dates
+      // instead of wiping them to null when the level has no schedule window
+      // (post-W3 fix — the rule + tests live in statusWrite.resolvePlannedWindow).
+      const plannedWindow = resolvePlannedWindow(
+        { startDate: extraProps.startDate, endDate: extraProps.endDate },
+        sheetSchedule,
+        oldStatus,
+      );
+
       const newLogData = {
         unit_id: unit.id,
         activity_id: resolvedActivityId,
@@ -577,8 +588,8 @@ export function useMapActions(project: Project | null | undefined) {
         status_color,
         temporal_state: currentTemporalState,
         track: activity.track as string,
-        planned_start_date: extraProps.startDate || sheetSchedule.start_date || null,
-        planned_end_date: extraProps.endDate || sheetSchedule.end_date || null,
+        planned_start_date: plannedWindow.planned_start_date,
+        planned_end_date: plannedWindow.planned_end_date,
         // Completion date. When the edit carries loggedDate, honor it (incl. an explicit
         // '' clear → null). When it does NOT (e.g. a planned-date-only edit on an already-
         // completed activity), PRESERVE the stored logged_date rather than re-stamping

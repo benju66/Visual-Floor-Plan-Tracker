@@ -3,6 +3,8 @@ import {
   stripStatusWriteFields,
   withFallbackClientTimestamp,
   stampCompletionDate,
+  resolvePlannedDate,
+  resolvePlannedWindow,
 } from './statusWrite';
 
 const NOW = '2026-07-22T12:00:00.000Z';
@@ -107,5 +109,77 @@ describe('stampCompletionDate', () => {
     const row = { temporal_state: 'completed', logged_date: null };
     stampCompletionDate(row, TODAY);
     expect(row.logged_date).toBeNull();
+  });
+});
+
+describe('resolvePlannedDate (post-W3: status taps must not clobber planned dates)', () => {
+  const SHEET = '2026-01-01';
+  const STORED = '2026-05-05';
+
+  describe('the edit CARRIES the field — behaves exactly like the old `carried || sheetWindow || null` chain', () => {
+    it('a carried date wins over the sheet window and the stored date', () => {
+      expect(resolvePlannedDate('2026-06-10', SHEET, STORED)).toBe('2026-06-10');
+    });
+
+    it('a carried empty (null or "") falls through to the sheet window — NOT the stored date', () => {
+      expect(resolvePlannedDate(null, SHEET, STORED)).toBe(SHEET);
+      expect(resolvePlannedDate('', SHEET, STORED)).toBe(SHEET);
+    });
+
+    it('a carried empty with no sheet window resolves to null — a date edit/clear is never preserved-away', () => {
+      expect(resolvePlannedDate(null, null, STORED)).toBeNull();
+      expect(resolvePlannedDate('', undefined, STORED)).toBeNull();
+    });
+  });
+
+  describe('the edit does NOT carry the field (a status tap) — sheet window, else PRESERVE the stored date', () => {
+    it('uses the sheet window when the level has one', () => {
+      expect(resolvePlannedDate(undefined, SHEET, STORED)).toBe(SHEET);
+    });
+
+    it('PRESERVES the stored date when the level has no schedule window (the bug fix)', () => {
+      expect(resolvePlannedDate(undefined, null, STORED)).toBe(STORED);
+      expect(resolvePlannedDate(undefined, undefined, STORED)).toBe(STORED);
+    });
+
+    it('resolves to null only when there is genuinely nothing to preserve', () => {
+      expect(resolvePlannedDate(undefined, null, null)).toBeNull();
+      expect(resolvePlannedDate(undefined, undefined, undefined)).toBeNull();
+    });
+  });
+});
+
+describe('resolvePlannedWindow', () => {
+  it("a status tap on a no-schedule level preserves BOTH stored planned dates (the owner's reported bug)", () => {
+    const out = resolvePlannedWindow(
+      {}, // no dates carried (a swipe / PLN·ONG·✓ / quick modal)
+      null, // level has no activity_schedules window
+      { planned_start_date: '2026-05-05', planned_end_date: '2026-05-20' },
+    );
+    expect(out).toEqual({ planned_start_date: '2026-05-05', planned_end_date: '2026-05-20' });
+  });
+
+  it('a carried date-cell edit sets the carried values and leaves the sibling untouched', () => {
+    const out = resolvePlannedWindow(
+      { startDate: '2026-06-01', endDate: '2026-06-30' },
+      { start_date: '2026-01-01', end_date: '2026-01-31' },
+      { planned_start_date: '2026-05-05', planned_end_date: '2026-05-20' },
+    );
+    expect(out).toEqual({ planned_start_date: '2026-06-01', planned_end_date: '2026-06-30' });
+  });
+
+  it('start and end resolve independently', () => {
+    // start carried, end not carried → end preserves its stored value
+    const out = resolvePlannedWindow(
+      { startDate: '2026-06-01' },
+      null,
+      { planned_start_date: '2026-05-05', planned_end_date: '2026-05-20' },
+    );
+    expect(out).toEqual({ planned_start_date: '2026-06-01', planned_end_date: '2026-05-20' });
+  });
+
+  it('tolerates a null/undefined sheet window and a null stored row', () => {
+    expect(resolvePlannedWindow({}, null, null)).toEqual({ planned_start_date: null, planned_end_date: null });
+    expect(resolvePlannedWindow({}, undefined, undefined)).toEqual({ planned_start_date: null, planned_end_date: null });
   });
 });
