@@ -8,6 +8,7 @@ import { lastActivityIso } from '@/utils/staleness';
 import { useUIStore } from '@/store/useUIStore';
 import { isActivityApplicable } from '@/utils/applicability';
 import type { ApplicabilityIndex } from '@/utils/applicability';
+import { resolveSwipeGesture } from '@/utils/swipeDeck';
 
 const getBadgeStyle = (state: TemporalState) => {
   switch (state) {
@@ -114,14 +115,15 @@ const SwipeCard = ({
     }
   }, [entryDirection, x]);
 
+  // Commit on drag distance OR a quick flick (Swipe Deck Excellence P2). The
+  // decision lives in the pure, test-pinned resolveSwipeGesture; this handler
+  // only fires haptics + the staging callback. Superset of the old ±100px rule.
   const handleDragEnd = (event: any, info: any) => {
-    if (info.offset.x > 100) {
-      if (typeof window !== 'undefined' && navigator.vibrate) { navigator.vibrate(50); }
-      onSwipeRight();
-    } else if (info.offset.x < -100) {
-      if (typeof window !== 'undefined' && navigator.vibrate) { navigator.vibrate(50); }
-      onSwipeLeft();
-    }
+    const direction = resolveSwipeGesture(info.offset.x, info.velocity.x);
+    if (!direction) return;
+    if (typeof window !== 'undefined' && navigator.vibrate) navigator.vibrate(50);
+    if (direction === 'right') onSwipeRight();
+    else onSwipeLeft();
   };
 
   const isDragEnabled = isTop && !isHistoryOpen;
@@ -187,14 +189,20 @@ const SwipeCard = ({
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.7}
       onDragEnd={handleDragEnd}
-      layout
       variants={{
+        // Swiped cards fly off IN the swipe direction (dir comes from the deck's
+        // exitDirection via AnimatePresence custom) on a short, hard-capped tween,
+        // and go pointer-inert immediately — so a spent card can never linger on
+        // top and eat the next swipe. `layout` is intentionally NOT set: it made
+        // the exit ride an uncapped spring, the "ghost" that lingered 1.5–3s
+        // (Swipe Deck Excellence P2). Non-directional removals fade in place.
         exit: (dir) => ({
-          x: dir === 'left' ? -300 : dir === 'right' ? 300 : undefined,
+          x: dir === 'left' ? -480 : dir === 'right' ? 480 : 0,
           opacity: 0,
-          scale: 0.8,
-          transition: { duration: 0.25 }
-        })
+          scale: 0.9,
+          pointerEvents: 'none',
+          transition: { duration: 0.2, ease: 'easeOut' },
+        }),
       }}
       className={`absolute w-[90%] max-w-sm top-0 bottom-4 flex flex-col ${
         isDragEnabled ? 'cursor-grab active:cursor-grabbing' : ''
@@ -202,7 +210,9 @@ const SwipeCard = ({
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1 - depth * 0.05, opacity: isTop ? 1 : 1 - depth * 0.1, y: depth * 12 }}
       exit="exit"
-      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      // Snappier, near-critically-damped settle so the next card arrives under the
+      // thumb crisply instead of wobbling in (Swipe Deck Excellence P2 — tunable).
+      transition={{ type: 'spring', stiffness: 360, damping: 30 }}
     >
       <motion.div
         className={`flex flex-col h-full bg-white dark:bg-slate-900 rounded-[2.5rem] border-[3px] shadow-2xl overflow-hidden relative ${

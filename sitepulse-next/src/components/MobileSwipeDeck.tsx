@@ -102,7 +102,14 @@ export default function MobileSwipeDeck({
   const [skippedToBack, setSkippedToBack] = useState<string[]>([]);
   const [cardRedoStack, setCardRedoStack] = useState<SwipeHistoryEntry[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  // Two decoupled animation cues (Swipe Deck Excellence P2):
+  //   actionDirection → how the NEXT card ENTERS (slide-in on undo/redo/skip;
+  //     'none' on a swipe so the next card just settles under the thumb).
+  //   exitDirection   → which way a SPENT card FLIES OFF (fed to the exit variant
+  //     via AnimatePresence custom). Previously both were one value, which forced
+  //     swiped cards to fade in place instead of flying off.
   const [actionDirection, setActionDirection] = useState<'left' | 'right' | 'none'>('none');
+  const [exitDirection, setExitDirection] = useState<'left' | 'right' | 'none'>('none');
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const setToast = useUIStore(s => s.setToast);
   const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
@@ -116,6 +123,8 @@ export default function MobileSwipeDeck({
     setSkippedToBack([]);
     setCardRedoStack([]);
     setIsFiltersOpen(false);
+    // Cards dropped by the new filter should fade out, not fly a stale direction.
+    setExitDirection('none');
   }, [typeFilter]);
 
   const collectTimelinePayloads = (unitId: string) => collectTimelinePayloadsPure(pendingTimelineChanges, unitId);
@@ -154,6 +163,9 @@ export default function MobileSwipeDeck({
     const action = newRedo.pop();
     if (!action) return;
 
+    // Redo re-applies a swipe: the card exits again, so it should fly off the
+    // same way it was originally swiped (left = was skipped-to-back).
+    setExitDirection(action.wasSkippedToBack ? 'left' : 'right');
     setActionDirection(action.wasSkippedToBack ? 'left' : 'right');
     setToast({ message: 'Action re-applied', type: 'info' });
 
@@ -368,7 +380,7 @@ export default function MobileSwipeDeck({
             </button>
           </div>
         ) : (
-          <AnimatePresence mode="popLayout" custom={actionDirection}>
+          <AnimatePresence custom={exitDirection}>
             {orderedCards.map((c, i) => {
             const isTop = i === 0;
             const depth = Math.min(i, 3);
@@ -423,6 +435,7 @@ export default function MobileSwipeDeck({
                   ]);
                   setSkippedToBack((prev) => [...prev, unit.id]);
                   setCardRedoStack([]);
+                  setExitDirection('left');   // fly off left; next card just settles
                   setActionDirection('none');
                 }}
                 onSwipeRight={() => {
@@ -434,6 +447,7 @@ export default function MobileSwipeDeck({
                     buildHistoryEntry(unit.id, pendingChanges, pendingTimelineChanges, false),
                   ]);
                   setCardRedoStack([]);
+                  setExitDirection('right');  // fly off right; next card just settles
                   setActionDirection('none');
                 }}
                 onStageUpdate={handleLocalUpdate}
