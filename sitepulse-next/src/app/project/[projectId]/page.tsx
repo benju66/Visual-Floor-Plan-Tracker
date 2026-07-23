@@ -388,7 +388,9 @@ function App() {
   }, []);
 
   const showToast = (message: string, type: Toast['type']) => {
-    if (!settings.enableToasts) return;
+    // Errors and warnings always surface — "toasts off" silences routine
+    // success/info confirmations, never a failure the user needs to see.
+    if (!settings.enableToasts && type !== 'error' && type !== 'warning') return;
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
@@ -402,6 +404,9 @@ function App() {
     if (!isApplicable && currentState && currentState !== 'none') {
       setConfirmModal({
         message: `"${activity.name}" already has recorded status for ${unit.unit_number}. Mark it Not Applicable anyway? Existing history is kept but excluded from progress.`,
+        // Not a delete — don't show a red "Delete" button for an N/A toggle.
+        confirmLabel: 'Mark Not Applicable',
+        confirmTone: 'primary',
         onConfirm: () => { commit(); setConfirmModal(null); }
       });
     } else {

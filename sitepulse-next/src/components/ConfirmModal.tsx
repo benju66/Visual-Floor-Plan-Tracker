@@ -24,9 +24,13 @@ export default function ConfirmModal({ confirmModal, setConfirmModal }: ConfirmM
           <button
             type="button"
             onClick={() => confirmModal.onConfirm()}
-            className="px-4 py-2 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700"
+            className={`px-4 py-2 rounded-lg text-white font-bold ${
+              (confirmModal.confirmTone ?? 'danger') === 'primary'
+                ? 'bg-sky-600 hover:bg-sky-700'
+                : 'bg-red-600 hover:bg-red-700'
+            }`}
           >
-            Delete
+            {confirmModal.confirmLabel ?? 'Delete'}
           </button>
         </div>
       </div>
