@@ -75,7 +75,9 @@ export function useMapActions(project: Project | null | undefined) {
   const pushRecentStamp = useSettingsStore(s => s.pushRecentStamp);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning') => {
-    if (!settings.enableToasts) return;
+    // Errors and warnings always surface — "toasts off" silences routine
+    // success/info confirmations, never a failure the user needs to see.
+    if (!settings.enableToasts && type !== 'error' && type !== 'warning') return;
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };

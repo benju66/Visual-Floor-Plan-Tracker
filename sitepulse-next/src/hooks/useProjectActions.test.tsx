@@ -148,7 +148,8 @@ beforeEach(() => {
   invalidatePdfBytes.mockClear();
 
   // Real Zustand singletons — reset the slices this hook reads so nothing bleeds.
-  // enableToasts:false keeps showToast a no-op (no dangling setTimeout in tests).
+  // enableToasts:false keeps success/info toasts a no-op; errors/warnings still
+  // surface even when toasts are off (post-W3 fix — see the rename-failure test).
   useMapStore.setState({ activeSheetId: '', selectedFile: null, isUploading: false, pdfPageNumber: 1 });
   useUIStore.setState({ newLevelName: '', isModalOpen: false, toast: null });
   useSettingsStore.setState({ settings: { enableToasts: false } as never });
@@ -228,7 +229,7 @@ describe('useProjectActions — handleUpdateActivity', () => {
     });
   });
 
-  it('swallows a mutation failure (surfaces via toast, never throws to the caller)', async () => {
+  it('swallows a mutation failure, surfacing it via an error toast even when toasts are OFF (never throws)', async () => {
     updateActivityMutateAsync.mockRejectedValueOnce(new Error('rename denied'));
     const { wrapper } = makeCtx();
     const { result } = renderHook(() => useProjectActions(project, [], 'proj-1'), { wrapper });
@@ -240,6 +241,10 @@ describe('useProjectActions — handleUpdateActivity', () => {
       ).resolves.toBeUndefined();
     });
     expect(updateActivityMutateAsync).toHaveBeenCalledTimes(1);
+    // Post-W3 fix: the failure is NOT silent even though beforeEach set enableToasts:false.
+    const toast = useUIStore.getState().toast;
+    expect(toast?.type).toBe('error');
+    expect(toast?.message).toContain('Failed to update activity');
   });
 });
 

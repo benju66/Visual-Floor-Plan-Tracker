@@ -11,6 +11,11 @@ export interface Toast {
 export interface ConfirmModal {
   message: string;
   onConfirm: () => void | Promise<void>;
+  /** Confirm-button text. Defaults to 'Delete' (the modal's original, delete-only use). */
+  confirmLabel?: string;
+  /** Confirm-button styling. 'danger' (default) = red for destructive actions;
+   *  'primary' = neutral blue for non-destructive confirms (e.g. Mark N/A). */
+  confirmTone?: 'danger' | 'primary';
 }
 
 /**
