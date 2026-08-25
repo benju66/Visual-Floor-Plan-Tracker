@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/supabaseClient';
 import { queryKeys } from '@/types/queryKeys';
+import { fetchAllIn } from './shared';
 import type { Sheet, ScaleCalibration } from '@/types/domain';
 import type { Database, Json } from '@/types/database.types';
 
@@ -168,5 +169,74 @@ export function useReorderSheets(projectId: string) {
       return {};
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sheets(projectId) })
+  });
+}
+
+/** What deleting a sheet would destroy. Counts only — no rows are transferred. */
+export interface SheetDeleteImpact {
+  /** Locations mapped on the sheet. */
+  units: number;
+  /** Status records across those locations — the irreplaceable field history. */
+  statuses: number;
+}
+
+/**
+ * Count what `handleDeleteSheet` would permanently destroy, for the delete
+ * confirmation. The cascade is irreversible and non-transactional, so the realistic
+ * accident is deleting the WRONG level — and seeing "84 locations" where you expected
+ * an empty one is what catches that before it happens.
+ *
+ * `enabled` is caller-controlled and MUST stay false until a confirm is actually open:
+ * this is a per-sheet aggregate, pointless to prefetch for every level in the list.
+ *
+ * Exactness matters more than speed here — an undercount would actively mislead
+ * someone into a destructive action, so both numbers are server-side `count: 'exact'`
+ * with `head: true` (no row payload). Errors PROPAGATE rather than degrading to 0;
+ * the caller shows the generic warning instead of a wrong number.
+ *
+ * status_logs has no sheet_id, so its count goes via the sheet's unit ids, chunked the
+ * same way `fetchAllIn` chunks (a `.in(...)` URL with every id 414s past ~250 units).
+ * The ids themselves are read with the same paginated helper, so a sheet over
+ * PostgREST's 1000-row cap can't silently undercount (see AGENTS §2 / fetchAllIn).
+ */
+export function useSheetDeleteImpact(sheetId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.sheetDeleteImpact(sheetId ?? ''),
+    queryFn: async (): Promise<SheetDeleteImpact> => {
+      const { count: unitCount, error: unitErr } = await supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('sheet_id', sheetId as string);
+      if (unitErr) throw unitErr;
+
+      const units = unitCount ?? 0;
+      if (units === 0) return { units: 0, statuses: 0 };
+
+      const unitRows = await fetchAllIn<{ id: string }>('units', 'sheet_id', [sheetId as string], 'id');
+      const unitIds = unitRows.map((u) => u.id);
+
+      const ID_CHUNK = 200; // same bound as fetchAllIn — keeps each .in(...) URL safe
+      let statuses = 0;
+      for (let i = 0; i < unitIds.length; i += ID_CHUNK) {
+        const { count, error } = await supabase
+          .from('status_logs')
+          .select('id', { count: 'exact', head: true })
+          .in('unit_id', unitIds.slice(i, i + ID_CHUNK));
+        if (error) throw error;
+        statuses += count ?? 0;
+      }
+
+      return { units, statuses };
+    },
+    enabled: enabled && !!sheetId,
+    // A confirmation must reflect the CURRENT state, not a cached one from an earlier
+    // open — the counts move every time anyone edits the level.
+    staleTime: 0,
+    gcTime: 0,
+    // Fail fast, don't retry. The confirm button is disabled while this is pending, so
+    // a retry + backoff would leave someone staring at a dead button on a dialog they
+    // already opened. This is a safety aid, not a gate: when it can't load, the caller
+    // falls back to the generic warning and lets the delete proceed.
+    retry: false,
   });
 }
