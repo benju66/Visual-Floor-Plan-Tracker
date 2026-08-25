@@ -40,9 +40,20 @@ export default function StatusTrigger({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onChooseStatus?.(unit, (m) =>
-            onLocalUpdate(unit, baseLog, pendingChange?.state || (log?.temporal_state as TemporalState) || 'completed', { activityObj: m })
-          );
+          onChooseStatus?.(unit, (m) => {
+            // Picking a DIFFERENT activity must not inherit the staged one's status.
+            // It used to: `pendingChange.state` won, so marking Drywall complete and
+            // then switching to Paint handed Paint a "completed" the user never set —
+            // and (before the parking fix in useFieldData) silently dropped Drywall.
+            // A switch now resolves exactly as if nothing were staged: the row's own
+            // stored state, else the fresh-pick default.
+            const stagedActivity = pendingChange?.extraProps?.activityObj?.name || pendingChange?.log?.activityName;
+            const isSwitch = Boolean(stagedActivity && m.name && m.name !== stagedActivity);
+            const nextState = isSwitch
+              ? ((baseLog?.temporal_state as TemporalState) || 'completed')
+              : (pendingChange?.state || (log?.temporal_state as TemporalState) || 'completed');
+            onLocalUpdate(unit, baseLog, nextState, { activityObj: m });
+          });
         }}
         disabled={savingUnitId === unit.id || isApplying}
         className={`w-full text-left rounded-xl border ${
