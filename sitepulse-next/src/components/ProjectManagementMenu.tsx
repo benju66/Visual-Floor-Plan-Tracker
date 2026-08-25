@@ -17,6 +17,7 @@ import {
   useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useSheetDeleteImpact } from '@/hooks/useProjectQueries';
 import type { Sheet } from '@/types/domain';
 
 interface SortableSheetItemProps {
@@ -36,6 +37,12 @@ function SortableSheetItem({
   sheet, editingId, editName, setEditName, handleSaveEdit, setEditingId,
   confirmDeleteId, setConfirmDeleteId, onDeleteSheet, handleStartEdit
 }: SortableSheetItemProps) {
+  // Counted ONLY while this row's confirm is open — the delete cascade is
+  // irreversible, and the numbers are what catch a wrong-row delete. `enabled`
+  // keeps it from firing for every level in the list.
+  const isConfirming = confirmDeleteId === sheet.id;
+  const impact = useSheetDeleteImpact(sheet.id, isConfirming);
+
   const {
     attributes,
     listeners,
@@ -90,11 +97,38 @@ function SortableSheetItem({
           </button>
         </div>
       ) : confirmDeleteId === sheet.id ? (
-        <div className="flex-1 flex items-center justify-between">
-          <span className="text-sm font-semibold flex items-center gap-1.5 text-red-600 dark:text-red-400">
-            <AlertTriangle className="w-4 h-4" /> Delete this level forever?
+        <div className="flex-1 flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold flex items-start gap-1.5 text-red-600 dark:text-red-400 min-w-0">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span className="min-w-0">
+              {impact.isPending ? (
+                // Hold the confirm until the numbers land — showing them AFTER the
+                // click would defeat the point of showing them at all.
+                <>Checking what this will delete…</>
+              ) : impact.data ? (
+                <>
+                  Permanently delete{' '}
+                  <span className="tabular-nums">{impact.data.units.toLocaleString()}</span>
+                  {' '}{impact.data.units === 1 ? 'location' : 'locations'} and{' '}
+                  <span className="tabular-nums">{impact.data.statuses.toLocaleString()}</span>
+                  {' '}status {impact.data.statuses === 1 ? 'record' : 'records'}?
+                  <span className="block font-normal text-red-500/80 dark:text-red-400/70">
+                    This cannot be undone.
+                  </span>
+                </>
+              ) : (
+                // The count failed. Never guess a number into a destructive prompt —
+                // fall back to the generic warning rather than an unverified "0".
+                <>
+                  Delete this level forever?
+                  <span className="block font-normal text-red-500/80 dark:text-red-400/70">
+                    Couldn&apos;t check how much data this removes.
+                  </span>
+                </>
+              )}
+            </span>
           </span>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <button
               onClick={() => setConfirmDeleteId(null)}
               className="px-3 py-1 text-xs font-medium border rounded-lg hover:bg-slate-100 dark:hover:bg-white/10"
@@ -103,7 +137,8 @@ function SortableSheetItem({
             </button>
             <button
               onClick={() => onDeleteSheet(sheet.id)}
-              className="px-3 py-1 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-sm"
+              disabled={impact.isPending}
+              className="px-3 py-1 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Confirm Wipe
             </button>

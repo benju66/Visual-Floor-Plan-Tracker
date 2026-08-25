@@ -41,6 +41,11 @@ export const queryKeys = {
   // [{ label, p1, p2, axis }] + M1 provenance. Cache-first read; invalidated by
   // the "accept all" bulk-confirm upsert.
   sheetGridlines:     (sheetId: string)         => ['sheet_gridlines', sheetId] as const,
+  // What deleting a sheet would destroy: exact location + status-record counts, shown
+  // in the delete confirmation so a wrong-row delete is caught before it happens
+  // (the cascade is irreversible). Counted on demand — fetched only while a confirm
+  // is open, never prefetched.
+  sheetDeleteImpact:  (sheetId: string)         => ['sheet_delete_impact', sheetId] as const,
   projectMembers:     (projectId: string)       => ['project_members', projectId] as const,
   currentUserRole:    (projectId: string)       => ['current_user_role', projectId] as const,
   // Global (cross-project) profiles directory for the admin assignment modal.
