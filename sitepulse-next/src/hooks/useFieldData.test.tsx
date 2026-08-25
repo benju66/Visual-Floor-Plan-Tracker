@@ -389,3 +389,154 @@ describe('Save Visibility Phase 3 — a failed save is surfaced (not silent) and
     expect(deriveSyncState(result.current)).toBe('error');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Activity-switch parking. `pendingChanges` is keyed by unit id alone — one staged
+// slot per location — while the row's picker can choose ANY activity for it. Before
+// this, switching the picker overwrote the staged change in place: the previous
+// activity's edit never reached the server and nothing surfaced that it had gone.
+// These pin the fix AND the paths that must keep merging in place.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('handleLocalUpdate — switching a location to a different activity', () => {
+  it('parks the displaced edit instead of dropping it: BOTH activities apply', async () => {
+    const applied: Array<{ unitId: string; activity: string; state: string }> = [];
+    const onApply = vi.fn(async (changes: PendingChange[]) => {
+      for (const c of changes) {
+        applied.push({
+          unitId: c.unit.id,
+          activity: c.extraProps?.activityObj?.name ?? '(none)',
+          state: c.state as string,
+        });
+      }
+    });
+    const { result } = await mountFieldData(onApply);
+
+    // Mark Drywall complete on u1…
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'Drywall') });
+    });
+    expect(result.current.pendingCount).toBe(1);
+
+    // …then, without applying, switch the SAME location to Paint.
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'ongoing', { activityObj: activityObj('a2', 'Paint') });
+    });
+
+    // Two staged slots, not one. Drywall is parked in the slot-keyed timeline map;
+    // the primary slot holds the activity the row now shows.
+    expect(result.current.pendingCount).toBe(2);
+    expect(result.current.pendingTimelineChanges['u1_Drywall']).toBeDefined();
+    expect(result.current.pendingChanges['u1'].extraProps?.activityObj?.name).toBe('Paint');
+
+    await act(async () => { await result.current.handleApplyAll(); });
+
+    // Both reach the server, each with its OWN state — the switch must not carry
+    // Drywall's 'completed' onto Paint.
+    expect(applied).toHaveLength(2);
+    expect(applied).toEqual(expect.arrayContaining([
+      { unitId: 'u1', activity: 'Drywall', state: 'completed' },
+      { unitId: 'u1', activity: 'Paint', state: 'ongoing' },
+    ]));
+    // And the queue fully drains — the guarded checkpoint must not strand either slot.
+    expect(result.current.pendingCount).toBe(0);
+  });
+
+  it('gives the switched-to activity a FRESH capture, not the displaced slot\'s', async () => {
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    const { result } = await mountFieldData(onApply);
+
+    // Pin the clock: both captures would otherwise land in the same millisecond and
+    // the timestamps would compare equal whether or not the fix is present.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-03-01T09:00:00.000Z'));
+      act(() => {
+        result.current.handleLocalUpdate(unit('u1'), null, 'completed', {
+          activityObj: activityObj('a1', 'Drywall'), loggedDate: '2026-01-01',
+        });
+      });
+      const drywallCapturedAt = result.current.pendingChanges['u1'].capturedAt;
+      expect(drywallCapturedAt).toBe('2026-03-01T09:00:00.000Z');
+
+      vi.setSystemTime(new Date('2026-03-01T09:05:00.000Z'));
+      act(() => {
+        result.current.handleLocalUpdate(unit('u1'), null, 'ongoing', { activityObj: activityObj('a2', 'Paint') });
+      });
+
+      const paint = result.current.pendingChanges['u1'];
+      // Inheriting the displaced slot's capturedAt would mis-order this write under the
+      // last-write-wins guard; inheriting its extraProps would graft Drywall's completion
+      // date onto Paint.
+      expect(paint.capturedAt).toBe('2026-03-01T09:05:00.000Z');
+      expect(paint.extraProps?.loggedDate).toBeUndefined();
+      // The parked Drywall entry keeps its OWN capture time and its date.
+      expect(result.current.pendingTimelineChanges['u1_Drywall'].capturedAt).toBe(drywallCapturedAt);
+      expect(result.current.pendingTimelineChanges['u1_Drywall'].extraProps?.loggedDate).toBe('2026-01-01');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does NOT park for a same-slot re-edit — a date edit still merges in place', async () => {
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'Drywall') });
+    });
+    const capturedAt = result.current.pendingChanges['u1'].capturedAt;
+
+    // The date cells pass the row's underlying log and carry NO activityObj — an edit
+    // to the currently staged slot, which must merge exactly as before (never park).
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { startDate: '2026-05-01' });
+    });
+
+    expect(result.current.pendingCount).toBe(1);
+    expect(result.current.pendingTimelineChanges['u1_Drywall']).toBeUndefined();
+    // Merged, not replaced: the activity and the original capture time both survive.
+    expect(result.current.pendingChanges['u1'].extraProps?.activityObj?.name).toBe('Drywall');
+    expect(result.current.pendingChanges['u1'].extraProps?.startDate).toBe('2026-05-01');
+    expect(result.current.pendingChanges['u1'].capturedAt).toBe(capturedAt);
+  });
+
+  it('re-picking the SAME activity does not park a duplicate', async () => {
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'Drywall') });
+    });
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'ongoing', { activityObj: activityObj('a1', 'Drywall') });
+    });
+
+    expect(result.current.pendingCount).toBe(1);
+    expect(result.current.pendingTimelineChanges['u1_Drywall']).toBeUndefined();
+    expect(result.current.pendingChanges['u1'].state).toBe('ongoing');
+  });
+
+  it('removing a parked activity from the drawer clears it from whichever map holds it', async () => {
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    const { result } = await mountFieldData(onApply);
+
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'completed', { activityObj: activityObj('a1', 'Drywall') });
+    });
+    act(() => {
+      result.current.handleLocalUpdate(unit('u1'), null, 'ongoing', { activityObj: activityObj('a2', 'Paint') });
+    });
+    expect(result.current.pendingCount).toBe(2);
+
+    // Drop the PARKED one (timeline map) — the primary Paint slot survives.
+    act(() => { result.current.handleRemovePendingItem('u1', 'Drywall'); });
+    expect(result.current.pendingCount).toBe(1);
+    expect(result.current.pendingChanges['u1'].extraProps?.activityObj?.name).toBe('Paint');
+
+    // Drop the one held in the PRIMARY slot — previously a no-op, so it reappeared
+    // and still got written on Apply.
+    act(() => { result.current.handleRemovePendingItem('u1', 'Paint'); });
+    expect(result.current.pendingCount).toBe(0);
+    expect(result.current.pendingChanges['u1']).toBeUndefined();
+  });
+});

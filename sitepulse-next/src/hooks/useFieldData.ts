@@ -88,6 +88,16 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
   // Prevents the useEffect from writing to IDB on every setPendingChanges call during handleApplyAll.
   const isSyncingRef = useRef(false);
 
+  // Read-only mirror of `pendingChanges`, for the displaced-slot lookup in
+  // handleLocalUpdate. That handler MUST keep a stable identity (empty deps —
+  // React.memo(LocationRow) depends on it, List View Performance Phase 3), so it
+  // cannot close over `pendingChanges`. It only READS the displaced slot here; every
+  // write still goes through the functional setter. Safe against staleness because
+  // an activity switch is a discrete click — React flushes between discrete events,
+  // so this ref is current by the time the next pick runs.
+  const pendingChangesRef = useRef<PendingChangesMap>({});
+  useEffect(() => { pendingChangesRef.current = pendingChanges; }, [pendingChanges]);
+
   // --- Rehydrate persisted pending changes from IDB on mount / project change ---
   const [hasRehydrated, setHasRehydrated] = useState(false);
 
@@ -155,6 +165,41 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
   // useState → IDB with capture-time timestamps — unchanged here.)
   const handleLocalUpdate = useCallback((unit: Unit, baseLog: StatusLog | null, state: TemporalState, extraProps: Record<string, any> = {}) => {
     const now = new Date().toISOString();
+
+    // ── Activity-switch parking ──────────────────────────────────────────────
+    // `pendingChanges` is keyed by unit id alone — one staged slot per location —
+    // while the row's picker can choose ANY activity for that location. Switching
+    // the picker therefore used to overwrite the staged change in place, silently
+    // dropping the previous activity's edit: it never reached the server and
+    // nothing surfaced that it had gone. Park the displaced edit in the slot-keyed
+    // timeline queue instead, so BOTH activities apply (handleApplyAll unions the
+    // two maps and dedupes on pendingChangeKey, so the parked entry is a distinct
+    // slot and survives).
+    //
+    // ONLY an explicit activity pick parks. `extraProps.activityObj` is present
+    // only when the user chose an activity from the menu; the date cells and the
+    // swipe-deck state changes carry no activityObj and are edits to the CURRENTLY
+    // staged slot — those must keep merging exactly as before, which is why the
+    // guard is on activityObj rather than on the derived slot key (the date cells
+    // pass the row's underlying log, whose activityName can differ from the staged
+    // pick, and would otherwise look like a switch).
+    const incomingActivity: string | null = extraProps?.activityObj?.name ?? null;
+    const displaced = pendingChangesRef.current[unit.id];
+    const displacedActivity: string | null =
+      displaced?.extraProps?.activityObj?.name ?? displaced?.log?.activityName ?? null;
+    const isActivitySwitch = Boolean(
+      incomingActivity && displaced && displacedActivity && incomingActivity !== displacedActivity
+    );
+
+    if (isActivitySwitch && displaced) {
+      const displacedKey = pendingChangeKey(displaced);
+      setPendingTimelineChanges((prev) =>
+        // An existing timeline entry for that slot is an equally-valid capture of the
+        // same (unit, activity) — never clobber it with the displaced copy.
+        prev[displacedKey] ? prev : { ...prev, [displacedKey]: displaced }
+      );
+    }
+
     setPendingChanges((prev) => {
       const existing = prev[unit.id] || {
         log: baseLog || {},
@@ -167,9 +212,13 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
           unit,
           log: baseLog,
           state,
-          // Preserve original capturedAt if re-editing an already-queued item
-          capturedAt: existing.capturedAt ?? now,
-          extraProps: { ...existing.extraProps, ...extraProps },
+          // Preserve original capturedAt if re-editing an already-queued item — but a
+          // switch is a NEW capture of a DIFFERENT slot: inheriting the displaced
+          // slot's capture time would mis-order this write under the last-write-wins
+          // guard, and inheriting its extraProps would graft the old activity's dates
+          // onto this one.
+          capturedAt: isActivitySwitch ? now : (existing.capturedAt ?? now),
+          extraProps: isActivitySwitch ? { ...extraProps } : { ...existing.extraProps, ...extraProps },
         },
       };
     });
@@ -204,18 +253,32 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
 
   const handleRemovePendingItem = (unitId: string, activityName?: string | null): boolean => {
     if (activityName) {
-      const hasPrimary = pendingChanges[unitId] !== undefined;
-      const removed = pendingTimelineChanges[`${unitId}_${activityName}`];
+      const slotKey = `${unitId}_${activityName}`;
+      // The named slot can live in EITHER map since activity-switch parking: the
+      // primary slot holds the activity the row currently shows, parked ones sit in
+      // the timeline map. Removing "Drywall" from the drawer has to clear whichever
+      // map is holding it, or the item reappears and still gets written on Apply.
+      const primary = pendingChanges[unitId];
+      const primaryIsThisSlot = primary !== undefined && pendingChangeKey(primary) === slotKey;
+      const hasPrimary = primary !== undefined && !primaryIsThisSlot;
+      const removed = pendingTimelineChanges[slotKey] ?? (primaryIsThisSlot ? primary : undefined);
       const remainingTimelineKeys = Object.keys(pendingTimelineChanges).filter(
-        (k) => k.startsWith(`${unitId}_`) && k !== `${unitId}_${activityName}`
+        (k) => k.startsWith(`${unitId}_`) && k !== slotKey
       );
       const hasRemaining = hasPrimary || remainingTimelineKeys.length > 0;
 
       setPendingTimelineChanges((prev) => {
         const next = { ...prev };
-        delete next[`${unitId}_${activityName}`];
+        delete next[slotKey];
         return next;
       });
+      if (primaryIsThisSlot) {
+        setPendingChanges((prev) => {
+          const next = { ...prev };
+          delete next[unitId];
+          return next;
+        });
+      }
 
       // Dropping a queued item also drops its failed flag (Save Visibility — Phase 1).
       if (removed) setFailedKeys((prev) => withoutFailedKey(prev, pendingChangeKey(removed)));
@@ -301,8 +364,16 @@ export function useFieldData({ activeStatuses, onApplyPendingChanges, unitsOverr
     let checkpointTail: Promise<void> = Promise.resolve();
     const checkpoint = (change: PendingChange): Promise<void> => {
       checkpointTail = checkpointTail.then(() => {
-        delete livePending[change.unit.id];
-        delete liveTimeline[pendingChangeKey(change)];
+        // Drop ONLY this slot. `livePending` is keyed by unit id, so an unguarded
+        // `delete livePending[unit.id]` would also drain a DIFFERENT activity staged
+        // on the same location — and if that one then failed, it would be gone from
+        // the queue with nothing to retry. Reachable since activity-switch parking:
+        // one location can hold a primary slot plus parked timeline slots. Same guard
+        // handleRetryItem already uses.
+        const key = pendingChangeKey(change);
+        const primary = livePending[change.unit.id];
+        if (primary && pendingChangeKey(primary) === key) delete livePending[change.unit.id];
+        delete liveTimeline[key];
         return persistCurrentQueue(projectId, livePending, liveTimeline);
       });
       return checkpointTail;

@@ -177,33 +177,14 @@ export function useProjectActions(project: Project | null | undefined, sheets: S
       }
       invalidatePdfBytes(sheetId);
 
-      // F4: Clean up tile folder — list and remove all tile files
-      try {
-        const { data: tileFiles } = await supabase.storage.from('floorplans').list(`tiles/${sheetId}`, { limit: 1000 });
-        if (tileFiles && tileFiles.length > 0) {
-          // List files in subdirectories (output_files/0/, output_files/1/, etc.)
-          const { data: subFiles } = await supabase.storage.from('floorplans').list(`tiles/${sheetId}/output_files`, { limit: 5000 });
-          const allPaths: string[] = [`tiles/${sheetId}/output.dzi`];
-          if (subFiles) {
-            for (const sub of subFiles) {
-              const { data: levelFiles } = await supabase.storage.from('floorplans').list(`tiles/${sheetId}/output_files/${sub.name}`, { limit: 5000 });
-              if (levelFiles) {
-                for (const tile of levelFiles) {
-                  allPaths.push(`tiles/${sheetId}/output_files/${sub.name}/${tile.name}`);
-                }
-              }
-            }
-          }
-          if (allPaths.length > 0) {
-            // Supabase storage remove supports batches
-            for (let i = 0; i < allPaths.length; i += 100) {
-              await supabase.storage.from('floorplans').remove(allPaths.slice(i, i + 100));
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Tile cleanup warning (non-fatal):', e);
-      }
+      // (Dead `tiles/<sheetId>/…` cleanup removed — the OpenSeadragon DZI tile
+      // pyramid it swept was retired when the frontend moved to client-side
+      // pdf.js rendering (PdfBaseLayer), and the legacy objects were swept from
+      // storage in 2026-07-14's `sweep_storage_orphans.py` run. The bucket now
+      // holds only `originals/` and `converted/`, so those four nested `list()`
+      // calls could never match anything — they just cost four round-trips on
+      // every level delete. The canonical blob delete is the service-role
+      // `deleteSheetStorageService` call above.)
 
       // Clean up cached vectors
       try {
