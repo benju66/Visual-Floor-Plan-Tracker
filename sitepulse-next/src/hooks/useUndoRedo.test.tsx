@@ -47,10 +47,8 @@ vi.mock('@/supabaseClient', () => ({
 
 import { useUndoRedo, type UndoAction } from './useUndoRedo';
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = makeTestQueryClient();
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+/** The toast callback the hook reports failures through (Phase 3). */
+const showToast = vi.fn();
 
 /** A stored status_logs row as the read hooks hand it back (synthesized activityName included). */
 function storedLog(over: Partial<StatusLog> = {}): StatusLog {
@@ -72,9 +70,25 @@ function storedLog(over: Partial<StatusLog> = {}): StatusLog {
   } as StatusLog;
 }
 
-/** Drive the real hook: seed one action, then undo (or redo) it. */
+/**
+ * Drive the real hook: seed one action, then undo (or redo) it.
+ *
+ * Returns the hook result (for stack assertions), whether the call ESCAPED as a
+ * rejection — the keyboard handler doesn't await `triggerUndo`, so an escaped
+ * rejection is invisible to the user — and a spy on the query invalidation the
+ * failure path uses to re-sync the screen.
+ */
 async function run(action: UndoAction, direction: 'undo' | 'redo' = 'undo') {
-  const { result } = renderHook(() => useUndoRedo({ toolMode: 'pan', sheetId: 'sheet-1' }), { wrapper });
+  const client = makeTestQueryClient();
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+
+  const { result } = renderHook(
+    () => useUndoRedo({ toolMode: 'pan', sheetId: 'sheet-1', showToast }),
+    { wrapper },
+  );
   act(() => {
     if (direction === 'undo') result.current.setUndoStack([action]);
     else result.current.setRedoStack([action]);
@@ -84,7 +98,22 @@ async function run(action: UndoAction, direction: 'undo' | 'redo' = 'undo') {
     const trigger = direction === 'undo' ? result.current.triggerUndo : result.current.triggerRedo;
     await trigger().catch((e: unknown) => { thrown = e; });
   });
-  return { result, thrown };
+  return { result, thrown, invalidate };
+}
+
+/** What the user actually experiences when a write fails. */
+function failureReport(r: { thrown: unknown }) {
+  return {
+    escapedAsRejection: r.thrown !== null,
+    toastType: showToast.mock.calls[0]?.[1] ?? null,
+    toastMessage: String(showToast.mock.calls[0]?.[0] ?? ''),
+  };
+}
+
+/** Make every write route fail. */
+function failAllWrites() {
+  rpcResult.mockReturnValue({ data: null, error: { message: 'network down' } });
+  statusUpsertResult.mockReturnValue({ error: { message: 'network down' } });
 }
 
 const isoAfter = (t: number) => (value: unknown) =>
@@ -92,6 +121,7 @@ const isoAfter = (t: number) => (value: unknown) =>
 
 beforeEach(() => {
   writes.length = 0;
+  showToast.mockReset();
   rpcResult.mockReset().mockReturnValue({ data: null, error: null });
   statusUpsertResult.mockReset().mockReturnValue({ error: null });
 });
@@ -191,18 +221,24 @@ describe('UPDATE_STATUS undo', () => {
     });
   });
 
-  it('throws when the write fails instead of silently reporting success (defect 3)', async () => {
-    rpcResult.mockReturnValue({ data: null, error: { message: 'not-null violation' } });
-    statusUpsertResult.mockReturnValue({ error: { message: 'not-null violation' } });
+  it('tells the user when the write fails instead of silently reporting success (defect 3)', async () => {
+    failAllWrites();
 
-    const { thrown } = await run({
+    const r = await run({
       actionType: 'UPDATE_STATUS',
       unitId: 'unit-1',
       oldLog: null,
       newLog: storedLog(),
     });
 
-    expect({ threw: thrown !== null }).toEqual({ threw: true });
+    // Phase 1 made this THROW so it could not silently succeed; Phase 3 catches that
+    // throw and surfaces it. An escaped rejection would be invisible — the keyboard
+    // handler calls triggerUndo() without awaiting it.
+    expect(failureReport(r)).toEqual({
+      escapedAsRejection: false,
+      toastType: 'error',
+      toastMessage: expect.stringContaining('undo'),
+    });
   });
 });
 
@@ -305,12 +341,14 @@ describe('BULK_UPDATE_STATUS undo', () => {
       .toEqual(['u1/act-1:none', 'u1/act-2:none']);
   });
 
-  it('throws when a chunk fails instead of silently reporting success', async () => {
-    statusUpsertResult.mockReturnValue({ error: { message: 'boom' } });
-    rpcResult.mockReturnValue({ data: null, error: { message: 'boom' } });
+  it('tells the user when a chunk fails instead of silently reporting success', async () => {
+    failAllWrites();
 
-    const { thrown } = await run(bulkAction);
-    expect({ threw: thrown !== null }).toEqual({ threw: true });
+    expect(failureReport(await run(bulkAction))).toEqual({
+      escapedAsRejection: false,
+      toastType: 'error',
+      toastMessage: expect.stringContaining('undo'),
+    });
   });
 });
 
@@ -333,16 +371,20 @@ describe('BULK_UPDATE_STATUS redo', () => {
       .toEqual({ fresh: true });
   });
 
-  it('throws when a chunk fails', async () => {
-    statusUpsertResult.mockReturnValue({ error: { message: 'boom' } });
-    const { thrown } = await run({
+  it('tells the user when a chunk fails', async () => {
+    failAllWrites();
+    const r = await run({
       actionType: 'BULK_UPDATE_STATUS',
       unitIds: ['u1'],
       track: 'Production',
       oldLogs: [],
       newLogs: [storedLog({ unit_id: 'u1' })],
     }, 'redo');
-    expect({ threw: thrown !== null }).toEqual({ threw: true });
+    expect(failureReport(r)).toEqual({
+      escapedAsRejection: false,
+      toastType: 'error',
+      toastMessage: expect.stringContaining('redo'),
+    });
   });
 });
 
@@ -365,15 +407,19 @@ describe('DELETE_UNIT undo — status_logs restore', () => {
     }).toEqual({ count: 2, allFresh: true, anyLeakedId: false, anyLeakedName: false });
   });
 
-  it('throws when the status restore fails', async () => {
-    statusUpsertResult.mockReturnValue({ error: { message: 'boom' } });
-    const { thrown } = await run({
+  it('tells the user when the status restore fails', async () => {
+    failAllWrites();
+    const r = await run({
       actionType: 'DELETE_UNIT',
       unitId: 'u1',
       unitData: { id: 'u1', sheet_id: 'sheet-1' } as unknown as UndoAction['unitData'],
       statusLogs: [storedLog({ unit_id: 'u1' })],
     });
-    expect({ threw: thrown !== null }).toEqual({ threw: true });
+    expect(failureReport(r)).toEqual({
+      escapedAsRejection: false,
+      toastType: 'error',
+      toastMessage: expect.stringContaining('undo'),
+    });
   });
 });
 
@@ -422,12 +468,117 @@ describe('UPDATE_STATUS redo', () => {
       .toEqual(['rpc:upsert_status_log:act-1', 'rpc:upsert_status_log:act-2']);
 
     writes.length = 0;
-    rpcResult.mockReturnValue({ data: null, error: { message: 'boom' } });
-    statusUpsertResult.mockReturnValue({ error: { message: 'boom' } });
-    const { thrown } = await run(
+    showToast.mockReset();
+    failAllWrites();
+    const r = await run(
       { actionType: 'UPDATE_STATUS', unitId: 'unit-1', oldLog: null, newLog: storedLog(), secondary },
       'redo',
     );
-    expect({ threw: thrown !== null }).toEqual({ threw: true });
+    expect(failureReport(r)).toEqual({
+      escapedAsRejection: false,
+      toastType: 'error',
+      toastMessage: expect.stringContaining('redo'),
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3 — a failed undo must stop looking like a success. Phases 1 and 2 made
+// the writes correct and made a failure THROW; nothing caught it, and the
+// keyboard handler calls triggerUndo() without awaiting, so the throw surfaced
+// as an unhandled rejection in the console while the optimistic screen update
+// stood. Three things change: the user is told, the action stays available to
+// retry (owner decision 2026-08-28: back on the undo stack, NOT pushed to redo),
+// and the screen re-syncs with the database.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('failure handling', () => {
+  const statusAction: UndoAction = {
+    actionType: 'UPDATE_STATUS',
+    unitId: 'unit-1',
+    oldLog: null,
+    newLog: storedLog(),
+  };
+
+  it('keeps a failed undo on the undo stack and off the redo stack, so it can be retried', async () => {
+    failAllWrites();
+    const { result } = await run(statusAction);
+
+    // The action is popped and pushed to redo BEFORE the write runs, so the failure
+    // path has to reverse both moves. Consuming it would spend the user's only chance
+    // to reverse the change — the offline pending queue keeps failed items for the
+    // same reason (AGENTS §2).
+    expect({
+      undo: result.current.undoStack,
+      redo: result.current.redoStack,
+    }).toEqual({ undo: [statusAction], redo: [] });
+  });
+
+  it('keeps a failed redo on the redo stack and off the undo stack', async () => {
+    failAllWrites();
+    const { result } = await run(statusAction, 'redo');
+
+    expect({
+      undo: result.current.undoStack,
+      redo: result.current.redoStack,
+    }).toEqual({ undo: [], redo: [statusAction] });
+  });
+
+  it('re-syncs the screen with the database after a failure', async () => {
+    failAllWrites();
+    const { invalidate } = await run(statusAction);
+
+    // The optimistic cache update already applied, so the display is showing a revert
+    // that never happened. Refetching is the honest fix — the same pair of keys every
+    // status mutation invalidates in onSettled.
+    const keys = invalidate.mock.calls.map(c => JSON.stringify(c[0]?.queryKey));
+    expect({
+      sheetStatuses: keys.includes(JSON.stringify(['statuses', 'sheet-1'])),
+      allProjectStatuses: keys.includes(JSON.stringify(['all_project_statuses'])),
+    }).toEqual({ sheetStatuses: true, allProjectStatuses: true });
+  });
+
+  it('says plainly that nothing changed, and carries the underlying reason', async () => {
+    failAllWrites();
+    const r = await run(statusAction);
+
+    expect({
+      ...failureReport(r),
+      mentionsNothingChanged: /nothing was changed/i.test(String(showToast.mock.calls[0]?.[0])),
+      carriesReason: /network down/.test(String(showToast.mock.calls[0]?.[0])),
+      calls: showToast.mock.calls.length,
+    }).toEqual({
+      escapedAsRejection: false,
+      toastType: 'error',
+      toastMessage: expect.stringContaining('undo'),
+      mentionsNothingChanged: true,
+      carriesReason: true,
+      calls: 1,
+    });
+  });
+
+  it('stays silent and consumes the action normally when the write succeeds', async () => {
+    const { result, thrown } = await run(statusAction);
+
+    // The regression guard: a working undo must not toast, and must move the action
+    // to the redo stack exactly as before.
+    expect({
+      toasts: showToast.mock.calls.length,
+      undo: result.current.undoStack.length,
+      redo: result.current.redoStack,
+      thrown,
+    }).toEqual({ toasts: 0, undo: 0, redo: [statusAction], thrown: null });
+  });
+
+  it('surfaces a rejected write (an offline fetch), not just an { error } result', async () => {
+    // Supabase returns { error } for a rejected statement, but a dead connection
+    // rejects the promise instead. Both must reach the user the same way.
+    rpcResult.mockImplementation(() => { throw new Error('Failed to fetch'); });
+    const r = await run(statusAction);
+
+    expect(failureReport(r)).toEqual({
+      escapedAsRejection: false,
+      toastType: 'error',
+      toastMessage: expect.stringContaining('Failed to fetch'),
+    });
   });
 });

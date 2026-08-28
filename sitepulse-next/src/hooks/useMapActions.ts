@@ -116,7 +116,9 @@ export function useMapActions(project: Project | null | undefined) {
     undoStack, setUndoStack,
     redoStack, setRedoStack,
     triggerUndo, triggerRedo
-  } = useUndoRedo({ toolMode, sheetId: activeSheetId });
+    // showToast is threaded in so a failed undo/redo can TELL the user (Undo/Redo
+    // Data-Integrity Phase 3) — it is a required prop precisely so it can't be forgotten.
+  } = useUndoRedo({ toolMode, sheetId: activeSheetId, showToast });
 
   const handlePolygonComplete = (points: PercentPoint[]) => {
     setEditingUnitId(null);

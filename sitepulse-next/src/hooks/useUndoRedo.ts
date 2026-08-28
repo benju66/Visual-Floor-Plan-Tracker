@@ -46,6 +46,24 @@ export interface UndoAction {
 interface UseUndoRedoProps {
   toolMode: ToolMode;
   sheetId: string;
+  /**
+   * How a failed undo/redo reaches the user. **Required on purpose** (Phase 3): an
+   * optional callback can be left unwired, and an unwired failure notice is exactly
+   * the silence this workstream exists to remove — so the compiler enforces it
+   * rather than a dev-time warning. `useMapActions.showToast` lets `error` through
+   * even when the user has switched toasts off.
+   */
+  showToast: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
+}
+
+/** Best-effort human text from a thrown Error, a string, or a Supabase `{ error }` object. */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message: unknown }).message);
+  }
+  return 'Unknown error';
 }
 
 /**
@@ -84,17 +102,56 @@ async function writeStatusRows(rows: UndoStatusPayload[]): Promise<void> {
   }
 }
 
-export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
+export function useUndoRedo({ toolMode, sheetId, showToast }: UseUndoRedoProps) {
   const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
   const [redoStack, setRedoStack] = useState<UndoAction[]>([]);
   const queryClient = useQueryClient();
 
-  const triggerUndo = useCallback(async () => {
-    if (undoStack.length === 0 || !sheetId) return;
-    const action = undoStack[undoStack.length - 1];
-    setUndoStack(prev => prev.slice(0, -1));
-    setRedoStack(prev => [...prev, action]);
+  // `showToast` is re-created on every render of the calling hook, so keep it in a ref
+  // instead of a dependency — otherwise every render would rebuild triggerUndo/Redo.
+  const showToastRef = useRef(showToast);
+  useEffect(() => { showToastRef.current = showToast; });
 
+  /**
+   * A failed undo/redo must stop looking like a success (Phase 3). Phases 1 and 2 made
+   * the writes correct and made a failure throw; this is what catches it. Three things
+   * happen, and all three matter:
+   *
+   * 1. **The action goes back where it came from** — owner decision, 2026-08-28: on
+   *    failure it returns to its own stack and is NOT pushed to the opposite one, so a
+   *    change that couldn't save stays available to retry once the user is back online
+   *    (the offline pending queue keeps failed items for the same reason). Both triggers
+   *    move the action BEFORE attempting the write, so both moves are reversed here.
+   *    The identity check means a concurrent trigger can't have its own push undone.
+   * 2. **The user is told**, through the caller's toast (which shows errors even when
+   *    toasts are switched off).
+   * 3. **The screen re-syncs.** The optimistic cache update has already applied, so the
+   *    display is showing a revert that never reached the database. Invalidating is the
+   *    honest fix — a refetch, not a hand-rolled rollback. `units` is included because
+   *    this catch is shared with the geometry actions.
+   */
+  const handleWriteFailure = useCallback((err: unknown, action: UndoAction, direction: 'undo' | 'redo') => {
+    if (direction === 'undo') {
+      setRedoStack(prev => (prev[prev.length - 1] === action ? prev.slice(0, -1) : prev));
+      setUndoStack(prev => [...prev, action]);
+    } else {
+      setUndoStack(prev => (prev[prev.length - 1] === action ? prev.slice(0, -1) : prev));
+      setRedoStack(prev => [...prev, action]);
+    }
+
+    showToastRef.current(`Couldn't ${direction} — nothing was changed. ${errorMessage(err)}`, 'error');
+
+    queryClient.invalidateQueries({ queryKey: queryKeys.statusesBySheet(sheetId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.allProjectStatusesAll() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.units(sheetId) });
+  }, [queryClient, sheetId]);
+
+  /**
+   * Apply ONE undo action's cache + database writes. Split out from `triggerUndo` so the
+   * stack bookkeeping and the failure path read in one screen; it THROWS on a failed
+   * write (Phases 1–2) and `triggerUndo` is what catches that.
+   */
+  const applyUndoAction = useCallback(async (action: UndoAction) => {
     switch (action.actionType) {
       case 'UPDATE_GEOMETRY':
         queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => {
@@ -219,17 +276,23 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         }
         break;
     }
-  }, [undoStack, sheetId, queryClient]);
+  }, [sheetId, queryClient]);
 
-  const triggerRedo = useCallback(async () => {
-    if (redoStack.length === 0 || !sheetId) return;
-    const action = redoStack[redoStack.length - 1];
-    setRedoStack(prev => prev.slice(0, -1));
-    setUndoStack(prev => {
-        const next = [...prev, action];
-        return next.length > 50 ? next.slice(next.length - 50) : next;
-    });
+  const triggerUndo = useCallback(async () => {
+    if (undoStack.length === 0 || !sheetId) return;
+    const action = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    setRedoStack(prev => [...prev, action]);
 
+    try {
+      await applyUndoAction(action);
+    } catch (err) {
+      handleWriteFailure(err, action, 'undo');
+    }
+  }, [undoStack, sheetId, applyUndoAction, handleWriteFailure]);
+
+  /** Apply ONE redo action's cache + database writes. Mirror of {@link applyUndoAction}. */
+  const applyRedoAction = useCallback(async (action: UndoAction) => {
     switch (action.actionType) {
       case 'UPDATE_GEOMETRY':
         queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => {
@@ -322,7 +385,23 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         }
         break;
     }
-  }, [redoStack, sheetId, queryClient]);
+  }, [sheetId, queryClient]);
+
+  const triggerRedo = useCallback(async () => {
+    if (redoStack.length === 0 || !sheetId) return;
+    const action = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    setUndoStack(prev => {
+        const next = [...prev, action];
+        return next.length > 50 ? next.slice(next.length - 50) : next;
+    });
+
+    try {
+      await applyRedoAction(action);
+    } catch (err) {
+      handleWriteFailure(err, action, 'redo');
+    }
+  }, [redoStack, sheetId, applyRedoAction, handleWriteFailure]);
 
   const undoStateRef = useRef({ toolMode, triggerUndo, triggerRedo });
   useEffect(() => {
