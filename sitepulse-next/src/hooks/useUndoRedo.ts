@@ -3,7 +3,9 @@ import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/types/queryKeys';
 import type { Unit, StatusLog } from '@/types/domain';
+import type { Json } from '@/types/database.types';
 import type { ToolMode } from '@/store/useMapStore';
+import { buildStatusResetPayload, buildStatusRestorePayload, type UndoStatusPayload } from '@/utils/undoWrite';
 
 export interface UndoAction {
   actionType: 'UPDATE_GEOMETRY' | 'DELETE_UNIT' | 'UPDATE_STATUS' | 'BULK_UPDATE_STATUS' | 'CREATE_UNIT';
@@ -31,6 +33,22 @@ export interface UndoAction {
 interface UseUndoRedoProps {
   toolMode: ToolMode;
   sheetId: string;
+}
+
+/**
+ * Write ONE status slot through the `upsert_status_log` RPC — the single-mutation
+ * form AGENTS §2 sanctions (bulk paths keep `.upsert({ onConflict })`), and the only
+ * route with the last-write-wins guard and the omit-preserves/present-clears merge.
+ *
+ * THROWS on failure. Undo/redo used to discard every write result, so a rejected
+ * write looked exactly like a successful one: the screen reverted, the database
+ * didn't, and nobody was told. Throwing is what stops it silently succeeding —
+ * surfacing the failure to the user (and deciding what happens to the undo stack)
+ * is Phase 3's job.
+ */
+async function writeStatusSlot(payload: UndoStatusPayload): Promise<void> {
+  const { error } = await supabase.rpc('upsert_status_log', { log_data: payload as Json });
+  if (error) throw error;
 }
 
 export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
@@ -81,11 +99,18 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         break;
       }
 
-      case 'UPDATE_STATUS':
+      case 'UPDATE_STATUS': {
+        // The slot this action touched. With neither snapshot there is no slot key at
+        // all and nothing to write (structurally impossible from the push sites).
+        const ref = action.oldLog ?? action.newLog;
+        const unitId = action.unitId ?? ref?.unit_id ?? null;
+        const activityId = ref?.activity_id ?? null;
+        // One timestamp for the whole undo — see writeStatusSlot / undoWrite.ts: an undo
+        // is a new decision made NOW, so it stamps fresh and wins last-write-wins.
+        const nowIso = new Date().toISOString();
+
         queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
           if (!old) return old;
-          const ref = action.oldLog ?? action.newLog;
-          const activityId = ref?.activity_id;
           const filtered = old.filter(s => !(s.unit_id === action.unitId && s.activity_id === activityId));
           if (action.oldLog) {
             return [...filtered, action.oldLog];
@@ -94,20 +119,23 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           }
         });
 
-        let insertObj: any;
         if (action.oldLog) {
-          const { id, created_at, activityName, ...rest } = action.oldLog as any;
-          insertObj = rest;
-        } else {
-          insertObj = { unit_id: action.unitId, track: action.newLog?.track, activity_id: action.newLog?.activity_id, temporal_state: 'none' };
+          // Put the previous value back exactly as captured (minus the DB-owned and
+          // synthesized keys), with a fresh timestamp so the restore isn't rejected as
+          // stale by the RPC's last-write-wins guard.
+          await writeStatusSlot(buildStatusRestorePayload(action.oldLog, nowIso));
+        } else if (unitId && activityId) {
+          // The slot had NO prior status, so undo leaves a clean Not Started: colour and
+          // all four dates cleared, present-and-empty (omitting them would PRESERVE the
+          // values being undone). Never a row delete — RLS forbids client deletes on
+          // status_logs, and deleting would break the history timeline's continuity.
+          await writeStatusSlot(buildStatusResetPayload(unitId, activityId, ref?.track, nowIso));
         }
-        await supabase.from('status_logs').upsert([insertObj], { onConflict: 'unit_id,activity_id' });
 
         // Phase 4: the SAME Undo also reverses the auto-advance side-write. That slot was
         // Not Started before it was teed up (planAutoAdvance only advances a 'none' slot),
         // so restore it to none — the identical cache + DB path the primary's first-time
-        // ("no oldLog") branch above uses. Never .insert() — stay on the (unit_id,
-        // activity_id) upsert.
+        // ("no oldLog") branch above uses.
         if (action.secondary && action.secondary.newLog) {
           const secUnitId = action.secondary.unitId;
           const secLog = action.secondary.newLog;
@@ -116,9 +144,10 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
             const filtered = old.filter(s => !(s.unit_id === secUnitId && s.activity_id === secLog.activity_id));
             return [...filtered, { unit_id: secUnitId, track: secLog.track, activity_id: secLog.activity_id, activityName: secLog.activityName ?? '', temporal_state: 'none', id: `temp_${Date.now()}`, created_at: new Date().toISOString() } as StatusLog];
           });
-          await supabase.from('status_logs').upsert([{ unit_id: secUnitId, track: secLog.track, activity_id: secLog.activity_id, temporal_state: 'none' }] as any, { onConflict: 'unit_id,activity_id' });
+          await writeStatusSlot(buildStatusResetPayload(secUnitId, secLog.activity_id, secLog.track, nowIso));
         }
         break;
+      }
 
       case 'BULK_UPDATE_STATUS':
         queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
@@ -202,20 +231,33 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         break;
       }
 
-      case 'UPDATE_STATUS':
+      case 'UPDATE_STATUS': {
+        const ref = action.newLog ?? action.oldLog;
+        const activityId = ref?.activity_id ?? null;
+        // Fresh timestamp, same reasoning as the undo path: a redo is a decision made
+        // now and must win last-write-wins against the undo it is reversing.
+        const nowIso = new Date().toISOString();
+
         queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
           if (!old) return old;
-          const ref = action.newLog ?? action.oldLog;
-          const activityId = ref?.activity_id;
           const filtered = old.filter(s => !(s.unit_id === action.unitId && s.activity_id === activityId));
           if (action.newLog) {
             return [...filtered, action.newLog];
           }
           return filtered;
         });
+
         if (action.newLog) {
-          const { id, created_at, activityName, ...rest } = action.newLog as any;
-          await supabase.from('status_logs').upsert([rest], { onConflict: 'unit_id,activity_id' });
+          await writeStatusSlot(buildStatusRestorePayload(action.newLog, nowIso));
+        } else if (action.oldLog) {
+          // No `newLog` means the undone action was a Clear Status, so redo must
+          // re-clear the slot — the same full reset the undo path writes. Previously
+          // this branch only dropped the row from the cache and wrote NOTHING, so the
+          // database kept the restored status and a refresh brought it straight back.
+          const clearedUnitId = action.unitId ?? action.oldLog.unit_id ?? null;
+          if (clearedUnitId && activityId) {
+            await writeStatusSlot(buildStatusResetPayload(clearedUnitId, activityId, action.oldLog.track, nowIso));
+          }
         }
 
         // Phase 4: re-apply the auto-advance too — re-write its 'planned' after-state, the
@@ -228,10 +270,10 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
             const filtered = old.filter(s => !(s.unit_id === secUnitId && s.activity_id === secLog.activity_id));
             return [...filtered, secLog];
           });
-          const { id, created_at, activityName, ...rest } = secLog as any;
-          await supabase.from('status_logs').upsert([rest], { onConflict: 'unit_id,activity_id' });
+          await writeStatusSlot(buildStatusRestorePayload(secLog, nowIso));
         }
         break;
+      }
 
       case 'BULK_UPDATE_STATUS':
         queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
