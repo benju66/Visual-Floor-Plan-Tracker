@@ -87,3 +87,113 @@ export function buildStatusRestorePayload(
 ): UndoStatusPayload {
   return { ...stripStatusWriteFields(oldLog), client_timestamp: nowIso };
 }
+
+/**
+ * A `status_logs` slot as the undo stack records it — enough to address the row and,
+ * for a reset, to satisfy the NOT NULL `track`.
+ */
+export interface UndoSlotRef {
+  unit_id?: string | null;
+  activity_id?: string | null;
+  track?: string | null;
+}
+
+/** The slot key the database enforces: `UNIQUE(unit_id, activity_id)`, never the name. */
+function slotKey(slot: UndoSlotRef): string {
+  return `${slot.unit_id}_${slot.activity_id}`;
+}
+
+/**
+ * Give every payload in a batch the SAME key set, filling a missing key with `null`.
+ *
+ * **Required by PostgREST**, which builds one INSERT from a single column list — a
+ * batch mixing reset-shape and restore-shape rows is rejected outright, taking the
+ * valid rows down with it. Filling with `null` matches what a listed-but-absent column
+ * would do anyway (the conflict-update clears it), so this makes the write explicit
+ * rather than changing it.
+ */
+export function toUniformPayloads(rows: readonly UndoStatusPayload[]): UndoStatusPayload[] {
+  const keys = [...new Set(rows.flatMap(r => Object.keys(r)))];
+  return rows.map(row =>
+    Object.fromEntries(keys.map(k => [k, k in row ? row[k] : null])) as UndoStatusPayload);
+}
+
+/**
+ * The bulk "Not Started" reset, for a slot the bulk action CREATED (it had no prior
+ * row). Same intent as {@link buildStatusResetPayload}, but shaped for the bulk route.
+ *
+ * ⚠️ **The dates are `null` here, not `''`.** `''` is the clear only INSIDE the
+ * `upsert_status_log` RPC, which unwraps it (`NULLIF(x,'')::date`). Bulk writes go
+ * through a raw PostgREST upsert with no such unwrapping, so `''` would hit a `date`
+ * column and fail the cast — rejecting the whole chunk. `status_color` stays `''`
+ * because it is a text column that is NOT NULL.
+ */
+function buildBulkResetPayload(slot: UndoSlotRef, track: string, nowIso: string): UndoStatusPayload {
+  return {
+    unit_id: slot.unit_id,
+    activity_id: slot.activity_id,
+    track,
+    temporal_state: 'none',
+    status_color: '',
+    planned_start_date: null,
+    planned_end_date: null,
+    logged_date: null,
+    actual_start_date: null,
+    client_timestamp: nowIso,
+  };
+}
+
+/**
+ * Reverse a BULK status apply: one payload for **every slot the action touched**, not
+ * just the ones that had a status before.
+ *
+ * This is the fix for the workstream's highest-volume defect. The old bulk undo built
+ * its write list from the captured `oldLogs` alone, so a location that was Not Started
+ * before the apply got a cache entry saying "Not Started" and **no database write** —
+ * undo a bulk "mark 50 locations complete" and the screen reverts while the data
+ * stands.
+ *
+ * `slots` is the union of what the action WROTE (`newLogs`, which includes any
+ * auto-advanced next-activity slots) and what it captured a before-state for
+ * (`oldLogs`); `priorLogs` supplies the before-state. A slot with a prior log is
+ * restored; a slot without one is reset — that reset is the missing row.
+ *
+ * Every row is built on the reset base and then overlaid with the prior snapshot, so
+ * the NOT NULL columns (`status_color`, `temporal_state`, `track`) can never come out
+ * null, and the batch leaves here key-uniform. Slots that can't be addressed (no
+ * `unit_id`/`activity_id`) are dropped — there is no row to write. Order follows
+ * `slots`, first occurrence winning, so a caller can predict the batch.
+ *
+ * @throws if a slot needs a reset and no track can be resolved for it — `track` is NOT
+ * NULL, and inventing one would write a location into the wrong scope of work.
+ */
+export function buildBulkUndoPayloads(
+  slots: readonly UndoSlotRef[],
+  priorLogs: readonly UndoSlotRef[],
+  fallbackTrack: string | null | undefined,
+  nowIso: string,
+): UndoStatusPayload[] {
+  const priorBySlot = new Map(priorLogs
+    .filter(l => l.unit_id && l.activity_id)
+    .map(l => [slotKey(l), l]));
+
+  const seen = new Set<string>();
+  const rows: UndoStatusPayload[] = [];
+
+  for (const slot of slots) {
+    if (!slot.unit_id || !slot.activity_id) continue;
+    const key = slotKey(slot);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const prior = priorBySlot.get(key);
+    const track = prior?.track ?? slot.track ?? fallbackTrack;
+    if (!track) {
+      throw new Error(`buildBulkUndoPayloads: no track for slot ${key} — cannot build a NOT NULL track`);
+    }
+    const base = buildBulkResetPayload(slot, track, nowIso);
+    rows.push(prior ? { ...base, ...buildStatusRestorePayload(prior, nowIso) } : base);
+  }
+
+  return toUniformPayloads(rows);
+}

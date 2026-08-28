@@ -3,9 +3,17 @@ import { supabase } from '@/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/types/queryKeys';
 import type { Unit, StatusLog } from '@/types/domain';
-import type { Json } from '@/types/database.types';
+import type { Database, Json } from '@/types/database.types';
 import type { ToolMode } from '@/store/useMapStore';
-import { buildStatusResetPayload, buildStatusRestorePayload, type UndoStatusPayload } from '@/utils/undoWrite';
+import {
+  buildStatusResetPayload,
+  buildStatusRestorePayload,
+  buildBulkUndoPayloads,
+  toUniformPayloads,
+  type UndoStatusPayload,
+} from '@/utils/undoWrite';
+
+type StatusLogInsert = Database['public']['Tables']['status_logs']['Insert'];
 
 export interface UndoAction {
   actionType: 'UPDATE_GEOMETRY' | 'DELETE_UNIT' | 'UPDATE_STATUS' | 'BULK_UPDATE_STATUS' | 'CREATE_UNIT';
@@ -25,7 +33,12 @@ export interface UndoAction {
   secondary?: { unitId: string; newLog?: StatusLog | null };
   unitIds?: string[];
   track?: string;
-  activityName?: string;
+  // A BULK action's slots come from these two log sets, NOT from an activity name: the
+  // slot key is (unit_id, activity_id) (AGENTS §2). `oldLogs` is the track-wide capture
+  // of the selected units' prior state; `newLogs` is what the apply wrote, including any
+  // auto-advanced next-activity slot. A slot in `newLogs` with no `oldLogs` counterpart
+  // is one the apply CREATED — undo resets it. (There was also an `activityName` field
+  // here; nothing ever set it, so its name-keyed filter branches were unreachable.)
   oldLogs?: StatusLog[];
   newLogs?: StatusLog[];
 }
@@ -49,6 +62,26 @@ interface UseUndoRedoProps {
 async function writeStatusSlot(payload: UndoStatusPayload): Promise<void> {
   const { error } = await supabase.rpc('upsert_status_log', { log_data: payload as Json });
   if (error) throw error;
+}
+
+/** PostgREST request-size ceiling for a bulk status write (unchanged from the original). */
+const BULK_CHUNK_SIZE = 800;
+
+/**
+ * Write MANY status slots through the bulk form AGENTS §2 sanctions —
+ * `.upsert({ onConflict: 'unit_id,activity_id' })`, chunked — checking every chunk and
+ * throwing on the first failure (see {@link writeStatusSlot} for why throwing matters).
+ *
+ * Rows must already be key-uniform (`toUniformPayloads`): PostgREST builds ONE insert
+ * from a single column list, so a ragged batch is rejected whole.
+ */
+async function writeStatusRows(rows: UndoStatusPayload[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += BULK_CHUNK_SIZE) {
+    const { error } = await supabase
+      .from('status_logs')
+      .upsert(rows.slice(i, i + BULK_CHUNK_SIZE) as StatusLogInsert[], { onConflict: 'unit_id,activity_id' });
+    if (error) throw error;
+  }
 }
 
 export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
@@ -91,10 +124,11 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
           await supabase.from('units').insert([unit as any]);
         }
         if (logs?.length) {
-          // Strip the synthesized `activityName` (not a status_logs column); the slot
-          // key is (unit_id, activity_id).
-          const rows = logs.map(({ activityName, ...rest }: any) => rest);
-          await supabase.from('status_logs').upsert(rows as any, { onConflict: 'unit_id,activity_id' });
+          // Restore each captured row through the shared builder: it drops the DB-owned
+          // id/created_at and the synthesized activityName (the slot key is
+          // (unit_id, activity_id)) and stamps a fresh client_timestamp.
+          await writeStatusRows(toUniformPayloads(
+            logs.map(l => buildStatusRestorePayload(l, new Date().toISOString()))));
         }
         break;
       }
@@ -149,48 +183,34 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         break;
       }
 
-      case 'BULK_UPDATE_STATUS':
+      case 'BULK_UPDATE_STATUS': {
+        const oldLogs = action.oldLogs ?? [];
+
         queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
           if (!old) return old;
-          
-          let filtered: StatusLog[];
-          if (action.activityName && action.activityName !== '__KEEP_EXISTING__') {
-            filtered = old.filter(s => !(action.unitIds?.includes(s.unit_id as string) && s.track === action.track && s.activityName === action.activityName));
-          } else {
-            filtered = old.filter(s => !(action.unitIds?.includes(s.unit_id as string) && s.track === action.track));
-          }
-
-          let addedBack: StatusLog[] = [];
-          if (action.oldLogs && action.oldLogs.length > 0) {
-            addedBack = [...action.oldLogs];
-          }
-
-          if (action.activityName && action.activityName !== '__KEEP_EXISTING__') {
-             const unitsWithOldLog = new Set(action.oldLogs?.map(l => l.unit_id) || []);
-             const unitsMissing = action.unitIds?.filter(id => !unitsWithOldLog.has(id)) || [];
-             unitsMissing.forEach(id => {
-                addedBack.push({ unit_id: id, track: action.track as string, activityName: action.activityName as string, temporal_state: 'none', id: `temp_${id}_${Date.now()}` } as StatusLog);
-             });
-          }
-
-          return [...filtered, ...addedBack];
+          // The one push site (handleApplyBulkStatus) records unitIds + track + the two
+          // log sets and never an `activityName`, so the slot set comes from the logs —
+          // never from the display name (AGENTS §2: the slot key is activity_id). Slots
+          // the apply CREATED simply drop out here, which renders as Not Started, matching
+          // the reset now written below.
+          const filtered = old.filter(s => !(action.unitIds?.includes(s.unit_id as string) && s.track === action.track));
+          return [...filtered, ...oldLogs];
         });
-        
-        {
-          const CHUNK_SIZE = 800;
-          const logsToInsert: any[] = [];
-          if (action.oldLogs && action.oldLogs.length > 0) {
-             // Strip the synthesized `activityName` (not a column); rows carry activity_id.
-             logsToInsert.push(...action.oldLogs.map(({ id, created_at, activityName, ...rest }: any) => rest));
-          }
 
-          if (logsToInsert.length > 0) {
-            for (let i = 0; i < logsToInsert.length; i += CHUNK_SIZE) {
-              await supabase.from('status_logs').upsert(logsToInsert.slice(i, i + CHUNK_SIZE) as any, { onConflict: 'unit_id,activity_id' });
-            }
-          }
-        }
+        // Revert every slot the action touched: the ones it WROTE (`newLogs`, which
+        // includes any auto-advanced next-activity slot) plus the ones it captured a
+        // before-state for. buildBulkUndoPayloads restores where a prior row exists and
+        // RESETS where none does — and that reset is the row this path never used to
+        // write, which is why undoing a bulk apply reverted the screen and left the
+        // database alone for every location that had been Not Started.
+        await writeStatusRows(buildBulkUndoPayloads(
+          [...(action.newLogs ?? []), ...oldLogs],
+          oldLogs,
+          action.track,
+          new Date().toISOString(),
+        ));
         break;
+      }
 
       case 'CREATE_UNIT':
         queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => old ? old.filter(u => u.id !== action.unitData?.id) : old);
@@ -224,8 +244,10 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         if (unit) {
           queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => old ? old.filter(u => u.id !== unit.id) : old);
           queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => old ? old.filter(s => s.unit_id !== unit.id) : old);
-          // Remove status rows before the unit (mirror useDeleteUnit; FK-safe).
-          await supabase.from('status_logs').delete().eq('unit_id', unit.id);
+          // No explicit status_logs delete: `status_logs.unit_id` FKs `units(id)` ON
+          // DELETE CASCADE, so the unit delete removes them (verified against production
+          // 2026-08-28). The client couldn't delete them anyway — status_logs has RLS on
+          // and no DELETE policy, so such a call removes zero rows and reports no error.
           await supabase.from('units').delete().eq('id', unit.id);
         }
         break;
@@ -275,29 +297,23 @@ export function useUndoRedo({ toolMode, sheetId }: UseUndoRedoProps) {
         break;
       }
 
-      case 'BULK_UPDATE_STATUS':
+      case 'BULK_UPDATE_STATUS': {
+        const newLogs = action.newLogs ?? [];
+
         queryClient.setQueriesData<StatusLog[]>({ queryKey: queryKeys.statusesBySheet(sheetId) }, (old) => {
           if (!old) return old;
-          let filtered: StatusLog[];
-          if (action.activityName && action.activityName !== '__KEEP_EXISTING__') {
-             filtered = old.filter(s => !(action.unitIds?.includes(s.unit_id as string) && s.track === action.track && s.activityName === action.activityName));
-          } else {
-             filtered = old.filter(s => !(action.unitIds?.includes(s.unit_id as string) && s.track === action.track));
-          }
-          if (action.newLogs && action.newLogs.length > 0) {
-            return [...filtered, ...action.newLogs];
-          }
-          return filtered;
+          // Same slot set as the undo path above — from the logs, never the display name.
+          const filtered = old.filter(s => !(action.unitIds?.includes(s.unit_id as string) && s.track === action.track));
+          return [...filtered, ...newLogs];
         });
 
-        if (action.newLogs && action.newLogs.length > 0) {
-          const CHUNK_SIZE = 800;
-          const logsToInsert: any[] = action.newLogs.map(({ id, created_at, activityName, ...rest }: any) => rest);
-          for (let i = 0; i < logsToInsert.length; i += CHUNK_SIZE) {
-            await supabase.from('status_logs').upsert(logsToInsert.slice(i, i + CHUNK_SIZE) as any, { onConflict: 'unit_id,activity_id' });
-          }
-        }
+        // Re-apply ONLY the slots the bulk action wrote. A slot that appears solely in
+        // `oldLogs` was never touched by the apply (the capture is track-wide), so
+        // writing it here would clobber a slot nobody changed.
+        await writeStatusRows(toUniformPayloads(
+          newLogs.map(l => buildStatusRestorePayload(l, new Date().toISOString()))));
         break;
+      }
 
       case 'CREATE_UNIT':
         queryClient.setQueriesData<Unit[]>({ queryKey: queryKeys.units(sheetId) }, (old) => old && action.unitData ? [...old, action.unitData] : (action.unitData ? [action.unitData] : old));
