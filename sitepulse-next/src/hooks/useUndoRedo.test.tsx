@@ -206,6 +206,177 @@ describe('UPDATE_STATUS undo', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — bulk + unit-restore. The bulk undo built its write list from
+// `action.oldLogs` alone, so every location that had NO prior status got a cache
+// entry saying "Not Started" and no database write: undo a bulk "mark 50 complete"
+// and the screen reverts while the data stands (defect 4, reproduced 3 in → 1
+// written). Bulk stays on `.upsert({ onConflict })` per AGENTS §2 — only the
+// payload SET, the key uniformity, the timestamps and the error checks change.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('BULK_UPDATE_STATUS undo', () => {
+  // A bulk apply of act-1 across three locations. Only u2 had a prior status, so
+  // u1 and u3 are the rows the old code never wrote.
+  const bulkAction: UndoAction = {
+    actionType: 'BULK_UPDATE_STATUS',
+    unitIds: ['u1', 'u2', 'u3'],
+    track: 'Production',
+    oldLogs: [storedLog({ id: 'log-u2', unit_id: 'u2', temporal_state: 'planned', status_color: '#aaaaaa' })],
+    newLogs: ['u1', 'u2', 'u3'].map(u => storedLog({
+      id: `new-${u}`, unit_id: u, temporal_state: 'completed', status_color: '#3366aa',
+    })),
+  };
+
+  it('writes one row per location, including the ones that had no prior status (defect 4)', async () => {
+    await run(bulkAction);
+
+    // Pre-fix: exactly ONE row (u2's) reached the database; u1 and u3 reverted on
+    // screen only, and a refresh brought "completed" straight back.
+    expect(writes.map(w => `${w.payload.unit_id}:${w.payload.temporal_state}`))
+      .toEqual(['u1:none', 'u2:planned', 'u3:none']);
+  });
+
+  it('sends bulk resets with NULL dates, not empty strings', async () => {
+    await run(bulkAction);
+
+    // '' only works inside the upsert_status_log RPC (NULLIF(x,'')::date). A raw
+    // PostgREST upsert sends '' straight at a date column and the cast fails, so the
+    // whole chunk — including the restores — would be rejected.
+    const reset = writes.find(w => w.payload.unit_id === 'u1');
+    expect(reset?.payload).toEqual({
+      unit_id: 'u1',
+      activity_id: 'act-1',
+      track: 'Production',
+      temporal_state: 'none',
+      status_color: '',
+      planned_start_date: null,
+      planned_end_date: null,
+      logged_date: null,
+      actual_start_date: null,
+      client_timestamp: expect.any(String),
+    });
+  });
+
+  it('gives every row in the batch an identical key set (PostgREST bulk requirement)', async () => {
+    await run(bulkAction);
+
+    // Mixing reset-shape and restore-shape rows in one array is how this breaks:
+    // PostgREST builds ONE insert from a single column list.
+    const keySets = writes.map(w => Object.keys(w.payload).sort().join(','));
+    expect(new Set(keySets).size).toBe(1);
+  });
+
+  it('restores prior state with a fresh timestamp and drops the DB-owned/synthesized keys', async () => {
+    const before = Date.now();
+    await run(bulkAction);
+
+    const restored = writes.find(w => w.payload.unit_id === 'u2');
+    expect({
+      temporal_state: restored?.payload.temporal_state,
+      status_color: restored?.payload.status_color,
+      carriedStaleTimestamp: restored?.payload.client_timestamp === '2026-01-08T10:00:00.000Z',
+      freshTimestamp: isoAfter(before)(restored?.payload.client_timestamp),
+      leakedId: Object.prototype.hasOwnProperty.call(restored?.payload ?? {}, 'id'),
+      leakedActivityName: Object.prototype.hasOwnProperty.call(restored?.payload ?? {}, 'activityName'),
+    }).toEqual({
+      temporal_state: 'planned',
+      status_color: '#aaaaaa',
+      carriedStaleTimestamp: false,
+      freshTimestamp: true,
+      leakedId: false,
+      leakedActivityName: false,
+    });
+  });
+
+  it('also reverts an auto-advanced slot that had no prior row', async () => {
+    // A bulk complete that auto-advanced u1 to act-2: that teed-up slot was Not
+    // Started before, has no oldLog, and a different activity_id from the applied one.
+    await run({
+      ...bulkAction,
+      newLogs: [
+        storedLog({ id: 'new-u1', unit_id: 'u1', temporal_state: 'completed' }),
+        storedLog({ id: 'adv-u1', unit_id: 'u1', activity_id: 'act-2', activityName: 'Paint', temporal_state: 'planned' }),
+      ],
+      oldLogs: [],
+      unitIds: ['u1'],
+    });
+
+    expect(writes.map(w => `${w.payload.unit_id}/${w.payload.activity_id}:${w.payload.temporal_state}`))
+      .toEqual(['u1/act-1:none', 'u1/act-2:none']);
+  });
+
+  it('throws when a chunk fails instead of silently reporting success', async () => {
+    statusUpsertResult.mockReturnValue({ error: { message: 'boom' } });
+    rpcResult.mockReturnValue({ data: null, error: { message: 'boom' } });
+
+    const { thrown } = await run(bulkAction);
+    expect({ threw: thrown !== null }).toEqual({ threw: true });
+  });
+});
+
+describe('BULK_UPDATE_STATUS redo', () => {
+  it('re-applies only the slots the bulk action wrote, with fresh timestamps', async () => {
+    const before = Date.now();
+    await run({
+      actionType: 'BULK_UPDATE_STATUS',
+      unitIds: ['u1', 'u2'],
+      track: 'Production',
+      // u2 carries an unrelated prior slot (act-9) the bulk action never touched —
+      // redo must NOT write it, or it would clobber a slot nobody changed.
+      oldLogs: [storedLog({ id: 'old-u2', unit_id: 'u2', activity_id: 'act-9', temporal_state: 'ongoing' })],
+      newLogs: ['u1', 'u2'].map(u => storedLog({ id: `new-${u}`, unit_id: u, temporal_state: 'completed' })),
+    }, 'redo');
+
+    expect(writes.map(w => `${w.payload.unit_id}/${w.payload.activity_id}:${w.payload.temporal_state}`))
+      .toEqual(['u1/act-1:completed', 'u2/act-1:completed']);
+    expect({ fresh: writes.every(w => isoAfter(before)(w.payload.client_timestamp)) })
+      .toEqual({ fresh: true });
+  });
+
+  it('throws when a chunk fails', async () => {
+    statusUpsertResult.mockReturnValue({ error: { message: 'boom' } });
+    const { thrown } = await run({
+      actionType: 'BULK_UPDATE_STATUS',
+      unitIds: ['u1'],
+      track: 'Production',
+      oldLogs: [],
+      newLogs: [storedLog({ unit_id: 'u1' })],
+    }, 'redo');
+    expect({ threw: thrown !== null }).toEqual({ threw: true });
+  });
+});
+
+describe('DELETE_UNIT undo — status_logs restore', () => {
+  it('restores each status row with a fresh timestamp and no DB-owned keys', async () => {
+    const before = Date.now();
+    await run({
+      actionType: 'DELETE_UNIT',
+      unitId: 'u1',
+      unitData: { id: 'u1', sheet_id: 'sheet-1' } as unknown as UndoAction['unitData'],
+      statusLogs: [storedLog({ unit_id: 'u1' }), storedLog({ id: 'log-2', unit_id: 'u1', activity_id: 'act-2', temporal_state: 'planned' })],
+    });
+
+    const logWrites = writes.filter(w => w.via === 'upsert:status_logs');
+    expect({
+      count: logWrites.length,
+      allFresh: logWrites.every(w => isoAfter(before)(w.payload.client_timestamp)),
+      anyLeakedId: logWrites.some(w => Object.prototype.hasOwnProperty.call(w.payload, 'id')),
+      anyLeakedName: logWrites.some(w => Object.prototype.hasOwnProperty.call(w.payload, 'activityName')),
+    }).toEqual({ count: 2, allFresh: true, anyLeakedId: false, anyLeakedName: false });
+  });
+
+  it('throws when the status restore fails', async () => {
+    statusUpsertResult.mockReturnValue({ error: { message: 'boom' } });
+    const { thrown } = await run({
+      actionType: 'DELETE_UNIT',
+      unitId: 'u1',
+      unitData: { id: 'u1', sheet_id: 'sheet-1' } as unknown as UndoAction['unitData'],
+      statusLogs: [storedLog({ unit_id: 'u1' })],
+    });
+    expect({ threw: thrown !== null }).toEqual({ threw: true });
+  });
+});
+
 describe('UPDATE_STATUS redo', () => {
   it('re-applies the new status through upsert_status_log with a fresh client_timestamp', async () => {
     const before = Date.now();

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildStatusResetPayload, buildStatusRestorePayload } from './undoWrite';
+import {
+  buildStatusResetPayload,
+  buildStatusRestorePayload,
+  buildBulkUndoPayloads,
+  toUniformPayloads,
+} from './undoWrite';
 
 const NOW = '2026-08-27T12:00:00.000Z';
 
@@ -126,5 +131,134 @@ describe('buildStatusRestorePayload', () => {
     const input = { ...storedRow };
     buildStatusRestorePayload(input, NOW);
     expect(input).toEqual(storedRow);
+  });
+});
+
+describe('toUniformPayloads', () => {
+  it('fills every row out to the union of keys with null', () => {
+    expect(toUniformPayloads([
+      { unit_id: 'u1', logged_date: '2026-08-06' },
+      { unit_id: 'u2', status_color: '' },
+    ])).toEqual([
+      { unit_id: 'u1', logged_date: '2026-08-06', status_color: null },
+      { unit_id: 'u2', logged_date: null, status_color: '' },
+    ]);
+  });
+
+  it('leaves an already-uniform batch untouched, and handles an empty batch', () => {
+    const rows = [{ unit_id: 'u1', temporal_state: 'none' }, { unit_id: 'u2', temporal_state: 'completed' }];
+    expect(toUniformPayloads(rows)).toEqual(rows);
+    expect(toUniformPayloads([])).toEqual([]);
+  });
+});
+
+describe('buildBulkUndoPayloads', () => {
+  const prior = {
+    id: 'log-u2', created_at: '2026-08-01T09:00:00.000Z', activityName: 'Drywall',
+    unit_id: 'u2', activity_id: 'act-1', track: 'Production',
+    status_color: '#aaaaaa', temporal_state: 'planned',
+    planned_start_date: '2026-08-03', planned_end_date: '2026-08-07',
+    logged_date: null, actual_start_date: null,
+    client_timestamp: '2026-08-06T15:00:00.000Z',
+  };
+  const slots = ['u1', 'u2', 'u3'].map(u => ({ unit_id: u, activity_id: 'act-1', track: 'Production' }));
+
+  it('writes a row for EVERY slot, not just the ones with a prior status (defect 4)', () => {
+    // The whole bug in one assertion: pre-fix, only u2 (the slot with an oldLog)
+    // reached the database — u1 and u3 reverted on screen and nowhere else.
+    expect(buildBulkUndoPayloads(slots, [prior], 'Production', NOW)
+      .map(r => `${r.unit_id}:${r.temporal_state}`))
+      .toEqual(['u1:none', 'u2:planned', 'u3:none']);
+  });
+
+  it('resets an unwritten slot with NULL dates — "" would fail the date cast on the raw upsert', () => {
+    const [u1] = buildBulkUndoPayloads([slots[0]], [], 'Production', NOW);
+    expect(u1).toEqual({
+      unit_id: 'u1',
+      activity_id: 'act-1',
+      track: 'Production',
+      temporal_state: 'none',
+      status_color: '',
+      planned_start_date: null,
+      planned_end_date: null,
+      logged_date: null,
+      actual_start_date: null,
+      client_timestamp: NOW,
+    });
+  });
+
+  it('restores a prior slot verbatim, minus DB-owned keys, with a fresh timestamp', () => {
+    const [u2] = buildBulkUndoPayloads([slots[1]], [prior], 'Production', NOW);
+    expect(u2).toEqual({
+      unit_id: 'u2',
+      activity_id: 'act-1',
+      track: 'Production',
+      status_color: '#aaaaaa',
+      temporal_state: 'planned',
+      planned_start_date: '2026-08-03',
+      planned_end_date: '2026-08-07',
+      logged_date: null,
+      actual_start_date: null,
+      client_timestamp: NOW,
+    });
+  });
+
+  it('emits a key-uniform batch even when restores and resets are mixed', () => {
+    // PostgREST builds ONE insert from a single column list; a ragged batch is
+    // rejected whole, taking the valid rows with it.
+    const keySets = buildBulkUndoPayloads(slots, [prior], 'Production', NOW)
+      .map(r => Object.keys(r).sort().join(','));
+    expect(new Set(keySets).size).toBe(1);
+  });
+
+  it('fills a key only some priors carry, rather than leaving the batch ragged', () => {
+    const sparse = { unit_id: 'u2', activity_id: 'act-1', track: 'Production', legacy_extra: 'x' };
+    const rows = buildBulkUndoPayloads(slots, [sparse], 'Production', NOW);
+    expect({
+      uniform: new Set(rows.map(r => Object.keys(r).sort().join(','))).size,
+      filled: rows[0].legacy_extra,
+      kept: rows[1].legacy_extra,
+    }).toEqual({ uniform: 1, filled: null, kept: 'x' });
+  });
+
+  it('covers a slot the action wrote under a DIFFERENT activity (the auto-advanced one)', () => {
+    const advanced = { unit_id: 'u1', activity_id: 'act-2', track: 'Production' };
+    expect(buildBulkUndoPayloads([slots[0], advanced], [], 'Production', NOW)
+      .map(r => `${r.unit_id}/${r.activity_id}:${r.temporal_state}`))
+      .toEqual(['u1/act-1:none', 'u1/act-2:none']);
+  });
+
+  it('deduplicates repeated slots, first occurrence winning', () => {
+    // The caller passes newLogs ∪ oldLogs, so a slot present on both sides appears twice.
+    const rows = buildBulkUndoPayloads([slots[1], { unit_id: 'u2', activity_id: 'act-1' }], [prior], 'Production', NOW);
+    expect({ count: rows.length, state: rows[0].temporal_state }).toEqual({ count: 1, state: 'planned' });
+  });
+
+  it('drops a slot it cannot address — there is no row to write', () => {
+    expect(buildBulkUndoPayloads(
+      [{ unit_id: 'u1' }, { activity_id: 'act-1' }, slots[0]], [], 'Production', NOW,
+    ).map(r => r.unit_id)).toEqual(['u1']);
+  });
+
+  it('prefers the prior row\'s own track, then the slot\'s, then the fallback', () => {
+    const other = { ...prior, track: 'Sitework' };
+    expect({
+      fromPrior: buildBulkUndoPayloads([slots[1]], [other], 'Production', NOW)[0].track,
+      fromSlot: buildBulkUndoPayloads([slots[0]], [], null, NOW)[0].track,
+      fromFallback: buildBulkUndoPayloads([{ unit_id: 'u9', activity_id: 'act-1' }], [], 'Production', NOW)[0].track,
+    }).toEqual({ fromPrior: 'Sitework', fromSlot: 'Production', fromFallback: 'Production' });
+  });
+
+  it('throws rather than inventing a track it cannot resolve', () => {
+    // track is NOT NULL, and guessing would file the location under the wrong scope.
+    expect(() => buildBulkUndoPayloads([{ unit_id: 'u9', activity_id: 'act-1' }], [], null, NOW))
+      .toThrow(/track/);
+  });
+
+  it('is deterministic and never mutates its inputs', () => {
+    const priorCopy = { ...prior };
+    const first = buildBulkUndoPayloads(slots, [prior], 'Production', NOW);
+    expect(buildBulkUndoPayloads(slots, [prior], 'Production', NOW)).toEqual(first);
+    expect(prior).toEqual(priorCopy);
   });
 });
